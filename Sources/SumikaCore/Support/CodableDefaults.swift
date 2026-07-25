@@ -52,6 +52,13 @@ extension CodingUserInfoKey {
     }
     return key
   }
+
+  static var isLegacyWorkspaceMigration: CodingUserInfoKey {
+    guard let key = CodingUserInfoKey(rawValue: "chat.sumika.legacy-workspace-migration") else {
+      preconditionFailure("Static coding user info key must be representable.")
+    }
+    return key
+  }
 }
 
 struct LossyDecodable<Element: Decodable>: Decodable {

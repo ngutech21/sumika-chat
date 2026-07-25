@@ -647,6 +647,7 @@ package actor WorkspaceStore: WorkspaceStoring {
   private static func makeLegacyDecoder(diagnostics: DecodeDiagnostics) -> JSONDecoder {
     let decoder = JSONDecoder()
     decoder.userInfo[.decodeDiagnostics] = diagnostics
+    decoder.userInfo[.isLegacyWorkspaceMigration] = true
     return decoder
   }
 

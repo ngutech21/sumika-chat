@@ -96,6 +96,40 @@ struct WorkspacePersistenceV1Tests {
   }
 
   @Test
+  func migrationDefaultsMissingFocusedFileCompletenessOnlyForLegacyData() async throws {
+    let baseURL = temporaryBaseURL()
+    try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
+    let legacyData = try legacyDataWithMissingFocusedFileCompleteness()
+
+    let strictDiagnostics = DecodeDiagnostics()
+    let strictDecoder = JSONDecoder()
+    strictDecoder.userInfo[.decodeDiagnostics] = strictDiagnostics
+    let strictLibrary = try strictDecoder.decode(WorkspaceLibrary.self, from: legacyData)
+    #expect(strictDiagnostics.droppedElements.count == 1)
+    #expect(strictLibrary.workspaces[0].sessions[0].turns[0].items.isEmpty)
+
+    try legacyData.write(to: legacyURL(baseURL: baseURL))
+    let result = await WorkspaceStore(baseURL: baseURL).loadLibrary()
+
+    #expect(result.issues.isEmpty)
+    let item = try #require(
+      result.library.workspaces.first?.sessions.first?.turns.first?.items.first
+    )
+    guard case .userMessage(let message) = item,
+      case .selected(let selection) = message.promptContext,
+      case .focusedFile(let focusedFile) = selection.blocks.values.first
+    else {
+      Issue.record("Expected the legacy focused-file prompt context to be preserved.")
+      return
+    }
+    #expect(focusedFile.fullContentAvailable == false)
+
+    let restarted = await WorkspaceStore(baseURL: baseURL).loadLibrary()
+    #expect(restarted.issues.isEmpty)
+    #expect(restarted.library == result.library)
+  }
+
+  @Test
   func migrationWithMultipleFocusedFileSnapshotsIsLossless() async throws {
     let baseURL = temporaryBaseURL()
     try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
@@ -596,6 +630,71 @@ struct WorkspacePersistenceV1Tests {
     return try JSONSerialization.data(withJSONObject: root)
   }
 
+  private func legacyDataWithMissingFocusedFileCompleteness() throws -> Data {
+    var library = makeLibrary()
+    let path = WorkspaceRelativePath(rawValue: "Sources/App.swift")
+    let focusedFileState = FocusedFileState(
+      activePath: path,
+      recentPaths: [
+        FocusedPath(path: path, source: .writeFile, confidence: .active)
+      ],
+      snapshots: [
+        path: FocusedFileSnapshot(
+          contentHash: "legacy-hash",
+          excerpt: "struct App {}",
+          fullContentAvailable: true
+        )
+      ]
+    )
+    let promptContext = CurrentPromptContextSelector().selectContext(
+      userInput: "Update the app",
+      mode: .agent,
+      focusedFileState: focusedFileState,
+      attachments: [],
+      workspace: library.workspaces[0],
+      budget: .focusedFileDefault
+    )
+    library.workspaces[0].sessions[0].turns = [
+      ChatTurn(
+        id: fixedUUID("DDDDDDDD-0000-0000-0000-000000000001"),
+        status: .completed,
+        items: [
+          .userMessage(
+            UserTurnMessage(
+              id: fixedUUID("CCCCCCCC-0000-0000-0000-000000000001"),
+              content: "Update the app",
+              promptContext: promptContext
+            )
+          )
+        ]
+      )
+    ]
+
+    var root = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(library)) as? [String: Any]
+    )
+    var workspaces = try #require(root["workspaces"] as? [[String: Any]])
+    var sessions = try #require(workspaces[0]["sessions"] as? [[String: Any]])
+    var turns = try #require(sessions[0]["turns"] as? [[String: Any]])
+    var items = try #require(turns[0]["items"] as? [[String: Any]])
+    var payload = try #require(items[0]["payload"] as? [String: Any])
+    var promptContextObject = try #require(payload["promptContext"] as? [String: Any])
+    var selected = try #require(promptContextObject["selected"] as? [String: Any])
+    var blocks = try #require(selected["blocks"] as? [[String: Any]])
+    var focusedFileBlock = try #require(blocks[0]["focusedFile"] as? [String: Any])
+    focusedFileBlock.removeValue(forKey: "fullContentAvailable")
+    blocks[0]["focusedFile"] = focusedFileBlock
+    selected["blocks"] = blocks
+    promptContextObject["selected"] = selected
+    payload["promptContext"] = promptContextObject
+    items[0]["payload"] = payload
+    turns[0]["items"] = items
+    sessions[0]["turns"] = turns
+    workspaces[0]["sessions"] = sessions
+    root["workspaces"] = workspaces
+    return try JSONSerialization.data(withJSONObject: root)
+  }
+
   private func makeLibrary() -> WorkspaceLibrary {
     let workspaceID = fixedUUID("AAAAAAAA-0000-0000-0000-000000000001")
     let firstSession = makeSession(
@@ -680,6 +779,7 @@ struct WorkspacePersistenceV1Tests {
   private func legacyDecoder(diagnostics: DecodeDiagnostics) -> JSONDecoder {
     let decoder = JSONDecoder()
     decoder.userInfo[.decodeDiagnostics] = diagnostics
+    decoder.userInfo[.isLegacyWorkspaceMigration] = true
     return decoder
   }
 
