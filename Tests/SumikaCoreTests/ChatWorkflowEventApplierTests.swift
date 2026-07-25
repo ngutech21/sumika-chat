@@ -467,7 +467,6 @@ struct ChatWorkflowEventApplierTests {
 private func makeState(
   items: [ChatTurnItem] = [],
   turns: [ChatTurn] = [],
-  attachments: [ChatAttachment] = [],
   systemPrompt: String = "System",
   generationSettings: ChatGenerationSettings = .agentDefault
 ) -> ChatSession {
@@ -477,7 +476,6 @@ private func makeState(
     : turns
   return ChatSession(
     turns: resolvedTurns,
-    pendingAttachments: attachments,
     modeSettings: testModeSettings(
       systemPrompt: systemPrompt,
       generationSettings: generationSettings

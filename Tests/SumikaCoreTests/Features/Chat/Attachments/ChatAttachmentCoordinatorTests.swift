@@ -147,20 +147,6 @@ struct ChatAttachmentCoordinatorTests {
 
     #expect(events == [.appendAttachments([secondAttachment])])
   }
-
-  @Test
-  func removeAttachmentPublishesRemovalEvent() {
-    let loader = AttachmentFakeLoader(result: .success([]))
-    let coordinator = ChatAttachmentCoordinator(loader: loader)
-    let id = UUID()
-    var events: [ChatAttachmentEvent] = []
-
-    coordinator.removeAttachment(id: id) {
-      events.append($0)
-    }
-
-    #expect(events == [.removeAttachment(id)])
-  }
 }
 
 private final class AttachmentFakeLoader: ChatAttachmentLoading, @unchecked Sendable {

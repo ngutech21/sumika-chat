@@ -44,7 +44,6 @@ struct WorkspaceChatComposerHost: View {
 
     ChatComposer(
       attachments: composerState.pendingAttachments,
-      activeAttachments: composerState.activeAttachments,
       availableModels: localDownloadedModels,
       selectedModel: composerSelectedModel(from: localDownloadedModels),
       modelState: modelState.modelState,

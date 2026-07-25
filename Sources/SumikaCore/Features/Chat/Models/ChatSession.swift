@@ -33,8 +33,6 @@ package struct ChatSession: Codable, Identifiable, Equatable, Sendable {
   package var toolApprovalPolicy: ToolApprovalPolicy
   package private(set) var selectedMCPServerIDs: [UUID]
   package var todoState: TodoState?
-  package var pendingAttachments: [ChatAttachment]
-  package var activeAttachmentContext: ActiveAttachmentContext
   package var createdAt: Date
   package var updatedAt: Date
 
@@ -43,14 +41,12 @@ package struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     title: String = ChatSession.defaultTitle,
     selectedModelID: ManagedModel.ID = ManagedModelCatalog.defaultModelID,
     turns: [ChatTurn] = [],
-    pendingAttachments: [ChatAttachment] = [],
     focusedFileState: FocusedFileState = .empty,
     modeSettings: ChatModeSettingsSet = .defaultSettings,
     interactionMode: WorkspaceInteractionMode = .chat,
     toolApprovalPolicy: ToolApprovalPolicy = .manual,
     selectedMCPServerIDs: [UUID] = [],
     todoState: TodoState? = nil,
-    activeAttachmentContext: ActiveAttachmentContext = .empty,
     createdAt: Date = Date(),
     updatedAt: Date = Date()
   ) {
@@ -64,26 +60,8 @@ package struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     self.selectedMCPServerIDs = Self.uniqueIDsPreservingOrder(selectedMCPServerIDs)
     self.modeSettings = modeSettings
     self.todoState = todoState
-    self.pendingAttachments = pendingAttachments
-    self.activeAttachmentContext = activeAttachmentContext
     self.createdAt = createdAt
     self.updatedAt = updatedAt
-  }
-
-  package static func == (lhs: ChatSession, rhs: ChatSession) -> Bool {
-    lhs.id == rhs.id
-      && lhs.title == rhs.title
-      && lhs.selectedModelID == rhs.selectedModelID
-      && lhs.turns == rhs.turns
-      && lhs.focusedFileState == rhs.focusedFileState
-      && lhs.modeSettings == rhs.modeSettings
-      && lhs.interactionMode == rhs.interactionMode
-      && lhs.toolApprovalPolicy == rhs.toolApprovalPolicy
-      && lhs.selectedMCPServerIDs == rhs.selectedMCPServerIDs
-      && lhs.todoState == rhs.todoState
-      && lhs.activeAttachmentContext == rhs.activeAttachmentContext
-      && lhs.createdAt == rhs.createdAt
-      && lhs.updatedAt == rhs.updatedAt
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -97,7 +75,6 @@ package struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     case toolApprovalPolicy
     case selectedMCPServerIDs
     case todoState
-    case activeAttachmentContext
     case createdAt
     case updatedAt
   }
@@ -142,12 +119,6 @@ package struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       default: .defaultSettings
     )
     todoState = try container.decodeIfPresent(TodoState.self, forKey: .todoState)
-    pendingAttachments = []
-    activeAttachmentContext = try container.decodeIfPresent(
-      ActiveAttachmentContext.self,
-      forKey: .activeAttachmentContext,
-      default: .empty
-    )
     createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt, default: Date())
     updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt, default: createdAt)
   }
@@ -164,7 +135,6 @@ package struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     try container.encode(toolApprovalPolicy, forKey: .toolApprovalPolicy)
     try container.encode(selectedMCPServerIDs, forKey: .selectedMCPServerIDs)
     try container.encode(todoState, forKey: .todoState)
-    try container.encode(activeAttachmentContext, forKey: .activeAttachmentContext)
     try container.encode(createdAt, forKey: .createdAt)
     try container.encode(updatedAt, forKey: .updatedAt)
   }

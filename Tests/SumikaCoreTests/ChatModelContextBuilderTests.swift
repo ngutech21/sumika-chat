@@ -24,7 +24,6 @@ struct ChatModelContextBuilderTests {
           items: [.userMessage(UserTurnMessage(content: "large listing"))]
         ),
       ],
-      pendingAttachments: [],
       modeSettings: testModeSettings(
         systemPrompt: "System",
         generationSettings: .agentDefault
@@ -50,7 +49,6 @@ struct ChatModelContextBuilderTests {
           items: [.userMessage(UserTurnMessage(content: "README.md"))]
         )
       ],
-      pendingAttachments: [],
       modeSettings: testModeSettings(
         systemPrompt: "System",
         generationSettings: .agentDefault
@@ -222,7 +220,6 @@ struct ChatModelContextBuilderTests {
           ]
         )
       ],
-      pendingAttachments: [],
       modeSettings: testModeSettings(
         systemPrompt: "System",
         generationSettings: .agentDefault

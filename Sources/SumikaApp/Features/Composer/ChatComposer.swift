@@ -5,7 +5,6 @@ import UniformTypeIdentifiers
 
 struct ChatComposer: View {
   let attachments: [ChatAttachment]
-  let activeAttachments: [ChatAttachment]
   let availableModels: [ManagedModel]
   let selectedModel: ManagedModel
   let modelState: ModelLoadState
@@ -51,19 +50,10 @@ struct ChatComposer: View {
           .font(.callout)
       }
 
-      if shouldShowActiveAttachments {
-        AttachmentList(
-          title: "Active image context",
-          attachments: activeAttachments,
-          canRemove: !isGenerating,
-          onRemoveAttachment: onRemoveAttachment
-        )
-      }
-
-      if !visiblePendingAttachments.isEmpty {
+      if !attachments.isEmpty {
         AttachmentList(
           title: nil,
-          attachments: visiblePendingAttachments,
+          attachments: attachments,
           canRemove: !isGenerating,
           onRemoveAttachment: onRemoveAttachment
         )
@@ -270,15 +260,6 @@ struct ChatComposer: View {
       .padding(6)
       .frame(width: 240)
     }
-  }
-
-  private var visiblePendingAttachments: [ChatAttachment] {
-    let activeAttachmentIDs = Set(activeAttachments.map(\.id))
-    return attachments.filter { !activeAttachmentIDs.contains($0.id) }
-  }
-
-  private var shouldShowActiveAttachments: Bool {
-    return !activeAttachments.isEmpty && (hasDraftText || !attachments.isEmpty)
   }
 
   private var canLoadSelectedModel: Bool {

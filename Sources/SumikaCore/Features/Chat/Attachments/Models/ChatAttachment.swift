@@ -202,35 +202,3 @@ package enum LocalAttachmentDirectory {
       .appending(path: "Attachments", directoryHint: .isDirectory)
   }
 }
-
-package struct ActiveAttachmentContext: Codable, Equatable, Sendable {
-  package var attachmentIDs: [AttachmentID]
-
-  package init(attachmentIDs: [AttachmentID] = []) {
-    self.attachmentIDs = attachmentIDs
-  }
-
-  package static let empty = ActiveAttachmentContext()
-
-  private enum CodingKeys: String, CodingKey {
-    case attachmentIDs
-  }
-
-  package init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    attachmentIDs = try container.decodeIfPresent(
-      [AttachmentID].self,
-      forKey: .attachmentIDs,
-      default: []
-    )
-  }
-
-  package func encode(to encoder: Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(attachmentIDs, forKey: .attachmentIDs)
-  }
-
-  package mutating func remove(_ id: AttachmentID) {
-    attachmentIDs.removeAll { $0 == id }
-  }
-}

@@ -6,8 +6,8 @@ import Testing
 struct ChatTranscriptMutatorTests {
   @Test
   func appendUserMessageKeepsContentAndAttachments() {
-    var state = makeState(attachments: [makeAttachment(name: "README.md")])
-    let sentAttachments = state.pendingAttachments
+    var state = makeState()
+    let sentAttachments = [makeAttachment(name: "README.md")]
     let mutator = ChatTranscriptMutator()
 
     mutator.appendUserMessage("Inspect this file", attachments: sentAttachments, to: &state)
@@ -259,8 +259,7 @@ struct ChatTranscriptMutatorTests {
   }
 
   @Test
-  func clearTranscriptClearsMessagesToolsTurnsAttachmentsAndTodoStateOnly() {
-    let attachment = makeAttachment(name: "notes.txt")
+  func clearTranscriptClearsMessagesToolsTurnsAndTodoStateOnly() {
     let settings = ChatGenerationSettings(temperature: 0.2, topP: 0.8, topK: 10, maxTokens: 256)
     let turn = ChatTurn(status: .completed)
     let toolCall = makeToolCallRecord()
@@ -272,7 +271,6 @@ struct ChatTranscriptMutatorTests {
           items: [.userMessage(UserTurnMessage(content: "Prompt")), .tool(toolCall)]
         )
       ],
-      attachments: [attachment],
       todoState: TodoState(items: [
         TodoItem(id: "inspect", content: "Inspect files", status: .completed),
         TodoItem(id: "verify", content: "Run tests", status: .pending),
@@ -287,7 +285,6 @@ struct ChatTranscriptMutatorTests {
     #expect(state.transcriptItemsForTesting.isEmpty)
     #expect(state.toolCalls.isEmpty)
     #expect(state.turns.isEmpty)
-    #expect(state.pendingAttachments.isEmpty)
     #expect(state.todoState == nil)
     #expect(state.systemPrompt == "Keep this prompt")
     #expect(state.generationSettings == settings)
@@ -298,7 +295,6 @@ struct ChatTranscriptMutatorTests {
 private func makeState(
   items: [ChatTurnItem] = [],
   turns: [ChatTurn] = [],
-  attachments: [ChatAttachment] = [],
   todoState: TodoState? = nil,
   systemPrompt: String = "System",
   generationSettings: ChatGenerationSettings = .agentDefault
@@ -309,7 +305,6 @@ private func makeState(
     : turns
   return ChatSession(
     turns: resolvedTurns,
-    pendingAttachments: attachments,
     modeSettings: testModeSettings(
       systemPrompt: systemPrompt,
       generationSettings: generationSettings

@@ -197,7 +197,6 @@ struct ChatTranscriptMutator: Sendable {
 
   func clearTranscript(in state: inout ChatSession) {
     state.turns.removeAll()
-    state.pendingAttachments.removeAll()
     state.focusedFileState = .empty
     state.todoState = nil
   }

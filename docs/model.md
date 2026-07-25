@@ -27,8 +27,6 @@ classDiagram
     modeSettings: ChatModeSettingsSet
     interactionMode: WorkspaceInteractionMode
     todoState: TodoState?
-    pendingAttachments: [ChatAttachment] transient
-    activeAttachmentContext: ActiveAttachmentContext
     createdAt: Date
     updatedAt: Date
   }
@@ -189,10 +187,6 @@ classDiagram
     mimeType: String
     byteSize: Int
     contentSHA256: String
-  }
-
-  class ActiveAttachmentContext {
-    attachmentIDs: [AttachmentID]
   }
 
   class AttachmentID {
@@ -508,7 +502,6 @@ classDiagram
     activePath: WorkspaceRelativePath?
     recentPaths: [FocusedPath]
     snapshots: [WorkspaceRelativePath: FocusedFileSnapshot]
-    focusedAttachments: [AttachmentID]
   }
 
   class FocusedPath {
@@ -550,12 +543,10 @@ classDiagram
   ChatSession "1" --> "*" ChatTurn : canonical turn records
   ChatSession ..> ModelPromptProjection : derived model input
   ChatSession "1" --> "1" FocusedFileState
-  ChatSession "1" --> "1" ActiveAttachmentContext
   ChatSession "0..1" --> "1" TodoState
   ChatSession --> ManagedModel : selected model ID
   ChatSession --> ChatModeSettingsSet
   ChatSession --> WorkspaceInteractionMode
-  ChatSession --> ChatAttachment : transient attachments
 
   ManagedModel --> ManagedModelStability
   ManagedModel --> ToolCallingPolicy
@@ -581,7 +572,6 @@ classDiagram
   ChatAttachment --> ChatAttachmentPayload
   ChatAttachmentPayload --> TextAttachmentPayload
   ChatAttachmentPayload --> ImageAttachmentPayload
-  ActiveAttachmentContext --> AttachmentID
 
   TodoState "1" --> "*" TodoItem
   TodoItem --> TodoStatus

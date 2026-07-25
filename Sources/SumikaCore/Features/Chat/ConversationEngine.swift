@@ -11,6 +11,7 @@ final class ConversationEngine {
   private struct ActiveConversation {
     var workspace: Workspace
     var session: ChatSession
+    var pendingAttachments: [ChatAttachment] = []
   }
 
   private var activeConversation: ActiveConversation?
@@ -26,6 +27,21 @@ final class ConversationEngine {
         preconditionFailure("ConversationEngine requires an active conversation")
       }
       activeConversation?.session = newValue
+      syncComposerSessionState()
+    }
+  }
+  private var pendingAttachments: [ChatAttachment] {
+    get {
+      guard let attachments = activeConversation?.pendingAttachments else {
+        preconditionFailure("ConversationEngine requires an active conversation")
+      }
+      return attachments
+    }
+    set {
+      guard activeConversation != nil else {
+        preconditionFailure("ConversationEngine requires an active conversation")
+      }
+      activeConversation?.pendingAttachments = newValue
       syncComposerSessionState()
     }
   }
@@ -238,7 +254,12 @@ extension ConversationEngine {
 
   private func syncComposerSessionState() {
     let nextState =
-      activeConversation.map { ChatComposerSessionState(session: $0.session) }
+      activeConversation.map {
+        ChatComposerSessionState(
+          session: $0.session,
+          pendingAttachments: $0.pendingAttachments
+        )
+      }
       ?? ChatComposerSessionState()
     guard composerSessionState != nextState else {
       return
@@ -333,7 +354,6 @@ extension ConversationEngine {
   func sessionSnapshot() -> ChatSession {
     var snapshot = chatSession
     snapshot.selectedModelID = conversationModelState.selectedModel.id
-    snapshot.pendingAttachments = []
     snapshot.updatedAt = Date()
     return snapshot
   }
@@ -606,27 +626,24 @@ extension ConversationEngine {
       errorMessage = unsupportedInteractionModeMessage(for: selectedModel)
       throw ConversationIntentError.unsupportedInteractionMode
     }
-    let attachmentsForTurn = attachmentsForCurrentTurn()
+    let attachmentsForTurn = pendingAttachments
     guard selectedModel.supportsImageInput || !attachmentsForTurn.hasImages
     else {
       errorMessage = unsupportedImageInputMessage(for: selectedModel)
       throw ConversationIntentError.unsupportedImageInput
     }
 
-    let sentAttachments = attachmentsForTurn
     updateDefaultSessionTitleIfNeeded(fromFirstPrompt: prompt)
     applyPendingAgentToolExecutorRegistry(shouldRefreshContext: false)
     errorMessage = nil
-    chatSession.pendingAttachments.removeAll()
-    chatSession.activeAttachmentContext = .empty
-    chatSession.focusedFileState.focusedAttachments = []
+    pendingAttachments.removeAll()
     isGenerating = true
 
     startUserTurn(
       prompt: prompt,
       workspace: workspace,
       sessionID: sessionID,
-      attachments: sentAttachments,
+      attachments: attachmentsForTurn,
       runtime: turnRuntimeContext(),
       runtimeContextClearCoordinator: runtimeContextClearCoordinator
     )
@@ -691,6 +708,7 @@ extension ConversationEngine {
     guard hasActiveConversation else {
       return
     }
+    pendingAttachments.removeAll()
     transcriptMutator.clearTranscript(in: &chatSession)
     updateRuntimeCacheDebugSnapshot(nil)
     invalidateModelContextDebugDocument()
@@ -850,7 +868,7 @@ extension ConversationEngine {
     return ContextUsageSnapshot(
       modelState: modelState.loadState,
       transcript: transcript,
-      attachments: attachmentsForCurrentTurn(),
+      attachments: pendingAttachments,
       systemPrompt: renderedSystemPrompt,
       contextTokenLimit: modelState.contextTokenLimit
     )
@@ -863,7 +881,7 @@ extension ConversationEngine {
     isLoadingAttachments = true
     attachmentCoordinator.addAttachments(
       from: urls,
-      existingAttachments: chatSession.pendingAttachments,
+      existingAttachments: pendingAttachments,
       onEvent: handleAttachmentEvent(_:))
   }
 
@@ -871,7 +889,8 @@ extension ConversationEngine {
     guard hasActiveConversation, !activity.isBusy else {
       return
     }
-    attachmentCoordinator.removeAttachment(id: id, onEvent: handleAttachmentEvent(_:))
+    pendingAttachments.removeAll { $0.id == id }
+    refreshContextUsage()
   }
 
   private func handleAttachmentEvent(_ event: ChatAttachmentEvent) {
@@ -881,19 +900,12 @@ extension ConversationEngine {
     isLoadingAttachments = false
     switch event {
     case .appendAttachments(let attachments):
-      chatSession.pendingAttachments.append(contentsOf: attachments)
+      pendingAttachments.append(contentsOf: attachments)
       errorMessage = nil
-      refreshContextUsage()
-    case .removeAttachment(let id):
-      chatSession.pendingAttachments.removeAll { $0.id == id }
-      chatSession.activeAttachmentContext.remove(id)
-      chatSession.focusedFileState.focusedAttachments =
-        chatSession.activeAttachmentContext.attachmentIDs
       refreshContextUsage()
     case .error(let message):
       errorMessage = message
     }
-    notifySessionDidChange()
   }
 
   func notifySessionDidChange() {
@@ -1207,20 +1219,6 @@ extension ConversationEngine {
         )
       }
     #endif
-  }
-
-  private func attachmentsForCurrentTurn() -> [ChatAttachment] {
-    uniqueAttachments(chatSession.pendingAttachments)
-  }
-
-  private func uniqueAttachments(_ attachments: [ChatAttachment]) -> [ChatAttachment] {
-    var seen: Set<AttachmentID> = []
-    var unique: [ChatAttachment] = []
-    for attachment in attachments where !seen.contains(attachment.id) {
-      seen.insert(attachment.id)
-      unique.append(attachment)
-    }
-    return unique
   }
 
 }

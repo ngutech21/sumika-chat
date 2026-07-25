@@ -598,6 +598,19 @@ final class BlockingFirstAttachmentLoader: ChatAttachmentLoading, @unchecked Sen
   }
 }
 
+struct FixtureAttachmentLoader: ChatAttachmentLoading {
+  let attachments: [ChatAttachment]
+
+  func loadAttachments(
+    from urls: [URL],
+    existingAttachments: [ChatAttachment]
+  ) throws -> [ChatAttachment] {
+    _ = urls
+    _ = existingAttachments
+    return attachments
+  }
+}
+
 actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   private let turns: [[ChatModelStreamEvent]]
   private let failingStreamReplyCalls: Set<Int>

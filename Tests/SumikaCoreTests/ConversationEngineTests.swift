@@ -137,7 +137,7 @@ struct ConversationEngineTests {
   }
 
   @Test
-  func composerSessionStateTracksComposerRelevantSessionFields() throws {
+  func composerSessionStateTracksComposerRelevantSessionFields() async throws {
     let attachment = makeAttachment(name: "screenshot.png", kind: .image)
     let todoState = TodoState(items: [
       TodoItem(id: "1", content: "Inspect files", status: .completed),
@@ -147,19 +147,19 @@ struct ConversationEngineTests {
     let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model",
+      chatAttachmentLoader: FixtureAttachmentLoader(attachments: [attachment]),
       chatSession: ChatSession(
-        pendingAttachments: [attachment],
         interactionMode: .chat,
         selectedMCPServerIDs: [mcpServerID],
-        todoState: todoState,
-        activeAttachmentContext: ActiveAttachmentContext(
-          attachmentIDs: [attachment.id]
-        )
+        todoState: todoState
       )
     )
+    engine.addAttachments(from: [URL(filePath: "/tmp/screenshot.png")])
+    try await waitUntil {
+      engine.composerSessionState.pendingAttachments == [attachment]
+    }
 
     #expect(engine.composerSessionState.pendingAttachments == [attachment])
-    #expect(engine.composerSessionState.activeAttachments == [attachment])
     #expect(engine.composerSessionState.interactionMode == .chat)
     #expect(engine.composerSessionState.toolApprovalPolicy == .manual)
     #expect(engine.composerSessionState.selectedMCPServerIDs == [mcpServerID])
@@ -173,6 +173,29 @@ struct ConversationEngineTests {
     #expect(engine.composerSessionState.interactionMode == .agent)
     #expect(engine.composerSessionState.toolApprovalPolicy == .automatic)
     #expect(engine.composerSessionState.todoState == todoState)
+  }
+
+  @Test
+  func pendingAttachmentChangesDoNotPublishSessionSnapshots() async throws {
+    let attachment = makeAttachment(name: "README.md")
+    let engine = ConversationEngine(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model",
+      chatAttachmentLoader: FixtureAttachmentLoader(attachments: [attachment])
+    )
+    var publishedSnapshotCount = 0
+    engine.setSessionChangeHandler {
+      publishedSnapshotCount += 1
+    }
+
+    engine.addAttachments(from: [URL(filePath: "/tmp/README.md")])
+    try await waitUntil {
+      engine.composerSessionState.pendingAttachments == [attachment]
+    }
+    engine.removeAttachment(id: attachment.id)
+
+    #expect(engine.composerSessionState.pendingAttachments.isEmpty)
+    #expect(publishedSnapshotCount == 0)
   }
 
   @Test
@@ -285,13 +308,8 @@ struct ConversationEngineTests {
 
   @Test
   func sessionSnapshotCopiesCompleteLiveSessionState() {
-    let attachment = makeAttachment(name: "context.png", kind: .image)
-    let activeAttachmentContext = ActiveAttachmentContext(
-      attachmentIDs: [attachment.id]
-    )
     let liveSession = ChatSession(
       title: "Live session",
-      pendingAttachments: [attachment],
       focusedFileState: FocusedFileState(
         activePath: WorkspaceRelativePath(rawValue: "README.md")
       ),
@@ -300,8 +318,7 @@ struct ConversationEngineTests {
       selectedMCPServerIDs: [UUID()],
       todoState: TodoState(items: [
         TodoItem(id: "1", content: "Run tests", status: .inProgress)
-      ]),
-      activeAttachmentContext: activeAttachmentContext
+      ])
     )
     let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
@@ -312,12 +329,9 @@ struct ConversationEngineTests {
     let snapshot = engine.sessionSnapshot()
     var expected = liveSession
     expected.selectedModelID = snapshot.selectedModelID
-    expected.pendingAttachments = []
     expected.updatedAt = snapshot.updatedAt
 
     #expect(snapshot == expected)
-    #expect(snapshot.activeAttachmentContext == activeAttachmentContext)
-    #expect(snapshot.pendingAttachments.isEmpty)
   }
 
   @Test
@@ -860,15 +874,19 @@ struct ConversationEngineTests {
     let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
-      chatSession: ChatSession(pendingAttachments: [attachment])
+      chatAttachmentLoader: FixtureAttachmentLoader(attachments: [attachment])
     )
     engine.modelRuntime.modelState = .ready
+    engine.addAttachments(from: [URL(filePath: "/tmp/source.swift")])
+    try await waitUntil {
+      engine.composerSessionState.pendingAttachments == [attachment]
+    }
 
     try engine.sendMessageInTestWorkspace(prompt: "Explain this")
 
     try await waitUntil { !engine.isGenerating }
 
-    #expect(engine.chatSession.pendingAttachments.isEmpty)
+    #expect(engine.composerSessionState.pendingAttachments.isEmpty)
     #expect(engine.chatSession.testMessages.count == 2)
     #expect(engine.chatSession.testMessages[0].kind == .user)
     #expect(engine.chatSession.testMessages[0].content == "Explain this")
@@ -941,19 +959,23 @@ struct ConversationEngineTests {
     let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
+      chatAttachmentLoader: FixtureAttachmentLoader(attachments: [attachment]),
       chatSession: ChatSession(
-        selectedModelID: "gemma4-12b-qat-4bit",
-        pendingAttachments: [attachment]
+        selectedModelID: "gemma4-12b-qat-4bit"
       )
     )
     engine.modelRuntime.modelState = .ready
+    engine.addAttachments(from: [URL(filePath: "/tmp/screenshot.png")])
+    try await waitUntil {
+      engine.composerSessionState.pendingAttachments == [attachment]
+    }
 
     try engine.sendMessageInTestWorkspace(prompt: "What is in this screenshot?")
 
     try await waitUntil { !engine.isGenerating }
 
     #expect(await runtime.capturedAttachments == [[attachment]])
-    #expect(engine.chatSession.pendingAttachments.isEmpty)
+    #expect(engine.composerSessionState.pendingAttachments.isEmpty)
     #expect(engine.chatSession.testMessages[0].attachments == [attachment])
   }
 
@@ -2019,14 +2041,14 @@ struct ConversationEngineTests {
 
     engine.addAttachments(from: [URL(filePath: "/tmp/second.swift")])
     try await waitUntil {
-      engine.chatSession.pendingAttachments.map(\.displayName) == ["second.swift"]
+      engine.composerSessionState.pendingAttachments.map(\.displayName) == ["second.swift"]
     }
 
     loader.releaseFirstLoad()
     try await waitUntil { loader.completedCount == 2 }
     await Task.yield()
 
-    #expect(engine.chatSession.pendingAttachments.map(\.displayName) == ["second.swift"])
+    #expect(engine.composerSessionState.pendingAttachments.map(\.displayName) == ["second.swift"])
   }
 
   private func waitUntil(

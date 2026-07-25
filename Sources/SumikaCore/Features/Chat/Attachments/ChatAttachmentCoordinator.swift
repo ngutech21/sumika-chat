@@ -2,7 +2,6 @@ import Foundation
 
 enum ChatAttachmentEvent: Equatable, Sendable {
   case appendAttachments([ChatAttachment])
-  case removeAttachment(ChatAttachment.ID)
   case error(String)
 }
 
@@ -109,12 +108,5 @@ final class ChatAttachmentCoordinator {
     return parent.path(percentEncoded: false) == directory.path(percentEncoded: false)
       && fileName.hasPrefix("clipboard-image-")
       && fileName.hasSuffix(".png")
-  }
-
-  func removeAttachment(
-    id: ChatAttachment.ID,
-    onEvent: @MainActor @Sendable (ChatAttachmentEvent) -> Void
-  ) {
-    onEvent(.removeAttachment(id))
   }
 }

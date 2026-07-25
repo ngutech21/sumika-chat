@@ -246,16 +246,21 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func chatSessionDecodeDefaultsMissingActiveAttachmentContext() throws {
+  func chatSessionDecodeIgnoresLegacyAttachmentContextFields() throws {
     let session = ChatSession(selectedModelID: "gemma4-12b-qat-4bit")
     var object = try #require(
       JSONSerialization.jsonObject(with: JSONEncoder().encode(session)) as? [String: Any]
     )
-    object.removeValue(forKey: "activeAttachmentContext")
+    object["activeAttachmentContext"] = [
+      "attachmentIDs": [UUID().uuidString]
+    ]
+    var focusedFileState = try #require(object["focusedFileState"] as? [String: Any])
+    focusedFileState["focusedAttachments"] = [UUID().uuidString]
+    object["focusedFileState"] = focusedFileState
     let data = try JSONSerialization.data(withJSONObject: object)
 
     let decoded = try JSONDecoder().decode(ChatSession.self, from: data)
-    #expect(decoded.activeAttachmentContext == .empty)
+    #expect(decoded == session)
   }
 
   @Test
@@ -299,7 +304,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func chatSessionEncodingOmitsPendingAttachmentsTranscriptWrapperAndLegacyModelContextSnapshot()
+  func chatSessionEncodingOmitsLegacyAttachmentAndTranscriptFields()
     throws
   {
     let session = ChatSession(
@@ -308,12 +313,6 @@ struct WorkspaceStoreTests {
         ChatTurn(
           status: .completed,
           items: [.userMessage(UserTurnMessage(content: "hello"))])
-      ],
-      pendingAttachments: [
-        makeTextChatAttachment(
-          displayName: "README.md",
-          content: "draft"
-        )
       ],
       modeSettings: testModeSettings(
         systemPrompt: "Use short answers.",
@@ -326,11 +325,13 @@ struct WorkspaceStoreTests {
 
     #expect(object["transcript"] == nil)
     #expect(object["pendingAttachments"] == nil)
+    #expect(object["activeAttachmentContext"] == nil)
+    let focusedFileState = try #require(object["focusedFileState"] as? [String: Any])
+    #expect(focusedFileState["focusedAttachments"] == nil)
     #expect(object["modeSettings"] != nil)
     #expect(object["systemPrompt"] == nil)
     #expect(object["generationSettings"] == nil)
     #expect(object["modelContextSnapshot"] == nil)
-    #expect(decoded.pendingAttachments.isEmpty)
     #expect(decoded == session)
   }
 

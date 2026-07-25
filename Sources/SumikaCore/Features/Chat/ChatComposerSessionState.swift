@@ -2,7 +2,6 @@ import Foundation
 
 package struct ChatComposerSessionState: Equatable, Sendable {
   package var pendingAttachments: [ChatAttachment]
-  package var activeAttachments: [ChatAttachment]
   package var interactionMode: WorkspaceInteractionMode
   package var toolApprovalPolicy: ToolApprovalPolicy
   package var selectedMCPServerIDs: [UUID]
@@ -11,7 +10,6 @@ package struct ChatComposerSessionState: Equatable, Sendable {
 
   package init(
     pendingAttachments: [ChatAttachment] = [],
-    activeAttachments: [ChatAttachment] = [],
     interactionMode: WorkspaceInteractionMode = .chat,
     toolApprovalPolicy: ToolApprovalPolicy = .manual,
     selectedMCPServerIDs: [UUID] = [],
@@ -19,7 +17,6 @@ package struct ChatComposerSessionState: Equatable, Sendable {
     todoState: TodoState? = nil
   ) {
     self.pendingAttachments = pendingAttachments
-    self.activeAttachments = activeAttachments
     self.interactionMode = interactionMode
     self.toolApprovalPolicy = toolApprovalPolicy
     self.selectedMCPServerIDs = selectedMCPServerIDs
@@ -27,8 +24,10 @@ package struct ChatComposerSessionState: Equatable, Sendable {
     self.todoState = todoState
   }
 
-  package init(session: ChatSession) {
-    let activeAttachmentIDs = Set(session.activeAttachmentContext.attachmentIDs)
+  package init(
+    session: ChatSession,
+    pendingAttachments: [ChatAttachment] = []
+  ) {
     let visibleTodoState: TodoState? =
       if session.interactionMode == .agent,
         let todoState = session.todoState,
@@ -40,10 +39,7 @@ package struct ChatComposerSessionState: Equatable, Sendable {
       }
 
     self.init(
-      pendingAttachments: session.pendingAttachments,
-      activeAttachments: session.pendingAttachments.filter {
-        activeAttachmentIDs.contains($0.id)
-      },
+      pendingAttachments: pendingAttachments,
       interactionMode: session.interactionMode,
       toolApprovalPolicy: session.toolApprovalPolicy,
       selectedMCPServerIDs: session.selectedMCPServerIDs,

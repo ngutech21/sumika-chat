@@ -10,16 +10,8 @@
       "rootURL" : "file:\/\/\/tmp\/golden-project\/",
       "sessions" : [
         {
-          "activeAttachmentContext" : {
-            "attachmentIDs" : [
-
-            ]
-          },
           "createdAt" : 1500,
           "focusedFileState" : {
-            "focusedAttachments" : [
-
-            ],
             "recentPaths" : [
 
             ],
@@ -134,17 +126,9 @@
           "updatedAt" : 2400
         },
         {
-          "activeAttachmentContext" : {
-            "attachmentIDs" : [
-
-            ]
-          },
           "createdAt" : 4000,
           "focusedFileState" : {
             "activePath" : "Sources\/App.swift",
-            "focusedAttachments" : [
-
-            ],
             "recentPaths" : [
               {
                 "confidence" : "active",

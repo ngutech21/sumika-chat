@@ -4,18 +4,15 @@ package struct FocusedFileState: Codable, Equatable, Sendable {
   package var activePath: WorkspaceRelativePath?
   package var recentPaths: [FocusedPath]
   package var snapshots: [WorkspaceRelativePath: FocusedFileSnapshot]
-  package var focusedAttachments: [AttachmentID]
 
   package init(
     activePath: WorkspaceRelativePath? = nil,
     recentPaths: [FocusedPath] = [],
-    snapshots: [WorkspaceRelativePath: FocusedFileSnapshot] = [:],
-    focusedAttachments: [AttachmentID] = []
+    snapshots: [WorkspaceRelativePath: FocusedFileSnapshot] = [:]
   ) {
     self.activePath = activePath
     self.recentPaths = recentPaths
     self.snapshots = snapshots
-    self.focusedAttachments = focusedAttachments
   }
 
   package static let empty = FocusedFileState()
@@ -24,7 +21,6 @@ package struct FocusedFileState: Codable, Equatable, Sendable {
     case activePath
     case recentPaths
     case snapshots
-    case focusedAttachments
   }
 
   package init(from decoder: Decoder) throws {
@@ -36,11 +32,6 @@ package struct FocusedFileState: Codable, Equatable, Sendable {
       forKey: .snapshots,
       default: [:]
     )
-    focusedAttachments = try container.decodeIfPresent(
-      [AttachmentID].self,
-      forKey: .focusedAttachments,
-      default: []
-    )
   }
 
   package func encode(to encoder: Encoder) throws {
@@ -48,7 +39,6 @@ package struct FocusedFileState: Codable, Equatable, Sendable {
     try container.encodeIfPresent(activePath, forKey: .activePath)
     try container.encode(recentPaths, forKey: .recentPaths)
     try container.encode(snapshots, forKey: .snapshots)
-    try container.encode(focusedAttachments, forKey: .focusedAttachments)
   }
 }
 
