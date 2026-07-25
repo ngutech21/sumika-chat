@@ -2,7 +2,7 @@ import Foundation
 
 enum ToolPromptMode: Equatable, Sendable {
   case disabled
-  case enabled(Bool)
+  case agent
   case chatWeb
   case afterChatWebToolResultCanContinue
   case afterToolResultCanContinue
@@ -16,7 +16,7 @@ enum ToolPromptMode: Equatable, Sendable {
     switch self {
     case .afterToolResultFinal, .afterChatWebToolResultFinal:
       return true
-    case .disabled, .enabled, .chatWeb, .afterChatWebToolResultCanContinue,
+    case .disabled, .agent, .chatWeb, .afterChatWebToolResultCanContinue,
       .afterToolResultCanContinue, .afterToolBudgetExhausted:
       return false
     }
@@ -51,10 +51,10 @@ enum ToolPromptMode: Equatable, Sendable {
     switch self {
     case .chatWeb, .afterChatWebToolResultCanContinue, .afterChatWebToolResultFinal:
       return .afterChatWebToolResultFinal
-    case .enabled(true), .afterToolResultCanContinue, .afterToolBudgetExhausted,
+    case .agent, .afterToolResultCanContinue, .afterToolBudgetExhausted,
       .afterToolResultFinal:
       return .afterToolResultFinal
-    case .disabled, .enabled(false):
+    case .disabled:
       return .disabled
     }
   }
@@ -129,7 +129,7 @@ struct ToolPromptPolicy: Sendable {
     toolCallingPolicy: ToolCallingPolicy = .nativeMLX
   ) -> String {
     switch mode {
-    case .disabled, .enabled(false):
+    case .disabled:
       return basePrompt
     case .chatWeb:
       return nativeChatWebSystemPrompt(
@@ -155,7 +155,7 @@ struct ToolPromptPolicy: Sendable {
         toolRegistry: toolRegistry,
         toolCallingPolicy: toolCallingPolicy
       )
-    case .enabled(true):
+    case .agent:
       return nativeAgentSystemPrompt(
         basePrompt: basePrompt,
         toolRegistry: toolRegistry,

@@ -416,7 +416,7 @@ extension ConversationEngine {
     errorMessage = nil
     invalidateModelContextDebugDocument()
     clearRuntimeContextForReuse()
-    refreshContextUsage(toolPromptMode: mode == .chat ? .disabled : .enabled(true))
+    refreshContextUsage(toolPromptMode: mode == .chat ? .disabled : .agent)
     notifySessionDidChange()
   }
 
@@ -432,7 +432,7 @@ extension ConversationEngine {
     invalidateModelContextDebugDocument()
     clearRuntimeContextForReuse()
     refreshContextUsage(
-      toolPromptMode: chatSession.interactionMode == .chat ? .disabled : .enabled(true))
+      toolPromptMode: chatSession.interactionMode == .chat ? .disabled : .agent)
     notifySessionDidChange()
   }
 
@@ -1274,10 +1274,10 @@ extension ConversationEngine {
     switch promptMode {
     case .chatWeb, .afterChatWebToolResultCanContinue, .afterChatWebToolResultFinal:
       profile = .chatWeb
-    case .enabled(true), .afterToolResultCanContinue, .afterToolBudgetExhausted,
+    case .agent, .afterToolResultCanContinue, .afterToolBudgetExhausted,
       .afterToolResultFinal:
       profile = .agent
-    case .disabled, .enabled(false):
+    case .disabled:
       profile = .disabled
     }
     return effectiveToolOrchestrator(for: profile)?.toolRegistry ?? ToolRegistry(tools: [])

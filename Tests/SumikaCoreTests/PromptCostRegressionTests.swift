@@ -631,7 +631,7 @@ private enum PromptCostMeasurement {
     let registry = ToolExecutorRegistry.codingAgentRegistry(todoWriteEnabled: false).toolRegistry
     let systemPrompt = ToolPromptPolicy().systemPrompt(
       basePrompt: ChatPromptDefaults.agentSystemPrompt,
-      mode: .enabled(true),
+      mode: .agent,
       toolRegistry: registry
     )
     let systemPromptBytes = systemPrompt.utf8.count

@@ -19,7 +19,7 @@ struct ToolPromptPolicyTests {
   func nativeAgentPromptKeepsCompactWorkflowRules() {
     let prompt = ToolPromptPolicy().systemPrompt(
       basePrompt: "Base",
-      mode: .enabled(true),
+      mode: .agent,
       toolRegistry: ToolExecutorRegistry.codingAgent.toolRegistry
     )
 
@@ -39,7 +39,7 @@ struct ToolPromptPolicyTests {
   func nativeAgentPromptHonorsSingleNativeToolCallPolicy() {
     let prompt = ToolPromptPolicy().systemPrompt(
       basePrompt: "Base",
-      mode: .enabled(true),
+      mode: .agent,
       toolRegistry: ToolExecutorRegistry.codingAgent.toolRegistry,
       toolCallingPolicy: ToolCallingPolicy(isEnabled: true, allowsMultipleToolCalls: false)
     )
@@ -52,7 +52,7 @@ struct ToolPromptPolicyTests {
   func nativeAgentPromptOmitsTodoInstructionsWhenTodoWriteUnavailable() {
     let prompt = ToolPromptPolicy().systemPrompt(
       basePrompt: "Base",
-      mode: .enabled(true),
+      mode: .agent,
       toolRegistry: ToolExecutorRegistry.codingAgentRegistry(todoWriteEnabled: false).toolRegistry
     )
 
@@ -138,6 +138,7 @@ struct ToolPromptPolicyTests {
     #expect(!ToolPromptMode.afterToolBudgetExhausted.isFinal)
     #expect(!ToolPromptMode.afterChatWebToolResultCanContinue.isFinal)
     #expect(!ToolPromptMode.chatWeb.isFinal)
+    #expect(!ToolPromptMode.agent.isFinal)
 
     #expect(ToolPromptMode.finalMode(for: .agent) == .afterToolResultFinal)
     #expect(ToolPromptMode.finalMode(for: .chatWeb) == .afterChatWebToolResultFinal)

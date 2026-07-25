@@ -604,7 +604,7 @@ struct ChatTurnExecutionCoordinator {
     case .chatWeb:
       return .chatWeb
     case .agent:
-      return .enabled(true)
+      return .agent
     }
   }
 
@@ -702,10 +702,10 @@ extension ChatTurnExecutionCoordinator {
       return nil
     }
     switch toolPromptMode {
-    case .disabled, .enabled(false), .afterToolResultFinal, .afterChatWebToolResultFinal:
+    case .disabled, .afterToolResultFinal, .afterChatWebToolResultFinal:
       return nil
     case .chatWeb, .afterChatWebToolResultCanContinue, .afterToolResultCanContinue,
-      .afterToolBudgetExhausted, .enabled(true):
+      .afterToolBudgetExhausted, .agent:
       break
     }
     return ChatRuntimeToolContext(
