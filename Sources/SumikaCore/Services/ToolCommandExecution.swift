@@ -217,8 +217,6 @@ private final class PipeDataCollector: @unchecked Sendable {
 }
 
 internal struct DefaultCommandProcessRunner: CommandProcessRunning {
-  internal init() {}
-
   internal func run(
     _ request: CommandProcessRequest
   ) async throws -> CommandProcessResult {

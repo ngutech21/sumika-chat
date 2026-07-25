@@ -171,20 +171,13 @@ private struct WorkspaceChatMainColumn: View, Equatable {
           onSelectMCPServerIDs: onSelectMCPServerIDs,
           onOpenAudioModels: onOpenAudioModels
         )
-        .background {
-          GeometryReader { proxy in
-            Color.clear
-              .preference(
-                key: ComposerHeightPreferenceKey.self,
-                value: proxy.size.height
-              )
-          }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+          proxy.size.height
+        } action: { height in
+          composerHeight = height
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .onPreferenceChange(ComposerHeightPreferenceKey.self) { height in
-        composerHeight = height
-      }
 
       WorkspaceTerminalSlot(
         context: context,
@@ -193,14 +186,6 @@ private struct WorkspaceChatMainColumn: View, Equatable {
       .equatable()
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-  }
-}
-
-private struct ComposerHeightPreferenceKey: PreferenceKey {
-  static let defaultValue: CGFloat = 0
-
-  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-    value = max(value, nextValue())
   }
 }
 

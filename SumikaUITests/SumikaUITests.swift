@@ -69,6 +69,45 @@ final class SumikaUITests: XCTestCase {
   }
 
   @MainActor
+  func testTranscriptVisibleAreaTracksComposerHeight() throws {
+    let fixture = try launchFixture()
+    let application = try launchApp(fixture: fixture)
+    defer { application.terminate() }
+
+    let emptyStateTitle = application.staticTexts["Start a local chat"]
+    XCTAssertTrue(
+      waitUntil(timeout: 10) {
+        emptyStateTitle.exists && !emptyStateTitle.frame.isEmpty
+      },
+      "The empty transcript state should be visible before the composer grows."
+    )
+    let initialMidY = emptyStateTitle.frame.midY
+
+    let messageField = waitForMessageField(in: application)
+    messageField.click()
+    messageField.typeText("/")
+
+    let suggestions = application.descendants(matching: .any)["slash-command-suggestions"]
+    XCTAssertTrue(suggestions.waitForExistence(timeout: 5))
+    XCTAssertTrue(
+      waitUntil(timeout: 5) {
+        emptyStateTitle.frame.midY < initialMidY - 4
+      },
+      "The transcript's visible area should move up when the composer grows."
+    )
+
+    messageField.typeKey("a", modifierFlags: .command)
+    messageField.typeKey(.delete, modifierFlags: [])
+
+    XCTAssertTrue(
+      waitUntil(timeout: 5) {
+        !suggestions.exists && abs(emptyStateTitle.frame.midY - initialMidY) < 2
+      },
+      "The transcript's visible area should return when the composer shrinks."
+    )
+  }
+
+  @MainActor
   func testSessionOptionsShowOnlyRelevantControlsAndPersistMCPSelection() throws {
     let server = MCPServerConfig(
       name: "Offline Test Server",
