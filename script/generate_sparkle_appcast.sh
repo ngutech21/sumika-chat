@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-build/DerivedData}"
+SOURCE_PACKAGES_PATH="${CLONED_SOURCE_PACKAGES_DIR_PATH:-$DERIVED_DATA_PATH/SourcePackages}"
 APP_PATH="${APP_PATH:-build/artifacts/export/Sumika.app}"
 ASSET_PATH="${ASSET_PATH:-build/artifacts/Sumika-macos-release.dmg}"
 DOWNLOAD_URL_PREFIX="${DOWNLOAD_URL_PREFIX:-https://example.invalid/sumika/releases/}"
@@ -28,8 +29,8 @@ EXPECTED_SHORT_VERSION="${EXPECTED_SHORT_VERSION:-$(/usr/libexec/PlistBuddy \
 asset_name="$(basename "$ASSET_PATH")"
 release_notes_name="${asset_name%.*}.md"
 appcast_path="$FEED_DIR/appcast.xml"
-generate_appcast="$DERIVED_DATA_PATH/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_appcast"
-sign_update="$DERIVED_DATA_PATH/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update"
+generate_appcast="$SOURCE_PACKAGES_PATH/artifacts/sparkle/Sparkle/bin/generate_appcast"
+sign_update="$SOURCE_PACKAGES_PATH/artifacts/sparkle/Sparkle/bin/sign_update"
 expected_download_url="${DOWNLOAD_URL_PREFIX%/}/$asset_name"
 
 test -x "$generate_appcast"

@@ -1,0 +1,134 @@
+name: Sparkle Appcast
+run-name: Publish Sparkle appcast for ${{ inputs.tag_name }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Existing GitHub release tag, for example v1.4.1
+        required: true
+        type: string
+
+concurrency:
+  group: sparkle-appcast
+  cancel-in-progress: false
+
+jobs:
+  generate-appcast:
+    name: Generate Sparkle appcast from existing release
+    runs-on: macos-26
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pages: write
+
+    env:
+      WORKFLOW_SOURCE_PATH: ${{ github.workspace }}/workflow-source
+      RELEASE_SOURCE_PATH: ${{ github.workspace }}/release-source
+      CLONED_SOURCE_PACKAGES_DIR_PATH: ${{ github.workspace }}/release-source/.build/xcode-source-packages
+      SKIP_PACKAGE_PLUGIN_VALIDATION: "1"
+      TAG_NAME: ${{ inputs.tag_name }}
+      ASSET_NAME: Sumika-${{ inputs.tag_name }}-macos.dmg
+      APP_PATH: ${{ github.workspace }}/workflow-source/build/artifacts/export/Sumika.app
+      ASSET_PATH: ${{ github.workspace }}/workflow-source/build/artifacts/Sumika-${{ inputs.tag_name }}-macos.dmg
+      DOWNLOAD_URL_PREFIX: https://github.com/${{ github.repository }}/releases/download/${{ inputs.tag_name }}/
+      RELEASE_NOTES_PATH: ${{ github.workspace }}/workflow-source/build/artifacts/sumika-release-notes.md
+      SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+      VERIFY_DOWNLOAD_URL: 1
+
+    steps:
+      - name: Checkout workflow source
+        uses: actions/checkout@v7
+        with:
+          path: workflow-source
+
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag_name }}
+          path: release-source
+
+      - name: Install build tools
+        timeout-minutes: 5
+        run: brew install just
+
+      - name: Resolve Sparkle tools from release tag
+        timeout-minutes: 10
+        working-directory: ${{ env.RELEASE_SOURCE_PATH }}
+        run: just check-package-locks
+
+      - name: Download existing release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$(dirname "$ASSET_PATH")"
+          gh release download "$TAG_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "$ASSET_NAME" \
+            --dir "$(dirname "$ASSET_PATH")"
+          gh release view "$TAG_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json body \
+            --jq '.body // ""' \
+            > "$RELEASE_NOTES_PATH"
+
+          test -f "$ASSET_PATH"
+          test -s "$RELEASE_NOTES_PATH"
+
+      - name: Extract app metadata from release asset
+        run: |
+          set -euo pipefail
+
+          mount_path="$RUNNER_TEMP/sumika-release-dmg"
+          mkdir -p "$mount_path" "$(dirname "$APP_PATH")"
+
+          cleanup() {
+            hdiutil detach "$mount_path" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          hdiutil attach \
+            -readonly \
+            -nobrowse \
+            -mountpoint "$mount_path" \
+            "$ASSET_PATH"
+          ditto "$mount_path/Sumika.app" "$APP_PATH"
+          hdiutil detach "$mount_path"
+          trap - EXIT
+
+          test -d "$APP_PATH"
+
+      - name: Generate and verify Sparkle appcast
+        working-directory: ${{ env.WORKFLOW_SOURCE_PATH }}
+        run: |
+          set -euo pipefail
+
+          test -n "$SPARKLE_ED_PRIVATE_KEY"
+          just generate-sparkle-appcast
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload appcast Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: workflow-source/build/artifacts/sparkle-pages
+
+  deploy-appcast:
+    name: Deploy Sparkle appcast
+    needs: generate-appcast
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy appcast to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
