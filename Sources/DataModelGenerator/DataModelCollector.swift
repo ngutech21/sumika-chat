@@ -23,7 +23,7 @@ private final class DeclarationVisitor: SyntaxVisitor {
   }
 
   override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
-    guard node.modifiers.isPublic else {
+    guard node.modifiers.isDocumentedModelAPI else {
       return .skipChildren
     }
 
@@ -33,7 +33,7 @@ private final class DeclarationVisitor: SyntaxVisitor {
         kind: .struct,
         conformances: node.inheritanceClause.modelTypeNames,
         summary: docSummary(from: node.leadingTrivia),
-        properties: publicProperties(in: node.memberBlock),
+        properties: documentedProperties(in: node.memberBlock),
         sourcePath: sourcePath
       )
     )
@@ -41,7 +41,7 @@ private final class DeclarationVisitor: SyntaxVisitor {
   }
 
   override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
-    guard node.modifiers.isPublic else {
+    guard node.modifiers.isDocumentedModelAPI else {
       return .skipChildren
     }
 
@@ -51,7 +51,7 @@ private final class DeclarationVisitor: SyntaxVisitor {
         kind: .enum,
         conformances: node.inheritanceClause.modelTypeNames,
         summary: docSummary(from: node.leadingTrivia),
-        properties: publicProperties(in: node.memberBlock),
+        properties: documentedProperties(in: node.memberBlock),
         cases: enumCases(in: node.memberBlock),
         sourcePath: sourcePath
       )
@@ -60,7 +60,7 @@ private final class DeclarationVisitor: SyntaxVisitor {
   }
 
   override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind {
-    guard node.modifiers.isPublic else {
+    guard node.modifiers.isDocumentedModelAPI else {
       return .skipChildren
     }
 
@@ -70,7 +70,7 @@ private final class DeclarationVisitor: SyntaxVisitor {
         kind: .protocol,
         conformances: node.inheritanceClause.modelTypeNames,
         summary: docSummary(from: node.leadingTrivia),
-        properties: publicProperties(in: node.memberBlock),
+        properties: documentedProperties(in: node.memberBlock),
         sourcePath: sourcePath
       )
     )
@@ -78,7 +78,7 @@ private final class DeclarationVisitor: SyntaxVisitor {
   }
 
   override func visit(_ node: TypeAliasDeclSyntax) -> SyntaxVisitorContinueKind {
-    guard node.modifiers.isPublic else {
+    guard node.modifiers.isDocumentedModelAPI else {
       return .skipChildren
     }
 
@@ -94,10 +94,10 @@ private final class DeclarationVisitor: SyntaxVisitor {
     return .skipChildren
   }
 
-  private func publicProperties(in memberBlock: MemberBlockSyntax) -> [DataModelProperty] {
+  private func documentedProperties(in memberBlock: MemberBlockSyntax) -> [DataModelProperty] {
     memberBlock.members.flatMap { member -> [DataModelProperty] in
       guard let variable = member.decl.as(VariableDeclSyntax.self),
-        variable.modifiers.isPublic
+        variable.modifiers.isDocumentedModelAPI
       else {
         return []
       }
@@ -163,9 +163,9 @@ private final class DeclarationVisitor: SyntaxVisitor {
 }
 
 extension DeclModifierListSyntax {
-  fileprivate var isPublic: Bool {
+  fileprivate var isDocumentedModelAPI: Bool {
     contains { modifier in
-      modifier.name.text == "public"
+      modifier.name.text == "public" || modifier.name.text == "package"
     }
   }
 }

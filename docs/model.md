@@ -1,3 +1,9 @@
+# Sumika Domain Model
+
+This diagram is a curated view of the persisted chat/tool model and its derived
+model-context projection. See [`data-model.md`](data-model.md) for the generated,
+source-complete `SumikaCore` model inventory.
+
 ```mermaid
 classDiagram
   direction TB
@@ -26,6 +32,8 @@ classDiagram
     focusedFileState: FocusedFileState
     modeSettings: ChatModeSettingsSet
     interactionMode: WorkspaceInteractionMode
+    toolApprovalPolicy: ToolApprovalPolicy
+    selectedMCPServerIDs: [UUID]
     todoState: TodoState?
     createdAt: Date
     updatedAt: Date
@@ -34,12 +42,9 @@ classDiagram
   class ManagedModel {
     id: String
     displayName: String
-    shortName: String
-    summary: String
     detail: String
     huggingFaceRepoID: String
     localDirectoryName: String
-    parameterSize: String
     estimatedDownloadSize: String
     isRecommended: Bool
     requiresLargeMemory: Bool
@@ -49,6 +54,7 @@ classDiagram
     reasoningTraceFormat: ReasoningTraceFormat
     defaultModeSettings: ChatModeSettingsSet
     defaultContextTokenLimit: Int
+    maxToolLoopIterations: Int
   }
 
   class ManagedModelStability {
@@ -76,6 +82,8 @@ classDiagram
     maxTokens: Int
     maxKVSize: Int?
     repetitionPenalty: Double
+    repetitionContextSize: Int
+    presencePenalty: Double
     reasoningEnabled: Bool
   }
 
@@ -93,6 +101,12 @@ classDiagram
     <<enum>>
     chat
     agent
+  }
+
+  class ToolApprovalPolicy {
+    <<enum>>
+    manual
+    automatic
   }
 
   class ChatTurn {
@@ -123,6 +137,7 @@ classDiagram
   class ChatTurnItem {
     <<enum>>
     userMessage(UserTurnMessage)
+    assistantThinking(AssistantThinkingMessage)
     assistantMessage(AssistantTurnMessage)
     tool(ToolCallRecord)
   }
@@ -140,7 +155,7 @@ classDiagram
     modelProjectionPolicy: AssistantModelProjectionPolicy
     attachments: [ChatAttachment]
     generationMetrics: ChatGenerationMetrics?
-    deliveryStatus: DeliveryStatus
+    deliveryStatus: AssistantDeliveryStatus
   }
 
   class AssistantModelProjectionPolicy {
@@ -150,7 +165,16 @@ classDiagram
     excluded
   }
 
-  class DeliveryStatus {
+  class AssistantThinkingMessage {
+    id: UUID
+    content: String
+    deliveryStatus: AssistantDeliveryStatus
+    startedAt: Date?
+    completedAt: Date?
+    reasoningDuration: TimeInterval? derived
+  }
+
+  class AssistantDeliveryStatus {
     <<enum>>
     complete
     streaming
@@ -196,7 +220,6 @@ classDiagram
   class ChatGenerationMetrics {
     generatedTokenCount: Int
     tokensPerSecond: Double
-    durationMs: Int
   }
 
   class TodoState {
@@ -223,6 +246,14 @@ classDiagram
     request: ToolCallRequest
     evaluation: ToolPermissionEvaluation
     state: ToolCallState
+    approvalSource: ToolApprovalSource?
+    modelFollowUpNotice: String?
+  }
+
+  class ToolApprovalSource {
+    <<enum>>
+    manual
+    automatic
   }
 
   class ToolCallRequest {
@@ -269,10 +300,12 @@ classDiagram
     runCommand(RunCommandInput)
     todoWrite(TodoWriteInput)
     askUser(AskUserInput)
+    finishTask(FinishTaskInput)
     browserRefresh(BrowserRefreshInput)
     browserInspect(BrowserInspectInput)
     webSearch(WebSearchInput)
     webFetch(WebFetchInput)
+    mcp(MCPToolInput)
     invalid(InvalidToolInput)
   }
 
@@ -335,10 +368,13 @@ classDiagram
     runCommand(RunCommandResult)
     todoWrite(TodoWriteResult)
     askUser(AskUserResult)
+    finishTask(FinishTaskResult)
     browserRefresh(BrowserRefreshResult)
     browserInspect(BrowserInspectResult)
     webSearch(WebSearchToolResult)
     webFetch(WebFetchToolResult)
+    mcp(MCPToolResult)
+    duplicateToolCall(DuplicateToolCallResult)
     invalidTool(InvalidToolResult)
     failure(ToolFailure)
   }
@@ -349,6 +385,7 @@ classDiagram
     truncated: Bool
     redacted: Bool
     affectedPaths: [String]
+    resultPayload: ToolResultPayload?
   }
 
   class ToolResultStatus {
@@ -361,6 +398,12 @@ classDiagram
   class ModelPromptProjection {
     entries: [ModelContextEntry]
     projectedEntries(mode): [ProjectedModelContextEntry] derived
+  }
+
+  class ModelContextProjectionMode {
+    <<enum>>
+    fullHistory
+    compactedHistoryForLaterTurns
   }
 
   class ProjectedModelContextEntry {
@@ -388,7 +431,6 @@ classDiagram
     prompt: String
     attachmentNames: [String]
     imageSignatures: [String]
-    systemContext: [String]
     currentPromptContext: CurrentPromptContext?
   }
 
@@ -413,6 +455,7 @@ classDiagram
     attachedFile(AttachedFilePromptContext)
     focusedFile(FocusedFilePromptContext)
     ambiguousRecentFiles(AmbiguousRecentFilesPromptContext)
+    workspaceInstructions(WorkspaceInstructionsPromptContext)
   }
 
   class ContextBudget {
@@ -475,10 +518,12 @@ classDiagram
     <<enum>>
     user
     assistant
+    tool
   }
 
   class ModelContextDebugState {
     runtimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
+    documentRevision: Int
   }
 
   class RuntimeCacheDebugSnapshot {
@@ -547,6 +592,7 @@ classDiagram
   ChatSession --> ManagedModel : selected model ID
   ChatSession --> ChatModeSettingsSet
   ChatSession --> WorkspaceInteractionMode
+  ChatSession --> ToolApprovalPolicy
 
   ManagedModel --> ManagedModelStability
   ManagedModel --> ToolCallingPolicy
@@ -558,13 +604,15 @@ classDiagram
   ChatTurn --> ChatTurnStatus
   ChatTurn --> ChatTurnModelContextPolicy
   ChatTurnItem --> UserTurnMessage : embeds user
+  ChatTurnItem --> AssistantThinkingMessage : embeds reasoning
   ChatTurnItem --> AssistantTurnMessage : embeds assistant
   ChatTurnItem --> ToolCallRecord : embeds tool lifecycle
   UserTurnMessage --> ChatAttachment
   UserTurnMessage --> CurrentPromptContext
   AssistantTurnMessage --> ChatAttachment
   AssistantTurnMessage --> ChatGenerationMetrics
-  AssistantTurnMessage --> DeliveryStatus
+  AssistantThinkingMessage --> AssistantDeliveryStatus
+  AssistantTurnMessage --> AssistantDeliveryStatus
   AssistantTurnMessage --> AssistantModelProjectionPolicy
 
   ChatAttachment --> AttachmentID
@@ -579,6 +627,7 @@ classDiagram
   ToolCallRecord "1" --> "1" ToolCallRequest
   ToolCallRecord "1" --> "1" ToolPermissionEvaluation
   ToolCallRecord "1" --> "1" ToolCallState
+  ToolCallRecord --> ToolApprovalSource
   ToolCallRequest --> RawToolCallRequest
   ToolCallRequest --> ToolCallPayload
   RawToolCallRequest --> ToolName
@@ -590,9 +639,11 @@ classDiagram
   ToolCallState --> ToolResultPreview : approval preview
   ToolCallState --> ToolResultPayload : result payload
   ToolResultPayload --> ToolResultPreview : derived preview
+  ToolResultPreview --> ToolResultPayload : optional approval payload
   ToolResultPreview --> ToolResultStatus
 
   ModelPromptProjection "1" --> "*" ModelContextEntry
+  ModelPromptProjection --> ModelContextProjectionMode
   ModelPromptProjection --> ProjectedModelContextEntry : derived projection
   ModelContextEntry --> ModelContextEntryBody
   ModelContextEntry --> FrozenModelContent
@@ -624,7 +675,6 @@ classDiagram
   FocusedFileState --> WorkspaceRelativePath
   FocusedFileState --> FocusedPath
   FocusedFileState --> FocusedFileSnapshot
-  FocusedFileState --> AttachmentID
   FocusedPath --> WorkspaceRelativePath
   FocusedPath --> FocusedPathSource
   FocusedPath --> FocusConfidence
