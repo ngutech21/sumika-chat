@@ -4,7 +4,7 @@ import Testing
 
 struct DataModelCollectorTests {
   @Test
-  func collectorFindsPublicModelsStoredPropertiesAndEnumCases() throws {
+  func collectorFindsPublicAndPackageModelsStoredPropertiesAndEnumCases() throws {
     let source = """
       import Foundation
 
@@ -28,6 +28,23 @@ struct DataModelCollectorTests {
 
       public typealias ToolCallArguments = [String: ToolArgumentValue]
 
+      package struct PackageChatSessionState: Equatable {
+        package var turns: [ChatTurn]
+        package private(set) var activeTurn: ChatTurn.ID?
+        package var computed: String { "value" }
+        private var hidden: HiddenModel
+      }
+
+      package enum PackageChatTurnItem {
+        case user(UserTurnMessage)
+      }
+
+      package protocol PackageChatTurnRendering {
+        package var item: PackageChatTurnItem { get }
+      }
+
+      package typealias PackageToolCallArguments = [String: ToolArgumentValue]
+
       struct HiddenModel {
         public var value: String
       }
@@ -40,6 +57,10 @@ struct DataModelCollectorTests {
         "ChatSessionState",
         "ChatTurnItem",
         "ChatTurnRendering",
+        "PackageChatSessionState",
+        "PackageChatTurnItem",
+        "PackageChatTurnRendering",
+        "PackageToolCallArguments",
         "ToolCallArguments",
       ])
 
@@ -70,6 +91,16 @@ struct DataModelCollectorTests {
 
     let alias = try #require(models.first { $0.name == "ToolCallArguments" })
     #expect(alias.aliasedType == "[String: ToolArgumentValue]")
+
+    let packageSession = try #require(models.first { $0.name == "PackageChatSessionState" })
+    #expect(
+      packageSession.properties == [
+        DataModelProperty(name: "turns", type: "[ChatTurn]", isStored: true),
+        DataModelProperty(name: "activeTurn", type: "ChatTurn.ID?", isStored: true),
+      ])
+
+    let packageAlias = try #require(models.first { $0.name == "PackageToolCallArguments" })
+    #expect(packageAlias.aliasedType == "[String: ToolArgumentValue]")
   }
 
   @Test

@@ -1,5 +1,13 @@
 import Foundation
 
+enum DataModelGeneratorError: LocalizedError, Equatable {
+  case noModelsFound
+
+  var errorDescription: String? {
+    "No public or package-visible data models were found."
+  }
+}
+
 public struct DataModelGenerator: Sendable {
   private let collector: DataModelCollector
   private let renderer: DataModelMarkdownRenderer
@@ -26,6 +34,9 @@ public struct DataModelGenerator: Sendable {
       let source = try String(contentsOf: fileURL, encoding: .utf8)
       let sourcePath = fileURL.pathRelative(to: repositoryRoot)
       return try collector.collect(source: source, sourcePath: sourcePath)
+    }
+    guard !declarations.isEmpty else {
+      throw DataModelGeneratorError.noModelsFound
     }
 
     let document = DataModelDocument(

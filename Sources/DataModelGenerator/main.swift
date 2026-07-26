@@ -3,7 +3,7 @@ import Foundation
 let repositoryRoot = URL(filePath: FileManager.default.currentDirectoryPath)
 let modelsDirectories = [
   repositoryRoot.appending(
-    path: "Sources/SumikaCore/Models",
+    path: "Sources/SumikaCore/Features/Chat/Models",
     directoryHint: .isDirectory
   ),
   repositoryRoot.appending(
@@ -25,17 +25,9 @@ let modelsDirectories = [
 ]
 let modelFiles = [
   repositoryRoot.appending(
-    path: "Sources/SumikaCore/Features/Chat/Models/ChatGenerationSettings.swift",
-    directoryHint: .notDirectory
-  ),
-  repositoryRoot.appending(
-    path: "Sources/SumikaCore/Features/Chat/Models/PromptContext.swift",
-    directoryHint: .notDirectory
-  ),
-  repositoryRoot.appending(
     path: "Sources/SumikaCore/Observability/TurnTraceEvent.swift",
     directoryHint: .notDirectory
-  ),
+  )
 ]
 let outputURL = repositoryRoot.appending(
   path: "docs/data-model.md",
