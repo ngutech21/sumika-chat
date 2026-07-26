@@ -851,10 +851,6 @@ nonisolated extension ToolCallState {
       nil
     }
   }
-
-  package var preview: ToolResultPreview? {
-    resultPayload?.preview ?? approvalPreview
-  }
 }
 
 package enum ToolCallStatus: String, Codable, Equatable, Sendable {
