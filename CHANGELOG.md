@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.4.1](https://github.com/ngutech21/sumika-chat/compare/v1.4.0...v1.4.1) (2026-07-26)
+
+
+### Bug Fixes
+
+* adjust minimum heights and vertical insets for transcript cell kinds ([b362401](https://github.com/ngutech21/sumika-chat/commit/b36240177a0b19ac5e605765f8b14bcdf268176e))
+* default legacy focused file completeness ([b821945](https://github.com/ngutech21/sumika-chat/commit/b821945d74f4330908ce435936e5a6e04b6aa64a))
+* ensure finish_task is called as the last tool ([38bb9e0](https://github.com/ngutech21/sumika-chat/commit/38bb9e0939053c99f683ebf37045f66177772dd0))
+* format ([6b73e0c](https://github.com/ngutech21/sumika-chat/commit/6b73e0cc2f5c84728a80672fa8ba8f8a0c014fd5))
+* handle cancellation in model stream processing ([681c10e](https://github.com/ngutech21/sumika-chat/commit/681c10eb858d883da0e68a15a8d1438f60bb5171))
+* implement finish_task handling for tool budget exhaustion scenarios ([1212513](https://github.com/ngutech21/sumika-chat/commit/12125138b06eaa5f00e6f6f31ff106fb47b846b5))
+* trim whitespace for assistant message visibility in transcript ([6c69187](https://github.com/ngutech21/sumika-chat/commit/6c69187b35cef1ab0f37645f9862f96a50a43918))
+* truncate long tool headers in transcript ([0af3006](https://github.com/ngutech21/sumika-chat/commit/0af3006f83531b121091aafa1c94c5a2222fdd21))
+* update approval terminology for consistency and accessibility ([d5b3cc5](https://github.com/ngutech21/sumika-chat/commit/d5b3cc51c0dc52a81ea51541a2206d6a9b55d4ca))
+* update transcript cell insets and implement header action handling ([817bc15](https://github.com/ngutech21/sumika-chat/commit/817bc1573eea0a26f5b7a21e90bec02da53cbe18))
+
 ## [1.4.0](https://github.com/ngutech21/sumika-chat/compare/v1.3.0...v1.4.0) (2026-07-19)
 
 
