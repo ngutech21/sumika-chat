@@ -10,17 +10,10 @@ struct CurrentPromptContextSelectorTests {
       displayName: "Foo.swift",
       content: "let value = 1"
     )
-    let workspace = Workspace(
-      name: "Project",
-      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory)
-    )
-
     let context = CurrentPromptContextSelector().selectContext(
-      userInput: "explain this",
       mode: .chat,
       focusedFileState: .empty,
       attachments: [attachment],
-      workspace: workspace,
       budget: .focusedFileDefault
     )
 
@@ -65,7 +58,6 @@ struct CurrentPromptContextSelectorTests {
     )
 
     let context = CurrentPromptContextSelector().selectContext(
-      userInput: "explain this",
       mode: .agent,
       focusedFileState: state,
       attachments: [attachment],
@@ -94,7 +86,6 @@ struct CurrentPromptContextSelectorTests {
     )
 
     let context = CurrentPromptContextSelector().selectContext(
-      userInput: "compare",
       mode: .chat,
       focusedFileState: .empty,
       attachments: [first, second],
@@ -125,7 +116,6 @@ struct CurrentPromptContextSelectorTests {
     )
 
     let context = CurrentPromptContextSelector().selectContext(
-      userInput: "summarize",
       mode: .agent,
       focusedFileState: .empty,
       attachments: [attachment],
@@ -165,7 +155,6 @@ struct CurrentPromptContextSelectorTests {
     )
 
     let context = CurrentPromptContextSelector().selectContext(
-      userInput: "explain fallback",
       mode: .agent,
       focusedFileState: state,
       attachments: [invalidAttachment],
@@ -204,7 +193,6 @@ struct CurrentPromptContextSelectorTests {
     )
 
     let context = CurrentPromptContextSelector().selectContext(
-      userInput: "what changed?",
       mode: .chat,
       focusedFileState: state,
       budget: .focusedFileDefault
@@ -247,7 +235,6 @@ struct CurrentPromptContextSelectorTests {
     )
 
     let context = CurrentPromptContextSelector().selectContext(
-      userInput: "continue",
       mode: .agent,
       focusedFileState: state,
       budget: .focusedFileDefault
@@ -281,7 +268,6 @@ struct CurrentPromptContextSelectorTests {
     )
 
     let context = CurrentPromptContextSelector().selectContext(
-      userInput: "continue",
       mode: .agent,
       focusedFileState: state,
       budget: .focusedFileDefault
@@ -295,7 +281,8 @@ struct CurrentPromptContextSelectorTests {
 
     #expect(focusedFile.excerpt?.text == "")
     #expect(focusedFile.isReuseEligible)
-    #expect(CurrentPromptContextRenderer.render(context)[0].contains("(empty file)"))
+    #expect(
+      CurrentPromptContextRenderer.renderSupportingContext(context)[0].contains("(empty file)"))
   }
 
   @Test
@@ -317,7 +304,6 @@ struct CurrentPromptContextSelectorTests {
     )
 
     let context = CurrentPromptContextSelector().selectContext(
-      userInput: "summarize",
       mode: .agent,
       focusedFileState: state,
       budget: budget
@@ -349,7 +335,6 @@ struct CurrentPromptContextSelectorTests {
     )
 
     let context = CurrentPromptContextSelector().selectContext(
-      userInput: "which file?",
       mode: .chat,
       focusedFileState: state,
       budget: .focusedFileDefault
@@ -368,7 +353,6 @@ struct CurrentPromptContextSelectorTests {
   @Test
   func emptyFocusedStateProducesEmptyContext() {
     let context = CurrentPromptContextSelector().selectContext(
-      userInput: "hello",
       mode: .chat,
       focusedFileState: .empty,
       budget: .focusedFileDefault
@@ -385,20 +369,14 @@ struct CurrentPromptContextRendererTests {
       displayName: "Foo.swift",
       content: "let value = 1"
     )
-    let workspace = Workspace(
-      name: "Project",
-      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory)
-    )
     let context = CurrentPromptContextSelector().selectContext(
-      userInput: "explain",
       mode: .chat,
       focusedFileState: .empty,
       attachments: [attachment],
-      workspace: workspace,
       budget: .focusedFileDefault
     )
 
-    let rendered = CurrentPromptContextRenderer.render(context)
+    let rendered = CurrentPromptContextRenderer.renderSupportingContext(context)
 
     #expect(rendered.count == 1)
     #expect(rendered.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
@@ -420,41 +398,35 @@ struct CurrentPromptContextRendererTests {
   }
 
   @Test
-  func renderedContextIncludesTypedAttachedFileSnapshot() throws {
+  func attachedFileContextRendersAndRetainsTypedSnapshot() throws {
     let attachment = makeTextChatAttachment(
       displayName: "Foo.swift",
       content: "let value = 1"
     )
-    let workspace = Workspace(
-      name: "Project",
-      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory)
-    )
     let context = CurrentPromptContextSelector().selectContext(
-      userInput: "explain",
       mode: .chat,
       focusedFileState: .empty,
       attachments: [attachment],
-      workspace: workspace,
       budget: .focusedFileDefault
     )
 
-    let rendered = CurrentPromptContextRenderer.renderedContext(context)
+    let rendered = CurrentPromptContextRenderer.renderSupportingContext(context)
 
-    #expect(rendered.renderedBlocks.count == 1)
-    guard case .selected(let selection) = rendered.consumedContext,
-      case .attachedFile(let consumedAttachment) = selection.blocks.values[0]
+    #expect(rendered.count == 1)
+    guard case .selected(let selection) = context,
+      case .attachedFile(let attachedFile) = selection.blocks.values[0]
     else {
-      Issue.record("Expected typed attached file consumed context.")
+      Issue.record("Expected typed attached file context.")
       return
     }
     #expect(selection.budget.maxCharacters == ContextBudget.focusedFileDefault.maxCharacters)
     #expect(selection.truncation == .none)
-    #expect(consumedAttachment.path == WorkspaceRelativePath(rawValue: "Foo.swift"))
-    #expect(consumedAttachment.displayName == "Foo.swift")
-    #expect(!consumedAttachment.contentHash.isEmpty)
-    #expect(consumedAttachment.excerpt?.text == "let value = 1")
-    #expect(consumedAttachment.excerpt?.truncated == false)
-    #expect(consumedAttachment.isEmpty == false)
+    #expect(attachedFile.path == WorkspaceRelativePath(rawValue: "Foo.swift"))
+    #expect(attachedFile.displayName == "Foo.swift")
+    #expect(!attachedFile.contentHash.isEmpty)
+    #expect(attachedFile.excerpt?.text == "let value = 1")
+    #expect(attachedFile.excerpt?.truncated == false)
+    #expect(attachedFile.isEmpty == false)
   }
 
   @Test
@@ -464,14 +436,13 @@ struct CurrentPromptContextRendererTests {
       content: ""
     )
     let context = CurrentPromptContextSelector().selectContext(
-      userInput: "explain",
       mode: .chat,
       focusedFileState: .empty,
       attachments: [attachment],
       budget: .focusedFileDefault
     )
 
-    let rendered = CurrentPromptContextRenderer.render(context)
+    let rendered = CurrentPromptContextRenderer.renderSupportingContext(context)
 
     #expect(rendered.count == 1)
     #expect(rendered[0].contains("Attached file: Empty.swift"))
@@ -496,13 +467,12 @@ struct CurrentPromptContextRendererTests {
       ]
     )
     let context = CurrentPromptContextSelector().selectContext(
-      userInput: "what is this?",
       mode: .chat,
       focusedFileState: state,
       budget: .focusedFileDefault
     )
 
-    let rendered = CurrentPromptContextRenderer.render(context)
+    let rendered = CurrentPromptContextRenderer.renderSupportingContext(context)
 
     #expect(rendered.count == 1)
     #expect(rendered.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
@@ -532,13 +502,12 @@ struct CurrentPromptContextRendererTests {
       ]
     )
     let context = CurrentPromptContextSelector().selectContext(
-      userInput: "continue",
       mode: .agent,
       focusedFileState: state,
       budget: .focusedFileDefault
     )
 
-    let rendered = CurrentPromptContextRenderer.render(
+    let rendered = CurrentPromptContextRenderer.renderSupportingContext(
       context,
       focusedFilePresentation: .compactReuse
     )
@@ -573,13 +542,12 @@ struct CurrentPromptContextRendererTests {
         ]
       )
       let context = CurrentPromptContextSelector().selectContext(
-        userInput: "continue",
         mode: .agent,
         focusedFileState: state,
         budget: .focusedFileDefault
       )
 
-      let rendered = CurrentPromptContextRenderer.render(
+      let rendered = CurrentPromptContextRenderer.renderSupportingContext(
         context,
         focusedFilePresentation: .compactReuse
       )
@@ -607,13 +575,12 @@ struct CurrentPromptContextRendererTests {
       ]
     )
     let context = CurrentPromptContextSelector().selectContext(
-      userInput: "help",
       mode: .chat,
       focusedFileState: state,
       budget: .focusedFileDefault
     )
 
-    let rendered = CurrentPromptContextRenderer.render(context)
+    let rendered = CurrentPromptContextRenderer.renderSupportingContext(context)
 
     #expect(rendered.count == 1)
     #expect(rendered[0].contains("Recent files are ambiguous:"))
@@ -623,12 +590,13 @@ struct CurrentPromptContextRendererTests {
   }
 
   @Test
-  func renderedEmptyContextIncludesTypedEmptySnapshot() {
-    let rendered = CurrentPromptContextRenderer.renderedContext(.empty(.focusedFileDefault))
+  func rendersEmptyContextAndRetainsTypedBudget() {
+    let context = CurrentPromptContext.empty(.focusedFileDefault)
+    let rendered = CurrentPromptContextRenderer.renderSupportingContext(context)
 
-    #expect(rendered.renderedBlocks.isEmpty)
-    guard case .empty(let budget) = rendered.consumedContext else {
-      Issue.record("Expected typed empty consumed context.")
+    #expect(rendered.isEmpty)
+    guard case .empty(let budget) = context else {
+      Issue.record("Expected typed empty context.")
       return
     }
     #expect(budget.maxCharacters == ContextBudget.focusedFileDefault.maxCharacters)

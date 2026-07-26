@@ -287,8 +287,7 @@ struct AgentWorkspaceInstructionsLoaderTests {
         in: session
       )
     )
-    #expect(changedCase.path == WorkspaceRelativePath(rawValue: "AGENTS.md"))
-    #expect(changedCase.snapshot != nil)
+    #expect(changedCase.snapshot?.path == WorkspaceRelativePath(rawValue: "AGENTS.md"))
   }
 
   private func makeTemporaryDirectory() throws -> URL {

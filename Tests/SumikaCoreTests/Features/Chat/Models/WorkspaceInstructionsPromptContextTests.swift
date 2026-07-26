@@ -332,7 +332,6 @@ struct WorkspaceInstructionsPromptContextTests {
   private func reusableFocusedFileContext() -> CurrentPromptContext {
     let path = WorkspaceRelativePath(rawValue: "Sources/App.swift")
     return CurrentPromptContextSelector().selectContext(
-      userInput: "Continue",
       mode: .agent,
       focusedFileState: FocusedFileState(
         activePath: path,

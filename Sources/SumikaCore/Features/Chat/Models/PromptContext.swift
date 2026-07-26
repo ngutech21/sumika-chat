@@ -73,17 +73,6 @@ package enum WorkspaceInstructionsPromptContext: Codable, Equatable, Sendable {
     case removed
   }
 
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  package var path: WorkspaceRelativePath {
-    switch self {
-    case .snapshot(let snapshot):
-      snapshot.path
-    case .removed(let removal):
-      removal.path
-    }
-  }
-
   package var snapshot: WorkspaceInstructionsSnapshot? {
     guard case .snapshot(let snapshot) = self else {
       return nil

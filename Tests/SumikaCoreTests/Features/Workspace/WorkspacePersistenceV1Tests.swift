@@ -647,11 +647,9 @@ struct WorkspacePersistenceV1Tests {
       ]
     )
     let promptContext = CurrentPromptContextSelector().selectContext(
-      userInput: "Update the app",
       mode: .agent,
       focusedFileState: focusedFileState,
       attachments: [],
-      workspace: library.workspaces[0],
       budget: .focusedFileDefault
     )
     library.workspaces[0].sessions[0].turns = [

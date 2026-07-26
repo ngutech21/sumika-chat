@@ -27,7 +27,6 @@ struct MLXSessionCachePolicyTests {
       ]
     )
     let promptContext = CurrentPromptContextSelector().selectContext(
-      userInput: "Continue",
       mode: .agent,
       focusedFileState: focusedFileState,
       budget: .focusedFileDefault

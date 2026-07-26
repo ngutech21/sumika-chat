@@ -60,11 +60,9 @@ struct ChatTurnExecutionCoordinator {
       focusedFileState: session.focusedFileState
     )
     let currentPromptContext = modelContextBuilder.currentPromptContext(
-      userInput: prompt,
       mode: interactionMode,
       focusedFileState: session.focusedFileState,
-      attachments: attachments,
-      workspace: workspace
+      attachments: attachments
     )
     conversation.applyWorkflowEvents(
       focusedEvents + [
@@ -78,7 +76,7 @@ struct ChatTurnExecutionCoordinator {
           messageID: userMessageID,
           turnID: turnID,
           attachments: attachments,
-          promptContext: currentPromptContext.consumedContext
+          promptContext: currentPromptContext
         ),
       ])
 

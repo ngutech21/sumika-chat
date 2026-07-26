@@ -38,20 +38,18 @@ struct ModelPromptProjectionTests {
       ]
     )
     let currentPromptContext = ChatModelContextBuilder().currentPromptContext(
-      userInput: "explain",
       mode: .agent,
       focusedFileState: focusedState
     )
-    let consumedContext = currentPromptContext.consumedContext
 
-    // The consumed context is the persisted form (UserTurnMessage.promptContext),
+    // The current prompt context is the persisted form (UserTurnMessage.promptContext),
     // so its typed blocks must survive a JSON round trip.
     let decoded = try JSONDecoder().decode(
       CurrentPromptContext.self,
-      from: JSONEncoder().encode(consumedContext)
+      from: JSONEncoder().encode(currentPromptContext)
     )
 
-    #expect(decoded == consumedContext)
+    #expect(decoded == currentPromptContext)
     guard case .selected(let selection) = decoded,
       case .focusedFile(let focusedFile) = selection.blocks.values[0]
     else {
@@ -100,8 +98,7 @@ struct ModelPromptProjectionTests {
 
   @Test
   func frozenContentSignatureIgnoresTypedCurrentPromptContextMetadata() throws {
-    let typedContext = CurrentPromptContextRenderer.renderedContext(.empty(.focusedFileDefault))
-      .consumedContext
+    let typedContext = CurrentPromptContext.empty(.focusedFileDefault)
     let plainEntry = try ModelFacingPromptRenderer.userPromptEntry(
       prompt: "hello",
       systemContext: ["System"]

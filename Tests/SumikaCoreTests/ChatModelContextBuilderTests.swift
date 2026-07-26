@@ -115,14 +115,14 @@ struct ChatModelContextBuilderTests {
     )
 
     let currentPromptContext = ChatModelContextBuilder().currentPromptContext(
-      userInput: "summarize this",
       mode: .chat,
       focusedFileState: state
     )
     let entry = try ModelFacingPromptRenderer.userPromptEntry(
       prompt: "summarize this",
-      systemContext: ["System"] + currentPromptContext.renderedBlocks,
-      currentPromptContext: currentPromptContext.consumedContext
+      systemContext: ["System"]
+        + CurrentPromptContextRenderer.renderSupportingContext(currentPromptContext),
+      currentPromptContext: currentPromptContext
     )
 
     #expect(
@@ -130,7 +130,7 @@ struct ChatModelContextBuilderTests {
         == .userPrompt(
           UserPromptContext(
             prompt: "summarize this",
-            currentPromptContext: currentPromptContext.consumedContext
+            currentPromptContext: currentPromptContext
           )
         ))
     guard case .userPrompt(let userPromptContext) = entry.body,
@@ -156,23 +156,17 @@ struct ChatModelContextBuilderTests {
       displayName: "Foo.swift",
       content: "func attached() {}"
     )
-    let workspace = Workspace(
-      name: "Project",
-      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory)
-    )
-
     let currentPromptContext = ChatModelContextBuilder().currentPromptContext(
-      userInput: "explain attached",
       mode: .agent,
       focusedFileState: .empty,
-      attachments: [attachment],
-      workspace: workspace
+      attachments: [attachment]
     )
     let entry = try ModelFacingPromptRenderer.userPromptEntry(
       prompt: "explain attached",
       attachments: [attachment],
-      systemContext: ["System"] + currentPromptContext.renderedBlocks,
-      currentPromptContext: currentPromptContext.consumedContext
+      systemContext: ["System"]
+        + CurrentPromptContextRenderer.renderSupportingContext(currentPromptContext),
+      currentPromptContext: currentPromptContext
     )
 
     #expect(
@@ -181,7 +175,7 @@ struct ChatModelContextBuilderTests {
           UserPromptContext(
             prompt: "explain attached",
             attachmentNames: ["Foo.swift"],
-            currentPromptContext: currentPromptContext.consumedContext
+            currentPromptContext: currentPromptContext
           )
         ))
     guard case .userPrompt(let userPromptContext) = entry.body,
@@ -648,7 +642,6 @@ struct ChatModelContextBuilderTests {
       ]
     )
     return CurrentPromptContextSelector().selectContext(
-      userInput: "Continue",
       mode: .agent,
       focusedFileState: state,
       budget: .focusedFileDefault

@@ -227,10 +227,9 @@ private enum FocusedFilePromptCostMeasurement {
       ]
     )
     let promptContext = ChatModelContextBuilder().currentPromptContext(
-      userInput: "Continue",
       mode: .agent,
       focusedFileState: state
-    ).consumedContext
+    )
 
     return ChatSession(
       turns: (1...4).map { ordinal in

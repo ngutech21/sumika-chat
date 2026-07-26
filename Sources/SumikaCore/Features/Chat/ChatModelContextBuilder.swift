@@ -247,22 +247,17 @@ internal struct ChatModelContextBuilder: Sendable {
   }
 
   package func currentPromptContext(
-    userInput: String,
     mode: WorkspaceInteractionMode,
     focusedFileState: FocusedFileState,
     attachments: [ChatAttachment] = [],
-    workspace: Workspace? = nil,
     budget: ContextBudget = .focusedFileDefault
-  ) -> RenderedCurrentPromptContext {
-    let context = CurrentPromptContextSelector().selectContext(
-      userInput: userInput,
+  ) -> CurrentPromptContext {
+    CurrentPromptContextSelector().selectContext(
       mode: mode,
       focusedFileState: focusedFileState,
       attachments: attachments,
-      workspace: workspace,
       budget: budget
     )
-    return CurrentPromptContextRenderer.renderedContext(context)
   }
 }
 

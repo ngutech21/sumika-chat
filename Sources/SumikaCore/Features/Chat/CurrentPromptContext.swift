@@ -416,33 +416,15 @@ extension NonEmptyWorkspaceRelativePaths: Codable {
   }
 }
 
-package struct RenderedCurrentPromptContext: Equatable, Sendable {
-  package let renderedBlocks: [String]
-  package let consumedContext: CurrentPromptContext
-
-  fileprivate init(
-    renderedBlocks: [String],
-    consumedContext: CurrentPromptContext
-  ) {
-    self.renderedBlocks = renderedBlocks
-    self.consumedContext = consumedContext
-  }
-}
-
 internal struct CurrentPromptContextSelector: Sendable {
-  package init() {}
-
   package func selectContext(
-    userInput _: String,
     mode _: WorkspaceInteractionMode,
     focusedFileState: FocusedFileState,
     attachments: [ChatAttachment] = [],
-    workspace: Workspace? = nil,
     budget: ContextBudget
   ) -> CurrentPromptContext {
     if let attachedFileContext = selectedAttachedFilesContext(
       attachments,
-      workspace: workspace,
       budget: budget
     ) {
       return attachedFileContext
@@ -474,11 +456,10 @@ internal struct CurrentPromptContextSelector: Sendable {
 
   private func selectedAttachedFilesContext(
     _ attachments: [ChatAttachment],
-    workspace: Workspace?,
     budget: ContextBudget
   ) -> CurrentPromptContext? {
     let validAttachments = attachments.filter { $0.kind == .text }.compactMap {
-      attachmentContextInput($0, workspace: workspace)
+      attachmentContextInput($0)
     }
     guard !validAttachments.isEmpty else {
       return nil
@@ -495,7 +476,7 @@ internal struct CurrentPromptContextSelector: Sendable {
         )
       return PromptContextBlock.attachedFile(
         .make(
-          path: input.path,
+          path: WorkspaceRelativePath(rawValue: input.displayName),
           displayName: input.displayName,
           contentHash: Self.contentHash(for: input.content),
           excerpt: excerpt,
@@ -572,32 +553,17 @@ internal struct CurrentPromptContextSelector: Sendable {
   }
 
   private func attachmentContextInput(
-    _ attachment: ChatAttachment,
-    workspace: Workspace?
+    _ attachment: ChatAttachment
   ) -> AttachmentContextInput? {
     let displayName = attachment.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !displayName.isEmpty else {
       return nil
     }
 
-    let path = attachmentPath(for: attachment, workspace: workspace)
-    guard !path.rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-      return nil
-    }
-
     return AttachmentContextInput(
-      path: path,
       displayName: displayName,
       content: attachment.content
     )
-  }
-
-  private func attachmentPath(
-    for attachment: ChatAttachment,
-    workspace: Workspace?
-  ) -> WorkspaceRelativePath {
-    _ = workspace
-    return WorkspaceRelativePath(rawValue: attachment.displayName)
   }
 
   private static func contentHash(for content: String) -> String {
@@ -606,42 +572,12 @@ internal struct CurrentPromptContextSelector: Sendable {
   }
 
   private struct AttachmentContextInput {
-    let path: WorkspaceRelativePath
     let displayName: String
     let content: String
   }
 }
 
 internal enum CurrentPromptContextRenderer {
-  package static func renderedContext(
-    _ context: CurrentPromptContext,
-    focusedFilePresentation: FocusedFilePromptPresentation = .full
-  )
-    -> RenderedCurrentPromptContext
-  {
-    RenderedCurrentPromptContext(
-      renderedBlocks: render(
-        context,
-        focusedFilePresentation: focusedFilePresentation
-      ),
-      consumedContext: context
-    )
-  }
-
-  package static func render(
-    _ context: CurrentPromptContext,
-    focusedFilePresentation: FocusedFilePromptPresentation = .full
-  ) -> [String] {
-    switch context {
-    case .empty:
-      return []
-    case .selected(let selection):
-      return selection.blocks.values.compactMap { block in
-        renderBlock(block, focusedFilePresentation: focusedFilePresentation)
-      }
-    }
-  }
-
   package static func renderWorkspaceInstructions(
     _ context: CurrentPromptContext
   ) -> [String] {
