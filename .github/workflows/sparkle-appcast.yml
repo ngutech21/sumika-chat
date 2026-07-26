@@ -25,8 +25,7 @@ jobs:
     env:
       WORKFLOW_SOURCE_PATH: ${{ github.workspace }}/workflow-source
       RELEASE_SOURCE_PATH: ${{ github.workspace }}/release-source
-      CLONED_SOURCE_PACKAGES_DIR_PATH: ${{ github.workspace }}/release-source/.build/xcode-source-packages
-      SKIP_PACKAGE_PLUGIN_VALIDATION: "1"
+      SOURCE_PACKAGES_PATH: ${{ github.workspace }}/release-source/.build
       TAG_NAME: ${{ inputs.tag_name }}
       ASSET_NAME: Sumika-${{ inputs.tag_name }}-macos.dmg
       APP_PATH: ${{ github.workspace }}/workflow-source/build/artifacts/export/Sumika.app
@@ -55,7 +54,12 @@ jobs:
       - name: Resolve Sparkle tools from release tag
         timeout-minutes: 10
         working-directory: ${{ env.RELEASE_SOURCE_PATH }}
-        run: just check-package-locks
+        run: |
+          set -euo pipefail
+
+          xcrun swift package --disable-automatic-resolution resolve
+          test -x "$SOURCE_PACKAGES_PATH/artifacts/sparkle/Sparkle/bin/generate_appcast"
+          test -x "$SOURCE_PACKAGES_PATH/artifacts/sparkle/Sparkle/bin/sign_update"
 
       - name: Download existing release
         env:

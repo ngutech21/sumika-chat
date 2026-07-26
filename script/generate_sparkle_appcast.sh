@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-build/DerivedData}"
-SOURCE_PACKAGES_PATH="${CLONED_SOURCE_PACKAGES_DIR_PATH:-$DERIVED_DATA_PATH/SourcePackages}"
+SOURCE_PACKAGES_PATH="${SOURCE_PACKAGES_PATH:-${CLONED_SOURCE_PACKAGES_DIR_PATH:-$DERIVED_DATA_PATH/SourcePackages}}"
 APP_PATH="${APP_PATH:-build/artifacts/export/Sumika.app}"
 ASSET_PATH="${ASSET_PATH:-build/artifacts/Sumika-macos-release.dmg}"
 DOWNLOAD_URL_PREFIX="${DOWNLOAD_URL_PREFIX:-https://example.invalid/sumika/releases/}"
