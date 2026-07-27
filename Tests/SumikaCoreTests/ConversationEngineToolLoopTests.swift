@@ -2009,7 +2009,7 @@ struct ConversationEngineToolLoopTests {
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 3)
-    #expect(capturedSystemPrompts[2].contains("list_files"))
+    #expect(capturedSystemPrompts[2].contains("list, glob, or search results"))
   }
 
   @Test

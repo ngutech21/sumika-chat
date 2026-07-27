@@ -82,23 +82,22 @@ nonisolated extension ToolDefinition {
   package static let editFile = ToolDefinition(
     name: .editFile,
     description:
-      "Replace exactly one current text span in an existing workspace file. Always provide all required arguments: path, old_text, and new_text. Never call edit_file with empty arguments. Call read_file first unless the exact current old_text is visible in the latest context. old_text must be copied verbatim from current file content, match once, and be as small as practical. Keep new_text to one coherent section. Do not guess from memory.",
+      "Replace one unique text span in an existing file. Read first unless the current content is already in context.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
-        description: "Workspace-relative existing file path.",
+        description: "Workspace-relative path to the existing file.",
         isRequired: true
       ),
       ToolParameterDefinition(
         name: "old_text",
-        description:
-          "Exact current file text to replace. Copy verbatim from read_file output or visible current file content. Must match exactly once.",
+        description: "Exact current text to replace; it must occur exactly once.",
         isRequired: true,
         supportsHeredocPayload: true
       ),
       ToolParameterDefinition(
         name: "new_text",
-        description: "Replacement UTF-8 text for one coherent section.",
+        description: "Replacement text. Use an empty string to delete the matched span.",
         isRequired: true,
         supportsHeredocPayload: true
       ),

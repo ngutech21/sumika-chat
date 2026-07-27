@@ -1387,9 +1387,7 @@ struct ConversationEngineTests {
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 2)
     #expect(capturedSystemPrompts[0].contains("read_file"))
-    #expect(capturedSystemPrompts[0].contains("list_files"))
-    #expect(capturedSystemPrompts[0].contains("glob_files"))
-    #expect(capturedSystemPrompts[0].contains("search_files"))
+    #expect(capturedSystemPrompts[0].contains("list, glob, or search results"))
     #expect(capturedSystemPrompts[0].contains("write_file"))
     #expect(capturedSystemPrompts[0].contains("edit_file"))
     #expect(capturedSystemPrompts[0] == capturedSystemPrompts[1])

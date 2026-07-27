@@ -173,10 +173,10 @@ struct ConversationEngineWriteApprovalTests {
       capturedSystemPrompts.last?.contains("Do not include generated file contents")
         == false)
     #expect(
-      capturedSystemPrompts.last?.contains("Never claim a change without a successful result")
+      capturedSystemPrompts.last?.contains("Never claim a change without a successful tool result")
         == true)
     #expect(
-      capturedSystemPrompts.last?.contains("a failed or invalid result means no change") == true)
+      capturedSystemPrompts.last?.contains("a failed or invalid result means no change") == false)
     let capturedPromptPlans = await runtime.capturedPromptPlans
     #expect(capturedPromptPlans.last?.transientInstructions.isEmpty == true)
     #expect(capturedPromptPlans.last?.toolContext != nil)

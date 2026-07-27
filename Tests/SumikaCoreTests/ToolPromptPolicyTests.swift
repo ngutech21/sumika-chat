@@ -29,13 +29,20 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("finish_task"))
     #expect(prompt.contains("call it exactly once and alone"))
     #expect(prompt.contains("complete user-visible final response in summary"))
-    #expect(prompt.contains("Do not batch large file mutations."))
-    #expect(prompt.contains("including Markdown or prose"))
-    #expect(prompt.contains("call write_file immediately"))
-    #expect(prompt.contains("do not draft the full content in reasoning"))
-    #expect(prompt.contains("one named section per edit_file call"))
-    #expect(prompt.contains("not placeholder comments"))
-    #expect(prompt.contains("After a successful edit/write, inspect or verify as needed"))
+    #expect(prompt.contains("Inspect before editing; never guess existing content."))
+    #expect(
+      prompt.contains(
+        "Read existing files with read_file unless their current content is already in context."))
+    #expect(
+      prompt.contains(
+        "Reuse current read, list, glob, or search results unless the relevant content changed."))
+    #expect(prompt.contains("Use edit_file for targeted changes to existing files."))
+    #expect(prompt.contains("Keep file mutations bounded."))
+    #expect(
+      prompt.contains("If a file being created or fully replaced may not fit in one response"))
+    #expect(prompt.contains("do not draft the full file in reasoning"))
+    #expect(prompt.contains("one coherent section per edit_file call"))
+    #expect(prompt.contains("After a successful edit or write, inspect or verify as needed"))
     #expect(prompt.contains("Never print tool-call XML, JSON"))
     #expect(prompt.contains("native tool calls"))
     #expect(!prompt.contains("Available tools:"))
@@ -76,7 +83,7 @@ struct ToolPromptPolicyTests {
       toolRegistry: ToolRegistry(tools: [.readFile, .writeFile])
     )
 
-    #expect(prompt.contains("After a successful edit/write, inspect or verify as needed"))
+    #expect(prompt.contains("After a successful edit or write, inspect or verify as needed"))
     #expect(prompt.contains("provide the final answer directly"))
     #expect(!prompt.contains("call finish_task"))
   }
@@ -115,10 +122,8 @@ struct ToolPromptPolicyTests {
     #expect(!prompt.contains("No more tools may run"))
     #expect(!prompt.contains("Do not call another tool"))
     #expect(!prompt.contains("Do not include generated file contents"))
-    #expect(
-      prompt.contains("Never claim a change without a successful result"))
-    #expect(
-      prompt.contains("a failed or invalid result means no change"))
+    #expect(prompt.contains("Never claim a change without a successful tool result"))
+    #expect(!prompt.contains("a failed or invalid result means no change"))
   }
 
   @Test
@@ -165,10 +170,7 @@ struct ToolPromptPolicyTests {
     )
 
     #expect(enabledPrompt.contains("todo_write"))
-    #expect(
-      enabledPrompt.contains("Never claim a change without a successful result"))
-    #expect(
-      enabledPrompt.contains("a failed or invalid result means no change"))
+    #expect(enabledPrompt.contains("Never claim a change without a successful tool result"))
     #expect(!disabledPrompt.contains("Available tools:"))
     #expect(!disabledPrompt.contains("todo_write"))
     #expect(!disabledPrompt.contains("planned todo"))
