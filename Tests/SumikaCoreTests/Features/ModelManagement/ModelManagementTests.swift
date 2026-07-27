@@ -1,8 +1,10 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
 
+@Suite(TemporaryDirectoryTrait(named: "sumika-model-management-tests"))
 struct ModelManagementTests {
   @Test
   func supportsWorkspaceToolsTracksToolCallingPolicyEnabledFlag() {
@@ -70,7 +72,7 @@ struct ModelManagementTests {
 
   @Test
   func settingsStorePersistsPerModelSettings() async throws {
-    let settingsURL = temporarySettingsURL()
+    let settingsURL = try temporarySettingsURL()
     let store = ModelSettingsStore(
       userDefaults: makeUserDefaults(),
       settingsURL: settingsURL
@@ -103,7 +105,7 @@ struct ModelManagementTests {
   func restoreConfigurationReturnsNilWhenNoConfigurationExists() async throws {
     let store = ModelSettingsStore(
       userDefaults: makeUserDefaults(),
-      settingsURL: temporarySettingsURL(),
+      settingsURL: try temporarySettingsURL(),
       generationConfigPresetProvider: { _ in nil }
     )
 
@@ -117,7 +119,7 @@ struct ModelManagementTests {
   @Test
   func restoreConfigurationReturnsPersistedSelectionAndSettings() async throws {
     let userDefaultsSuiteName = makeUserDefaultsSuiteName()
-    let settingsURL = temporarySettingsURL()
+    let settingsURL = try temporarySettingsURL()
     let model = try #require(ManagedModelCatalog.model(id: "gemma4-26b-qat-4bit"))
     let settings = StoredModelSettings(
       modeSettings: ChatModeSettingsSet(
@@ -155,7 +157,7 @@ struct ModelManagementTests {
 
   @Test
   func restoreConfigurationRejectsCorruptSettingsFile() async throws {
-    let settingsURL = temporarySettingsURL()
+    let settingsURL = try temporarySettingsURL()
     try FileManager.default.createDirectory(
       at: settingsURL.deletingLastPathComponent(),
       withIntermediateDirectories: true
@@ -178,7 +180,7 @@ struct ModelManagementTests {
     userDefaults.set("removed-model", forKey: "selectedModelID")
     let store = ModelSettingsStore(
       userDefaults: userDefaults,
-      settingsURL: temporarySettingsURL(),
+      settingsURL: try temporarySettingsURL(),
       generationConfigPresetProvider: { _ in nil }
     )
 
@@ -189,7 +191,7 @@ struct ModelManagementTests {
 
   @Test
   func settingsStoreFallsBackToDefaultsForCorruptSettingsFile() async throws {
-    let settingsURL = temporarySettingsURL()
+    let settingsURL = try temporarySettingsURL()
     try FileManager.default.createDirectory(
       at: settingsURL.deletingLastPathComponent(),
       withIntermediateDirectories: true
@@ -213,7 +215,7 @@ struct ModelManagementTests {
 
   @Test
   func settingsStorePreservesConcurrentSavesForDifferentModels() async throws {
-    let settingsURL = temporarySettingsURL()
+    let settingsURL = try temporarySettingsURL()
     let store = ModelSettingsStore(userDefaults: makeUserDefaults(), settingsURL: settingsURL)
     let firstModel = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
     let secondModel = try #require(ManagedModelCatalog.model(id: "gemma4-26b-qat-4bit"))
@@ -267,9 +269,9 @@ struct ModelManagementTests {
     return userDefaults
   }
 
-  private func temporarySettingsURL() -> URL {
-    FileManager.default.temporaryDirectory
-      .appending(path: "sumika-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+  private func temporarySettingsURL() throws -> URL {
+    try scopedTemporaryDirectory()
+      .appending(path: UUID().uuidString, directoryHint: .isDirectory)
       .appending(path: "model-settings.json", directoryHint: .notDirectory)
   }
 }

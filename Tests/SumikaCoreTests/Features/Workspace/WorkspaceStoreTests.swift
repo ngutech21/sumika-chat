@@ -1,12 +1,14 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
 
+@Suite(TemporaryDirectoryTrait(named: "sumika-workspace-store-tests"))
 struct WorkspaceStoreTests {
   @Test
   func workspaceStoreReturnsCleanEmptyLibraryForMissingFile() async throws {
-    let missingStore = WorkspaceStore(baseURL: temporaryBaseURL())
+    let missingStore = WorkspaceStore(baseURL: try temporaryBaseURL())
 
     let result = await missingStore.loadLibrary()
     #expect(result.library == WorkspaceLibrary())
@@ -16,7 +18,7 @@ struct WorkspaceStoreTests {
 
   @Test
   func workspaceStoreFailsClosedWithoutChangingInvalidLegacyData() async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     let legacyURL = legacyLibraryURL(baseURL: baseURL)
     try FileManager.default.createDirectory(
       at: baseURL,
@@ -43,7 +45,7 @@ struct WorkspaceStoreTests {
 
   @Test
   func workspaceStoreLoadsSessionWithoutMCPSelection() async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     let legacyURL = legacyLibraryURL(baseURL: baseURL)
     try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
     let session = ChatSession(title: "Legacy")
@@ -76,7 +78,7 @@ struct WorkspaceStoreTests {
 
   @Test
   func workspaceStorePersistsLibraryAndBookmarkData() async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     let store = WorkspaceStore(baseURL: baseURL)
     let session = ChatSession(
       selectedModelID: "gemma4-12b-qat-4bit",
@@ -119,7 +121,7 @@ struct WorkspaceStoreTests {
 
   @Test
   func workspaceStorePersistsToolCallRecords() async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     let store = WorkspaceStore(baseURL: baseURL)
     let workspaceID = UUID()
     let sessionID = UUID()
@@ -171,7 +173,7 @@ struct WorkspaceStoreTests {
 
   @Test
   func workspaceStorePersistsFocusedFileState() async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     let store = WorkspaceStore(baseURL: baseURL)
     let path = WorkspaceRelativePath(rawValue: "Sources/App.swift")
     let focusedFileState = FocusedFileState(
@@ -216,7 +218,7 @@ struct WorkspaceStoreTests {
 
   @Test
   func workspaceStorePersistsTodoState() async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     let store = WorkspaceStore(baseURL: baseURL)
     let todoState = TodoState(items: [
       TodoItem(id: "inspect", content: "Inspect files", status: .completed),
@@ -335,9 +337,9 @@ struct WorkspaceStoreTests {
     #expect(decoded == session)
   }
 
-  private func temporaryBaseURL() -> URL {
-    FileManager.default.temporaryDirectory
-      .appending(path: "sumika-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+  private func temporaryBaseURL() throws -> URL {
+    try scopedTemporaryDirectory()
+      .appending(path: UUID().uuidString, directoryHint: .isDirectory)
   }
 
   private func legacyLibraryURL(baseURL: URL) -> URL {

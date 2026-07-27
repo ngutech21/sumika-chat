@@ -1,9 +1,10 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
 
-@Suite(.serialized)
+@Suite(.serialized, TemporaryDirectoryTrait(named: "sumika-tool-loop-tests"))
 struct ToolLoopCoordinatorTests {
   @Test
   func nativeReadFileExecutesAndRequestsFollowUp() async throws {
@@ -1709,8 +1710,8 @@ struct ToolLoopCoordinatorTests {
   }
 
   private func makeWorkspace(sessionID: ChatSession.ID) throws -> Workspace {
-    let rootURL = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-tests-\(UUID().uuidString)",
+    let rootURL = try scopedTemporaryDirectory().appending(
+      path: UUID().uuidString,
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)

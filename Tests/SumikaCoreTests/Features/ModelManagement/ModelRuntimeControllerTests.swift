@@ -1,9 +1,10 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
 
-@Suite(.serialized)
+@Suite(.serialized, TemporaryDirectoryTrait(named: "sumika-model-runtime-tests"))
 @MainActor
 struct ModelRuntimeControllerTests {
   @Test
@@ -419,8 +420,8 @@ struct ModelRuntimeControllerTests {
   }
 
   private func makeModelDirectory(config: String) throws -> URL {
-    let modelDirectory = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-tests-\(UUID().uuidString)",
+    let modelDirectory = try scopedTemporaryDirectory().appending(
+      path: UUID().uuidString,
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)

@@ -1,9 +1,10 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
 
-@Suite(.serialized)
+@Suite(.serialized, TemporaryDirectoryTrait(named: "sumika-semantic-agent-loop-tests"))
 @MainActor
 struct SemanticAgentLoopTests {
   @Test
@@ -286,8 +287,8 @@ struct SemanticAgentLoopTests {
   }
 
   private func makeWorkspace(sessionID: ChatSession.ID) throws -> Workspace {
-    let rootURL = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-semantic-agent-loop-tests-\(UUID().uuidString)",
+    let rootURL = try scopedTemporaryDirectory().appending(
+      path: UUID().uuidString,
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)

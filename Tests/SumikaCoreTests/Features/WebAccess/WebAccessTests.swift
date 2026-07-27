@@ -1,4 +1,5 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
@@ -7,6 +8,7 @@ import Testing
   import FoundationNetworking
 #endif
 
+@Suite(TemporaryDirectoryTrait(named: "sumika-web-access-tests"))
 struct WebAccessTests {
   @Test
   func duckDuckGoHTMLParserReadsLocalFixture() throws {
@@ -942,8 +944,8 @@ struct WebAccessTests {
 
   @Test
   func webAccessSettingsStorePersistsGlobalSettings() async throws {
-    let url = FileManager.default.temporaryDirectory
-      .appending(path: "web-access-\(UUID().uuidString).json", directoryHint: .notDirectory)
+    let url = try scopedTemporaryDirectory()
+      .appending(path: "settings.json", directoryHint: .notDirectory)
     let settings = WebAccessSettings(
       policy: .allow,
       provider: .searxng,
@@ -975,8 +977,8 @@ private func fixtureText(_ name: String) throws -> String {
 }
 
 private func makeWorkspace() throws -> Workspace {
-  let root = FileManager.default.temporaryDirectory
-    .appending(path: "sumika-web-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+  let root = try scopedTemporaryDirectory()
+    .appending(path: UUID().uuidString, directoryHint: .isDirectory)
   try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
   return Workspace(name: "Web Tests", rootURL: root)
 }

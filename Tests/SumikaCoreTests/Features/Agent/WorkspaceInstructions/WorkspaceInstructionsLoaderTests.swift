@@ -1,8 +1,10 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
 
+@Suite(TemporaryDirectoryTrait(named: "sumika-workspace-instructions-tests"))
 struct AgentWorkspaceInstructionsLoaderTests {
   @Test
   func fileSelectionPrefersExactCaseAndRejectsAmbiguousFallbacks() throws {
@@ -33,7 +35,6 @@ struct AgentWorkspaceInstructionsLoaderTests {
   @Test
   func loadsCaseInsensitiveRootFileAndIgnoresNestedInstructions() async throws {
     let rootURL = try makeTemporaryDirectory()
-    defer { try? FileManager.default.removeItem(at: rootURL) }
     let nestedURL = rootURL.appending(path: "nested", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: nestedURL, withIntermediateDirectories: true)
     try "nested rules".write(
@@ -63,7 +64,6 @@ struct AgentWorkspaceInstructionsLoaderTests {
   @Test
   func missingRootFileDoesNotUseNestedFile() async throws {
     let rootURL = try makeTemporaryDirectory()
-    defer { try? FileManager.default.removeItem(at: rootURL) }
     let nestedURL = rootURL.appending(path: "nested", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: nestedURL, withIntermediateDirectories: true)
     try "nested rules".write(
@@ -82,7 +82,6 @@ struct AgentWorkspaceInstructionsLoaderTests {
   @Test
   func fullHashDetectsChangesAfterTruncatedExcerpt() async throws {
     let rootURL = try makeTemporaryDirectory()
-    defer { try? FileManager.default.removeItem(at: rootURL) }
     let fileURL = rootURL.appending(path: "AGENTS.md")
     try (String(repeating: "a", count: 8_000) + "first").write(
       to: fileURL,
@@ -123,7 +122,6 @@ struct AgentWorkspaceInstructionsLoaderTests {
   @Test
   func loadsEmptyFileWithoutTreatingItAsMissing() async throws {
     let rootURL = try makeTemporaryDirectory()
-    defer { try? FileManager.default.removeItem(at: rootURL) }
     try Data().write(to: rootURL.appending(path: "AGENTS.md"))
 
     let result = try await WorkspaceInstructionsLoader().loadInstructions(
@@ -141,11 +139,9 @@ struct AgentWorkspaceInstructionsLoaderTests {
   @Test
   func rejectsWorkspaceEscapeThroughRootSymlink() async throws {
     let rootURL = try makeTemporaryDirectory()
-    defer { try? FileManager.default.removeItem(at: rootURL) }
-    let outsideURL = FileManager.default.temporaryDirectory.appending(
+    let outsideURL = try scopedTemporaryDirectory().appending(
       path: "outside-agents-\(UUID().uuidString).md"
     )
-    defer { try? FileManager.default.removeItem(at: outsideURL) }
     try "outside rules".write(to: outsideURL, atomically: true, encoding: .utf8)
     try FileManager.default.createSymbolicLink(
       at: rootURL.appending(path: "AGENTS.md"),
@@ -164,7 +160,6 @@ struct AgentWorkspaceInstructionsLoaderTests {
   @Test
   func unreadableFileAndUninspectableRootFailExplicitly() async throws {
     let rootURL = try makeTemporaryDirectory()
-    defer { try? FileManager.default.removeItem(at: rootURL) }
     let fileURL = rootURL.appending(path: "AGENTS.md")
     try "rules".write(to: fileURL, atomically: true, encoding: .utf8)
     try FileManager.default.setAttributes(
@@ -186,7 +181,7 @@ struct AgentWorkspaceInstructionsLoaderTests {
       )
     }
 
-    let missingRootURL = FileManager.default.temporaryDirectory.appending(
+    let missingRootURL = try scopedTemporaryDirectory().appending(
       path: "missing-workspace-\(UUID().uuidString)",
       directoryHint: .isDirectory
     )
@@ -202,7 +197,6 @@ struct AgentWorkspaceInstructionsLoaderTests {
   @Test
   func invalidUTF8AndNonFileMatchesFailExplicitly() async throws {
     let invalidRootURL = try makeTemporaryDirectory()
-    defer { try? FileManager.default.removeItem(at: invalidRootURL) }
     try Data([0xff, 0xfe]).write(to: invalidRootURL.appending(path: "AGENTS.md"))
 
     await #expect(
@@ -214,7 +208,6 @@ struct AgentWorkspaceInstructionsLoaderTests {
     }
 
     let directoryRootURL = try makeTemporaryDirectory()
-    defer { try? FileManager.default.removeItem(at: directoryRootURL) }
     try FileManager.default.createDirectory(
       at: directoryRootURL.appending(path: "AGENTS.md", directoryHint: .isDirectory),
       withIntermediateDirectories: true
@@ -291,8 +284,8 @@ struct AgentWorkspaceInstructionsLoaderTests {
   }
 
   private func makeTemporaryDirectory() throws -> URL {
-    let url = FileManager.default.temporaryDirectory.appending(
-      path: "workspace-instructions-tests-\(UUID().uuidString)",
+    let url = try scopedTemporaryDirectory().appending(
+      path: UUID().uuidString,
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

@@ -1,17 +1,14 @@
 import Foundation
 import SumikaCore
+import SumikaTestSupport
 import Testing
 
-@Suite(.serialized)
+@Suite(.serialized, TemporaryDirectoryTrait(named: "sumika-agent-composition-tests"))
 @MainActor
 struct AgentCompositionIntegrationTests {
   @Test
   func conversationRequiresValidatedActivationAndPublishesFinalSnapshot() throws {
-    let testRoot = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-core-conversation-state-\(UUID().uuidString)",
-      directoryHint: .isDirectory
-    )
-    defer { try? FileManager.default.removeItem(at: testRoot) }
+    let testRoot = try scopedTemporaryDirectory()
 
     let sumika = Sumika(
       dependencies: Sumika.Dependencies(
@@ -69,10 +66,7 @@ struct AgentCompositionIntegrationTests {
 
   @Test
   func corePackageBuildsAndRunsAgentWithoutAppOrMLXTargets() async throws {
-    let testRoot = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-core-agent-composition-\(UUID().uuidString)",
-      directoryHint: .isDirectory
-    )
+    let testRoot = try scopedTemporaryDirectory()
     let modelDirectory = testRoot.appending(path: "model", directoryHint: .isDirectory)
     let workspaceDirectory = testRoot.appending(path: "workspace", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(
@@ -88,10 +82,6 @@ struct AgentCompositionIntegrationTests {
       atomically: true,
       encoding: .utf8
     )
-    defer {
-      try? FileManager.default.removeItem(at: testRoot)
-    }
-
     let runtime = AgentCompositionRuntime()
     let selectedModel = ManagedModelCatalog.defaultModel
     let settings = StoredModelSettings(

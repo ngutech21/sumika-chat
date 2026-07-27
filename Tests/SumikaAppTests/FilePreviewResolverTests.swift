@@ -1,9 +1,11 @@
 import Foundation
 import SumikaCore
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaApp
 
+@Suite(TemporaryDirectoryTrait(named: "sumika-file-preview-tests"))
 struct FilePreviewResolverTests {
   @Test
   func resolvesUTF8FileInsideWorkspace() throws {
@@ -52,8 +54,8 @@ struct FilePreviewResolverTests {
   }
 
   private func makeWorkspace() throws -> Workspace {
-    let rootURL = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-file-preview-test-\(UUID().uuidString)",
+    let rootURL = try scopedTemporaryDirectory().appending(
+      path: UUID().uuidString,
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)

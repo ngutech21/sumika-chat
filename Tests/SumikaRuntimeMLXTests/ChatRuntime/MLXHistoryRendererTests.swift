@@ -8,13 +8,13 @@ import Testing
 #if canImport(SumikaTestSupport)
   import SumikaTestSupport
 #endif
-@Suite()
+@Suite(TemporaryDirectoryTrait(named: "sumika-mlx-history-tests"))
 struct MLXHistoryRendererTests {
   @Test
   func imageInputsUseAttachmentFileURLs() throws {
-    let directoryURL = FileManager.default.temporaryDirectory
+    let directoryURL = try scopedTemporaryDirectory()
       .appending(
-        path: "sumika-runtime-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+        path: UUID().uuidString, directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
     let url = directoryURL.appending(path: "screenshot.png", directoryHint: .notDirectory)
     let data = Data([0x89, 0x50, 0x4e, 0x47])

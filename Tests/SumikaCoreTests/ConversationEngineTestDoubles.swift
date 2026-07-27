@@ -178,12 +178,10 @@ extension ConversationEngine {
   }
 }
 
-func makeConversationTestWorkspace(containing session: ChatSession) throws -> Workspace {
-  let rootURL = FileManager.default.temporaryDirectory.appending(
-    path: "sumika-conversation-tests-\(UUID().uuidString)",
-    directoryHint: .isDirectory
-  )
-  try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+func makeConversationTestWorkspace(
+  containing session: ChatSession,
+  rootURL: URL
+) -> Workspace {
   return Workspace(
     name: "Test Workspace",
     rootURL: rootURL,

@@ -1,16 +1,20 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
 
-@Suite(.serialized)
+@Suite(.serialized, TemporaryDirectoryTrait(named: "sumika-conversation-lifecycle-tests"))
 @MainActor
 struct ConversationEngineLifecycleTests {
   @Test
   func userTurnStreamsAssistantReplyAndCompletes() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello"])
     let session = ChatSession(interactionMode: .chat)
-    let workspace = try makeConversationTestWorkspace(containing: session)
+    let workspace = makeConversationTestWorkspace(
+      containing: session,
+      rootURL: try scopedTemporaryDirectory()
+    )
     let harness = ConversationEngineLifecycleHarness(
       session: session,
       runtime: runtime
@@ -452,7 +456,10 @@ struct ConversationEngineLifecycleTests {
       ]
     ])
     let session = ChatSession(interactionMode: .chat)
-    let workspace = try makeConversationTestWorkspace(containing: session)
+    let workspace = makeConversationTestWorkspace(
+      containing: session,
+      rootURL: try scopedTemporaryDirectory()
+    )
     let harness = ConversationEngineLifecycleHarness(
       session: session,
       runtime: runtime
@@ -483,7 +490,10 @@ struct ConversationEngineLifecycleTests {
   func cancelActiveTurnMarksTurnCancelledAndRemovesTransientPlaceholder() async throws {
     let runtime = ControlledStreamingRuntime(turns: [["partial"]], blockedCallIndexes: [0])
     let session = ChatSession(interactionMode: .chat)
-    let workspace = try makeConversationTestWorkspace(containing: session)
+    let workspace = makeConversationTestWorkspace(
+      containing: session,
+      rootURL: try scopedTemporaryDirectory()
+    )
     let harness = ConversationEngineLifecycleHarness(
       session: session,
       runtime: runtime
@@ -763,11 +773,7 @@ private actor WorkspaceInstructionsLoaderStub: WorkspaceInstructionsLoading {
 }
 
 private func makeWorkspace(sessionID: ChatSession.ID) throws -> Workspace {
-  let rootURL = FileManager.default.temporaryDirectory.appending(
-    path: "sumika-tests-\(UUID().uuidString)",
-    directoryHint: .isDirectory
-  )
-  try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+  let rootURL = try scopedTemporaryDirectory()
   try "project notes".write(
     to: rootURL.appending(path: "README.md"),
     atomically: true,

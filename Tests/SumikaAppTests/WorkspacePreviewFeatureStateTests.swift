@@ -1,9 +1,11 @@
 import Foundation
 import SumikaCore
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaApp
 
+@Suite(TemporaryDirectoryTrait(named: "sumika-workspace-preview-tests"))
 @MainActor
 struct WorkspacePreviewFeatureStateTests {
   @Test
@@ -107,8 +109,8 @@ struct WorkspacePreviewFeatureStateTests {
   }
 
   private func makeWorkspace() throws -> Workspace {
-    let rootURL = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-workspace-preview-test-\(UUID().uuidString)",
+    let rootURL = try scopedTemporaryDirectory().appending(
+      path: UUID().uuidString,
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)

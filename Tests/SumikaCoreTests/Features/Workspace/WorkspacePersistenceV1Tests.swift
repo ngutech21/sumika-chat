@@ -1,13 +1,14 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
 
-@Suite(.serialized)
+@Suite(.serialized, TemporaryDirectoryTrait(named: "sumika-workspace-persistence-tests"))
 struct WorkspacePersistenceV1Tests {
   @Test
   func saveUsesVersionedManifestAndOneLowercaseFilePerSession() async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     let library = makeLibrary()
     let store = WorkspaceStore(
       baseURL: baseURL,
@@ -63,7 +64,7 @@ struct WorkspacePersistenceV1Tests {
 
   @Test
   func migrationMovesLegacyFixtureLosslesslyIntoV1AndDeletesLegacy() async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
     let legacyData = try Data(contentsOf: legacyFixtureURL)
     try legacyData.write(to: legacyURL(baseURL: baseURL))
@@ -97,7 +98,7 @@ struct WorkspacePersistenceV1Tests {
 
   @Test
   func migrationDefaultsMissingFocusedFileCompletenessOnlyForLegacyData() async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
     let legacyData = try legacyDataWithMissingFocusedFileCompleteness()
 
@@ -131,7 +132,7 @@ struct WorkspacePersistenceV1Tests {
 
   @Test
   func migrationWithMultipleFocusedFileSnapshotsIsLossless() async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
     var legacyLibrary = makeLibrary()
     legacyLibrary.workspaces[0].sessions[0].focusedFileState = FocusedFileState(
@@ -188,7 +189,7 @@ struct WorkspacePersistenceV1Tests {
 
   @Test
   func staleMigrationDirectoryDoesNotPreventRepeatableMigration() async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     let staleStagingURL = baseURL.appending(
       path: "WorkspaceLibrary.migrating-stale",
       directoryHint: .isDirectory
@@ -296,7 +297,7 @@ struct WorkspacePersistenceV1Tests {
 
   @Test
   func versionedDirectoryWithoutManifestFailsClosed() async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     let sessionsURL = sessionsDirectoryURL(baseURL: baseURL)
     try FileManager.default.createDirectory(
       at: sessionsURL,
@@ -377,7 +378,7 @@ struct WorkspacePersistenceV1Tests {
 
   @Test
   func unreferencedSessionFileIsIgnored() async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     let library = makeLibrary()
     let store = WorkspaceStore(baseURL: baseURL)
     try await store.saveLibrary(library)
@@ -394,7 +395,7 @@ struct WorkspacePersistenceV1Tests {
 
   @Test
   func sessionOnlySaveDoesNotRewriteManifestOrSiblingSession() async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     let library = makeLibrary()
     let store = WorkspaceStore(baseURL: baseURL)
     try await store.saveLibrary(library)
@@ -431,7 +432,7 @@ struct WorkspacePersistenceV1Tests {
 
   @Test
   func freshStoreLoadsItsSnapshotBeforeSavingAndKeepsANoOpSaveByteStable() async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     let library = makeLibrary()
     try await WorkspaceStore(baseURL: baseURL).saveLibrary(library)
     let manifestURL = manifestURL(baseURL: baseURL)
@@ -454,7 +455,7 @@ struct WorkspacePersistenceV1Tests {
 
   @Test
   func workspaceAndSelectionChangesRewriteOnlyManifest() async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     var library = makeLibrary()
     let store = WorkspaceStore(baseURL: baseURL)
     try await store.saveLibrary(library)
@@ -494,7 +495,7 @@ struct WorkspacePersistenceV1Tests {
 
   @Test
   func sessionCreationAndDeletionUpdateManifestMembershipAndFiles() async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     var library = makeLibrary()
     let store = WorkspaceStore(baseURL: baseURL)
     try await store.saveLibrary(library)
@@ -521,7 +522,7 @@ struct WorkspacePersistenceV1Tests {
 
   @Test
   func versionedLibraryWinsWhenLegacyFileAlsoExists() async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     let library = makeLibrary()
     try await WorkspaceStore(baseURL: baseURL).saveLibrary(library)
     let legacyLibrary = WorkspaceLibrary(
@@ -542,7 +543,7 @@ struct WorkspacePersistenceV1Tests {
   }
 
   private func assertInvalidLegacyRemainsUntouched(_ data: Data) async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
     let legacyURL = legacyURL(baseURL: baseURL)
     try data.write(to: legacyURL)
@@ -567,7 +568,7 @@ struct WorkspacePersistenceV1Tests {
     },
     mutation: (inout [String: Any]) throws -> Void
   ) async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     try await WorkspaceStore(baseURL: baseURL).saveLibrary(makeLibrary())
     let url = manifestURL(baseURL: baseURL)
     var object = try jsonObject(at: url)
@@ -598,7 +599,7 @@ struct WorkspacePersistenceV1Tests {
     },
     mutation: (URL, ChatSession.ID) throws -> Void
   ) async throws {
-    let baseURL = temporaryBaseURL()
+    let baseURL = try temporaryBaseURL()
     let library = makeLibrary()
     try await WorkspaceStore(baseURL: baseURL).saveLibrary(library)
     let sessionID = library.workspaces[0].sessions[0].id
@@ -790,10 +791,10 @@ struct WorkspacePersistenceV1Tests {
       .appending(path: "workspace-library-golden.json", directoryHint: .notDirectory)
   }
 
-  private func temporaryBaseURL() -> URL {
-    FileManager.default.temporaryDirectory
+  private func temporaryBaseURL() throws -> URL {
+    try scopedTemporaryDirectory()
       .appending(
-        path: "sumika-workspace-v1-tests-\(UUID().uuidString)",
+        path: UUID().uuidString,
         directoryHint: .isDirectory
       )
   }

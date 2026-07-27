@@ -1,5 +1,6 @@
 import Foundation
 import MCP
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
@@ -7,6 +8,7 @@ import Testing
 /// End-to-end tests speak real JSON-RPC over stdio against a `/bin/sh` fake
 /// server. The SDK uses opaque request IDs, so scripted responses echo each
 /// request's ID instead of assuming a sequence.
+@Suite(TemporaryDirectoryTrait(named: "sumika-mcp-client-tests"))
 struct MCPClientTests {
   private static let fakeServerScript = """
     #!/bin/sh
@@ -27,8 +29,8 @@ struct MCPClientTests {
     """
 
   private func writeScript(_ content: String) throws -> URL {
-    let directory = FileManager.default.temporaryDirectory
-      .appending(path: "sumika-mcp-client-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let directory = try scopedTemporaryDirectory()
+      .appending(path: UUID().uuidString, directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let url = directory.appending(path: "fake-mcp-server.sh", directoryHint: .notDirectory)
     try content.write(to: url, atomically: true, encoding: .utf8)
@@ -39,16 +41,11 @@ struct MCPClientTests {
     return url
   }
 
-  private func removeScript(_ url: URL) {
-    try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
-  }
-
   // MARK: - Connection end to end
 
   @Test
   func startListsToolsAndCallToolRoundTrips() async throws {
     let script = try writeScript(Self.fakeServerScript)
-    defer { removeScript(script) }
     let config = MCPServerConfig(
       name: "Fake",
       command: script.path(percentEncoded: false)
@@ -167,12 +164,11 @@ struct MCPClientTests {
 
   @Test
   func connectionUsesWorkspaceDirectoryAndAnswersRootsList() async throws {
-    let workspaceRootURL = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-mcp-workspace-\(UUID().uuidString)",
+    let workspaceRootURL = try scopedTemporaryDirectory().appending(
+      path: UUID().uuidString,
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: workspaceRootURL, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
     let resolvedWorkspaceRootURL = workspaceRootURL.resolvingSymlinksInPath()
     try Data().write(to: workspaceRootURL.appending(path: ".workspace-root-marker"))
     let markerURL = workspaceRootURL.appending(path: "roots-response.json")
@@ -200,7 +196,6 @@ struct MCPClientTests {
       printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[]}}\\n' "$id"
       """
     )
-    defer { removeScript(script) }
     let connection = MCPServerConnection(
       config: MCPServerConfig(
         name: "Roots",
@@ -239,7 +234,6 @@ struct MCPClientTests {
       exit 1
       """
     )
-    defer { removeScript(script) }
     let connection = MCPServerConnection(
       config: MCPServerConfig(name: "Broken", command: script.path(percentEncoded: false)),
       workspaceRootURL: script.deletingLastPathComponent()
@@ -352,7 +346,6 @@ struct MCPClientTests {
   @Test
   func managerDoesNotStartServersWhenConfigurationIsOnlyLoaded() async throws {
     let script = try writeScript(Self.fakeServerScript)
-    defer { removeScript(script) }
     let config = MCPServerConfig(name: "Lazy", command: script.path(percentEncoded: false))
     let manager = MCPClientManager()
 
@@ -365,7 +358,6 @@ struct MCPClientTests {
   @Test
   func managerStartsOnlySelectedServersForActiveSession() async throws {
     let script = try writeScript(Self.fakeServerScript)
-    defer { removeScript(script) }
     let first = MCPServerConfig(name: "First", command: script.path(percentEncoded: false))
     let second = MCPServerConfig(name: "Second", command: script.path(percentEncoded: false))
     let manager = MCPClientManager()
@@ -382,7 +374,6 @@ struct MCPClientTests {
   @Test
   func managerConnectsAndProjectsExecutors() async throws {
     let script = try writeScript(Self.fakeServerScript)
-    defer { removeScript(script) }
     let config = MCPServerConfig(name: "Fake", command: script.path(percentEncoded: false))
     let manager = MCPClientManager()
 
@@ -404,7 +395,6 @@ struct MCPClientTests {
   @Test
   func managerRestartsAndRenamesToolsWhenServerNameChanges() async throws {
     let script = try writeScript(Self.fakeServerScript)
-    defer { removeScript(script) }
     let original = MCPServerConfig(name: "Original", command: script.path(percentEncoded: false))
     let renamed = MCPServerConfig(
       id: original.id,
@@ -503,7 +493,6 @@ struct MCPClientTests {
       exit 9
       """
     )
-    defer { removeScript(script) }
     let config = MCPServerConfig(name: "Crashy", command: script.path(percentEncoded: false))
     let manager = MCPClientManager()
 
@@ -544,9 +533,8 @@ struct MCPClientTests {
 
   @Test
   func managerIgnoresStaleConnectionAfterServerIsDisabledDuringStart() async throws {
-    let marker = FileManager.default.temporaryDirectory
-      .appending(path: "sumika-mcp-start-marker-\(UUID().uuidString)", directoryHint: .notDirectory)
-    defer { try? FileManager.default.removeItem(at: marker) }
+    let marker = try scopedTemporaryDirectory()
+      .appending(path: "start-marker-\(UUID().uuidString)", directoryHint: .notDirectory)
     defer { try? Data().write(to: marker) }
     let script = try writeScript(
       """
@@ -567,7 +555,6 @@ struct MCPClientTests {
       printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"echo","description":"Echo text back.","inputSchema":{"type":"object"}}]}}\\n' "$id"
       """
     )
-    defer { removeScript(script) }
     let config = MCPServerConfig(
       name: "Slow",
       command: script.path(percentEncoded: false),
@@ -608,7 +595,6 @@ struct MCPClientTests {
       exit 7
       """
     )
-    defer { removeScript(script) }
     let config = MCPServerConfig(name: "Broken", command: script.path(percentEncoded: false))
     let manager = MCPClientManager()
 
@@ -627,7 +613,6 @@ struct MCPClientTests {
   @Test
   func managerSkipsDisabledServersAndDeduplicatesSlugs() async throws {
     let script = try writeScript(Self.fakeServerScript)
-    defer { removeScript(script) }
     let enabled = MCPServerConfig(name: "Twin", command: script.path(percentEncoded: false))
     let enabledTwin = MCPServerConfig(name: "Twin", command: script.path(percentEncoded: false))
     let disabled = MCPServerConfig(
@@ -650,7 +635,6 @@ struct MCPClientTests {
   @Test
   func managerRemovesConnectionsForDeletedServers() async throws {
     let script = try writeScript(Self.fakeServerScript)
-    defer { removeScript(script) }
     let config = MCPServerConfig(name: "Fake", command: script.path(percentEncoded: false))
     let manager = MCPClientManager()
 
@@ -667,7 +651,6 @@ struct MCPClientTests {
   @Test
   func managerRejectsExecutorTokenAfterReconnect() async throws {
     let script = try writeScript(Self.fakeServerScript)
-    defer { removeScript(script) }
     let config = MCPServerConfig(name: "Token", command: script.path(percentEncoded: false))
     let manager = MCPClientManager()
     await activate(manager, configs: [config])
@@ -691,7 +674,6 @@ struct MCPClientTests {
   @Test
   func settingsProbeDoesNotActivateConfiguredServer() async throws {
     let script = try writeScript(Self.fakeServerScript)
-    defer { removeScript(script) }
     let config = MCPServerConfig(name: "Probe", command: script.path(percentEncoded: false))
     let manager = MCPClientManager()
     await manager.applyConfiguration([config])

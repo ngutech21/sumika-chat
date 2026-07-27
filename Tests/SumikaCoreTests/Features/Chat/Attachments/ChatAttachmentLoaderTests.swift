@@ -1,8 +1,10 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
 
+@Suite(TemporaryDirectoryTrait(named: "sumika-attachment-loader-tests"))
 struct ChatAttachmentLoaderTests {
   @Test
   func loadAttachmentsReadsUTF8TextFiles() throws {
@@ -173,8 +175,8 @@ struct ChatAttachmentLoaderTests {
   }
 
   private func makeTemporaryDirectory() throws -> URL {
-    let url = FileManager.default.temporaryDirectory
-      .appending(path: "sumika-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let url = try scopedTemporaryDirectory()
+      .appending(path: UUID().uuidString, directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return URL(filePath: Workspace.normalizedPath(for: url))
   }

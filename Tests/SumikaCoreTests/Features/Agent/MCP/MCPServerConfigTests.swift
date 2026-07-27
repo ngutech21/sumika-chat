@@ -1,4 +1,5 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
@@ -131,17 +132,18 @@ struct MCPServerConfigTests {
   }
 }
 
+@Suite(TemporaryDirectoryTrait(named: "sumika-mcp-store-tests"))
 struct MCPServersStoreTests {
-  private func makeStore() -> (MCPServersStore, URL) {
-    let directory = FileManager.default.temporaryDirectory
-      .appending(path: "mcp-store-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+  private func makeStore() throws -> (MCPServersStore, URL) {
+    let directory = try scopedTemporaryDirectory()
+      .appending(path: UUID().uuidString, directoryHint: .isDirectory)
     let url = directory.appending(path: "mcp-servers.json", directoryHint: .notDirectory)
     return (MCPServersStore(settingsURL: url), url)
   }
 
   @Test
-  func loadReturnsEmptyListWhenFileIsMissing() async {
-    let (store, _) = makeStore()
+  func loadReturnsEmptyListWhenFileIsMissing() async throws {
+    let (store, _) = try makeStore()
 
     let servers = await store.servers()
 
@@ -150,8 +152,7 @@ struct MCPServersStoreTests {
 
   @Test
   func saveAndLoadRoundTripsServers() async throws {
-    let (store, url) = makeStore()
-    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+    let (store, _) = try makeStore()
     let configs = [
       MCPServerConfig(name: "everything", command: "npx", arguments: ["-y", "server"]),
       MCPServerConfig(name: "local", command: "/usr/local/bin/mcp-local", isEnabled: false),
@@ -165,8 +166,7 @@ struct MCPServersStoreTests {
 
   @Test
   func loadDropsCorruptEntriesInsteadOfFailingEntirely() async throws {
-    let (store, url) = makeStore()
-    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+    let (store, url) = try makeStore()
     try FileManager.default.createDirectory(
       at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     let json = """

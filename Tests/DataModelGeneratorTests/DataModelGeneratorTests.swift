@@ -1,13 +1,15 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import DataModelGenerator
 
+@Suite(TemporaryDirectoryTrait(named: "sumika-data-model-generator-tests"))
 struct DataModelGeneratorTests {
   @Test
   func emptyModelSetFailsWithoutOverwritingExistingDocument() throws {
-    let repositoryRoot = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-data-model-generator-\(UUID().uuidString)",
+    let repositoryRoot = try scopedTemporaryDirectory().appending(
+      path: "repository",
       directoryHint: .isDirectory
     )
     let outputURL = repositoryRoot.appending(
@@ -18,9 +20,6 @@ struct DataModelGeneratorTests {
       at: repositoryRoot,
       withIntermediateDirectories: true
     )
-    defer {
-      try? FileManager.default.removeItem(at: repositoryRoot)
-    }
     try "existing document".write(to: outputURL, atomically: true, encoding: .utf8)
 
     #expect(throws: DataModelGeneratorError.noModelsFound) {

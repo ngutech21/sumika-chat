@@ -1,8 +1,10 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
 
+@Suite(TemporaryDirectoryTrait(named: "sumika-local-model-directory-tests"))
 struct LocalModelDirectoryTests {
   @Test
   func readContextTokenLimitReadsKnownTopLevelKeys() throws {
@@ -22,8 +24,8 @@ struct LocalModelDirectoryTests {
 
   @Test
   func readContextTokenLimitReturnsNilForMissingConfig() throws {
-    let modelDirectory = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-tests-\(UUID().uuidString)",
+    let modelDirectory = try scopedTemporaryDirectory().appending(
+      path: UUID().uuidString,
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
@@ -126,8 +128,8 @@ struct LocalModelDirectoryTests {
     configJSON: String?,
     generationConfigJSON: String?
   ) throws -> URL {
-    let modelDirectory = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-tests-\(UUID().uuidString)",
+    let modelDirectory = try scopedTemporaryDirectory().appending(
+      path: UUID().uuidString,
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)

@@ -1,16 +1,17 @@
 import Foundation
 import MLXLMCommon
 import SumikaCore
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaRuntimeMLX
 
-@Suite(.serialized)
+@Suite(.serialized, TemporaryDirectoryTrait(named: "sumika-mlx-trace-tests"))
 struct MLXDebugTraceStoreTests {
   @Test
   func turnTraceEventDoesNotWriteWhenDebugTraceIsDisabled() async throws {
     unsetenv("SUMIKA_DEBUG_TRACE")
-    let fileURL = temporaryTraceFileURL()
+    let fileURL = try temporaryTraceFileURL()
     let store = MLXDebugTraceStore(fileURL: fileURL)
 
     await store.recordTurnTraceEvent(
@@ -28,7 +29,7 @@ struct MLXDebugTraceStoreTests {
     }
     let turnID = UUID()
     let generationID = UUID()
-    let fileURL = temporaryTraceFileURL()
+    let fileURL = try temporaryTraceFileURL()
     let store = MLXDebugTraceStore(fileURL: fileURL)
 
     await store.recordTurnTraceEvent(
@@ -110,7 +111,7 @@ struct MLXDebugTraceStoreTests {
     defer {
       unsetenv("SUMIKA_DEBUG_TRACE")
     }
-    let fileURL = temporaryTraceFileURL()
+    let fileURL = try temporaryTraceFileURL()
     let store = MLXDebugTraceStore(fileURL: fileURL)
     let toolObservation = """
       <observation call_id="call_1" tool="read_file" status="success">
@@ -162,7 +163,7 @@ struct MLXDebugTraceStoreTests {
   @Test
   func defaultTraceFileUsesEnvironmentOverrideWhenPresent() async throws {
     setenv("SUMIKA_DEBUG_TRACE", "1", 1)
-    let fileURL = temporaryTraceFileURL()
+    let fileURL = try temporaryTraceFileURL()
     setenv("SUMIKA_DEBUG_TRACE_FILE", fileURL.path(percentEncoded: false), 1)
     defer {
       unsetenv("SUMIKA_DEBUG_TRACE")
@@ -199,11 +200,12 @@ struct MLXDebugTraceStoreTests {
       .appending(path: "debug", directoryHint: .isDirectory)
       .appending(path: "traces", directoryHint: .isDirectory)
       .appending(path: basename, directoryHint: .notDirectory)
+    defer { removeTemporaryItemIfPresent(traceURL) }
     #expect(FileManager.default.fileExists(atPath: traceURL.path(percentEncoded: false)))
   }
 
-  private func temporaryTraceFileURL() -> URL {
-    FileManager.default.temporaryDirectory
+  private func temporaryTraceFileURL() throws -> URL {
+    try scopedTemporaryDirectory()
       .appending(path: UUID().uuidString, directoryHint: .isDirectory)
       .appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory)
   }

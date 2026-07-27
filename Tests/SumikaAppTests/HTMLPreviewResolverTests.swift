@@ -1,9 +1,11 @@
 import Foundation
 import SumikaCore
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaApp
 
+@Suite(TemporaryDirectoryTrait(named: "sumika-html-preview-tests"))
 struct HTMLPreviewResolverTests {
   @Test
   func resolvesHTMLFilesInsideWorkspace() throws {
@@ -42,8 +44,8 @@ struct HTMLPreviewResolverTests {
   }
 
   private func makeWorkspace() throws -> Workspace {
-    let rootURL = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-html-preview-test-\(UUID().uuidString)",
+    let rootURL = try scopedTemporaryDirectory().appending(
+      path: UUID().uuidString,
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)

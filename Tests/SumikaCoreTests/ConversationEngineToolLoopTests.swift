@@ -1,9 +1,10 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
 
-@Suite(.serialized)
+@Suite(.serialized, TemporaryDirectoryTrait(named: "sumika-conversation-tool-loop-tests"))
 @MainActor
 struct ConversationEngineToolLoopTests {
   @Test
@@ -2472,8 +2473,8 @@ struct ConversationEngineToolLoopTests {
     sessionID: ChatSession.ID,
     selectedModelID: ManagedModel.ID = ManagedModelCatalog.defaultModelID
   ) throws -> Workspace {
-    let rootURL = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-tests-\(UUID().uuidString)",
+    let rootURL = try scopedTemporaryDirectory().appending(
+      path: UUID().uuidString,
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)

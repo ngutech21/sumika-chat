@@ -1,9 +1,10 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
 
-@Suite(.serialized)
+@Suite(.serialized, TemporaryDirectoryTrait(named: "sumika-conversation-engine-tests"))
 @MainActor
 struct ConversationEngineTests {
   @Test
@@ -1278,8 +1279,8 @@ struct ConversationEngineTests {
 
   @Test
   func sendMessageRunsAgentReadOnlyToolCallAndContinuesWithToolResultContext() async throws {
-    let rootURL = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-tests-\(UUID().uuidString)",
+    let rootURL = try scopedTemporaryDirectory().appending(
+      path: UUID().uuidString,
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -1813,8 +1814,8 @@ struct ConversationEngineTests {
 
   @Test
   func sendMessageDisplaysShowFileResultDirectlyWithoutModelFollowUp() async throws {
-    let rootURL = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-tests-\(UUID().uuidString)",
+    let rootURL = try scopedTemporaryDirectory().appending(
+      path: UUID().uuidString,
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -1890,8 +1891,8 @@ struct ConversationEngineTests {
 
   @Test
   func sendMessageKeepsToolCallHistoryWhenFollowUpResponseFails() async throws {
-    let rootURL = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-tests-\(UUID().uuidString)",
+    let rootURL = try scopedTemporaryDirectory().appending(
+      path: UUID().uuidString,
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -2080,8 +2081,8 @@ struct ConversationEngineTests {
   }
 
   private func makeWorkspace(sessionID: ChatSession.ID) throws -> Workspace {
-    let rootURL = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-tests-\(UUID().uuidString)",
+    let rootURL = try scopedTemporaryDirectory().appending(
+      path: UUID().uuidString,
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -2162,8 +2163,8 @@ struct ConversationEngineTests {
   }
 
   private func makeModelDirectory(config: String) throws -> URL {
-    let modelDirectory = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-tests-\(UUID().uuidString)",
+    let modelDirectory = try scopedTemporaryDirectory().appending(
+      path: UUID().uuidString,
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)

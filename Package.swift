@@ -118,6 +118,7 @@ let package = Package(
       name: "SumikaCoreTests",
       dependencies: [
         "SumikaCore",
+        "SumikaTestSupport",
         .product(name: "MCP", package: "swift-sdk"),
       ],
       resources: [.process("Fixtures")],
@@ -125,13 +126,16 @@ let package = Package(
     ),
     .testTarget(
       name: "SumikaCoreIntegrationTests",
-      dependencies: ["SumikaCore"],
+      dependencies: [
+        "SumikaCore",
+        "SumikaTestSupport",
+      ],
       swiftSettings: concurrencyChecking
     ),
     .target(
       name: "SumikaTestSupport",
       path: "Tests/SumikaTestSupport",
-      swiftSettings: appConcurrencyChecking
+      swiftSettings: concurrencyChecking
     ),
     .testTarget(
       name: "SumikaAppTests",
@@ -154,7 +158,10 @@ let package = Package(
     ),
     .testTarget(
       name: "DataModelGeneratorTests",
-      dependencies: ["DataModelGenerator"],
+      dependencies: [
+        "DataModelGenerator",
+        "SumikaTestSupport",
+      ],
       swiftSettings: concurrencyChecking
     ),
   ]

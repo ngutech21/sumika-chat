@@ -1,9 +1,10 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
 
-@Suite(.serialized)
+@Suite(.serialized, TemporaryDirectoryTrait(named: "sumika-attachment-coordinator-tests"))
 @MainActor
 struct ChatAttachmentCoordinatorTests {
   @Test
@@ -40,6 +41,7 @@ struct ChatAttachmentCoordinatorTests {
   @Test
   func addAttachmentsRemovesPasteboardTempFileAfterSuccess() async throws {
     let tempFile = try makePasteboardTempFile(name: "clipboard-image-\(UUID().uuidString).png")
+    defer { removeTemporaryItemIfPresent(tempFile) }
     let attachment = makeAttachment(name: "clipboard.png", content: "notes")
     let loader = AttachmentFakeLoader(result: .success([attachment]))
     let coordinator = ChatAttachmentCoordinator(loader: loader)
@@ -58,6 +60,7 @@ struct ChatAttachmentCoordinatorTests {
   @Test
   func addAttachmentsRemovesPasteboardTempFileAfterFailure() async throws {
     let tempFile = try makePasteboardTempFile(name: "clipboard-image-\(UUID().uuidString).png")
+    defer { removeTemporaryItemIfPresent(tempFile) }
     let loader = AttachmentFakeLoader(result: .failure(ChatAttachmentTestError()))
     let coordinator = ChatAttachmentCoordinator(loader: loader)
     var events: [ChatAttachmentEvent] = []
@@ -75,7 +78,6 @@ struct ChatAttachmentCoordinatorTests {
   @Test
   func addAttachmentsKeepsNormalSourceFileAfterSuccess() async throws {
     let file = try makeNormalTempFile(name: "clipboard-image-\(UUID().uuidString).png")
-    defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
     let attachment = makeAttachment(name: "clipboard.png", content: "notes")
     let loader = AttachmentFakeLoader(result: .success([attachment]))
     let coordinator = ChatAttachmentCoordinator(loader: loader)
@@ -94,7 +96,7 @@ struct ChatAttachmentCoordinatorTests {
   @Test
   func addAttachmentsKeepsNonMatchingPasteboardTempFileAfterSuccess() async throws {
     let tempFile = try makePasteboardTempFile(name: "not-clipboard-image-\(UUID().uuidString).png")
-    defer { try? FileManager.default.removeItem(at: tempFile) }
+    defer { removeTemporaryItemIfPresent(tempFile) }
     let attachment = makeAttachment(name: "clipboard.png", content: "notes")
     let loader = AttachmentFakeLoader(result: .success([attachment]))
     let coordinator = ChatAttachmentCoordinator(loader: loader)
@@ -250,8 +252,8 @@ private func makePasteboardTempFile(name: String) throws -> URL {
 }
 
 private func makeNormalTempFile(name: String) throws -> URL {
-  let directory = FileManager.default.temporaryDirectory
-    .appending(path: "sumika-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+  let directory = try scopedTemporaryDirectory()
+    .appending(path: UUID().uuidString, directoryHint: .isDirectory)
   try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
   let url = directory.appending(path: name, directoryHint: .notDirectory)
   try Data("normal file".utf8).write(to: url)

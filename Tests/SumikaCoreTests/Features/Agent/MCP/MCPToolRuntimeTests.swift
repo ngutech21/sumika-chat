@@ -1,4 +1,5 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
@@ -23,6 +24,7 @@ private struct MCPToolCallingFake: MCPToolCalling {
   }
 }
 
+@Suite(TemporaryDirectoryTrait(named: "sumika-mcp-tool-runtime-tests"))
 struct MCPToolRuntimeTests {
   private let serverID = UUID()
   private let validator = ToolCallRequestValidator()
@@ -46,8 +48,8 @@ struct MCPToolRuntimeTests {
   }
 
   private func makeWorkspace() throws -> Workspace {
-    let rootURL = FileManager.default.temporaryDirectory
-      .appending(path: "sumika-mcp-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let rootURL = try scopedTemporaryDirectory()
+      .appending(path: UUID().uuidString, directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
     return Workspace(
       name: "Project", rootURL: URL(filePath: Workspace.normalizedPath(for: rootURL)))

@@ -1,8 +1,10 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
 
+@Suite(TemporaryDirectoryTrait(named: "sumika-tool-execution-tests"))
 struct ToolExecutionTests {
   @Test
   func readFileReadsUTF8TextInsideWorkspace() async throws {
@@ -1992,16 +1994,16 @@ struct ToolExecutionTests {
   }
 
   private func makeWorkspace() throws -> Workspace {
-    let rootURL = FileManager.default.temporaryDirectory
-      .appending(path: "sumika-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let rootURL = try scopedTemporaryDirectory()
+      .appending(path: UUID().uuidString, directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
     return Workspace(
       name: "Project", rootURL: URL(filePath: Workspace.normalizedPath(for: rootURL)))
   }
 
   private func makeTemporaryDirectory() throws -> URL {
-    let url = FileManager.default.temporaryDirectory
-      .appending(path: "sumika-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let url = try scopedTemporaryDirectory()
+      .appending(path: UUID().uuidString, directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
   }

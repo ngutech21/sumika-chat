@@ -1,10 +1,11 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaApp
 @testable import SumikaCore
 
-@Suite(.serialized)
+@Suite(.serialized, TemporaryDirectoryTrait(named: "sumika-app-state-tests"))
 @MainActor
 struct AppStateTests {
   @Test
@@ -662,7 +663,10 @@ struct AppStateTests {
   func removeWorkspaceDeletesOnlySumikaLibraryEntryAndKeepsFolder() async throws {
     let workspaceID = UUID()
     let sessionID = UUID()
-    let workspaceURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    let workspaceURL = try scopedTemporaryDirectory().appending(
+      path: "workspace",
+      directoryHint: .isDirectory
+    )
     try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
     let markerURL = workspaceURL.appending(path: "keep.txt", directoryHint: .notDirectory)
     let workspaceGenerationSettings = ChatGenerationSettings(
@@ -672,9 +676,6 @@ struct AppStateTests {
       maxTokens: 128
     )
     try Data("keep".utf8).write(to: markerURL)
-    defer {
-      try? FileManager.default.removeItem(at: workspaceURL)
-    }
     let workspace = Workspace(
       id: workspaceID,
       name: "Project",
@@ -1011,11 +1012,11 @@ struct AppStateTests {
 
   @Test
   func addWorkspaceRoutesToWorkspaceWithoutCreatingSession() async throws {
-    let workspaceURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    let workspaceURL = try scopedTemporaryDirectory().appending(
+      path: "workspace",
+      directoryHint: .isDirectory
+    )
     try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
-    defer {
-      try? FileManager.default.removeItem(at: workspaceURL)
-    }
     let workspaceStore = InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary())
     let appState = AppState(
       workspaceStore: workspaceStore,
@@ -1300,7 +1301,7 @@ struct AppStateTests {
     }
     defer {
       if didCreateDefaultModelDirectory {
-        try? FileManager.default.removeItem(at: defaultModelDirectory)
+        removeTemporaryItemIfPresent(defaultModelDirectory)
       }
     }
     let appState = AppState(
@@ -1460,9 +1461,11 @@ struct AppStateTests {
   @Test
   func defaultAppAgentRegistryHidesTodoWriteAndKeepsFinishTaskAfterMCPComposition() async throws {
     let sessionID = UUID()
-    let rootURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    let rootURL = try scopedTemporaryDirectory().appending(
+      path: "workspace",
+      directoryHint: .isDirectory
+    )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: rootURL) }
     let workspace = Workspace(
       name: "Project",
       rootURL: rootURL,
@@ -1507,9 +1510,11 @@ struct AppStateTests {
   @Test
   func enablingTodoWriteToolExposesItInAppAgentPromptAndSchema() async throws {
     let sessionID = UUID()
-    let rootURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    let rootURL = try scopedTemporaryDirectory().appending(
+      path: "workspace",
+      directoryHint: .isDirectory
+    )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: rootURL) }
     let workspace = Workspace(
       name: "Project",
       rootURL: rootURL,
@@ -1560,9 +1565,11 @@ struct AppStateTests {
   func storedChatSessionDoesNotStartSelectedMCPServer() async throws {
     let server = MCPServerConfig(name: "Unused", command: "/usr/bin/false")
     let sessionID = UUID()
-    let rootURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    let rootURL = try scopedTemporaryDirectory().appending(
+      path: "workspace",
+      directoryHint: .isDirectory
+    )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: rootURL) }
     let session = ChatSession(
       id: sessionID,
       interactionMode: .chat,
@@ -1596,15 +1603,16 @@ struct AppStateTests {
   @Test
   func prepareForTerminationWaitsForMCPServerTest() async throws {
     let script = try makeMCPServerScript(initializationDelay: 0.2)
-    defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent()) }
     let server = MCPServerConfig(
       name: "Probe",
       command: script.path(percentEncoded: false)
     )
     let sessionID = UUID()
-    let rootURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    let rootURL = try scopedTemporaryDirectory().appending(
+      path: "workspace",
+      directoryHint: .isDirectory
+    )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: rootURL) }
     let session = ChatSession(id: sessionID, interactionMode: .chat)
     let workspace = Workspace(name: "Project", rootURL: rootURL, sessions: [session])
     let appState = AppState(
@@ -1635,7 +1643,6 @@ struct AppStateTests {
   @Test
   func selectedMCPServersFilterAgentToolSchemaPerSession() async throws {
     let script = try makeMCPServerScript()
-    defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent()) }
     let firstServer = MCPServerConfig(
       name: "First",
       command: script.path(percentEncoded: false)
@@ -1645,9 +1652,11 @@ struct AppStateTests {
       command: script.path(percentEncoded: false)
     )
     let sessionID = UUID()
-    let rootURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    let rootURL = try scopedTemporaryDirectory().appending(
+      path: "workspace",
+      directoryHint: .isDirectory
+    )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: rootURL) }
     let session = ChatSession(
       id: sessionID,
       interactionMode: .agent,
@@ -1778,8 +1787,8 @@ struct AppStateTests {
 }
 
 private func makeMCPServerScript(initializationDelay: Double = 0) throws -> URL {
-  let directory = FileManager.default.temporaryDirectory.appending(
-    path: "sumika-app-mcp-tests-\(UUID().uuidString)",
+  let directory = try scopedTemporaryDirectory().appending(
+    path: "mcp-\(UUID().uuidString)",
     directoryHint: .isDirectory
   )
   try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -2048,8 +2057,8 @@ private actor BrowserToolProbe {
 }
 
 private func makeLaunchFixture() throws -> (storageRoot: URL, workspaceURL: URL) {
-  let storageRoot = FileManager.default.temporaryDirectory.appending(
-    path: "sumika-app-state-tests-\(UUID().uuidString)",
+  let storageRoot = try scopedTemporaryDirectory().appending(
+    path: "launch-fixture",
     directoryHint: .isDirectory
   )
   let workspaceURL = storageRoot.appending(path: "workspace", directoryHint: .isDirectory)

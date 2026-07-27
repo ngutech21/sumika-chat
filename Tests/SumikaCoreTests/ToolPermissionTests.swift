@@ -1,8 +1,10 @@
 import Foundation
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaCore
 
+@Suite(TemporaryDirectoryTrait(named: "sumika-tool-permission-tests"))
 struct ToolPermissionTests {
   @Test
   func workspaceResolvesRelativeAbsoluteAndFileURLPathsInsideRoot() throws {
@@ -77,8 +79,8 @@ struct ToolPermissionTests {
   }
 
   private func makeTemporaryDirectory() throws -> URL {
-    let url = FileManager.default.temporaryDirectory
-      .appending(path: "sumika-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let url = try scopedTemporaryDirectory()
+      .appending(path: UUID().uuidString, directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return URL(filePath: Workspace.normalizedPath(for: url))
   }

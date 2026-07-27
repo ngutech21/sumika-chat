@@ -556,8 +556,15 @@ final class SumikaUITests: XCTestCase {
       path: "sumika-ui-test-\(UUID().uuidString)",
       directoryHint: .isDirectory
     )
+    try FileManager.default.createDirectory(
+      at: storageRoot,
+      withIntermediateDirectories: false
+    )
+    addTeardownBlock {
+      try FileManager.default.removeItem(at: storageRoot)
+    }
     let workspaceURL = storageRoot.appending(path: "workspace", directoryHint: .isDirectory)
-    try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: false)
     if !mcpServers.isEmpty {
       try JSONEncoder().encode(["servers": mcpServers]).write(
         to: storageRoot.appending(path: "mcp-servers.json", directoryHint: .notDirectory),
