@@ -32,7 +32,7 @@ nonisolated extension ToolDefinition {
   package static let writeFile = ToolDefinition(
     name: .writeFile,
     description:
-      "Create a new workspace text file or intentionally replace an entire small file. Prefer edit_file for targeted changes to existing files.",
+      "Write one workspace text file, replacing its current contents with the provided UTF-8 payload. Parent directories are created automatically. If the requested final file may exceed one response, including Markdown or prose, call write_file immediately with a compact valid scaffold; after success, add one named section per edit_file call. Do not draft the full file first or use placeholder comments.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
@@ -42,7 +42,7 @@ nonisolated extension ToolDefinition {
       ToolParameterDefinition(
         name: "content",
         description:
-          "Complete UTF-8 file content written exactly as provided. Replaces the entire file.",
+          "UTF-8 payload that becomes the file's entire current contents. It may be a finished small file or an intermediate scaffold; it need not be the final requested file.",
         isRequired: true,
         supportsHeredocPayload: true
       ),

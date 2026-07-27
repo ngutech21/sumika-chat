@@ -182,15 +182,152 @@ struct MLXModelStreamProcessorTests {
       }
     )
 
+    var visibleOutput = ""
+    var emittedCompletion = false
     do {
-      try await drainModelStream(stream)
+      for try await event in stream {
+        switch event {
+        case .chunk(let chunk):
+          visibleOutput += chunk
+        case .completed:
+          emittedCompletion = true
+        case .thinkingChunk, .toolCall:
+          break
+        }
+      }
       Issue.record("Expected token-limit failure.")
     } catch MLXChatRuntimeError.generationTokenLimitReached {
+      #expect(visibleOutput.isEmpty)
+      #expect(emittedCompletion == false)
       #expect(await invalidationRecorder.firstReason == .interrupted)
       #expect(await memoryClearRecorder.reasons == [.interruptedStream])
     } catch {
       Issue.record("Expected token-limit error, got \(error).")
     }
+  }
+
+  @Test
+  func tokenLimitedNativeToolBatchRejectsTrailingProtocolFragment() async throws {
+    let invalidationRecorder = MLXStreamInvalidationRecorder()
+    let boundaryRecorder = MLXNativeBoundaryRecorder()
+    let memoryClearRecorder = MLXMemoryClearRecorder()
+    let firstToolCall = MLXLMCommon.ToolCall(
+      function: .init(
+        name: "write_file",
+        arguments: ["path": "index.html", "content": "<main></main>"]
+      )
+    )
+    let secondToolCall = MLXLMCommon.ToolCall(
+      function: .init(
+        name: "write_file",
+        arguments: ["path": "style.css", "content": "main {}"]
+      )
+    )
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("I will create the files."))
+      continuation.yield(.toolCall(firstToolCall))
+      continuation.yield(.toolCall(secondToolCall))
+      continuation.yield(.chunk("<tool_call><function=write_file><"))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8,
+            generationTokenCount: 2_048,
+            promptTime: 0.1,
+            generationTime: 1,
+            stopReason: .length
+          )
+        ))
+      continuation.finish()
+    }
+    let stream = modelStream(
+      from: source,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
+      markCompleted: { _ in
+        Issue.record("A token-limited response must not be marked complete.")
+      },
+      markNativeToolCallBoundary: { output, nativeToolCalls in
+        await boundaryRecorder.record(output: output, nativeToolCalls: nativeToolCalls)
+      },
+      markCancelled: { reason in
+        await invalidationRecorder.record(reason)
+      },
+      memoryCacheClearer: MLXMemoryCacheClearer { reason in
+        await memoryClearRecorder.record(reason)
+      }
+    )
+
+    var visibleOutput = ""
+    var emittedToolCallCount = 0
+    var emittedCompletion = false
+    do {
+      for try await event in stream {
+        switch event {
+        case .chunk(let chunk):
+          visibleOutput += chunk
+        case .toolCall:
+          emittedToolCallCount += 1
+        case .completed:
+          emittedCompletion = true
+        case .thinkingChunk:
+          break
+        }
+      }
+      Issue.record("Expected token-limit failure.")
+    } catch MLXChatRuntimeError.generationTokenLimitReached {
+      #expect(visibleOutput == "I will create the files.")
+      #expect(emittedToolCallCount == 2)
+      #expect(emittedCompletion == false)
+      #expect(await invalidationRecorder.firstReason == .interrupted)
+      #expect(await boundaryRecorder.firstBoundary == nil)
+      #expect(await memoryClearRecorder.reasons == [.interruptedStream])
+    } catch {
+      Issue.record("Expected token-limit error, got \(error).")
+    }
+  }
+
+  @Test
+  func completedModelStreamPreservesProtocolLikeText() async throws {
+    let completionRecorder = MLXStreamCompletionRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("<tool_"))
+      continuation.yield(.chunk("call>not a native call"))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8,
+            generationTokenCount: 5,
+            promptTime: 0.1,
+            generationTime: 0.1
+          )
+        ))
+      continuation.finish()
+    }
+    let stream = modelStream(
+      from: source,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
+      markCompleted: { output in
+        await completionRecorder.record(output)
+      },
+      markCancelled: { _ in },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
+    )
+
+    var visibleOutput = ""
+    for try await event in stream {
+      if case .chunk(let chunk) = event {
+        visibleOutput += chunk
+      }
+    }
+
+    #expect(visibleOutput == "<tool_call>not a native call")
+    #expect(await completionRecorder.firstOutput == visibleOutput)
   }
 
   @Test

@@ -694,9 +694,17 @@ declarations.
   runtime may still decode internal `[TodoItem]` object arrays and legacy
   `items` row strings, but model-facing prompts and schemas should present only
   the flat `itemN`/`doneN` contract.
-- `write_file` writes the model-provided `content` directly. The model should
-  not generate helper scripts to create files. Missing-path suggestions do not
-  apply to `write_file`, because creating a new file is a normal write case.
+- `write_file` writes the model-provided `content` as the file's entire current
+  contents and creates missing parent directories. That payload may be either a
+  finished small file or an intermediate scaffold; "entire current contents"
+  does not mean the user's final requested file must fit in one call. If the
+  final file may not fit comfortably in one response, including Markdown or
+  prose, the model should call `write_file` immediately with a minimal
+  syntactically valid scaffold rather than drafting the full content in
+  reasoning. After success, it should complete one natural named section at a
+  time with `edit_file`, without artificial placeholder markers or helper
+  scripts. Missing-path suggestions do not apply to `write_file`, because
+  creating a new file is a normal write case.
 - `edit_file` replaces exactly one safe `old_text` span in a UTF-8 workspace
   file with `new_text`. It tries an exact, case-sensitive match first, then a
   small deterministic fallback pipeline for normalized line endings, trailing
@@ -727,6 +735,9 @@ declarations.
   explicitly asked to display them in chat. They must not say files changed
   unless a successful `write_file` or `edit_file` result exists in the turn;
   failed or invalid write/edit results mean no workspace change happened.
+- The content-budget and incremental-scaffold rules are generation guidance, not
+  runtime size limits. Small independent write/edit calls may still share one
+  response, while each content-heavy mutation should wait for its own result.
 - Same-response write/edit calls are normalized and validated as one batch;
   conflicting targets prevent the whole batch from mutating the workspace.
   Cross-round semantic mutation deduplication is intentionally out of scope: the

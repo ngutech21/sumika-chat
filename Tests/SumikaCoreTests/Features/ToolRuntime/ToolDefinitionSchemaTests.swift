@@ -60,12 +60,26 @@ struct ToolDefinitionSchemaTests {
     #expect(writeDefinition.parameters.first { $0.name == "content" }?.valueType == .string)
     #expect(
       writeDefinition.parameters.first { $0.name == "content" }?.supportsHeredocPayload == true)
+    #expect(writeDefinition.description.contains("Parent directories are created automatically"))
+    #expect(writeDefinition.description.contains("including Markdown or prose"))
+    #expect(writeDefinition.description.contains("call write_file immediately"))
+    #expect(writeDefinition.description.contains("one named section per edit_file call"))
+    #expect(
+      writeDefinition.parameters.first { $0.name == "content" }?.description.contains(
+        "entire current contents") == true)
+    #expect(
+      writeDefinition.parameters.first { $0.name == "content" }?.description.contains(
+        "intermediate scaffold") == true)
+    #expect(
+      writeDefinition.parameters.first { $0.name == "content" }?.description.contains(
+        "Complete UTF-8 file content") == false)
 
     #expect(editDefinition.functionSchema.parameters.required == ["path", "old_text", "new_text"])
     #expect(
       editDefinition.description.contains(
         "Always provide all required arguments: path, old_text, and new_text."))
     #expect(editDefinition.description.contains("Never call edit_file with empty arguments."))
+    #expect(editDefinition.description.contains("Keep new_text to one coherent section"))
     #expect(editDefinition.parameters.first { $0.name == "old_text" }?.valueType == .string)
     #expect(
       editDefinition.parameters.first { $0.name == "old_text" }?.supportsHeredocPayload == true)

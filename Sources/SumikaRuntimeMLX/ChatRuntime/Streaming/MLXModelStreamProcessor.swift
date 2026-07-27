@@ -39,11 +39,11 @@ enum MLXModelStreamProcessor {
       var completedMetrics: ChatGenerationMetrics?
       let iterationStartedAt = Date()
       var firstChunkAt: Date?
-      var didCompleteNaturally = false
       var didReachTokenLimit = false
       var didTerminateDownstream = false
       var nativeToolCalls: [ChatRuntimeToolCall] = []
       var usedNativeToolCallIDs = Set<UUID>()
+      var pendingChunk: String?
 
       do {
         generationLoop: for try await generation in stream {
@@ -62,8 +62,10 @@ enum MLXModelStreamProcessor {
               )
             }
             output += chunk
-            if yieldSegments(
-              reasoningParser.append(chunk),
+            if yieldModelChunk(
+              chunk,
+              pendingChunk: &pendingChunk,
+              reasoningParser: &reasoningParser,
               to: continuation,
               visibleOutput: &visibleOutput
             ) {
@@ -73,13 +75,11 @@ enum MLXModelStreamProcessor {
           }
 
           if let toolCall = generation.toolCall {
-            let runtimeToolCall = MLXToolMapper.chatRuntimeToolCall(
-              from: toolCall,
-              usedIDs: &usedNativeToolCallIDs
-            )
-            nativeToolCalls.append(runtimeToolCall)
-            if case .terminated = continuation.yield(
-              .toolCall(runtimeToolCall)
+            if yieldToolCall(
+              toolCall,
+              usedIDs: &usedNativeToolCallIDs,
+              nativeToolCalls: &nativeToolCalls,
+              to: continuation
             ) {
               didTerminateDownstream = true
               break generationLoop
@@ -89,10 +89,20 @@ enum MLXModelStreamProcessor {
           if let info = generation.info {
             switch info.stopReason {
             case .stop:
-              break
+              if flushPendingChunk(
+                &pendingChunk,
+                reasoningParser: &reasoningParser,
+                to: continuation,
+                visibleOutput: &visibleOutput
+              ) {
+                didTerminateDownstream = true
+                break generationLoop
+              }
             case .length:
               didReachTokenLimit = true
+              pendingChunk = nil
             case .cancelled:
+              pendingChunk = nil
               throw CancellationError()
             }
             if yieldSegments(
@@ -115,12 +125,24 @@ enum MLXModelStreamProcessor {
               durationMs: info.generateTime * 1000,
               tokensPerSecond: info.tokensPerSecond
             )
-            didCompleteNaturally = true
-            if case .terminated = continuation.yield(.completed(metrics)) {
-              didTerminateDownstream = true
-              break generationLoop
+            if !didReachTokenLimit {
+              if case .terminated = continuation.yield(.completed(metrics)) {
+                didTerminateDownstream = true
+                break generationLoop
+              }
             }
           }
+        }
+
+        if !didTerminateDownstream,
+          flushPendingChunk(
+            &pendingChunk,
+            reasoningParser: &reasoningParser,
+            to: continuation,
+            visibleOutput: &visibleOutput
+          )
+        {
+          didTerminateDownstream = true
         }
 
         let finalizeInterval = ChatDiagnostics.beginInterval(
@@ -136,7 +158,7 @@ enum MLXModelStreamProcessor {
           visibleOutput: visibleOutput,
           completedMetrics: completedMetrics,
           didTerminateDownstream: didTerminateDownstream,
-          didCompleteNaturally: didCompleteNaturally,
+          didCompleteNaturally: completedMetrics != nil && !didReachTokenLimit,
           didReachTokenLimit: didReachTokenLimit,
           nativeToolCalls: nativeToolCalls,
           traceID: traceID,
@@ -279,6 +301,80 @@ enum MLXModelStreamProcessor {
     return false
   }
 
+  private static func yieldModelChunk(
+    _ chunk: String,
+    pendingChunk: inout String?,
+    reasoningParser: inout ReasoningTraceParser,
+    to continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
+    visibleOutput: inout String
+  ) -> Bool {
+    if isPotentialToolProtocolResidual(chunk) {
+      pendingChunk = (pendingChunk ?? "") + chunk
+      return false
+    }
+    if flushPendingChunk(
+      &pendingChunk,
+      reasoningParser: &reasoningParser,
+      to: continuation,
+      visibleOutput: &visibleOutput
+    ) {
+      return true
+    }
+    return yieldSegments(
+      reasoningParser.append(chunk),
+      to: continuation,
+      visibleOutput: &visibleOutput
+    )
+  }
+
+  private static func flushPendingChunk(
+    _ pendingChunk: inout String?,
+    reasoningParser: inout ReasoningTraceParser,
+    to continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
+    visibleOutput: inout String
+  ) -> Bool {
+    guard let chunk = pendingChunk else {
+      return false
+    }
+    pendingChunk = nil
+    return yieldSegments(
+      reasoningParser.append(chunk),
+      to: continuation,
+      visibleOutput: &visibleOutput
+    )
+  }
+
+  private static func yieldToolCall(
+    _ toolCall: MLXLMCommon.ToolCall,
+    usedIDs: inout Set<UUID>,
+    nativeToolCalls: inout [ChatRuntimeToolCall],
+    to continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation
+  ) -> Bool {
+    let runtimeToolCall = MLXToolMapper.chatRuntimeToolCall(
+      from: toolCall,
+      usedIDs: &usedIDs
+    )
+    nativeToolCalls.append(runtimeToolCall)
+    if case .terminated = continuation.yield(.toolCall(runtimeToolCall)) {
+      return true
+    }
+    return false
+  }
+
+  private static let toolProtocolStartTags = ToolCallFormat.allCases.compactMap {
+    $0.createParser().startTag
+  }
+
+  private static func isPotentialToolProtocolResidual(_ chunk: String) -> Bool {
+    let content = chunk.drop(while: \.isWhitespace)
+    guard !content.isEmpty else {
+      return false
+    }
+    return toolProtocolStartTags.contains {
+      content.hasPrefix($0) || $0.hasPrefix(content)
+    }
+  }
+
   private static func finalizeStream(
     continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
     output: String,
@@ -303,17 +399,6 @@ enum MLXModelStreamProcessor {
       return
     }
 
-    if !nativeToolCalls.isEmpty {
-      await markNativeToolCallBoundary(visibleOutput, nativeToolCalls)
-      await debugTraceStore.traceResponse(
-        id: traceID,
-        output: output,
-        metrics: completedMetrics
-      )
-      continuation.finish()
-      return
-    }
-
     if didReachTokenLimit {
       let error = MLXChatRuntimeError.generationTokenLimitReached
       await markCancelled(.interrupted)
@@ -332,6 +417,17 @@ enum MLXModelStreamProcessor {
         error: error.localizedDescription
       )
       continuation.finish(throwing: error)
+      return
+    }
+
+    if !nativeToolCalls.isEmpty {
+      await markNativeToolCallBoundary(visibleOutput, nativeToolCalls)
+      await debugTraceStore.traceResponse(
+        id: traceID,
+        output: output,
+        metrics: completedMetrics
+      )
+      continuation.finish()
       return
     }
 
