@@ -44,6 +44,29 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func bottomContentInsetDoesNotShortenVerticalScroller() throws {
+    let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      onToggleSpeech: { _, _ in },
+      onApproveToolCall: { _ in },
+      onDenyToolCall: { _ in },
+      onAnswerAskUser: { _, _ in }
+    )
+    let scrollView = coordinator.makeScrollView()
+    scrollView.setFrameSize(NSSize(width: 640, height: 500))
+    scrollView.scrollerStyle = .overlay
+    scrollView.autohidesScrollers = false
+
+    coordinator.applyBottomContentInset(120, to: scrollView)
+    scrollView.tile()
+    scrollView.layoutSubtreeIfNeeded()
+
+    let verticalScroller = try #require(scrollView.verticalScroller)
+    #expect(scrollView.contentInsets.bottom == 120)
+    #expect(scrollView.scrollerInsets.bottom == -120)
+    #expect(abs(verticalScroller.frame.height - scrollView.bounds.height) < 0.5)
+  }
+
+  @Test
   func sameRowIDsReconfigureChangedRowsWithoutSnapshot() {
     let plan = NativeTranscriptDiffPlan.make(
       previousIDs: ["user", "assistant"],

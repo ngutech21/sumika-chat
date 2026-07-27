@@ -1145,12 +1145,23 @@ extension NativeChatTranscriptCoordinator {
   // viewport is already pinned, so the newest content stays visible.
   func applyBottomContentInset(_ inset: CGFloat, to scrollView: NSScrollView) {
     let clamped = max(0, inset)
-    guard abs(scrollView.contentInsets.bottom - clamped) >= 0.5 else {
+    let contentInsetChanged = abs(scrollView.contentInsets.bottom - clamped) >= 0.5
+    let scrollerBottomInset = -clamped
+    let scrollerInsetChanged =
+      abs(scrollView.scrollerInsets.bottom - scrollerBottomInset) >= 0.5
+    guard contentInsetChanged || scrollerInsetChanged else {
       return
     }
     let wasPinnedToBottom = isPinnedToBottom(scrollView)
     scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: clamped, right: 0)
-    scrollView.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: clamped, right: 0)
+    // `contentInsets` also shortens the scroller, so offset that geometry while
+    // retaining the extra scroll range that clears the floating composer.
+    scrollView.scrollerInsets = NSEdgeInsets(
+      top: 0,
+      left: 0,
+      bottom: scrollerBottomInset,
+      right: 0
+    )
     if wasPinnedToBottom {
       scrollView.layoutSubtreeIfNeeded()
       scrollToBottomImmediately(scrollView)
