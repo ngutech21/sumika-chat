@@ -77,27 +77,31 @@ struct ToolFollowUpNoticePolicyTests {
   }
 
   @Test
-  func toolBudgetWarningStartsAtRoundedUpEightyPercent() throws {
-    let belowThreshold = try #require(
+  func toolBudgetWarningShowsEachOfLastThreeRemainingBatches() throws {
+    let beforeLastThree = try #require(
       ToolFollowUpNoticePolicy().update(
-        session: sessionWithToolCallBatches(count: 9),
+        session: sessionWithToolCallBatches(count: 8),
         turnID: defaultTurnID,
         promptMode: .afterToolResultCanContinue,
         maxToolLoopIterations: 12
       ))
-    #expect(belowThreshold.record.modelFollowUpNotice?.contains("80%") == false)
+    #expect(
+      beforeLastThree.record.modelFollowUpNotice?
+        .contains("Remaining action-tool batch budget") == false)
 
-    let atThreshold = try #require(
-      ToolFollowUpNoticePolicy().update(
-        session: sessionWithToolCallBatches(count: 10),
-        turnID: defaultTurnID,
-        promptMode: .afterToolResultCanContinue,
-        maxToolLoopIterations: 12
-      ))
-    let notice = try #require(atThreshold.record.modelFollowUpNotice)
-    #expect(notice.contains("at least 80% consumed"))
-    #expect(notice.contains("2 action-tool batches remain"))
-    #expect(notice.contains("Call another necessary tool, or finish_task if done."))
+    for remainingBatchCount in 1...3 {
+      let update = try #require(
+        ToolFollowUpNoticePolicy().update(
+          session: sessionWithToolCallBatches(count: 12 - remainingBatchCount),
+          turnID: defaultTurnID,
+          promptMode: .afterToolResultCanContinue,
+          maxToolLoopIterations: 12
+        ))
+      let notice = try #require(update.record.modelFollowUpNotice)
+      #expect(
+        notice.contains("Remaining action-tool batch budget: \(remainingBatchCount)."))
+      #expect(notice.contains("Call another necessary tool, or finish_task if done."))
+    }
   }
 
   @Test
@@ -110,7 +114,9 @@ struct ToolFollowUpNoticePolicyTests {
         maxToolLoopIterations: 12
       ))
 
-    #expect(update.record.modelFollowUpNotice?.contains("80%") == false)
+    #expect(
+      update.record.modelFollowUpNotice?
+        .contains("Remaining action-tool batch budget") == false)
     #expect(update.record.modelFollowUpNotice?.contains("answer if done") == true)
   }
 

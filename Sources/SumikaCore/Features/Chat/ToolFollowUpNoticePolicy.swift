@@ -128,22 +128,20 @@ struct ToolFollowUpNoticePolicy: Sendable {
       return nil
     }
 
-    let warningThreshold = (maxToolLoopIterations * 4 + 4) / 5
-    guard consumedBatchCount == warningThreshold,
-      consumedBatchCount < maxToolLoopIterations
+    let remainingBatchCount = maxToolLoopIterations - consumedBatchCount
+    guard (1...3).contains(remainingBatchCount)
     else {
       return nil
     }
 
-    let remainingBatchCount = maxToolLoopIterations - consumedBatchCount
     let batchDescription =
       if remainingBatchCount == 1 {
         "Final tool batch. Perform only essential remaining actions, then finish."
       } else {
-        "\(remainingBatchCount) action-tool batches remain. Prioritize essential changes and verify soon."
+        "Prioritize essential changes and verify soon."
       }
     return """
-      The action-tool budget is at least 80% consumed. \(batchDescription) before only finish_task is available.
+      Remaining action-tool batch budget: \(remainingBatchCount). \(batchDescription) After this budget is consumed, only finish_task is available.
       Prioritize the remaining required work and verification. Avoid optional exploration, and call finish_task as soon as the task is complete.
       """
   }

@@ -372,14 +372,14 @@ struct ConversationEngineToolLoopTests {
   }
 
   @Test
-  func toolBudgetWarningReachesModelAtEightyPercent() async throws {
+  func remainingToolBatchBudgetReachesModelAtStartOfLastThreeBatches() async throws {
     let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
-    let warningThreshold = (budget * 4 + 4) / 5
+    let warningBatchCount = budget - 3
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    try createListFixtureDirectories(in: workspace, count: warningThreshold)
+    try createListFixtureDirectories(in: workspace, count: warningBatchCount)
     let runtime = ChatSessionFakeChatModelRuntime(
-      eventTurns: listFileEventTurns(count: warningThreshold)
+      eventTurns: listFileEventTurns(count: warningBatchCount)
         + [
           [
             .toolCall(
@@ -404,13 +404,9 @@ struct ConversationEngineToolLoopTests {
 
     let capturedMessages = await runtime.capturedMessages
     let notice = try #require(
-      latestToolFollowUpNotice(in: capturedMessages, at: warningThreshold)
+      latestToolFollowUpNotice(in: capturedMessages, at: warningBatchCount)
     )
-    #expect(notice.contains("at least 80% consumed"))
-    #expect(
-      notice.contains(
-        "\(budget - warningThreshold) action-tool batch remains"
-      ))
+    #expect(notice.contains("Remaining action-tool batch budget: 3."))
     #expect(engine.chatSession.toolCalls.last?.request.toolName == .finishTask)
   }
 
