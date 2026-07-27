@@ -131,6 +131,9 @@ flowchart TD
   `ask_user`, persistence, or reload pauses do not reset the consumed count.
   Its action-batch maximum comes from the selected `ManagedModel`, so
   model-specific catalog configuration remains effective across resumed turns.
+  When an Agent turn first reaches the rounded-up 80-percent threshold, the
+  latest tool result tells the model how many action batches remain and to
+  prioritize required work and verification over optional exploration.
   The terminal `finish_task` control batch may be appended after that action
   budget without adding persisted budget state.
 - Successful write/edit follow-ups use the normal tool loop and keep the active

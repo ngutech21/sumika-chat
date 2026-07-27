@@ -614,6 +614,7 @@ extension ConversationEngine {
     turnExecutionCoordinator.applyToolFollowUpNoticeIfNeeded(
       toolPromptMode: promptMode,
       turnID: turnID,
+      maxToolLoopIterations: runtime.selectedModel.maxToolLoopIterations,
       conversation: self
     )
     refreshContextUsage(toolPromptMode: promptMode)
@@ -759,6 +760,7 @@ extension ConversationEngine {
     turnExecutionCoordinator.applyToolFollowUpNoticeIfNeeded(
       toolPromptMode: promptMode,
       turnID: turnID,
+      maxToolLoopIterations: runtime.selectedModel.maxToolLoopIterations,
       conversation: self
     )
     refreshContextUsage(toolPromptMode: promptMode)

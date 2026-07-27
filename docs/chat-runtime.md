@@ -204,9 +204,12 @@ state.
 - The currently active turn is allowed to include its own tool result while
   generating the direct follow-up response.
 - Direct follow-up responses may emit another tool call within the turn
-  coordinator's configured turn budget. When the Agent action budget is
-  exhausted, exactly one additional generation exposes only `finish_task`,
-  including continuations resumed after approval, `ask_user`, denial, or reload.
+  coordinator's configured turn budget. On first reaching the rounded-up
+  80-percent threshold, an Agent follow-up reports the remaining action batches
+  and asks the model to prioritize required work and verification. When the
+  Agent action budget is exhausted, exactly one additional generation exposes
+  only `finish_task`, including continuations resumed after approval, `ask_user`,
+  denial, or reload.
   A blocked duplicate or another force-final reason before that boundary sends no
   tool specs and adds the profile-appropriate final/no-tools guidance to the
   latest tool record's `modelFollowUpNotice`. Chat-web budget exhaustion also

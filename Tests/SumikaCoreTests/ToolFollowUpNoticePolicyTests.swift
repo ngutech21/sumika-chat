@@ -77,6 +77,44 @@ struct ToolFollowUpNoticePolicyTests {
   }
 
   @Test
+  func toolBudgetWarningStartsAtRoundedUpEightyPercent() throws {
+    let belowThreshold = try #require(
+      ToolFollowUpNoticePolicy().update(
+        session: sessionWithToolCallBatches(count: 9),
+        turnID: defaultTurnID,
+        promptMode: .afterToolResultCanContinue,
+        maxToolLoopIterations: 12
+      ))
+    #expect(belowThreshold.record.modelFollowUpNotice?.contains("80%") == false)
+
+    let atThreshold = try #require(
+      ToolFollowUpNoticePolicy().update(
+        session: sessionWithToolCallBatches(count: 10),
+        turnID: defaultTurnID,
+        promptMode: .afterToolResultCanContinue,
+        maxToolLoopIterations: 12
+      ))
+    let notice = try #require(atThreshold.record.modelFollowUpNotice)
+    #expect(notice.contains("at least 80% consumed"))
+    #expect(notice.contains("2 action-tool batches remain"))
+    #expect(notice.contains("Call another necessary tool, or finish_task if done."))
+  }
+
+  @Test
+  func toolBudgetWarningDoesNotApplyToChatWeb() throws {
+    let update = try #require(
+      ToolFollowUpNoticePolicy().update(
+        session: sessionWithToolCallBatches(count: 10, interactionMode: .chat),
+        turnID: defaultTurnID,
+        promptMode: .afterChatWebToolResultCanContinue,
+        maxToolLoopIterations: 12
+      ))
+
+    #expect(update.record.modelFollowUpNotice?.contains("80%") == false)
+    #expect(update.record.modelFollowUpNotice?.contains("answer if done") == true)
+  }
+
+  @Test
   func repeatedFailingRunCommandEscalatesToUserOnFinal() throws {
     // Two consecutive identical failing run_commands + a forced final generation must yield
     // an actionable escalation (names the command + error, asks the user to act) rather than
@@ -281,6 +319,35 @@ private func session(
         id: defaultTurnID,
         status: .running,
         items: records.map(ChatTurnItem.tool)
+      )
+    ],
+    interactionMode: interactionMode
+  )
+}
+
+private func sessionWithToolCallBatches(
+  count: Int,
+  interactionMode: WorkspaceInteractionMode = .agent
+) -> ChatSession {
+  var items: [ChatTurnItem] = []
+  for index in 0..<count {
+    if index > 0 {
+      items.append(.assistantMessage(AssistantTurnMessage(content: "")))
+    }
+    items.append(
+      .tool(
+        completedReadRecord(
+          id: UUID(),
+          path: "File\(index).swift",
+          content: "content"
+        )))
+  }
+  return ChatSession(
+    turns: [
+      ChatTurn(
+        id: defaultTurnID,
+        status: .running,
+        items: items
       )
     ],
     interactionMode: interactionMode

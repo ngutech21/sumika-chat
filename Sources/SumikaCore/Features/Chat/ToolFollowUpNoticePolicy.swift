@@ -8,7 +8,8 @@ struct ToolFollowUpNoticePolicy: Sendable {
   func update(
     session: ChatSession,
     turnID: ChatTurn.ID,
-    promptMode: ToolPromptMode
+    promptMode: ToolPromptMode,
+    maxToolLoopIterations: Int? = nil
   ) -> ToolFollowUpNoticeUpdate? {
     // Both agent and chat (web) sessions get follow-up notices. Agent-tool-specific
     // notices (run_command, listing, read) no-op in chat-web because their state is
@@ -22,16 +23,23 @@ struct ToolFollowUpNoticePolicy: Sendable {
       return nil
     }
 
-    guard
-      let notice = notice(
+    let notices = [
+      toolBudgetWarning(
+        interactionMode: session.interactionMode,
+        consumedBatchCount: turn.toolCallBatchCount,
+        maxToolLoopIterations: maxToolLoopIterations,
+        promptMode: promptMode
+      ),
+      notice(
         state: agentTurnState(in: turn),
         promptMode: promptMode
-      )
-    else {
+      ),
+    ].compactMap(\.self)
+    guard !notices.isEmpty else {
       return nil
     }
 
-    targetRecord.modelFollowUpNotice = notice
+    targetRecord.modelFollowUpNotice = notices.joined(separator: "\n")
     return ToolFollowUpNoticeUpdate(record: targetRecord)
   }
 
@@ -105,6 +113,40 @@ struct ToolFollowUpNoticePolicy: Sendable {
     The action-tool budget is exhausted. Call finish_task exactly once and alone.
     Put the complete user-visible final response in summary. Do not emit visible text or call any other tool.
     """
+
+  private func toolBudgetWarning(
+    interactionMode: WorkspaceInteractionMode,
+    consumedBatchCount: Int,
+    maxToolLoopIterations: Int?,
+    promptMode: ToolPromptMode
+  ) -> String? {
+    guard interactionMode == .agent,
+      promptMode == .afterToolResultCanContinue,
+      let maxToolLoopIterations,
+      maxToolLoopIterations > 0
+    else {
+      return nil
+    }
+
+    let warningThreshold = (maxToolLoopIterations * 4 + 4) / 5
+    guard consumedBatchCount == warningThreshold,
+      consumedBatchCount < maxToolLoopIterations
+    else {
+      return nil
+    }
+
+    let remainingBatchCount = maxToolLoopIterations - consumedBatchCount
+    let batchDescription =
+      if remainingBatchCount == 1 {
+        "Final tool batch. Perform only essential remaining actions, then finish."
+      } else {
+        "\(remainingBatchCount) action-tool batches remain. Prioritize essential changes and verify soon."
+      }
+    return """
+      The action-tool budget is at least 80% consumed. \(batchDescription) before only finish_task is available.
+      Prioritize the remaining required work and verification. Avoid optional exploration, and call finish_task as soon as the task is complete.
+      """
+  }
 
   private static let finalChatWebToolResultNotice =
     """

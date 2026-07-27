@@ -111,6 +111,7 @@ struct ChatTurnExecutionCoordinator {
     applyToolFollowUpNoticeIfNeeded(
       toolPromptMode: toolPromptMode,
       turnID: turnID,
+      maxToolLoopIterations: runtime.selectedModel.maxToolLoopIterations,
       conversation: conversation
     )
     let systemPromptStartedAt = Date()
@@ -610,13 +611,15 @@ struct ChatTurnExecutionCoordinator {
   func applyToolFollowUpNoticeIfNeeded(
     toolPromptMode: ToolPromptMode,
     turnID: ChatTurn.ID,
+    maxToolLoopIterations: Int,
     conversation: ConversationEngine
   ) -> Bool {
     guard
       let update = toolFollowUpNoticePolicy.update(
         session: conversation.chatSession,
         turnID: turnID,
-        promptMode: toolPromptMode
+        promptMode: toolPromptMode,
+        maxToolLoopIterations: maxToolLoopIterations
       )
     else {
       return false
