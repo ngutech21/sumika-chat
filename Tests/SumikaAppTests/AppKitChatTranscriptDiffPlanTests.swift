@@ -235,6 +235,29 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func userMessageUsesMarkdownBlocksForRendering() {
+    let markdown = "# Plan\n- **First** step"
+    let row = nativeUserRow(
+      id: "user-markdown",
+      revision: 1,
+      content: markdown
+    )
+    var requestedMarkdown: [String] = []
+    var actions = testNativeActions()
+    actions.markdownBlocks = { source in
+      requestedMarkdown.append(source)
+      return NativeTranscriptMarkdownRenderer.blocks(for: source)
+    }
+
+    let cell = configuredNativeCell(for: row, actions: actions)
+    let renderedText = cell.descendantTextFields.map(\.attributedStringValue)
+
+    #expect(requestedMarkdown == [markdown])
+    #expect(renderedText.contains { $0.string.contains("Plan\n• First step") })
+    #expect(renderedText.allSatisfy { !$0.string.contains("**") })
+  }
+
+  @Test
   func assistantReasoningAccessibilityLabelDoesNotIncludeMessageContent() {
     let longContent =
       "Inspecting the current workspace and comparing all candidate files before answering."
@@ -665,6 +688,36 @@ struct AppKitChatTranscriptDiffPlanTests {
       id: "assistant",
       revision: 1,
       markdown: "**cached** markdown"
+    )
+
+    _ = cache.height(
+      for: row,
+      width: 640,
+      markdownBlocks: { markdown in
+        markdownBlockRequests += 1
+        return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
+      }
+    )
+    _ = cache.height(
+      for: row,
+      width: 640,
+      markdownBlocks: { markdown in
+        markdownBlockRequests += 1
+        return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
+      }
+    )
+
+    #expect(markdownBlockRequests == 1)
+  }
+
+  @Test
+  func userHeightMeasurementUsesProvidedMarkdownBlocks() {
+    var markdownBlockRequests = 0
+    var cache = NativeTranscriptHeightCache()
+    let row = nativeUserRow(
+      id: "user",
+      revision: 1,
+      content: "# Plan\n- **First** step"
     )
 
     _ = cache.height(

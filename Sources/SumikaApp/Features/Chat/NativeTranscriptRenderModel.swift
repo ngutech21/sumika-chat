@@ -527,7 +527,11 @@ enum NativeTranscriptRowMeasurer {
     reusing reusableCell: NativeChatMessageCellView? = nil
   ) -> CGFloat {
     ChatDiagnostics.measure("Transcript row measure", category: .transcript) {
-      if let userTextHeight = userTextHeight(for: row, width: width) {
+      if let userTextHeight = userTextHeight(
+        for: row,
+        width: width,
+        markdownBlocks: markdownBlocks
+      ) {
         return userTextHeight
       }
       return NativeChatMessageCellView.measuredHeight(
@@ -542,7 +546,8 @@ enum NativeTranscriptRowMeasurer {
 
   private static func userTextHeight(
     for row: NativeTranscriptRow,
-    width: CGFloat
+    width: CGFloat,
+    markdownBlocks: @MainActor (String) -> [NativeMarkdownBlock]
   ) -> CGFloat? {
     guard case .item(let item) = row.body,
       case .userMessage(let message) = item.item,
@@ -552,9 +557,14 @@ enum NativeTranscriptRowMeasurer {
       return nil
     }
 
+    let blocks = markdownBlocks(message.content)
+    guard blocks.count == 1, case .text(let attributedText) = blocks[0] else {
+      return nil
+    }
     let contentHostWidth = min(item.nativeMaximumBubbleWidth, max(width - 44 - 80, 1))
     let textWidth = max(contentHostWidth - 20, 1)
-    let textHeight = NativeTranscriptMarkdownRenderer.linkifiedPlainText(message.content)
+    let textHeight =
+      attributedText
       .boundingRect(
         with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
         options: [.usesLineFragmentOrigin, .usesFontLeading]

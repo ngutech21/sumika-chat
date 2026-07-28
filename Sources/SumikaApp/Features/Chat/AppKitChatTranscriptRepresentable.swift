@@ -1247,12 +1247,19 @@ extension NativeChatTranscriptCoordinator {
         guard case .item(let item) = row.body else {
           return []
         }
-        return item.assistantRenderBlocks.compactMap { block in
+        let userMessages: [String] =
+          if case .userMessage(let message) = item.item, !message.content.isEmpty {
+            [message.content]
+          } else {
+            []
+          }
+        let assistantParagraphs: [String] = item.assistantRenderBlocks.compactMap { block in
           guard case .paragraph(let paragraph) = block else {
             return nil
           }
           return paragraph.text
         }
+        return userMessages + assistantParagraphs
       })
   }
 
@@ -1574,7 +1581,11 @@ final class NativeChatMessageCellView: NSTableCellView {
     if !message.content.isEmpty {
       let stack = verticalStack(spacing: 0)
       stack.alignment = .trailing
-      stack.addArrangedSubview(makeTextLabel(message.content, color: .labelColor))
+      for markdownBlock in actions?.markdownBlocks(message.content)
+        ?? NativeTranscriptMarkdownRenderer.blocks(for: message.content)
+      {
+        stack.addArrangedSubview(makeMarkdownBlockView(markdownBlock))
+      }
       outerStack.addArrangedSubview(
         paddedContainer(
           stack,
