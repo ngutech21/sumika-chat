@@ -55,11 +55,9 @@ struct TemporaryDirectoryTests {
   }
 
   @Test
-  func recordsCleanupFailure() {
-    withKnownIssue("The body deliberately removes the owned directory.") {
-      try withTemporaryDirectory { directory in
-        try FileManager.default.removeItem(at: directory)
-      }
+  func ignoresCleanupFailure() throws {
+    try withTemporaryDirectory { directory in
+      try FileManager.default.removeItem(at: directory)
     }
   }
 

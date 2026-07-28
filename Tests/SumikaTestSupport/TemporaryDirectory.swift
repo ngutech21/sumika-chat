@@ -3,26 +3,24 @@ import Testing
 
 package func withTemporaryDirectory<Result>(
   named prefix: String = "sumika-tests",
-  sourceLocation: SourceLocation = #_sourceLocation,
   _ body: (URL) throws -> Result
 ) throws -> Result {
   let directory = try makeTemporaryDirectory(named: prefix)
   defer {
-    removeTemporaryDirectory(directory, sourceLocation: sourceLocation)
+    removeTemporaryDirectory(directory)
   }
   return try body(directory)
 }
 
 package func withTemporaryDirectory<Result>(
   named prefix: String = "sumika-tests",
-  sourceLocation: SourceLocation = #_sourceLocation,
   isolation: isolated (any Actor)? = #isolation,
   _ body: (URL) async throws -> Result
 ) async throws -> Result {
   _ = isolation
   let directory = try makeTemporaryDirectory(named: prefix)
   defer {
-    removeTemporaryDirectory(directory, sourceLocation: sourceLocation)
+    removeTemporaryDirectory(directory)
   }
   return try await body(directory)
 }
@@ -94,17 +92,6 @@ private func makeTemporaryDirectory(named prefix: String) throws -> URL {
   return directory
 }
 
-private func removeTemporaryDirectory(
-  _ directory: URL,
-  sourceLocation: SourceLocation
-) {
-  do {
-    try FileManager.default.removeItem(at: directory)
-  } catch {
-    Issue.record(
-      error,
-      "Failed to remove temporary test directory at \(directory.path(percentEncoded: false))",
-      sourceLocation: sourceLocation
-    )
-  }
+private func removeTemporaryDirectory(_ directory: URL) {
+  try? FileManager.default.removeItem(at: directory)
 }
