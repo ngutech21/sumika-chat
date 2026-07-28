@@ -66,7 +66,9 @@ struct TurnTraceEventTests {
       ],
       imageCount: 2,
       imageTypes: ["image/png", "image/jpeg"],
-      imageByteCount: 4096
+      imageByteCount: 4096,
+      generatedTokenCount: 128,
+      generatedTokenCountIsEstimate: true
     )
 
     let data = try JSONEncoder().encode(event)
@@ -107,6 +109,8 @@ struct TurnTraceEventTests {
     #expect(object["imageCount"] as? Int == 2)
     #expect(object["imageTypes"] as? [String] == ["image/png", "image/jpeg"])
     #expect(object["imageByteCount"] as? Int == 4096)
+    #expect(object["generatedTokenCount"] as? Int == 128)
+    #expect(object["generatedTokenCountIsEstimate"] as? Bool == true)
 
     let toolArguments = try #require(object["toolArguments"] as? [[String: Any]])
     #expect(toolArguments.count == 1)

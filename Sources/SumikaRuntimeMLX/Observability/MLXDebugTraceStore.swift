@@ -37,6 +37,9 @@ actor MLXDebugTraceStore: TurnTracing {
       "topP": settings.topP,
       "topK": settings.topK,
       "repetitionPenalty": settings.repetitionPenalty,
+      "repetitionContextSize": settings.repetitionContextSize,
+      "presencePenalty": settings.presencePenalty,
+      "reasoningEnabled": settings.reasoningEnabled,
     ]
     if let maxKVSize = settings.maxKVSize {
       settingsTrace["maxKVSize"] = maxKVSize
@@ -92,6 +95,31 @@ actor MLXDebugTraceStore: TurnTracing {
     append(response)
   }
 
+  func traceGenerationProgress(
+    id: UUID,
+    traceMetadata: TurnTraceMetadata?,
+    durationMs: Double,
+    output: String,
+    estimateTokenCount: @Sendable (String) -> Int
+  ) async {
+    guard Self.isEnabled else {
+      return
+    }
+
+    await recordTurnTraceEvent(
+      TurnTraceEvent(
+        turnID: traceMetadata?.turnID,
+        generationID: id,
+        phase: .runtimePartialDecode,
+        durationMs: durationMs,
+        toolLoopIteration: traceMetadata?.toolLoopIteration,
+        interactionMode: traceMetadata?.interactionMode,
+        generatedTokenCount: estimateTokenCount(output),
+        generatedTokenCountIsEstimate: true
+      )
+    )
+  }
+
   func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
     guard Self.isEnabled else {
       return
@@ -136,6 +164,8 @@ actor MLXDebugTraceStore: TurnTracing {
       ("imageCount", event.imageCount),
       ("imageTypes", event.imageTypes),
       ("imageByteCount", event.imageByteCount),
+      ("generatedTokenCount", event.generatedTokenCount),
+      ("generatedTokenCountIsEstimate", event.generatedTokenCountIsEstimate),
     ]
     for (key, value) in optionalFields {
       if let value {

@@ -144,6 +144,8 @@ struct MLXModelStreamProcessorTests {
 
     let event = try #require(await tracer.firstEvent(for: .runtimeDecode))
     #expect(event.durationMs == 250)
+    #expect(event.generatedTokenCount == 5)
+    #expect(event.generatedTokenCountIsEstimate == false)
     #expect(event.tokensPerSecond == 20)
   }
 

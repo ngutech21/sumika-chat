@@ -21,6 +21,7 @@ enum MLXModelStreamProcessor {
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
     debugTraceStore: MLXDebugTraceStore,
+    generationProgressTracer: MLXGenerationProgressTracer = .disabled,
     markCompleted: @escaping @Sendable (String) async -> Void,
     markNativeToolCallBoundary: @escaping @Sendable (String, [ChatRuntimeToolCall]) async -> Void =
       {
@@ -49,24 +50,22 @@ enum MLXModelStreamProcessor {
       var nativeToolCalls: [ChatRuntimeToolCall] = []
       var usedNativeToolCallIDs = Set<UUID>()
       var pendingChunk: String?
+      var generationProgressTracer = generationProgressTracer
 
       do {
         generationLoop: for try await generation in stream {
           try Task.checkCancellation()
 
           if let chunk = generation.chunk {
-            if firstChunkAt == nil {
-              let now = Date()
-              firstChunkAt = now
-              await recordRuntimeTTFT(
-                traceID: traceID,
-                traceMetadata: traceMetadata,
-                cacheTrace: cacheTrace,
-                iterationStartedAt: iterationStartedAt,
-                firstChunkAt: now
-              )
-            }
+            firstChunkAt = await recordRuntimeTTFTIfNeeded(
+              firstChunkAt,
+              traceID: traceID,
+              traceMetadata: traceMetadata,
+              cacheTrace: cacheTrace,
+              iterationStartedAt: iterationStartedAt
+            )
             output += chunk
+            await generationProgressTracer.record(output: output)
             if yieldModelChunk(
               chunk,
               pendingChunk: &pendingChunk,
@@ -129,6 +128,7 @@ enum MLXModelStreamProcessor {
               traceMetadata: traceMetadata,
               cacheTrace: cacheTrace,
               durationMs: info.generateTime * 1000,
+              generatedTokenCount: info.generationTokenCount,
               tokensPerSecond: info.tokensPerSecond
             )
             if !termination.reachedTokenLimit {
@@ -220,6 +220,27 @@ enum MLXModelStreamProcessor {
     return MLXModelStreamPlan(stream: outputStream, task: task)
   }
 
+  private static func recordRuntimeTTFTIfNeeded(
+    _ firstChunkAt: Date?,
+    traceID: UUID,
+    traceMetadata: TurnTraceMetadata?,
+    cacheTrace: MLXSessionCacheTrace,
+    iterationStartedAt: Date
+  ) async -> Date? {
+    guard firstChunkAt == nil else {
+      return firstChunkAt
+    }
+    let now = Date()
+    await recordRuntimeTTFT(
+      traceID: traceID,
+      traceMetadata: traceMetadata,
+      cacheTrace: cacheTrace,
+      iterationStartedAt: iterationStartedAt,
+      firstChunkAt: now
+    )
+    return now
+  }
+
   private static func recordRuntimeTTFT(
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
@@ -259,6 +280,7 @@ enum MLXModelStreamProcessor {
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
     durationMs: Double,
+    generatedTokenCount: Int,
     tokensPerSecond: Double
   ) async {
     guard let traceMetadata else {
@@ -282,7 +304,9 @@ enum MLXModelStreamProcessor {
         appendedMessageCount: cacheTrace.appendedMessageCount,
         mismatchReason: cacheTrace.mismatchReason,
         firstMismatchIndex: cacheTrace.firstMismatchIndex,
-        systemPromptChanged: cacheTrace.systemPromptChanged
+        systemPromptChanged: cacheTrace.systemPromptChanged,
+        generatedTokenCount: generatedTokenCount,
+        generatedTokenCountIsEstimate: false
       )
     )
   }

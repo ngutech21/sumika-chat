@@ -63,7 +63,9 @@ struct MLXDebugTraceStoreTests {
             preview: "setup-project",
             previewTruncated: false
           )
-        ]
+        ],
+        generatedTokenCount: 128,
+        generatedTokenCountIsEstimate: true
       )
     )
 
@@ -96,6 +98,8 @@ struct MLXDebugTraceStoreTests {
     #expect(object["toolValidationError"] as? String == "Unknown argument(s): id, status.")
     #expect(object["toolOriginalName"] as? String == "todo_write")
     #expect(object["toolArgumentKeys"] as? [String] == ["id", "status"])
+    #expect(object["generatedTokenCount"] as? Int == 128)
+    #expect(object["generatedTokenCountIsEstimate"] as? Bool == true)
 
     let toolArguments = try #require(object["toolArguments"] as? [[String: Any]])
     #expect(toolArguments.count == 1)
@@ -103,6 +107,127 @@ struct MLXDebugTraceStoreTests {
     #expect(toolArguments.first?["valueType"] as? String == "string")
     #expect(toolArguments.first?["preview"] as? String == "setup-project")
     #expect(toolArguments.first?["previewTruncated"] as? Bool == false)
+  }
+
+  @Test
+  func requestTraceRecordsAllGenerationSettings() async throws {
+    setenv("SUMIKA_DEBUG_TRACE", "1", 1)
+    defer {
+      unsetenv("SUMIKA_DEBUG_TRACE")
+    }
+    let fileURL = try temporaryTraceFileURL()
+    let store = MLXDebugTraceStore(fileURL: fileURL)
+    let settings = ChatGenerationSettings(
+      temperature: 0.4,
+      topP: 0.8,
+      topK: 32,
+      maxTokens: 4_096,
+      repetitionPenalty: 1.05,
+      repetitionContextSize: 512,
+      presencePenalty: 0.35,
+      reasoningEnabled: false
+    )
+
+    await store.traceRequest(
+      id: UUID(),
+      history: [],
+      prompt: "Prompt",
+      settings: settings,
+      contextTokenLimit: nil
+    )
+
+    let data = try Data(contentsOf: fileURL)
+    let line = try #require(String(data: data, encoding: .utf8)?.split(separator: "\n").first)
+    let object = try #require(
+      JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+    )
+    let tracedSettings = try #require(object["settings"] as? [String: Any])
+
+    #expect(tracedSettings["presencePenalty"] as? Double == 0.35)
+    #expect(tracedSettings["reasoningEnabled"] as? Bool == false)
+    #expect(tracedSettings["repetitionContextSize"] as? Int == 512)
+  }
+
+  @Test
+  func generationProgressTracerRecordsFirstAndPeriodicSnapshots() async throws {
+    setenv("SUMIKA_DEBUG_TRACE", "1", 1)
+    defer {
+      unsetenv("SUMIKA_DEBUG_TRACE")
+    }
+    let fileURL = try temporaryTraceFileURL()
+    let store = MLXDebugTraceStore(fileURL: fileURL)
+    let generationID = UUID()
+    var tracer = MLXGenerationProgressTracer(
+      traceID: generationID,
+      traceMetadata: nil,
+      debugTraceStore: store,
+      startedAt: Date(),
+      estimateTokenCount: { $0.split(separator: " ").count }
+    )
+
+    for tokenCount in 1...128 {
+      await tracer.record(
+        output: Array(repeating: "token", count: tokenCount).joined(separator: " ")
+      )
+    }
+
+    let data = try Data(contentsOf: fileURL)
+    let lines = try #require(String(data: data, encoding: .utf8)?.split(separator: "\n"))
+    let objects = try lines.map {
+      try #require(JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any])
+    }
+
+    #expect(objects.count == 2)
+    #expect(
+      objects.map { $0["phase"] as? String } == [
+        "runtime_partial_decode",
+        "runtime_partial_decode",
+      ])
+    #expect(objects.map { $0["generatedTokenCount"] as? Int } == [1, 128])
+    #expect(objects.allSatisfy { $0["generatedTokenCountIsEstimate"] as? Bool == true })
+  }
+
+  @Test
+  func generationProgressTraceRecordsEstimatedRunningTokenCount() async throws {
+    setenv("SUMIKA_DEBUG_TRACE", "1", 1)
+    defer {
+      unsetenv("SUMIKA_DEBUG_TRACE")
+    }
+    let fileURL = try temporaryTraceFileURL()
+    let store = MLXDebugTraceStore(fileURL: fileURL)
+    let turnID = UUID()
+    let generationID = UUID()
+    let metadata = TurnTraceMetadata(
+      turnID: turnID,
+      generationID: generationID,
+      tracer: store,
+      toolLoopIteration: 3,
+      interactionMode: .agent
+    )
+
+    await store.traceGenerationProgress(
+      id: generationID,
+      traceMetadata: metadata,
+      durationMs: 1_250,
+      output: "one two three",
+      estimateTokenCount: { $0.split(separator: " ").count }
+    )
+
+    let data = try Data(contentsOf: fileURL)
+    let line = try #require(String(data: data, encoding: .utf8)?.split(separator: "\n").first)
+    let object = try #require(
+      JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+    )
+
+    #expect(object["kind"] as? String == "turn_trace")
+    #expect(object["phase"] as? String == "runtime_partial_decode")
+    #expect(object["turnID"] as? String == turnID.uuidString)
+    #expect(object["generationID"] as? String == generationID.uuidString)
+    #expect(object["toolLoopIteration"] as? Int == 3)
+    #expect(object["interactionMode"] as? String == "agent")
+    #expect(object["durationMs"] as? Double == 1_250)
+    #expect(object["generatedTokenCount"] as? Int == 3)
+    #expect(object["generatedTokenCountIsEstimate"] as? Bool == true)
   }
 
   @Test

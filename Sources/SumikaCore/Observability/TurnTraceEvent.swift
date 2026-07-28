@@ -50,6 +50,8 @@ package struct TurnTraceEvent: Codable, Equatable, Sendable {
   package let imageCount: Int?
   package let imageTypes: [String]?
   package let imageByteCount: Int?
+  package let generatedTokenCount: Int?
+  package let generatedTokenCountIsEstimate: Bool?
 
   package init(
     turnID: UUID? = nil,
@@ -85,7 +87,9 @@ package struct TurnTraceEvent: Codable, Equatable, Sendable {
     toolArguments: [ToolArgumentTrace]? = nil,
     imageCount: Int? = nil,
     imageTypes: [String]? = nil,
-    imageByteCount: Int? = nil
+    imageByteCount: Int? = nil,
+    generatedTokenCount: Int? = nil,
+    generatedTokenCountIsEstimate: Bool? = nil
   ) {
     self.turnID = turnID
     self.generationID = generationID
@@ -121,6 +125,8 @@ package struct TurnTraceEvent: Codable, Equatable, Sendable {
     self.imageCount = imageCount
     self.imageTypes = imageTypes
     self.imageByteCount = imageByteCount
+    self.generatedTokenCount = generatedTokenCount
+    self.generatedTokenCountIsEstimate = generatedTokenCountIsEstimate
   }
 }
 

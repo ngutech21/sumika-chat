@@ -366,6 +366,20 @@ struct ModelAdvancedSettings: View {
           Slider(value: selectedRepetitionPenalty, in: 1...2, step: 0.05)
         }
 
+        VStack(alignment: .leading, spacing: 6) {
+          HStack {
+            Label("Presence Penalty", systemImage: "text.badge.minus")
+            Spacer()
+            Text(
+              selectedGenerationSettings.wrappedValue.presencePenalty.formatted(
+                .number.precision(.fractionLength(2)))
+            )
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+          }
+          Slider(value: selectedPresencePenalty, in: -2...2, step: 0.05)
+        }
+
         LabeledContent("Hugging Face") {
           Text(model.huggingFaceRepoID)
             .textSelection(.enabled)
@@ -469,6 +483,13 @@ struct ModelAdvancedSettings: View {
     Binding(
       get: { selectedGenerationSettings.wrappedValue.repetitionPenalty },
       set: { selectedGenerationSettings.wrappedValue.repetitionPenalty = $0 }
+    )
+  }
+
+  private var selectedPresencePenalty: Binding<Double> {
+    Binding(
+      get: { selectedGenerationSettings.wrappedValue.presencePenalty },
+      set: { selectedGenerationSettings.wrappedValue.presencePenalty = $0 }
     )
   }
 
