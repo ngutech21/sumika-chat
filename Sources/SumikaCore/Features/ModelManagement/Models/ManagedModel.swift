@@ -106,7 +106,7 @@ package enum ManagedModelCatalog {
     settings.agent.generationSettings.presencePenalty = 0.3
     settings.agent.generationSettings.repetitionPenalty = 1
     settings.agent.generationSettings.maxTokens = 32_768
-    
+
     settings.chat.generationSettings.temperature = 0.6
     settings.chat.generationSettings.topP = 0.95
     settings.chat.generationSettings.topK = 20
