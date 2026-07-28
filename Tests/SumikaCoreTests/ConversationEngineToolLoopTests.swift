@@ -731,7 +731,7 @@ struct ConversationEngineToolLoopTests {
 
     try await waitUntil { !engine.isGenerating }
 
-    #expect(budget == 20)
+    #expect(budget == 12)
     #expect(engine.chatSession.toolCalls.count == budget)
     #expect(engine.chatSession.turns.first?.toolCallBatchCount == budget)
     let capturedToolContexts = await runtime.capturedToolContexts

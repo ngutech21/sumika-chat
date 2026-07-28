@@ -103,9 +103,16 @@ package enum ManagedModelCatalog {
     settings.agent.generationSettings.temperature = 0.6
     settings.agent.generationSettings.topP = 0.95
     settings.agent.generationSettings.topK = 20
-    settings.agent.generationSettings.presencePenalty = 1.5
+    settings.agent.generationSettings.presencePenalty = 0.3
     settings.agent.generationSettings.repetitionPenalty = 1
     settings.agent.generationSettings.maxTokens = 32_768
+    
+    settings.chat.generationSettings.temperature = 0.6
+    settings.chat.generationSettings.topP = 0.95
+    settings.chat.generationSettings.topK = 20
+    settings.chat.generationSettings.presencePenalty = 0.3
+    settings.chat.generationSettings.repetitionPenalty = 1
+    settings.chat.generationSettings.maxTokens = 32_768
     return settings
   }()
 
@@ -173,7 +180,7 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .gemmaChannel,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
-      maxToolLoopIterations: 20
+      maxToolLoopIterations: 12
     ),
 
     ManagedModel(
@@ -191,7 +198,7 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .qwenThinkTags,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
-      maxToolLoopIterations: 20
+      maxToolLoopIterations: 12
     ),
     ManagedModel(
       id: "qwen3.6-35b-a3b-8bit",
@@ -208,7 +215,7 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .qwenThinkTags,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
-      maxToolLoopIterations: 20
+      maxToolLoopIterations: 12
     ),
     ManagedModel(
       id: "qwen3.6-27B-4bit",
@@ -225,7 +232,7 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .qwenThinkTags,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
-      maxToolLoopIterations: 20
+      maxToolLoopIterations: 12
     ),
     ManagedModel(
       id: "qwen3.6-27B-8bit",
@@ -242,7 +249,7 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .qwenThinkTags,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
-      maxToolLoopIterations: 20
+      maxToolLoopIterations: 12
     ),
     ManagedModel(
       id: "qwen3.6-40B-8bit-heretic",
@@ -260,7 +267,7 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .qwenThinkTags,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
-      maxToolLoopIterations: 20
+      maxToolLoopIterations: 12
     ),
   ]
 
