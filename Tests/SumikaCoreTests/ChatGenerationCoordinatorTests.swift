@@ -105,6 +105,44 @@ struct ChatGenerationCoordinatorTests {
   }
 
   @Test
+  func outputLimitReturnsCompleteNativeCallsAndTerminationMetadata() async throws {
+    let toolCall = ChatRuntimeToolCall(
+      name: "write_file",
+      arguments: [
+        "path": .string("index.html"),
+        "content": .string("<main></main>"),
+      ]
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [
+        [
+          .toolCall(toolCall),
+          .outputLimitReached(
+            ChatGenerationOutputLimit(
+              discardedToolProtocolTail: true
+            )),
+        ]
+      ],
+      automaticallyCompletes: false
+    )
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 0,
+      streamingFlushCharacterLimit: 1
+    )
+
+    let result = try await coordinator.streamAssistantReplyResult(
+      transcript: ModelPromptProjection(),
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Use tools."),
+      settings: .agentDefault,
+      appendChunk: { _ in },
+      updateGenerationMetrics: { _ in })
+
+    #expect(result.nativeToolCalls == [toolCall])
+    #expect(result.termination == .outputLimit(discardedToolProtocolTail: true))
+  }
+
+  @Test
   func completedThinkingOnlyReturnsNoVisibleAssistantContent() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [.thinkingChunk("Reasoning only.")]

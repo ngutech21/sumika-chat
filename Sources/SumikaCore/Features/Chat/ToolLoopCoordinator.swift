@@ -30,6 +30,7 @@ struct ToolLoopRequest: Sendable {
   let toolLoopIteration: Int?
   let toolCallingPolicy: ToolCallingPolicy
   let nativeToolCalls: [ChatRuntimeToolCall]
+  let batchFollowUpNotice: String?
   let approvalPolicyProvider: @Sendable () async -> ToolApprovalPolicy
 
   init(
@@ -44,6 +45,7 @@ struct ToolLoopRequest: Sendable {
     toolLoopIteration: Int? = nil,
     toolCallingPolicy: ToolCallingPolicy = .nativeMLX,
     nativeToolCalls: [ChatRuntimeToolCall] = [],
+    batchFollowUpNotice: String? = nil,
     approvalPolicyProvider: @escaping @Sendable () async -> ToolApprovalPolicy = { .manual }
   ) {
     self.workspace = workspace
@@ -57,6 +59,7 @@ struct ToolLoopRequest: Sendable {
     self.toolLoopIteration = toolLoopIteration
     self.toolCallingPolicy = toolCallingPolicy
     self.nativeToolCalls = nativeToolCalls
+    self.batchFollowUpNotice = batchFollowUpNotice
     self.approvalPolicyProvider = approvalPolicyProvider
   }
 }
@@ -175,8 +178,8 @@ struct ToolLoopCoordinator: Sendable {
     var isAwaitingUserAnswer = false
     var batchAnchorID: ToolCallRecord.ID?
 
-    for output in outputs {
-      let record: ToolCallRecord
+    for (index, output) in outputs.enumerated() {
+      var record: ToolCallRecord
       if let duplicateRecord = duplicateToolCallRecord(
         for: output,
         registry: registry,
@@ -196,6 +199,11 @@ struct ToolLoopCoordinator: Sendable {
           rawRequest: output.request,
           record: record
         )
+      }
+      if index == outputs.count - 1, let notice = request.batchFollowUpNotice {
+        record.modelFollowUpNotice = [record.modelFollowUpNotice, notice]
+          .compactMap(\.self)
+          .joined(separator: "\n")
       }
       seenItems.append(.tool(record))
       if batchAnchorID == nil {

@@ -156,82 +156,104 @@ struct ChatTurnExecutionCoordinator {
     )
     let suppressVisibleAssistantContent = toolPromptMode == .afterToolBudgetExhausted
     var guardedAssistantChunks = ""
-    var generationResult = try await runtime.chatGenerationCoordinator.streamAssistantReplyResult(
-      turnID: turnID,
-      operationID: runtime.operationID,
-      toolLoopIteration: toolLoopIteration,
-      interactionMode: interactionMode,
-      transcript: modelPromptProjection,
-      attachments: attachments,
-      promptPlan: promptPlan,
-      settings: conversation.chatSession.generationSettings,
-      appendChunk: { chunk in
-        guard conversation.isActive(turnID) else {
-          return
-        }
-        if failedCommandGuard != nil || suppressVisibleAssistantContent {
-          guardedAssistantChunks += chunk
-          return
-        }
-        var events: [ChatWorkflowEvent] = []
-        // Reasoning ends the moment visible output starts, not when the whole
-        // generation finishes: the transcript switches the thinking row to its
-        // "Reasoned for Xs" summary while the answer keeps streaming.
-        if didAppendAssistantThinking, !didCompleteAssistantThinking {
-          didCompleteAssistantThinking = true
-          events.append(.assistantThinkingCompleted(messageID: assistantThinkingMessageID))
-        }
-        events.append(
-          .assistantChunkAppended(
-            chunk: chunk,
-            messageID: assistantMessageID
-          ))
-        conversation.applyWorkflowEvents(events)
-      },
-      appendThinkingChunk: { chunk in
-        guard conversation.isActive(turnID) else {
-          return
-        }
-        var events: [ChatWorkflowEvent] = []
-        if !didAppendAssistantThinking {
-          didAppendAssistantThinking = true
+
+    func generate(using currentPromptPlan: ChatRuntimePromptPlan) async throws
+      -> ChatGenerationResult
+    {
+      try await runtime.chatGenerationCoordinator.streamAssistantReplyResult(
+        turnID: turnID,
+        operationID: runtime.operationID,
+        toolLoopIteration: toolLoopIteration,
+        interactionMode: interactionMode,
+        transcript: modelPromptProjection,
+        attachments: attachments,
+        promptPlan: currentPromptPlan,
+        settings: conversation.chatSession.generationSettings,
+        appendChunk: { chunk in
+          guard conversation.isActive(turnID) else {
+            return
+          }
+          if failedCommandGuard != nil || suppressVisibleAssistantContent {
+            guardedAssistantChunks += chunk
+            return
+          }
+          var events: [ChatWorkflowEvent] = []
+          // Reasoning ends the moment visible output starts, not when the whole
+          // generation finishes: the transcript switches the thinking row to its
+          // "Reasoned for Xs" summary while the answer keeps streaming.
+          if didAppendAssistantThinking, !didCompleteAssistantThinking {
+            didCompleteAssistantThinking = true
+            events.append(.assistantThinkingCompleted(messageID: assistantThinkingMessageID))
+          }
           events.append(
-            .assistantThinkingPlaceholderAppended(
-              messageID: assistantThinkingMessageID,
-              turnID: turnID
+            .assistantChunkAppended(
+              chunk: chunk,
+              messageID: assistantMessageID
             ))
-        }
-        events.append(
-          .assistantThinkingChunkAppended(
-            chunk: chunk,
-            messageID: assistantThinkingMessageID
-          ))
-        conversation.applyWorkflowEvents(events)
-      },
-      updateGenerationMetrics: { metrics in
-        guard conversation.isActive(turnID) else {
-          return
-        }
-        var events: [ChatWorkflowEvent] = []
-        if didAppendAssistantThinking, !didCompleteAssistantThinking {
-          didCompleteAssistantThinking = true
-          events.append(.assistantThinkingCompleted(messageID: assistantThinkingMessageID))
-        }
-        events.append(
-          .assistantGenerationCompleted(
-            messageID: assistantMessageID,
-            metrics: metrics
+          conversation.applyWorkflowEvents(events)
+        },
+        appendThinkingChunk: { chunk in
+          guard conversation.isActive(turnID) else {
+            return
+          }
+          var events: [ChatWorkflowEvent] = []
+          if !didAppendAssistantThinking {
+            didAppendAssistantThinking = true
+            events.append(
+              .assistantThinkingPlaceholderAppended(
+                messageID: assistantThinkingMessageID,
+                turnID: turnID
+              ))
+          }
+          events.append(
+            .assistantThinkingChunkAppended(
+              chunk: chunk,
+              messageID: assistantThinkingMessageID
+            ))
+          conversation.applyWorkflowEvents(events)
+        },
+        updateGenerationMetrics: { metrics in
+          guard conversation.isActive(turnID) else {
+            return
+          }
+          var events: [ChatWorkflowEvent] = []
+          if didAppendAssistantThinking, !didCompleteAssistantThinking {
+            didCompleteAssistantThinking = true
+            events.append(.assistantThinkingCompleted(messageID: assistantThinkingMessageID))
+          }
+          events.append(
+            .assistantGenerationCompleted(
+              messageID: assistantMessageID,
+              metrics: metrics
+            )
           )
-        )
-        conversation.applyWorkflowEvents(events)
-      },
-      updateRuntimeCacheDebugSnapshot: { snapshot in
-        guard conversation.isActive(turnID) else {
-          return
+          conversation.applyWorkflowEvents(events)
+        },
+        updateRuntimeCacheDebugSnapshot: { snapshot in
+          guard conversation.isActive(turnID) else {
+            return
+          }
+          conversation.updateRuntimeCacheDebugSnapshot(snapshot)
         }
-        conversation.updateRuntimeCacheDebugSnapshot(snapshot)
-      }
-    )
+      )
+    }
+
+    var generationResult = try await generate(using: promptPlan)
+    if interactionMode == .agent,
+      generationResult.nativeToolCalls.isEmpty,
+      generationResult.termination == .outputLimit(discardedToolProtocolTail: true)
+    {
+      generationResult = try await generate(
+        using: promptPlan.appendingTransientInstruction(
+          outputLimitRetryInstruction(for: toolPromptMode)
+        )
+      )
+    }
+    if generationResult.nativeToolCalls.isEmpty,
+      case .outputLimit = generationResult.termination
+    {
+      throw ChatGenerationError.outputLimitReached
+    }
     guard conversation.isActive(turnID) else {
       return ChatGenerationResult(assistantContent: "")
     }
@@ -254,6 +276,13 @@ struct ChatTurnExecutionCoordinator {
       generationResult.assistantContent = guardedContent
       guardedAssistantChunks = ""
     }
+    completeOutputLimitedTranscriptIfNeeded(
+      generationResult,
+      assistantMessageID: assistantMessageID,
+      assistantThinkingMessageID: assistantThinkingMessageID,
+      hasIncompleteThinking: didAppendAssistantThinking && !didCompleteAssistantThinking,
+      conversation: conversation
+    )
     conversation.refreshContextUsage(toolPromptMode: toolPromptMode)
     return generationResult
   }
@@ -268,7 +297,8 @@ struct ChatTurnExecutionCoordinator {
     conversation: ConversationEngine,
     turnToolOrchestrator: ToolOrchestrator,
     stableInstructions: String,
-    lastNativeToolCalls: [ChatRuntimeToolCall] = []
+    lastNativeToolCalls: [ChatRuntimeToolCall] = [],
+    lastBatchFollowUpNotice: String? = nil
   ) async throws -> ChatToolLoopOutcome {
     let toolProfile = activeToolProfile(
       workspace: workspace,
@@ -282,6 +312,7 @@ struct ChatTurnExecutionCoordinator {
 
     var currentAssistantMessageID = lastAssistantMessageID
     var currentNativeToolCalls = lastNativeToolCalls
+    var currentBatchFollowUpNotice = lastBatchFollowUpNotice
     let toolCallingPolicy = runtime.selectedModel.toolCallingPolicy
     let maxToolLoopIterations = runtime.selectedModel.maxToolLoopIterations
     let turnToolRegistry = turnToolOrchestrator.toolRegistry
@@ -320,6 +351,7 @@ struct ChatTurnExecutionCoordinator {
             toolLoopIteration: toolLoopIteration,
             toolCallingPolicy: toolCallingPolicy,
             nativeToolCalls: currentNativeToolCalls,
+            batchFollowUpNotice: currentBatchFollowUpNotice,
             approvalPolicyProvider: {
               let session = await conversation.chatSession
               guard session.interactionMode == .agent else {
@@ -334,6 +366,7 @@ struct ChatTurnExecutionCoordinator {
         return .complete
       }
       currentNativeToolCalls = []
+      currentBatchFollowUpNotice = nil
       try Task.checkCancellation()
       guard conversation.isActive(turnID) else {
         return .stop
@@ -378,6 +411,7 @@ struct ChatTurnExecutionCoordinator {
           toolLoopIteration: toolLoopIteration
         )
         currentNativeToolCalls = generationResult.nativeToolCalls
+        currentBatchFollowUpNotice = outputLimitFollowUpNotice(for: generationResult)
         try requireVisibleTextOrToolCall(generationResult)
         guard !promptMode.isFinal else {
           try requireVisibleFinalResponse(generationResult)
@@ -409,6 +443,7 @@ struct ChatTurnExecutionCoordinator {
           toolLoopIteration: toolLoopIteration
         )
         currentNativeToolCalls = generationResult.nativeToolCalls
+        currentBatchFollowUpNotice = outputLimitFollowUpNotice(for: generationResult)
         try requireVisibleTextOrToolCall(generationResult)
         guard !effectivePromptMode.isFinal else {
           try requireVisibleFinalResponse(generationResult)
@@ -550,27 +585,6 @@ struct ChatTurnExecutionCoordinator {
   private static let toolBudgetFallback =
     "Tool limit reached before reliable completion. Changes may be incomplete."
 
-  func requireVisibleTextOrToolCall(_ generationResult: ChatGenerationResult) throws {
-    guard
-      hasVisibleAssistantContent(generationResult)
-        || !generationResult.nativeToolCalls.isEmpty
-    else {
-      throw ChatGenerationError.emptyModelResponse
-    }
-  }
-
-  func requireVisibleFinalResponse(_ generationResult: ChatGenerationResult) throws {
-    guard generationResult.nativeToolCalls.isEmpty,
-      hasVisibleAssistantContent(generationResult)
-    else {
-      throw ChatGenerationError.emptyModelResponse
-    }
-  }
-
-  func hasVisibleAssistantContent(_ generationResult: ChatGenerationResult) -> Bool {
-    !generationResult.assistantContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-  }
-
   func activeToolProfile(
     workspace: Workspace?,
     sessionID: ChatSession.ID?,
@@ -632,6 +646,86 @@ struct ChatTurnExecutionCoordinator {
 }
 
 extension ChatTurnExecutionCoordinator {
+  private func completeOutputLimitedTranscriptIfNeeded(
+    _ result: ChatGenerationResult,
+    assistantMessageID: UUID,
+    assistantThinkingMessageID: UUID,
+    hasIncompleteThinking: Bool,
+    conversation: ConversationEngine
+  ) {
+    guard case .outputLimit = result.termination else {
+      return
+    }
+    var events: [ChatWorkflowEvent] = []
+    if hasIncompleteThinking {
+      events.append(.assistantThinkingCompleted(messageID: assistantThinkingMessageID))
+    }
+    events.append(
+      .assistantGenerationOutputLimitReached(
+        messageID: assistantMessageID
+      ))
+    conversation.applyWorkflowEvents(events)
+  }
+
+  private static let outputLimitRetryInstruction =
+    """
+    [Output-limit recovery]
+    The previous generation reached its output limit while emitting an incomplete tool call. No call from that generation was accepted.
+    Retry only the remaining work. Keep each individual tool payload small. Multiple complete tool calls are allowed.
+    For a large new file, create a compact valid scaffold first, then extend it with edit_file in later calls.
+    Do not repeat changes that already completed earlier in this turn.
+    """
+
+  private static let outputLimitFinalizationRetryInstruction =
+    """
+    [Output-limit recovery]
+    The previous generation reached its output limit while emitting an incomplete finish_task call. No call from that generation was accepted.
+    Retry finish_task exactly once and alone. Keep its summary concise while preserving the essential completion status, changed paths, and verification result.
+    """
+
+  private static let outputLimitFollowUpNotice =
+    """
+    The previous generation reached its output limit after the tool calls above. Those complete tool calls were accepted; do not repeat them.
+    Continue only the remaining work with smaller individual tool payloads. Multiple complete tool calls are allowed.
+    For a large new file, create a compact valid scaffold first, then extend it with edit_file in later calls.
+    """
+
+  func outputLimitFollowUpNotice(for result: ChatGenerationResult) -> String? {
+    guard !result.nativeToolCalls.isEmpty,
+      case .outputLimit = result.termination
+    else {
+      return nil
+    }
+    return Self.outputLimitFollowUpNotice
+  }
+
+  private func outputLimitRetryInstruction(for promptMode: ToolPromptMode) -> String {
+    promptMode == .afterToolBudgetExhausted
+      ? Self.outputLimitFinalizationRetryInstruction
+      : Self.outputLimitRetryInstruction
+  }
+
+  func requireVisibleTextOrToolCall(_ generationResult: ChatGenerationResult) throws {
+    guard
+      hasVisibleAssistantContent(generationResult)
+        || !generationResult.nativeToolCalls.isEmpty
+    else {
+      throw ChatGenerationError.emptyModelResponse
+    }
+  }
+
+  func requireVisibleFinalResponse(_ generationResult: ChatGenerationResult) throws {
+    guard generationResult.nativeToolCalls.isEmpty,
+      hasVisibleAssistantContent(generationResult)
+    else {
+      throw ChatGenerationError.emptyModelResponse
+    }
+  }
+
+  func hasVisibleAssistantContent(_ generationResult: ChatGenerationResult) -> Bool {
+    !generationResult.assistantContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
   func systemPrompt(
     session: ChatSession,
     selectedModel: ManagedModel,

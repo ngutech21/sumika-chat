@@ -8,6 +8,12 @@ struct MLXModelStreamPlan {
 }
 
 enum MLXModelStreamProcessor {
+  private struct StreamTerminationState {
+    var reachedTokenLimit = false
+    var discardedToolProtocolTail = false
+    var terminatedDownstream = false
+  }
+
   static func modelStreamPlan(
     from stream: AsyncThrowingStream<Generation, Error>,
     reasoningTraceFormat: ReasoningTraceFormat = .none,
@@ -39,8 +45,7 @@ enum MLXModelStreamProcessor {
       var completedMetrics: ChatGenerationMetrics?
       let iterationStartedAt = Date()
       var firstChunkAt: Date?
-      var didReachTokenLimit = false
-      var didTerminateDownstream = false
+      var termination = StreamTerminationState()
       var nativeToolCalls: [ChatRuntimeToolCall] = []
       var usedNativeToolCallIDs = Set<UUID>()
       var pendingChunk: String?
@@ -69,7 +74,7 @@ enum MLXModelStreamProcessor {
               to: continuation,
               visibleOutput: &visibleOutput
             ) {
-              didTerminateDownstream = true
+              termination.terminatedDownstream = true
               break generationLoop
             }
           }
@@ -81,7 +86,7 @@ enum MLXModelStreamProcessor {
               nativeToolCalls: &nativeToolCalls,
               to: continuation
             ) {
-              didTerminateDownstream = true
+              termination.terminatedDownstream = true
               break generationLoop
             }
           }
@@ -95,11 +100,12 @@ enum MLXModelStreamProcessor {
                 to: continuation,
                 visibleOutput: &visibleOutput
               ) {
-                didTerminateDownstream = true
+                termination.terminatedDownstream = true
                 break generationLoop
               }
             case .length:
-              didReachTokenLimit = true
+              termination.reachedTokenLimit = true
+              termination.discardedToolProtocolTail = pendingChunk != nil
               pendingChunk = nil
             case .cancelled:
               pendingChunk = nil
@@ -110,7 +116,7 @@ enum MLXModelStreamProcessor {
               to: continuation,
               visibleOutput: &visibleOutput
             ) {
-              didTerminateDownstream = true
+              termination.terminatedDownstream = true
               break generationLoop
             }
             let metrics = ChatGenerationMetrics(
@@ -125,16 +131,16 @@ enum MLXModelStreamProcessor {
               durationMs: info.generateTime * 1000,
               tokensPerSecond: info.tokensPerSecond
             )
-            if !didReachTokenLimit {
+            if !termination.reachedTokenLimit {
               if case .terminated = continuation.yield(.completed(metrics)) {
-                didTerminateDownstream = true
+                termination.terminatedDownstream = true
                 break generationLoop
               }
             }
           }
         }
 
-        if !didTerminateDownstream,
+        if !termination.terminatedDownstream,
           flushPendingChunk(
             &pendingChunk,
             reasoningParser: &reasoningParser,
@@ -142,7 +148,7 @@ enum MLXModelStreamProcessor {
             visibleOutput: &visibleOutput
           )
         {
-          didTerminateDownstream = true
+          termination.terminatedDownstream = true
         }
 
         let finalizeInterval = ChatDiagnostics.beginInterval(
@@ -157,9 +163,10 @@ enum MLXModelStreamProcessor {
           output: output,
           visibleOutput: visibleOutput,
           completedMetrics: completedMetrics,
-          didTerminateDownstream: didTerminateDownstream,
-          didCompleteNaturally: completedMetrics != nil && !didReachTokenLimit,
-          didReachTokenLimit: didReachTokenLimit,
+          didTerminateDownstream: termination.terminatedDownstream,
+          didCompleteNaturally: completedMetrics != nil && !termination.reachedTokenLimit,
+          didReachTokenLimit: termination.reachedTokenLimit,
+          didDiscardToolProtocolTail: termination.discardedToolProtocolTail,
           nativeToolCalls: nativeToolCalls,
           traceID: traceID,
           traceMetadata: traceMetadata,
@@ -383,6 +390,7 @@ enum MLXModelStreamProcessor {
     didTerminateDownstream: Bool,
     didCompleteNaturally: Bool,
     didReachTokenLimit: Bool,
+    didDiscardToolProtocolTail: Bool,
     nativeToolCalls: [ChatRuntimeToolCall],
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
@@ -416,7 +424,12 @@ enum MLXModelStreamProcessor {
         metrics: completedMetrics,
         error: error.localizedDescription
       )
-      continuation.finish(throwing: error)
+      _ = continuation.yield(
+        .outputLimitReached(
+          ChatGenerationOutputLimit(
+            discardedToolProtocolTail: didDiscardToolProtocolTail
+          )))
+      continuation.finish()
       return
     }
 

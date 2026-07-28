@@ -108,7 +108,7 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     temperature: 0.3,
     topP: 0.95,
     topK: 64,
-    maxTokens: 4096,
+    maxTokens: 8192,
     maxKVSize: nil,
     repetitionContextSize: 256,
     presencePenalty: 0.5

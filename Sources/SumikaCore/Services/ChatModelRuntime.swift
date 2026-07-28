@@ -18,6 +18,15 @@ package enum ChatModelStreamEvent: Sendable {
   case thinkingChunk(String)
   case toolCall(ChatRuntimeToolCall)
   case completed(ChatGenerationMetrics?)
+  case outputLimitReached(ChatGenerationOutputLimit)
+}
+
+package struct ChatGenerationOutputLimit: Equatable, Sendable {
+  package let discardedToolProtocolTail: Bool
+
+  package init(discardedToolProtocolTail: Bool) {
+    self.discardedToolProtocolTail = discardedToolProtocolTail
+  }
 }
 
 package struct ChatRuntimeToolContext: Equatable, Sendable {
@@ -52,6 +61,15 @@ package struct ChatRuntimePromptPlan: Equatable, Sendable {
       .filter { !$0.isEmpty }
     self.toolContext = toolContext
     self.cacheIdentityInstructions = cacheIdentityInstructions ?? stableInstructions
+  }
+
+  func appendingTransientInstruction(_ instruction: String) -> Self {
+    Self(
+      stableInstructions: stableInstructions,
+      transientInstructions: transientInstructions + [instruction],
+      toolContext: toolContext,
+      cacheIdentityInstructions: cacheIdentityInstructions
+    )
   }
 }
 

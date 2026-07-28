@@ -1312,6 +1312,7 @@ extension ChatWorkflowEvent {
       .assistantThinkingChunkAppended,
       .assistantThinkingCompleted,
       .assistantGenerationCompleted,
+      .assistantGenerationOutputLimitReached,
       .focusedFileStateChanged,
       .streamingAssistantMessagesCancelled,
       .transientAssistantPlaceholdersRemoved:

@@ -3,6 +3,7 @@ import Foundation
 enum ChatGenerationError: LocalizedError, Equatable, Sendable {
   case streamInterrupted
   case emptyModelResponse
+  case outputLimitReached
 
   var errorDescription: String? {
     switch self {
@@ -10,20 +11,30 @@ enum ChatGenerationError: LocalizedError, Equatable, Sendable {
       "Model generation ended before completion."
     case .emptyModelResponse:
       "Model generation completed without visible text or tool calls."
+    case .outputLimitReached:
+      "Local model generation reached its token limit before the response was complete. Increase Max Tokens or ask the model to make a smaller change."
     }
   }
+}
+
+enum ChatGenerationTermination: Equatable, Sendable {
+  case completed
+  case outputLimit(discardedToolProtocolTail: Bool)
 }
 
 struct ChatGenerationResult: Equatable, Sendable {
   var assistantContent: String
   var nativeToolCalls: [ChatRuntimeToolCall]
+  var termination: ChatGenerationTermination
 
   init(
     assistantContent: String,
-    nativeToolCalls: [ChatRuntimeToolCall] = []
+    nativeToolCalls: [ChatRuntimeToolCall] = [],
+    termination: ChatGenerationTermination = .completed
   ) {
     self.assistantContent = assistantContent
     self.nativeToolCalls = nativeToolCalls
+    self.termination = termination
   }
 }
 
@@ -154,6 +165,7 @@ struct ChatGenerationCoordinator {
     var lastFlushDate = Date()
     var lastThinkingFlushDate = Date()
     var didComplete = false
+    var outputLimit: ChatGenerationOutputLimit?
     var shouldFlushBufferedChunksOnExit = true
 
     func flushBufferedChunks() {
@@ -279,6 +291,10 @@ struct ChatGenerationCoordinator {
             updateGenerationMetrics(metrics)
           }
           didComplete = true
+        case .outputLimitReached(let limit):
+          flushBufferedThinkingChunks()
+          flushBufferedChunks()
+          outputLimit = limit
         }
       }
     } catch is CancellationError {
@@ -290,13 +306,16 @@ struct ChatGenerationCoordinator {
       throw CancellationError()
     }
 
-    if !didComplete, nativeToolCalls.isEmpty {
+    if !didComplete, outputLimit == nil, nativeToolCalls.isEmpty {
       throw ChatGenerationError.streamInterrupted
     }
     try await runtimeOperations.checkCurrentOperation(operationID)
     return ChatGenerationResult(
       assistantContent: generatedContent,
-      nativeToolCalls: nativeToolCalls
+      nativeToolCalls: nativeToolCalls,
+      termination: outputLimit.map {
+        .outputLimit(discardedToolProtocolTail: $0.discardedToolProtocolTail)
+      } ?? .completed
     )
   }
 

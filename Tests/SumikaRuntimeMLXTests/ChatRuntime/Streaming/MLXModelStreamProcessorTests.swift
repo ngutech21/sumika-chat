@@ -148,7 +148,7 @@ struct MLXModelStreamProcessorTests {
   }
 
   @Test
-  func tokenLimitedModelStreamFailsInsteadOfCompletingTruncatedOutput() async throws {
+  func tokenLimitedModelStreamReportsDiscardedToolProtocolTail() async throws {
     let memoryClearRecorder = MLXMemoryClearRecorder()
     let invalidationRecorder = MLXStreamInvalidationRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
@@ -183,31 +183,28 @@ struct MLXModelStreamProcessorTests {
     )
 
     var visibleOutput = ""
-    var emittedCompletion = false
-    do {
-      for try await event in stream {
-        switch event {
-        case .chunk(let chunk):
-          visibleOutput += chunk
-        case .completed:
-          emittedCompletion = true
-        case .thinkingChunk, .toolCall:
-          break
-        }
+    var outputLimit: ChatGenerationOutputLimit?
+    for try await event in stream {
+      switch event {
+      case .chunk(let chunk):
+        visibleOutput += chunk
+      case .outputLimitReached(let limit):
+        outputLimit = limit
+      case .completed:
+        Issue.record("A token-limited response must not be marked complete.")
+      case .thinkingChunk, .toolCall:
+        break
       }
-      Issue.record("Expected token-limit failure.")
-    } catch MLXChatRuntimeError.generationTokenLimitReached {
-      #expect(visibleOutput.isEmpty)
-      #expect(emittedCompletion == false)
-      #expect(await invalidationRecorder.firstReason == .interrupted)
-      #expect(await memoryClearRecorder.reasons == [.interruptedStream])
-    } catch {
-      Issue.record("Expected token-limit error, got \(error).")
     }
+
+    #expect(visibleOutput.isEmpty)
+    #expect(outputLimit?.discardedToolProtocolTail == true)
+    #expect(await invalidationRecorder.firstReason == .interrupted)
+    #expect(await memoryClearRecorder.reasons == [.interruptedStream])
   }
 
   @Test
-  func tokenLimitedNativeToolBatchRejectsTrailingProtocolFragment() async throws {
+  func tokenLimitedNativeToolBatchKeepsCompleteCallsAndRejectsTrailingFragment() async throws {
     let invalidationRecorder = MLXStreamInvalidationRecorder()
     let boundaryRecorder = MLXNativeBoundaryRecorder()
     let memoryClearRecorder = MLXMemoryClearRecorder()
@@ -262,31 +259,28 @@ struct MLXModelStreamProcessorTests {
 
     var visibleOutput = ""
     var emittedToolCallCount = 0
-    var emittedCompletion = false
-    do {
-      for try await event in stream {
-        switch event {
-        case .chunk(let chunk):
-          visibleOutput += chunk
-        case .toolCall:
-          emittedToolCallCount += 1
-        case .completed:
-          emittedCompletion = true
-        case .thinkingChunk:
-          break
-        }
+    var outputLimit: ChatGenerationOutputLimit?
+    for try await event in stream {
+      switch event {
+      case .chunk(let chunk):
+        visibleOutput += chunk
+      case .toolCall:
+        emittedToolCallCount += 1
+      case .outputLimitReached(let limit):
+        outputLimit = limit
+      case .completed:
+        Issue.record("A token-limited response must not be marked complete.")
+      case .thinkingChunk:
+        break
       }
-      Issue.record("Expected token-limit failure.")
-    } catch MLXChatRuntimeError.generationTokenLimitReached {
-      #expect(visibleOutput == "I will create the files.")
-      #expect(emittedToolCallCount == 2)
-      #expect(emittedCompletion == false)
-      #expect(await invalidationRecorder.firstReason == .interrupted)
-      #expect(await boundaryRecorder.firstBoundary == nil)
-      #expect(await memoryClearRecorder.reasons == [.interruptedStream])
-    } catch {
-      Issue.record("Expected token-limit error, got \(error).")
     }
+
+    #expect(visibleOutput == "I will create the files.")
+    #expect(emittedToolCallCount == 2)
+    #expect(outputLimit?.discardedToolProtocolTail == true)
+    #expect(await invalidationRecorder.firstReason == .interrupted)
+    #expect(await boundaryRecorder.firstBoundary == nil)
+    #expect(await memoryClearRecorder.reasons == [.interruptedStream])
   }
 
   @Test
@@ -419,7 +413,7 @@ struct MLXModelStreamProcessorTests {
         chunks.append(chunk)
       case .thinkingChunk(let chunk):
         thinkingChunks.append(chunk)
-      case .toolCall, .completed:
+      case .toolCall, .completed, .outputLimitReached:
         break
       }
     }
@@ -475,7 +469,7 @@ struct MLXModelStreamProcessorTests {
         chunks.append(chunk)
       case .thinkingChunk(let chunk):
         thinkingChunks.append(chunk)
-      case .toolCall, .completed:
+      case .toolCall, .completed, .outputLimitReached:
         break
       }
     }

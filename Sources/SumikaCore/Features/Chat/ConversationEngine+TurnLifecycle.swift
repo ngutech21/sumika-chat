@@ -144,7 +144,10 @@ extension ConversationEngine {
           conversation: self,
           turnToolOrchestrator: turnToolOrchestrator,
           stableInstructions: stableInstructions,
-          lastNativeToolCalls: generationResult.nativeToolCalls
+          lastNativeToolCalls: generationResult.nativeToolCalls,
+          lastBatchFollowUpNotice: turnExecutionCoordinator.outputLimitFollowUpNotice(
+            for: generationResult
+          )
         )
         return try await self.resolveToolLoopOutcome(
           toolLoopOutcome,
@@ -544,6 +547,7 @@ extension ConversationEngine {
           workspace: workspace
         )
       }
+      approvedRecord.modelFollowUpNotice = liveRecord.modelFollowUpNotice
       if approvedRecord.status != .awaitingApproval,
         approvedRecord.evaluation.decision != .denied
       {
@@ -680,7 +684,10 @@ extension ConversationEngine {
       conversation: self,
       turnToolOrchestrator: turnToolOrchestrator,
       stableInstructions: stableInstructions,
-      lastNativeToolCalls: generationResult.nativeToolCalls
+      lastNativeToolCalls: generationResult.nativeToolCalls,
+      lastBatchFollowUpNotice: turnExecutionCoordinator.outputLimitFollowUpNotice(
+        for: generationResult
+      )
     )
     return try await resolveToolLoopOutcome(
       toolLoopOutcome,
@@ -834,7 +841,10 @@ extension ConversationEngine {
       conversation: self,
       turnToolOrchestrator: turnToolOrchestrator,
       stableInstructions: stableInstructions,
-      lastNativeToolCalls: generationResult.nativeToolCalls
+      lastNativeToolCalls: generationResult.nativeToolCalls,
+      lastBatchFollowUpNotice: turnExecutionCoordinator.outputLimitFollowUpNotice(
+        for: generationResult
+      )
     )
     return try await resolveToolLoopOutcome(
       toolLoopOutcome,

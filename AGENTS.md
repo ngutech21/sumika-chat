@@ -138,6 +138,11 @@ Rules:
 - Concrete tools receive typed inputs.
 - Denied tools and approval-required tools are distinct.
 - Write, patch, and command tools must enter awaiting-approval before execution.
+- Keep runtime termination separate from transcript delivery. When an
+  output-limited batch has accepted complete tool calls, mark any streamed
+  assistant prose and thinking complete before pausing or completing the turn,
+  while preserving the output-limit termination instead of reporting normal
+  generation completion.
 - Update `docs/tool-runtime.md` when the tool contract changes.
 
 ## Workspace Interaction Modes

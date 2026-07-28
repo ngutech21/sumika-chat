@@ -8,6 +8,212 @@ import Testing
 @MainActor
 struct ConversationEngineToolLoopTests {
   @Test
+  func discardedToolProtocolTailRetriesOnceWithSmallerPayloadInstruction() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [
+        [
+          .outputLimitReached(
+            ChatGenerationOutputLimit(
+              discardedToolProtocolTail: true
+            ))
+        ],
+        [writeToolCall(path: "small.txt", content: "small")],
+      ],
+      automaticallyCompletes: false
+    )
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+
+    engine.sendMessage(
+      prompt: "Create a file without exceeding the output limit.",
+      in: workspace,
+      sessionID: sessionID
+    )
+    try await waitUntil { engine.hasPendingApproval && !engine.isGenerating }
+
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == 2)
+    #expect(capturedPromptPlans[0].transientInstructions.isEmpty)
+    #expect(
+      capturedPromptPlans[1].transientInstructions.contains { instruction in
+        instruction.contains("Keep each individual tool payload small")
+          && instruction.contains("Multiple complete tool calls are allowed")
+      })
+    #expect(engine.chatSession.toolCalls.count == 1)
+    #expect(engine.chatSession.toolCalls[0].request.toolName == .writeFile)
+  }
+
+  @Test
+  func repeatedDiscardedToolProtocolTailStopsAfterOneRecoveryAttempt() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let outputLimit = ChatModelStreamEvent.outputLimitReached(
+      ChatGenerationOutputLimit(discardedToolProtocolTail: true)
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [[outputLimit], [outputLimit]],
+      automaticallyCompletes: false
+    )
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+
+    engine.sendMessage(
+      prompt: "Create a file without exceeding the output limit.",
+      in: workspace,
+      sessionID: sessionID
+    )
+    try await waitUntil { !engine.isGenerating && engine.errorMessage != nil }
+
+    #expect(await runtime.capturedPromptPlans.count == 2)
+    #expect(engine.chatSession.toolCalls.isEmpty)
+    #expect(engine.errorMessage == ChatGenerationError.outputLimitReached.localizedDescription)
+  }
+
+  @Test
+  func outputLimitedBatchKeepsCompleteWritesAndGuidesFollowUpAfterApproval() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [
+        [
+          writeToolCall(path: "index.html", content: "<main></main>"),
+          writeToolCall(path: "styles.css", content: "main {}"),
+          .outputLimitReached(
+            ChatGenerationOutputLimit(
+              discardedToolProtocolTail: true
+            )),
+        ],
+        [.chunk("Completed the remaining work."), .completed(nil)],
+      ],
+      automaticallyCompletes: false
+    )
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+
+    engine.sendMessage(
+      prompt: "Create the project files.",
+      in: workspace,
+      sessionID: sessionID
+    )
+    try await waitUntil { engine.hasPendingApproval && !engine.isGenerating }
+
+    #expect(engine.chatSession.toolCalls.count == 2)
+    #expect(
+      engine.chatSession.toolCalls.last?.modelFollowUpNotice?.contains(
+        "Those complete tool calls were accepted"
+      ) == true)
+    let anchorID = try #require(engine.chatSession.toolCalls.first?.id)
+    engine.approveToolCallBatch(containing: anchorID, in: workspace)
+    try await waitUntil { engine.chatSession.turns.first?.status == .completed }
+
+    let capturedMessages = await runtime.capturedMessages
+    #expect(capturedMessages.count == 2)
+    #expect(
+      capturedMessages[1].contains { message in
+        message.role == .tool
+          && message.content.contains("Those complete tool calls were accepted")
+      })
+    #expect(
+      try String(
+        contentsOf: workspace.rootURL.appending(path: "index.html"),
+        encoding: .utf8
+      ) == "<main></main>"
+    )
+    #expect(
+      try String(
+        contentsOf: workspace.rootURL.appending(path: "styles.css"),
+        encoding: .utf8
+      ) == "main {}"
+    )
+  }
+
+  @Test
+  func outputLimitedBatchCompletesVisiblePreambleBeforeApprovalPause() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [
+        [
+          .chunk("I will write the file."),
+          writeToolCall(path: "index.html", content: "<main></main>"),
+          .outputLimitReached(
+            ChatGenerationOutputLimit(
+              discardedToolProtocolTail: true
+            )),
+        ]
+      ],
+      automaticallyCompletes: false
+    )
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+
+    engine.sendMessage(
+      prompt: "Create the project file.",
+      in: workspace,
+      sessionID: sessionID
+    )
+    try await waitUntil { engine.hasPendingApproval && !engine.isGenerating }
+
+    let preamble = try #require(
+      engine.chatSession.testMessages.first {
+        $0.kind == .assistant && $0.content == "I will write the file."
+      })
+    #expect(preamble.deliveryStatus == .complete)
+  }
+
+  @Test
+  func outputLimitedBatchCompletesThinkingBeforeApprovalPause() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [
+        [
+          .thinkingChunk("Preparing the write."),
+          writeToolCall(path: "index.html", content: "<main></main>"),
+          .outputLimitReached(
+            ChatGenerationOutputLimit(
+              discardedToolProtocolTail: true
+            )),
+        ]
+      ],
+      automaticallyCompletes: false
+    )
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+
+    engine.sendMessage(
+      prompt: "Create the project file.",
+      in: workspace,
+      sessionID: sessionID
+    )
+    try await waitUntil { engine.hasPendingApproval && !engine.isGenerating }
+
+    let thinkingMessages: [AssistantThinkingMessage] =
+      engine.chatSession.transcriptItemsForTesting.compactMap { item in
+        guard case .assistantThinking(let message) = item else {
+          return nil
+        }
+        return message
+      }
+    let thinking = try #require(thinkingMessages.first)
+    #expect(thinking.content == "Preparing the write.")
+    #expect(thinking.deliveryStatus == .complete)
+    #expect(thinking.completedAt != nil)
+  }
+
+  @Test
   func approveAllIgnoresConcurrentAndStaleInvocations() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -525,7 +731,7 @@ struct ConversationEngineToolLoopTests {
 
     try await waitUntil { !engine.isGenerating }
 
-    #expect(budget == 12)
+    #expect(budget == 20)
     #expect(engine.chatSession.toolCalls.count == budget)
     #expect(engine.chatSession.turns.first?.toolCallBatchCount == budget)
     let capturedToolContexts = await runtime.capturedToolContexts

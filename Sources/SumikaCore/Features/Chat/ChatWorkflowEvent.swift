@@ -49,6 +49,9 @@ enum ChatWorkflowEvent: Equatable, Sendable {
     messageID: UUID,
     metrics: ChatGenerationMetrics?
   )
+  case assistantGenerationOutputLimitReached(
+    messageID: UUID
+  )
   case assistantMessageAppended(
     content: String,
     modelProjectionPolicy: AssistantModelProjectionPolicy,
@@ -169,6 +172,8 @@ struct ChatWorkflowEventApplier: Sendable {
     case .assistantGenerationCompleted(let messageID, let metrics):
       mutator.updateGenerationMetrics(metrics, for: messageID, in: &state)
       mutator.updateDeliveryStatus(.complete, for: messageID, in: &state)
+    case .assistantGenerationOutputLimitReached(let messageID):
+      mutator.updateDeliveryStatus(.complete, for: messageID, in: &state)
     case .assistantMessageAppended(
       let content,
       let modelProjectionPolicy,
@@ -237,7 +242,8 @@ struct ChatWorkflowEventApplier: Sendable {
     case .assistantChunkAppended(_, let messageID),
       .assistantThinkingChunkAppended(_, let messageID),
       .assistantThinkingCompleted(let messageID),
-      .assistantGenerationCompleted(let messageID, _):
+      .assistantGenerationCompleted(let messageID, _),
+      .assistantGenerationOutputLimitReached(let messageID):
       return missingMessageDiagnostics([messageID], event: event, in: state)
     case .focusedFileStateChanged, .todoStateChanged, .transientAssistantPlaceholdersRemoved:
       return []
