@@ -98,6 +98,17 @@ package enum ManagedModelCatalog {
   package static let defaultModelID = "gemma4-12b-qat-4bit"
   package static let defaultContextTokenLimit = 16_384
 
+  private static let qwen36DefaultModeSettings: ChatModeSettingsSet = {
+    var settings = ChatModeSettingsSet.defaultSettings
+    settings.agent.generationSettings.temperature = 0.6
+    settings.agent.generationSettings.topP = 0.95
+    settings.agent.generationSettings.topK = 20
+    settings.agent.generationSettings.presencePenalty = 1.5
+    settings.agent.generationSettings.repetitionPenalty = 1
+    settings.agent.generationSettings.maxTokens = 32_768
+    return settings
+  }()
+
   package static let models: [ManagedModel] = [
     ManagedModel(
       id: "gemma4-e4b-qat-4bit",
@@ -178,7 +189,7 @@ package enum ManagedModelCatalog {
       toolCallingPolicy: .nativeMLX,
       supportsImageInput: true,
       reasoningTraceFormat: .qwenThinkTags,
-      defaultModeSettings: .defaultSettings,
+      defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 20
     ),
@@ -195,7 +206,7 @@ package enum ManagedModelCatalog {
       toolCallingPolicy: .nativeMLX,
       supportsImageInput: true,
       reasoningTraceFormat: .qwenThinkTags,
-      defaultModeSettings: .defaultSettings,
+      defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 20
     ),
@@ -212,7 +223,7 @@ package enum ManagedModelCatalog {
       toolCallingPolicy: .nativeMLX,
       supportsImageInput: true,
       reasoningTraceFormat: .qwenThinkTags,
-      defaultModeSettings: .defaultSettings,
+      defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 20
     ),
@@ -229,7 +240,7 @@ package enum ManagedModelCatalog {
       toolCallingPolicy: .nativeMLX,
       supportsImageInput: true,
       reasoningTraceFormat: .qwenThinkTags,
-      defaultModeSettings: .defaultSettings,
+      defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 20
     ),
@@ -247,7 +258,7 @@ package enum ManagedModelCatalog {
       toolCallingPolicy: .nativeMLX,
       supportsImageInput: false,
       reasoningTraceFormat: .qwenThinkTags,
-      defaultModeSettings: .defaultSettings,
+      defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 20
     ),

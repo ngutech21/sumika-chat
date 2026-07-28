@@ -45,6 +45,59 @@ struct ModelManagementTests {
   }
 
   @Test
+  func catalogDeclaresQwen36AgentSamplingDefaults() throws {
+    var expectedAgentSettings = ChatGenerationSettings.agentDefault
+    expectedAgentSettings.temperature = 0.6
+    expectedAgentSettings.topP = 0.95
+    expectedAgentSettings.topK = 20
+    expectedAgentSettings.presencePenalty = 0
+    expectedAgentSettings.repetitionPenalty = 1
+    let qwenModelIDs = [
+      "qwen3.6-27B-4bit",
+      "qwen3.6-27B-8bit",
+      "qwen3.6-35b-a3b-4bit",
+      "qwen3.6-35b-a3b-8bit",
+      "qwen3.6-40B-8bit-heretic",
+    ]
+
+    for modelID in qwenModelIDs {
+      let model = try #require(ManagedModelCatalog.model(id: modelID))
+
+      #expect(model.defaultModeSettings.chat.generationSettings == .chatDefault)
+      #expect(model.defaultModeSettings.agent.generationSettings == expectedAgentSettings)
+    }
+
+    #expect(
+      ManagedModelCatalog.defaultModel.defaultModeSettings.agent.generationSettings
+        == ChatGenerationSettings.agentDefault)
+  }
+
+  @Test
+  func settingsStoreUsesQwen36AgentDefaultsWhenNoSettingsAreSaved() async throws {
+    let model = try #require(ManagedModelCatalog.model(id: "qwen3.6-35b-a3b-8bit"))
+    let store = ModelSettingsStore(
+      userDefaults: makeUserDefaults(),
+      settingsURL: try temporarySettingsURL(),
+      generationConfigPresetProvider: { _ in
+        ChatGenerationConfigPreset(temperature: 1, topP: 0.95, topK: 20)
+      }
+    )
+
+    let settings = await store.settings(for: model)
+    let chat = settings.modeSettings.chat.generationSettings
+    let agent = settings.modeSettings.agent.generationSettings
+
+    #expect(chat.temperature == 1)
+    #expect(chat.topP == 0.95)
+    #expect(chat.topK == 20)
+    #expect(agent.temperature == 0.6)
+    #expect(agent.topP == 0.95)
+    #expect(agent.topK == 20)
+    #expect(agent.presencePenalty == 0)
+    #expect(agent.repetitionPenalty == 1)
+  }
+
+  @Test
   func catalogDeclaresToolLoopBudgetsByModelSize() throws {
     let smallModelIDs = [
       "gemma4-e4b-qat-4bit",

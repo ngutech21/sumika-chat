@@ -305,7 +305,7 @@ struct ModelAdvancedSettings: View {
           Slider(value: selectedTemperature, in: 0...2, step: 0.1)
         }
 
-        Stepper(value: selectedMaxTokens, in: 128...8192, step: 128) {
+        Stepper(value: selectedMaxTokens, in: 128...32_768, step: 128) {
           SettingValueLabel(
             title: "Response Length",
             value: "\(selectedGenerationSettings.wrappedValue.maxTokens)")

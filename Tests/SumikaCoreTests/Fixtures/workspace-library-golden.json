@@ -24,7 +24,7 @@
           "modeSettings" : {
             "agent" : {
               "generationSettings" : {
-                "maxTokens" : 2048,
+                "maxTokens" : 8192,
                 "presencePenalty" : 0.5,
                 "reasoningEnabled" : true,
                 "repetitionContextSize" : 256,
@@ -152,7 +152,7 @@
           "modeSettings" : {
             "agent" : {
               "generationSettings" : {
-                "maxTokens" : 2048,
+                "maxTokens" : 8192,
                 "presencePenalty" : 0.5,
                 "reasoningEnabled" : true,
                 "repetitionContextSize" : 256,
