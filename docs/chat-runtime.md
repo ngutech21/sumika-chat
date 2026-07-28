@@ -346,6 +346,23 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
 The native MLX tool path preserves the assistant tool-call boundary as a derived
 projection while replaying it to MLX as native structured tool-call metadata.
 
+## MLX Debug Trace
+
+When `SUMIKA_DEBUG_TRACE=1`, each `mlx_request` records the effective generation
+settings, including `presencePenalty`, `reasoningEnabled`, and
+`repetitionContextSize`. The first decoded chunk and every 128 decoded chunks
+afterward emit a `runtime_partial_decode` `turn_trace` row. Its
+`generatedTokenCount` is re-tokenized from the raw output accumulated so far and
+is marked with `generatedTokenCountIsEstimate: true`; structured tool parsing
+can buffer provider syntax, so this running value is intentionally not presented
+as an exact MLX counter.
+
+The terminal `runtime_decode` row records MLX's exact `generatedTokenCount` with
+`generatedTokenCountIsEstimate: false`. The matching `mlx_response` retains the
+same exact count in its metrics when MLX delivered completion info. If generation
+is manually cancelled before completion, the latest partial-decode row remains
+available even though no terminal metrics exist.
+
 ## Prompt Cost Regression
 
 `just prompt-cost` runs four model-free Core tool-loop fixtures that cover
