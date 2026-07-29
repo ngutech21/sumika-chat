@@ -51,12 +51,14 @@ nonisolated extension ToolDefinition {
       ),
       ToolParameterDefinition(
         name: "path",
-        description: "Workspace-relative search directory. Defaults to root.",
+        description:
+          "Workspace-relative file or directory to search. Directories are searched recursively. Defaults to the workspace root.",
         isRequired: false
       ),
       ToolParameterDefinition(
         name: "include",
-        description: "Glob file-name filter.",
+        description:
+          "Optional glob filter applied to workspace-relative paths or file names, including an explicitly targeted file.",
         isRequired: false
       ),
     ],
@@ -135,11 +137,7 @@ struct SearchFilesToolExecutor: TypedToolExecutor {
         var results: [SearchFileMatch] = []
         var truncated = false
 
-        try WorkspaceFileEnumeration.enumerateFiles(
-          at: rootURL,
-          relativeTo: workspaceRootURL,
-          skippedNames: skippedNames
-        ) { fileURL, relativePath in
+        let visitFile: (URL, String) throws -> Bool = { fileURL, relativePath in
           if !Self.shouldSearch(
             relativePath: relativePath,
             fileName: fileURL.lastPathComponent,
@@ -165,6 +163,29 @@ struct SearchFilesToolExecutor: TypedToolExecutor {
           }
 
           return results.count < maxMatches
+        }
+
+        let rootValues = try rootURL.resourceValues(
+          forKeys: [.isDirectoryKey, .isRegularFileKey])
+        if rootValues.isRegularFile == true {
+          _ = try visitFile(rootURL, rootPath.rawValue)
+        } else if rootValues.isDirectory == true {
+          try WorkspaceFileEnumeration.enumerateFiles(
+            at: rootURL,
+            relativeTo: workspaceRootURL,
+            skippedNames: skippedNames,
+            visit: visitFile
+          )
+        } else {
+          return .failure(
+            ToolFailure(
+              toolName: .searchFiles,
+              path: rootPath,
+              reason: .executionError(
+                "Path must resolve to a regular file or directory."
+              )
+            )
+          )
         }
 
         return .searchFiles(

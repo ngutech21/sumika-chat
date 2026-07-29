@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import SumikaTestSupport
 import Testing
@@ -99,6 +100,119 @@ struct ToolDiscoveryExecutionTests {
     #expect(result.status == .success)
     #expect(result.text == "Sources/App.swift:2: struct ToolDefinition {}")
     #expect(!result.text.contains("App.txt"))
+    #expect(!result.truncated)
+  }
+
+  @Test
+  func searchFilesFindsMatchesInRegularFilePath() async throws {
+    let workspace = try makeWorkspace()
+    try write(
+      """
+      function initialize() {}
+      function startFlight() {}
+      """,
+      to: "index.html",
+      in: workspace
+    )
+
+    let result = await SearchFilesToolExecutor().run(
+      SearchFilesInput(pattern: #"function startFlight\(\)"#, path: "index.html", include: nil),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(result.status == .success)
+    #expect(result.text == "index.html:2: function startFlight() {}")
+    #expect(result.affectedPaths == ["index.html"])
+    #expect(!result.truncated)
+  }
+
+  @Test
+  func searchFilesReturnsNoMatchesForNonMatchingRegularFilePath() async throws {
+    let workspace = try makeWorkspace()
+    try write("function initialize() {}", to: "index.html", in: workspace)
+
+    let result = await SearchFilesToolExecutor().run(
+      SearchFilesInput(pattern: "startFlight", path: "index.html", include: nil),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(result.status == .success)
+    #expect(result.text == "(no matches)")
+    #expect(result.affectedPaths == ["index.html"])
+    #expect(!result.truncated)
+  }
+
+  @Test
+  func searchFilesAppliesIncludeFilterToRegularFilePath() async throws {
+    let workspace = try makeWorkspace()
+    try write("let value = 1", to: "Sources/App.swift", in: workspace)
+    let executor = SearchFilesToolExecutor()
+
+    let matchingInclude = await executor.run(
+      SearchFilesInput(pattern: "value", path: "Sources/App.swift", include: "*.swift"),
+      context: ToolContext(workspace: workspace)
+    )
+    let nonMatchingInclude = await executor.run(
+      SearchFilesInput(pattern: "value", path: "Sources/App.swift", include: "*.txt"),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(matchingInclude.status == .success)
+    #expect(matchingInclude.text == "Sources/App.swift:1: let value = 1")
+    #expect(nonMatchingInclude.status == .success)
+    #expect(nonMatchingInclude.text == "(no matches)")
+  }
+
+  @Test
+  func searchFilesReportsMissingPath() async throws {
+    let workspace = try makeWorkspace()
+
+    let result = await SearchFilesToolExecutor().run(
+      SearchFilesInput(pattern: "value", path: "missing.txt", include: nil),
+      context: ToolContext(workspace: workspace)
+    )
+
+    guard case .failure(let failure) = result else {
+      Issue.record("Expected missing path failure")
+      return
+    }
+    #expect(failure.path == WorkspaceRelativePath(rawValue: "missing.txt"))
+    #expect(failure.reason == .fileNotFound(path: nil, suggestions: []))
+  }
+
+  @Test
+  func searchFilesRejectsUnsupportedFilesystemObject() async throws {
+    let workspace = try makeWorkspace()
+    let fifoURL = workspace.rootURL.appending(path: "events.pipe")
+    try #require(Darwin.mkfifo(fifoURL.path(percentEncoded: false), 0o600) == 0)
+
+    let result = await SearchFilesToolExecutor().run(
+      SearchFilesInput(pattern: "value", path: "events.pipe", include: nil),
+      context: ToolContext(workspace: workspace)
+    )
+
+    guard case .failure(let failure) = result else {
+      Issue.record("Expected unsupported filesystem object failure")
+      return
+    }
+    #expect(failure.path == WorkspaceRelativePath(rawValue: "events.pipe"))
+    #expect(
+      failure.reason
+        == .executionError("Path must resolve to a regular file or directory."))
+  }
+
+  @Test
+  func searchFilesSearchesExplicitFileInsideSkippedDirectory() async throws {
+    let workspace = try makeWorkspace()
+    try write("secret match", to: ".git/config", in: workspace)
+
+    let result = await SearchFilesToolExecutor().run(
+      SearchFilesInput(pattern: "match", path: ".git/config", include: nil),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(result.status == .success)
+    #expect(result.text == ".git/config:1: secret match")
     #expect(!result.truncated)
   }
 

@@ -774,49 +774,49 @@ private enum PromptCostBaseline {
       name: "list_files_read_file",
       toolCount: 2,
       systemPromptBytes: 2_622,
-      toolSchemaBytes: 8_149,
+      toolSchemaBytes: 8_300,
       conversationBytes: 798,
       toolCallBytes: 197,
       toolResultBytes: 745,
-      totalBytes: 11_766,
-      estimatedTokens: 2_942,
-      checkpointEstimatedTokens: [2_824, 2_942]
+      totalBytes: 11_917,
+      estimatedTokens: 2_980,
+      checkpointEstimatedTokens: [2_862, 2_980]
     ),
     PromptCostSnapshot(
       name: "read_file_edit_file_test",
       toolCount: 3,
       systemPromptBytes: 2_622,
-      toolSchemaBytes: 8_149,
+      toolSchemaBytes: 8_300,
       conversationBytes: 1_292,
       toolCallBytes: 480,
       toolResultBytes: 1_217,
-      totalBytes: 12_543,
-      estimatedTokens: 3_136,
-      checkpointEstimatedTokens: [2_829, 2_976, 3_136]
+      totalBytes: 12_694,
+      estimatedTokens: 3_174,
+      checkpointEstimatedTokens: [2_867, 3_014, 3_174]
     ),
     PromptCostSnapshot(
       name: "failed_command_diagnostics",
       toolCount: 2,
       systemPromptBytes: 2_622,
-      toolSchemaBytes: 8_149,
+      toolSchemaBytes: 8_300,
       conversationBytes: 1_484,
       toolCallBytes: 279,
       toolResultBytes: 1_437,
-      totalBytes: 12_534,
-      estimatedTokens: 3_134,
-      checkpointEstimatedTokens: [3_007, 3_134]
+      totalBytes: 12_685,
+      estimatedTokens: 3_172,
+      checkpointEstimatedTokens: [3_045, 3_172]
     ),
     PromptCostSnapshot(
       name: "long_tool_loop",
       toolCount: 9,
       systemPromptBytes: 2_622,
-      toolSchemaBytes: 8_149,
+      toolSchemaBytes: 8_300,
       conversationBytes: 4_434,
       toolCallBytes: 1_326,
       toolResultBytes: 4_344,
-      totalBytes: 16_531,
-      estimatedTokens: 4_133,
-      checkpointEstimatedTokens: [2_834, 2_978, 3_095, 3_242, 3_544, 3_671, 3_806, 3_973, 4_133]
+      totalBytes: 16_682,
+      estimatedTokens: 4_171,
+      checkpointEstimatedTokens: [2_871, 3_015, 3_133, 3_279, 3_582, 3_708, 3_844, 4_011, 4_171]
     ),
   ]
 }

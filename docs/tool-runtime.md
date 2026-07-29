@@ -574,10 +574,16 @@ declarations.
   path/range/count/truncation metadata and no body text. Do not infer this
   behavior from raw user text; trigger it only from an explicit `show_file`
   tool call.
-- `glob_files` and `search_files` are read-only discovery tools. They validate
-  the requested `path`, default it to `.`, skip project metadata/build
-  directories, and cap returned results. `search_files` treats a valid pattern
-  as a regular expression; invalid regular expressions fall back to literal
+- `glob_files` is a read-only discovery tool. Its `path` is a workspace-relative
+  search directory that defaults to `.`, skips project metadata/build
+  directories, and caps returned results.
+- `search_files` is a read-only discovery tool whose workspace-relative `path`
+  may name a regular file or directory and defaults to `.`. Directory paths are
+  searched recursively while skipping project metadata/build directories. An
+  explicitly targeted regular file is searched directly, including inside a
+  skipped directory. The optional `include` glob remains an additional filter
+  for either path kind. Results are capped. A valid pattern is treated as a
+  regular expression; invalid regular expressions fall back to literal
   substring matching.
 - `browser_refresh` and `browser_inspect` are Agent-only preview tools. They
   operate only on the current integrated HTML preview target, not arbitrary
