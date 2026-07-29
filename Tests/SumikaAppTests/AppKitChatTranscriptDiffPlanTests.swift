@@ -44,6 +44,24 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func userTrailingInsetMatchesAssistantLeadingInset() throws {
+    let userCell = configuredNativeCell(
+      for: nativeUserRow(id: "user", revision: 1, content: "Question")
+    )
+    let assistantCell = configuredNativeCell(
+      for: nativeAssistantRow(id: "assistant", revision: 1)
+    )
+    let userContentHost = try #require(userCell.subviews.first)
+    let assistantContentHost = try #require(assistantCell.subviews.first)
+
+    let userTrailingInset = userCell.bounds.maxX - userContentHost.frame.maxX
+    let assistantLeadingInset = assistantContentHost.frame.minX - assistantCell.bounds.minX
+
+    #expect(abs(userTrailingInset - 20) < 0.5)
+    #expect(abs(userTrailingInset - assistantLeadingInset) < 0.5)
+  }
+
+  @Test
   func bottomContentInsetDoesNotShortenVerticalScroller() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
       onToggleSpeech: { _, _ in },
@@ -135,7 +153,7 @@ struct AppKitChatTranscriptDiffPlanTests {
     scrollView.layoutSubtreeIfNeeded()
     tableView.layoutSubtreeIfNeeded()
 
-    let bubbleTextWidth = max(scrollView.contentSize.width - 44 - 80 - 20, 1)
+    let bubbleTextWidth = max(scrollView.contentSize.width - 20 - 80 - 20, 1)
     let requiredTextHeight = ceil(
       NSAttributedString(
         string: content,

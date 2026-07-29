@@ -1503,7 +1503,7 @@ final class NativeChatMessageCellView: NSTableCellView {
     switch body {
     case .item(let item) where item.isNativeUserMessage:
       alignmentConstraints = [
-        contentHost.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -44),
+        contentHost.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
         contentHost.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 80),
         contentHost.widthAnchor.constraint(
           lessThanOrEqualToConstant: item.nativeMaximumBubbleWidth),

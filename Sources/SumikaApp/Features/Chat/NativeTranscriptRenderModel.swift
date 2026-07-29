@@ -561,7 +561,7 @@ enum NativeTranscriptRowMeasurer {
     guard blocks.count == 1, case .text(let attributedText) = blocks[0] else {
       return nil
     }
-    let contentHostWidth = min(item.nativeMaximumBubbleWidth, max(width - 44 - 80, 1))
+    let contentHostWidth = min(item.nativeMaximumBubbleWidth, max(width - 20 - 80, 1))
     let textWidth = max(contentHostWidth - 20, 1)
     let textHeight =
       attributedText
