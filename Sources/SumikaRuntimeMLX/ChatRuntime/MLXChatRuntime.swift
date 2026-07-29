@@ -254,17 +254,22 @@ final actor MLXChatRuntime: ChatModelRuntime {
       "MLX create stream",
       category: .generation
     )
-    let tokenizer = await modelContainer.tokenizer
+    let generationProgressTracer: MLXGenerationProgressTracer
+    if MLXDebugTraceStore.isEnabled {
+      let tokenizer = await modelContainer.tokenizer
+      generationProgressTracer = MLXGenerationProgressTracer(
+        traceID: traceID,
+        traceMetadata: traceMetadata,
+        debugTraceStore: debugTraceStore,
+        startedAt: Date(),
+        estimateTokenCount: { output in
+          tokenizer.encode(text: output, addSpecialTokens: false).count
+        }
+      )
+    } else {
+      generationProgressTracer = .disabled
+    }
     let stream = cachePlan.session.streamDetails(to: cachePlan.streamMessages)
-    let generationProgressTracer = MLXGenerationProgressTracer(
-      traceID: traceID,
-      traceMetadata: traceMetadata,
-      debugTraceStore: debugTraceStore,
-      startedAt: Date(),
-      estimateTokenCount: { output in
-        tokenizer.encode(text: output, addSpecialTokens: false).count
-      }
-    )
     ChatDiagnostics.endInterval(createStreamInterval)
     await recordRuntimeStreamStart(
       traceID: traceID,

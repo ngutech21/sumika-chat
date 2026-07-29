@@ -188,6 +188,66 @@ struct MLXDebugTraceStoreTests {
   }
 
   @Test
+  func disabledGenerationProgressTracerDoesNotRecordSnapshots() async throws {
+    setenv("SUMIKA_DEBUG_TRACE", "1", 1)
+    defer {
+      unsetenv("SUMIKA_DEBUG_TRACE")
+    }
+    let fileURL = try temporaryTraceFileURL()
+    let store = MLXDebugTraceStore(fileURL: fileURL)
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      for _ in 1...129 {
+        continuation.yield(.chunk("token"))
+      }
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8,
+            generationTokenCount: 129,
+            promptTime: 0.1,
+            generationTime: 1
+          )
+        ))
+      continuation.finish()
+    }
+    let cacheTrace = MLXSessionCacheTrace(
+      cacheMode: .newSession,
+      cacheReason: .newSessionNoCache,
+      contextSignature: "context",
+      previousContextSignature: nil,
+      appendOnly: false,
+      reusedMessageCount: 0,
+      appendedMessageCount: 0,
+      mismatchReason: nil,
+      firstMismatchIndex: nil,
+      systemPromptChanged: nil
+    )
+    let stream = MLXModelStreamProcessor.modelStreamPlan(
+      from: source,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: cacheTrace,
+      debugTraceStore: store,
+      generationProgressTracer: .disabled,
+      markCompleted: { _ in },
+      markCancelled: { _ in },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
+    ).stream
+
+    for try await _ in stream {}
+
+    let data = try Data(contentsOf: fileURL)
+    let lines = try #require(String(data: data, encoding: .utf8)?.split(separator: "\n"))
+    let objects = try lines.map {
+      try #require(JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any])
+    }
+
+    #expect(objects.count == 1)
+    #expect(objects.first?["kind"] as? String == "mlx_response")
+    #expect(objects.allSatisfy { $0["phase"] as? String != "runtime_partial_decode" })
+  }
+
+  @Test
   func generationProgressTraceRecordsEstimatedRunningTokenCount() async throws {
     setenv("SUMIKA_DEBUG_TRACE", "1", 1)
     defer {

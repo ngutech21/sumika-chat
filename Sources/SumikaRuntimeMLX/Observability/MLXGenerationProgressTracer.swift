@@ -34,6 +34,9 @@ struct MLXGenerationProgressTracer: Sendable {
   }
 
   mutating func record(output: String) async {
+    guard traceID != nil else {
+      return
+    }
     streamedChunkCount += 1
     guard streamedChunkCount == 1 || streamedChunkCount.isMultiple(of: 128),
       let traceID,
