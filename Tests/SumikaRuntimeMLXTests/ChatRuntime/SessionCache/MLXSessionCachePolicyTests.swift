@@ -500,6 +500,71 @@ struct MLXSessionCachePolicyTests {
   }
 
   @Test
+  func transientFinalizationInstructionForcesHistoryChangedRebuildOnNextTurn() throws {
+    let instruction = "Transient finish-only instruction"
+    let turnID = UUID()
+    let userEntry = try ModelFacingPromptRenderer.userPromptEntry(
+      turnID: turnID,
+      prompt: "Complete the requested work."
+    )
+    let finalizationInput = try generationInput(from: [userEntry])
+    let consumedPrompt = MLXChatRuntime.appendTransientInstructions(
+      [instruction],
+      toPromptSnapshot: finalizationInput.promptSnapshot,
+      promptMessages: finalizationInput.promptMessages
+    )
+    let cachedPrefix =
+      finalizationInput.historySnapshot
+      + consumedPrompt.promptSnapshot
+      + [
+        ProviderPromptMessage(
+          role: Chat.Message.Role.assistant.rawValue,
+          content: "The tool budget was exhausted."
+        )
+      ]
+
+    let persistedProjection = ModelPromptProjection(entries: [
+      userEntry,
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        content: "The tool budget was exhausted."
+      ),
+      try ModelFacingPromptRenderer.userPromptEntry(
+        prompt: "What happened in the previous turn?"
+      ),
+    ])
+    let nextTurnHistory =
+      try MLXHistoryRenderer.generationInput(from: persistedProjection).historySnapshot
+    let identity = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Stable",
+      settings: .agentDefault,
+      projectionMode: .fullHistory
+    )
+    let appendOnly = MLXSessionCachePolicy.isPrefix(cachedPrefix, of: nextTurnHistory)
+    let trace = MLXSessionCachePolicy.trace(
+      mode: .dirtyRebuild,
+      reason: .historyChanged,
+      currentHistory: nextTurnHistory,
+      currentIdentity: identity,
+      cachedPrefix: cachedPrefix,
+      cachedIdentity: identity,
+      appendOnly: appendOnly,
+      mismatchReason: "history_changed",
+      firstMismatchIndex: MLXSessionCachePolicy.firstMismatchIndex(
+        cachedPrefix: cachedPrefix,
+        currentHistory: nextTurnHistory
+      )
+    )
+
+    #expect(consumedPrompt.promptSnapshot.last?.content.contains(instruction) == true)
+    #expect(cachedPrefix.contains { $0.content.contains(instruction) })
+    #expect(nextTurnHistory.contains { $0.content.contains(instruction) } == false)
+    #expect(!appendOnly)
+    #expect(trace.cacheMode == .dirtyRebuild)
+    #expect(trace.cacheReason == .historyChanged)
+  }
+
+  @Test
   func nativeToolCallBoundaryPreservesAssistantWhitespaceForPrefixParity() throws {
     let callID = UUID()
     let turnID = UUID()

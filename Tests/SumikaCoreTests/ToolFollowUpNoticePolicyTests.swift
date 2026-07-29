@@ -58,7 +58,7 @@ struct ToolFollowUpNoticePolicyTests {
   }
 
   @Test
-  func exhaustedToolBudgetRequiresFinishTaskOnly() throws {
+  func exhaustedToolBudgetRequiresBlockedFinishTaskWhenIncomplete() throws {
     let record = completedReadRecord(id: UUID(), path: "README.md", content: "hi")
 
     let update = try #require(
@@ -71,25 +71,27 @@ struct ToolFollowUpNoticePolicyTests {
     #expect(
       update.record.modelFollowUpNotice
         == """
-        The action-tool budget is exhausted. Call finish_task exactly once and alone.
-        Put the complete user-visible final response in summary. Do not emit visible text or call any other tool.
+        The action-tool budget is exhausted. Stop all remaining work and do not attempt another action.
+        Call `finish_task` exactly once and alone.
+        If the requested work is incomplete, call `finish_task` with `status: blocked` and explain what completed and what remains in `summary`.
+        Put the complete user-visible final response in `summary`. Emit no visible prose and call no other tool.
         """)
   }
 
   @Test
-  func toolBudgetWarningShowsEachOfLastThreeRemainingBatches() throws {
-    let beforeLastThree = try #require(
+  func toolBudgetWarningShowsEachOfLastTwoRemainingBatches() throws {
+    let beforeLastTwo = try #require(
       ToolFollowUpNoticePolicy().update(
-        session: sessionWithToolCallBatches(count: 8),
+        session: sessionWithToolCallBatches(count: 9),
         turnID: defaultTurnID,
         promptMode: .afterToolResultCanContinue,
         maxToolLoopIterations: 12
       ))
     #expect(
-      beforeLastThree.record.modelFollowUpNotice?
+      beforeLastTwo.record.modelFollowUpNotice?
         .contains("Remaining action-tool batch budget") == false)
 
-    for remainingBatchCount in 1...3 {
+    for remainingBatchCount in 1...2 {
       let update = try #require(
         ToolFollowUpNoticePolicy().update(
           session: sessionWithToolCallBatches(count: 12 - remainingBatchCount),

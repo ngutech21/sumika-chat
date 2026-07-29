@@ -398,6 +398,8 @@ struct ConversationEngineToolLoopTests {
     let toolContexts = await runtime.capturedToolContexts
     #expect(toolContexts.count == 1)
     #expect(toolContexts[0]?.registry.tools.map(\.name) == [.finishTask])
+    let promptPlans = await runtime.capturedPromptPlans
+    #expect(promptPlans[0].transientInstructions == [toolBudgetFinalizationInstruction])
   }
 
   @Test
@@ -457,6 +459,8 @@ struct ConversationEngineToolLoopTests {
     let toolContexts = await runtime.capturedToolContexts
     #expect(toolContexts.count == budget + 1)
     #expect(toolContexts[budget]?.registry.tools.map(\.name) == [.finishTask])
+    let promptPlans = await runtime.capturedPromptPlans
+    #expect(promptPlans[budget].transientInstructions == [toolBudgetFinalizationInstruction])
   }
 
   @Test
@@ -521,6 +525,8 @@ struct ConversationEngineToolLoopTests {
     let toolContexts = await runtime.capturedToolContexts
     #expect(toolContexts.count == budget + 1)
     #expect(toolContexts[budget]?.registry.tools.map(\.name) == [.finishTask])
+    let promptPlans = await runtime.capturedPromptPlans
+    #expect(promptPlans[budget].transientInstructions == [toolBudgetFinalizationInstruction])
   }
 
   @Test
@@ -575,12 +581,14 @@ struct ConversationEngineToolLoopTests {
     let toolContexts = await runtime.capturedToolContexts
     #expect(toolContexts.count == budget + 1)
     #expect(toolContexts[budget]?.registry.tools.map(\.name) == [.finishTask])
+    let promptPlans = await runtime.capturedPromptPlans
+    #expect(promptPlans[budget].transientInstructions == [toolBudgetFinalizationInstruction])
   }
 
   @Test
-  func remainingToolBatchBudgetReachesModelAtStartOfLastThreeBatches() async throws {
+  func remainingToolBatchBudgetReachesModelAtStartOfLastTwoBatches() async throws {
     let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
-    let warningBatchCount = budget - 3
+    let warningBatchCount = budget - 2
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     try createListFixtureDirectories(in: workspace, count: warningBatchCount)
@@ -612,7 +620,7 @@ struct ConversationEngineToolLoopTests {
     let notice = try #require(
       latestToolFollowUpNotice(in: capturedMessages, at: warningBatchCount)
     )
-    #expect(notice.contains("Remaining action-tool batch budget: 3."))
+    #expect(notice.contains("Remaining action-tool batch budget: 2."))
     #expect(engine.chatSession.toolCalls.last?.request.toolName == .finishTask)
   }
 
@@ -676,7 +684,9 @@ struct ConversationEngineToolLoopTests {
     #expect(
       capturedPromptPlans[budget].cacheIdentityInstructions
         != capturedPromptPlans[0].cacheIdentityInstructions)
-    #expect(capturedPromptPlans[budget].transientInstructions.isEmpty)
+    #expect(
+      capturedPromptPlans[budget].transientInstructions
+        == [toolBudgetFinalizationInstruction])
 
     let capturedMessages = await runtime.capturedMessages
     #expect(
@@ -700,6 +710,48 @@ struct ConversationEngineToolLoopTests {
     #expect(
       finishContext.cacheSystemPrompt
         == capturedPromptPlans[budget].cacheIdentityInstructions)
+  }
+
+  @Test
+  func discardedFinishTaskTailStopsWithoutRetry() async throws {
+    let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try createListFixtureDirectories(in: workspace, count: budget)
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: listFileEventTurns(count: budget)
+        + [
+          [
+            .outputLimitReached(
+              ChatGenerationOutputLimit(discardedToolProtocolTail: true)
+            )
+          ]
+        ],
+      automaticallyCompletes: false
+    )
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(
+      prompt: "inspect until the tool budget is exhausted",
+      in: workspace,
+      sessionID: sessionID
+    )
+
+    try await waitUntil { !engine.isGenerating }
+
+    #expect(
+      engine.chatSession.testMessages.last?.content
+        == "Tool budget exhausted. The model did not produce the required `finish_task` call. Changes may be incomplete."
+    )
+    #expect(engine.errorMessage == nil)
+    let promptPlans = await runtime.capturedPromptPlans
+    #expect(promptPlans.count == budget + 1)
+    #expect(promptPlans[budget].transientInstructions == [toolBudgetFinalizationInstruction])
+    let toolContexts = await runtime.capturedToolContexts
+    #expect(
+      toolContexts[budget]?.registry.tools.map(\.name) == [.finishTask])
   }
 
   @Test
@@ -741,6 +793,46 @@ struct ConversationEngineToolLoopTests {
   }
 
   @Test
+  func budgetFinalizationPreservesCustomGenerationSettings() async throws {
+    let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
+    let sessionID = UUID()
+    let customSettings = ChatGenerationSettings(
+      temperature: 0.67,
+      topP: 0.81,
+      topK: 17,
+      maxTokens: 3_210,
+      maxKVSize: 4_096,
+      repetitionPenalty: 1.2,
+      repetitionContextSize: 77,
+      presencePenalty: 0.42,
+      reasoningEnabled: false
+    )
+    let workspace = try makeWorkspace(
+      sessionID: sessionID,
+      generationSettings: customSettings
+    )
+    try createListFixtureDirectories(in: workspace, count: budget)
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: listFileEventTurns(count: budget) + [[]]
+    )
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(
+      prompt: "inspect until the tool budget is exhausted",
+      in: workspace,
+      sessionID: sessionID
+    )
+
+    try await waitUntil { !engine.isGenerating }
+
+    let capturedSettings = await runtime.capturedGenerationSettings
+    #expect(capturedSettings.count == budget + 1)
+    #expect(capturedSettings.allSatisfy { $0 == customSettings })
+  }
+
+  @Test
   func thinkingOnlyBudgetFinalizationShowsDeterministicFallback() async throws {
     let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
     let sessionID = UUID()
@@ -767,7 +859,7 @@ struct ConversationEngineToolLoopTests {
     let fallbackMessage = try #require(
       engine.chatSession.testMessages.first {
         $0.content
-          == "Tool limit reached before reliable completion. Changes may be incomplete."
+          == "Tool budget exhausted. The model did not produce the required `finish_task` call. Changes may be incomplete."
       })
     let fallbackMetrics = try #require(fallbackMessage.generationMetrics)
     #expect(fallbackMessage.deliveryStatus == .complete)
@@ -781,7 +873,9 @@ struct ConversationEngineToolLoopTests {
 
     let capturedPromptPlans = await runtime.capturedPromptPlans
     #expect(capturedPromptPlans.count == budget + 1)
-    #expect(capturedPromptPlans[budget].transientInstructions.isEmpty)
+    #expect(
+      capturedPromptPlans[budget].transientInstructions
+        == [toolBudgetFinalizationInstruction])
     let capturedMessages = await runtime.capturedMessages
     #expect(
       latestToolFollowUpNotice(in: capturedMessages, at: budget)?
@@ -1701,11 +1795,12 @@ struct ConversationEngineToolLoopTests {
     let executionCounter = ToolExecutionCounter()
     var eventTurns = listFileEventTurns(count: budget)
     eventTurns.append([
+      .chunk("I will try one more action."),
       .toolCall(
         ChatRuntimeToolCall(
           name: "list_files",
           arguments: ["path": .string(".")]
-        ))
+        )),
     ])
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: eventTurns)
     let engine = ConversationEngine(
@@ -1734,11 +1829,212 @@ struct ConversationEngineToolLoopTests {
     #expect(await executionCounter.count == budget)
     #expect(
       engine.chatSession.testMessages.last?.content
-        == "Tool limit reached before reliable completion. Changes may be incomplete.")
+        == unavailableListFilesFinalizationFallback)
+    #expect(
+      engine.chatSession.testMessages.contains {
+        $0.content.contains("I will try one more action.")
+      } == false)
 
     let capturedToolContexts = await runtime.capturedToolContexts
     #expect(capturedToolContexts.count == budget + 1)
     #expect(capturedToolContexts[budget]?.registry.tools.map(\.name) == [.finishTask])
+  }
+
+  @Test
+  func unknownToolAtBudgetFinalizationUsesGenericInvalidCallFallback() async throws {
+    let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try createListFixtureDirectories(in: workspace, count: budget)
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: listFileEventTurns(count: budget)
+        + [
+          [
+            .toolCall(
+              ChatRuntimeToolCall(
+                name: "deploy",
+                arguments: ["environment": .string("production")]
+              ))
+          ]
+        ]
+    )
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(
+      prompt: "inspect until the tool budget is exhausted",
+      in: workspace,
+      sessionID: sessionID
+    )
+
+    try await waitUntil { !engine.isGenerating }
+
+    #expect(engine.chatSession.toolCalls.last?.status == .failed)
+    #expect(
+      engine.chatSession.testMessages.last?.content
+        == unknownToolFinalizationFallback)
+    #expect(engine.chatSession.testMessages.last?.content.contains("deploy") == false)
+  }
+
+  @Test
+  func multipleNonFinishCallsAtBudgetFinalizationUsePluralFallback() async throws {
+    let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try createListFixtureDirectories(in: workspace, count: budget)
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: listFileEventTurns(count: budget)
+        + [
+          [
+            .toolCall(
+              ChatRuntimeToolCall(
+                name: "list_files",
+                arguments: ["path": .string(".")]
+              )),
+            .toolCall(
+              ChatRuntimeToolCall(
+                name: "deploy",
+                arguments: ["environment": .string("production")]
+              )),
+          ]
+        ]
+    )
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(
+      prompt: "inspect until the tool budget is exhausted",
+      in: workspace,
+      sessionID: sessionID
+    )
+
+    try await waitUntil { !engine.isGenerating }
+
+    #expect(Array(engine.chatSession.toolCalls.suffix(2)).map(\.status) == [.failed, .failed])
+    #expect(
+      engine.chatSession.testMessages.last?.content
+        == multipleToolFinalizationFallback)
+  }
+
+  @Test
+  func repairedInvalidFinishTaskAtBudgetFinalizationUsesCanonicalInvalidResponseFallback()
+    async throws
+  {
+    let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try createListFixtureDirectories(in: workspace, count: budget)
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: listFileEventTurns(count: budget)
+        + [
+          [
+            .toolCall(
+              ChatRuntimeToolCall(
+                name: "finishTask",
+                arguments: [
+                  "status": .string("complete"),
+                  "summary": .string("Invalid completion status."),
+                ]
+              ))
+          ]
+        ]
+    )
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(
+      prompt: "inspect until the tool budget is exhausted",
+      in: workspace,
+      sessionID: sessionID
+    )
+
+    try await waitUntil { !engine.isGenerating }
+
+    #expect(engine.chatSession.toolCalls.last?.request.toolName == .finishTask)
+    #expect(engine.chatSession.toolCalls.last?.status == .failed)
+    #expect(
+      engine.chatSession.testMessages.last?.content
+        == invalidFinishTaskFinalizationFallback)
+  }
+
+  @Test
+  func repairedMixedFinishTaskBatchAtBudgetFinalizationUsesCanonicalInvalidResponseFallback()
+    async throws
+  {
+    let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try createListFixtureDirectories(in: workspace, count: budget)
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: listFileEventTurns(count: budget)
+        + [
+          [
+            .toolCall(
+              ChatRuntimeToolCall(
+                name: "finishTask",
+                arguments: [
+                  "status": .string("done"),
+                  "summary": .string("Invalid mixed finalization batch."),
+                ]
+              )),
+            .toolCall(
+              ChatRuntimeToolCall(
+                name: "list_files",
+                arguments: ["path": .string(".")]
+              )),
+          ]
+        ]
+    )
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(
+      prompt: "inspect until the tool budget is exhausted",
+      in: workspace,
+      sessionID: sessionID
+    )
+
+    try await waitUntil { !engine.isGenerating }
+
+    #expect(Array(engine.chatSession.toolCalls.suffix(2)).map(\.status) == [.failed, .failed])
+    #expect(
+      engine.chatSession.testMessages.last?.content
+        == invalidFinishTaskFinalizationFallback)
+  }
+
+  @Test
+  func runtimeFailureDuringBudgetFinalizationDoesNotRenderBudgetFallback() async throws {
+    let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try createListFixtureDirectories(in: workspace, count: budget)
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: listFileEventTurns(count: budget) + [[]],
+      failingStreamReplyCalls: [budget]
+    )
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(
+      prompt: "inspect until the tool budget is exhausted",
+      in: workspace,
+      sessionID: sessionID
+    )
+
+    try await waitUntil { !engine.isGenerating }
+
+    #expect(
+      engine.errorMessage
+        == ChatSessionFakeChatModelRuntimeError.streamFailed.localizedDescription)
+    #expect(
+      engine.chatSession.testMessages.contains {
+        $0.content.hasPrefix("Tool budget exhausted.")
+      } == false)
   }
 
   @Test
@@ -2716,7 +3012,8 @@ struct ConversationEngineToolLoopTests {
 
   private func makeWorkspace(
     sessionID: ChatSession.ID,
-    selectedModelID: ManagedModel.ID = ManagedModelCatalog.defaultModelID
+    selectedModelID: ManagedModel.ID = ManagedModelCatalog.defaultModelID,
+    generationSettings: ChatGenerationSettings = .agentDefault
   ) throws -> Workspace {
     let rootURL = try scopedTemporaryDirectory().appending(
       path: UUID().uuidString,
@@ -2736,14 +3033,43 @@ struct ConversationEngineToolLoopTests {
           id: sessionID,
           selectedModelID: selectedModelID,
           modeSettings: testModeSettings(
+            mode: .agent,
             systemPrompt: ChatPromptDefaults.agentSystemPrompt,
-            generationSettings: .agentDefault
+            generationSettings: generationSettings
           )
         )
       ]
     )
   }
 }
+
+private let toolBudgetFinalizationInstruction =
+  """
+  The action-tool budget is exhausted. Stop all remaining work and do not attempt another action.
+  Call `finish_task` exactly once and alone.
+  If the requested work is incomplete, call `finish_task` with `status: blocked` and explain what completed and what remains in `summary`.
+  Put the complete user-visible final response in `summary`. Emit no visible prose and call no other tool.
+  """
+
+private let unavailableListFilesFinalizationFallback =
+  """
+  Tool budget exhausted. The model attempted `list_files`, but only `finish_task` was available. This final tool attempt was not executed. Any earlier successful changes remain applied.
+  """
+
+private let unknownToolFinalizationFallback =
+  """
+  Tool budget exhausted. The model attempted an invalid tool call, but only `finish_task` was available. This final tool attempt was not executed. Any earlier successful changes remain applied.
+  """
+
+private let multipleToolFinalizationFallback =
+  """
+  Tool budget exhausted. The model attempted invalid or unavailable tool calls, but only `finish_task` was available. No call from this finalization batch was executed. Any earlier successful changes remain applied.
+  """
+
+private let invalidFinishTaskFinalizationFallback =
+  """
+  Tool budget exhausted. The final `finish_task` response was invalid and was not accepted. No call from this finalization batch was executed. Changes may be incomplete.
+  """
 
 private actor ToolExecutionCounter {
   private(set) var count = 0

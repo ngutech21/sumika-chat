@@ -121,19 +121,45 @@ flowchart TD
   denial, or reload, it starts exactly one additional generation exposing only
   `finish_task`. At this hard boundary, finish-only finalization takes precedence
   over other force-final reasons such as denial, duplicate blocking, or repeated
-  command failure. A valid call renders its summary directly and ends the turn.
-  Missing or invalid calls end the turn with
-  `Tool limit reached before reliable completion. Changes may be incomplete.`;
-  no repair generation or action-tool execution follows. Chat-web finalization
-  keeps its no-tools behavior.
+  command failure. The finish-only generation receives a transient instruction
+  to stop action work, call `finish_task` exactly once and alone, use
+  `status: blocked` when the requested work is incomplete, explain what completed
+  and what remains in `summary`, and put the complete user-visible response there.
+  The latest tool-result notice repeats this same instruction defensively. Stable
+  instructions, the finish-only tool-schema cache identity, sampling settings,
+  and reasoning settings remain unchanged. A valid call renders only its
+  validated summary and ends the turn; separate visible model prose remains
+  suppressed.
+- Finish-only finalization never broadens the registry and never executes a
+  non-`finish_task` call. Missing output, unavailable or unknown tools, invalid
+  `finish_task` arguments, and mixed batches end the turn with deterministic,
+  reason-specific assistant text after every emitted call has been persisted as
+  its normal failed audit record. Known unavailable built-in tools may be named;
+  unknown model-provided names and tool arguments are not reflected. A mixed
+  batch containing `finish_task` is classified as an invalid finish response and
+  rejected in full. Earlier successful changes remain applied. Complete but
+  invalid finalization output gets no repair generation. A discarded, incomplete
+  `finish_task` protocol tail caused by the output limit also ends with the
+  deterministic missing-finish fallback and is never retried. Runtime failures
+  such as cancellation or a failed model stream remain normal errors rather than
+  budget fallbacks. Chat-web finalization keeps its no-tools behavior and never
+  receives the Agent-only transient instruction.
+- The transient finish-only instruction is appended to the MLX prompt snapshot
+  and therefore to the completed generation's cached prefix, but it is not part
+  of persisted `ChatTurn.items`. On the next turn the reconstructed canonical
+  history intentionally lacks that synthetic instruction, so the cached prefix
+  is not append-only. MLX treats this as `dirty_rebuild` with
+  `history_changed`; it must not reuse a cache that semantically includes the
+  removed instruction.
 - The turn-wide budget is derived from the ordered tool-call batches in
   `ChatTurn.items`. A multi-call assistant response counts once, and approval,
   `ask_user`, persistence, or reload pauses do not reset the consumed count.
   Its action-batch maximum comes from the selected `ManagedModel`, so
   model-specific catalog configuration remains effective across resumed turns.
-  When an Agent turn first reaches the rounded-up 80-percent threshold, the
-  latest tool result tells the model how many action batches remain and to
-  prioritize required work and verification over optional exploration.
+  When an Agent turn has exactly two or one action batches remaining, the latest
+  tool result tells the model the remaining count and to prioritize required
+  work and verification over optional exploration. No earlier budget warning is
+  emitted.
   The terminal `finish_task` control batch may be appended after that action
   budget without adding persisted budget state.
 - Successful write/edit follow-ups use the normal tool loop and keep the active

@@ -21,6 +21,30 @@ enum ChatToolLoopOutcome {
   case resumeAutomaticApproval(batchAnchorID: ToolCallRecord.ID)
 }
 
+private enum ToolBudgetFinalizationFailure {
+  case missingFinishTask
+  case unavailableTool(ToolName)
+  case unknownTool
+  case invalidFinishTask
+  case mixedFinishTaskBatch
+  case multipleInvalidOrUnavailableTools
+
+  var userVisibleMessage: String {
+    switch self {
+    case .missingFinishTask:
+      "Tool budget exhausted. The model did not produce the required `finish_task` call. Changes may be incomplete."
+    case .unavailableTool(let toolName):
+      "Tool budget exhausted. The model attempted `\(toolName.rawValue)`, but only `finish_task` was available. This final tool attempt was not executed. Any earlier successful changes remain applied."
+    case .unknownTool:
+      "Tool budget exhausted. The model attempted an invalid tool call, but only `finish_task` was available. This final tool attempt was not executed. Any earlier successful changes remain applied."
+    case .invalidFinishTask, .mixedFinishTaskBatch:
+      "Tool budget exhausted. The final `finish_task` response was invalid and was not accepted. No call from this finalization batch was executed. Changes may be incomplete."
+    case .multipleInvalidOrUnavailableTools:
+      "Tool budget exhausted. The model attempted invalid or unavailable tool calls, but only `finish_task` was available. No call from this finalization batch was executed. Any earlier successful changes remain applied."
+    }
+  }
+}
+
 @MainActor
 struct ChatTurnExecutionCoordinator {
   private let focusedFileReducer: FocusedFileStateReducer
@@ -240,16 +264,18 @@ struct ChatTurnExecutionCoordinator {
 
     var generationResult = try await generate(using: promptPlan)
     if interactionMode == .agent,
+      toolPromptMode != .afterToolBudgetExhausted,
       generationResult.nativeToolCalls.isEmpty,
       generationResult.termination == .outputLimit(discardedToolProtocolTail: true)
     {
       generationResult = try await generate(
         using: promptPlan.appendingTransientInstruction(
-          outputLimitRetryInstruction(for: toolPromptMode)
+          Self.outputLimitRetryInstruction
         )
       )
     }
-    if generationResult.nativeToolCalls.isEmpty,
+    if toolPromptMode != .afterToolBudgetExhausted,
+      generationResult.nativeToolCalls.isEmpty,
       case .outputLimit = generationResult.termination
     {
       throw ChatGenerationError.outputLimitReached
@@ -494,6 +520,7 @@ struct ChatTurnExecutionCoordinator {
     guard !generationResult.nativeToolCalls.isEmpty else {
       appendToolBudgetFallback(
         to: assistantMessageID,
+        failure: .missingFinishTask,
         conversation: conversation
       )
       return .complete
@@ -519,6 +546,10 @@ struct ChatTurnExecutionCoordinator {
     else {
       appendToolBudgetFallback(
         to: assistantMessageID,
+        failure: finalizationFailure(
+          nativeToolCalls: generationResult.nativeToolCalls,
+          step: nil
+        ),
         conversation: conversation
       )
       return .complete
@@ -545,45 +576,14 @@ struct ChatTurnExecutionCoordinator {
       }
     appendToolBudgetFallback(
       to: fallbackMessageID,
+      failure: finalizationFailure(
+        nativeToolCalls: generationResult.nativeToolCalls,
+        step: step
+      ),
       conversation: conversation
     )
     return .complete
   }
-
-  private func appendToolBudgetFallback(
-    to assistantMessageID: UUID,
-    conversation: ConversationEngine
-  ) {
-    let targetMessage = conversation.chatSession.turns
-      .flatMap(\.items)
-      .compactMap { item -> AssistantTurnMessage? in
-        guard case .assistantMessage(let message) = item,
-          message.id == assistantMessageID
-        else {
-          return nil
-        }
-        return message
-      }
-      .first
-    var events: [ChatWorkflowEvent] = [
-      .assistantChunkAppended(
-        chunk: Self.toolBudgetFallback,
-        messageID: assistantMessageID
-      )
-    ]
-    if targetMessage?.deliveryStatus == .streaming {
-      events.append(
-        .assistantGenerationCompleted(
-          messageID: assistantMessageID,
-          metrics: targetMessage?.generationMetrics
-        ))
-    }
-    conversation.applyWorkflowEvents(events)
-    conversation.notifySessionDidChange()
-  }
-
-  private static let toolBudgetFallback =
-    "Tool limit reached before reliable completion. Changes may be incomplete."
 
   func activeToolProfile(
     workspace: Workspace?,
@@ -646,6 +646,75 @@ struct ChatTurnExecutionCoordinator {
 }
 
 extension ChatTurnExecutionCoordinator {
+  private func appendToolBudgetFallback(
+    to assistantMessageID: UUID,
+    failure: ToolBudgetFinalizationFailure,
+    conversation: ConversationEngine
+  ) {
+    let targetMessage = conversation.chatSession.turns
+      .flatMap(\.items)
+      .compactMap { item -> AssistantTurnMessage? in
+        guard case .assistantMessage(let message) = item,
+          message.id == assistantMessageID
+        else {
+          return nil
+        }
+        return message
+      }
+      .first
+    var events: [ChatWorkflowEvent] = [
+      .assistantChunkAppended(
+        chunk: failure.userVisibleMessage,
+        messageID: assistantMessageID
+      )
+    ]
+    if targetMessage?.deliveryStatus == .streaming {
+      events.append(
+        .assistantGenerationCompleted(
+          messageID: assistantMessageID,
+          metrics: targetMessage?.generationMetrics
+        ))
+    }
+    conversation.applyWorkflowEvents(events)
+    conversation.notifySessionDidChange()
+  }
+
+  private func finalizationFailure(
+    nativeToolCalls: [ChatRuntimeToolCall],
+    step: ChatWorkflowStep?
+  ) -> ToolBudgetFinalizationFailure {
+    guard !nativeToolCalls.isEmpty else {
+      return .missingFinishTask
+    }
+    let records =
+      step?.events.compactMap { event -> ToolCallRecord? in
+        guard case .toolCallAppended(let record, _) = event else {
+          return nil
+        }
+        return record
+      } ?? []
+    if nativeToolCalls.count > 1 {
+      return records.contains { $0.request.toolName == .finishTask }
+        ? .mixedFinishTaskBatch
+        : .multipleInvalidOrUnavailableTools
+    }
+    guard records.first?.request.toolName != .finishTask else {
+      return .invalidFinishTask
+    }
+
+    guard let record = records.first, case .invalid(let input) = record.request.payload else {
+      return .unknownTool
+    }
+    switch input.reason {
+    case .unavailableToolName:
+      return .unavailableTool(record.request.toolName)
+    case .unknownToolName:
+      return .unknownTool
+    default:
+      return .unknownTool
+    }
+  }
+
   private func completeOutputLimitedTranscriptIfNeeded(
     _ result: ChatGenerationResult,
     assistantMessageID: UUID,
@@ -676,13 +745,6 @@ extension ChatTurnExecutionCoordinator {
     Do not repeat changes that already completed earlier in this turn.
     """
 
-  private static let outputLimitFinalizationRetryInstruction =
-    """
-    [Output-limit recovery]
-    The previous generation reached its output limit while emitting an incomplete finish_task call. No call from that generation was accepted.
-    Retry finish_task exactly once and alone. Keep its summary concise while preserving the essential completion status, changed paths, and verification result.
-    """
-
   private static let outputLimitFollowUpNotice =
     """
     The previous generation reached its output limit after the tool calls above. Those complete tool calls were accepted; do not repeat them.
@@ -697,12 +759,6 @@ extension ChatTurnExecutionCoordinator {
       return nil
     }
     return Self.outputLimitFollowUpNotice
-  }
-
-  private func outputLimitRetryInstruction(for promptMode: ToolPromptMode) -> String {
-    promptMode == .afterToolBudgetExhausted
-      ? Self.outputLimitFinalizationRetryInstruction
-      : Self.outputLimitRetryInstruction
   }
 
   func requireVisibleTextOrToolCall(_ generationResult: ChatGenerationResult) throws {
@@ -775,6 +831,7 @@ extension ChatTurnExecutionCoordinator {
       stableInstructions: stableInstructions,
       transientInstructions: transientInstructions(
         session: session,
+        toolPromptMode: toolPromptMode,
         turnToolRegistry: runtimeToolRegistry
       ),
       toolContext: runtimeToolContext(
@@ -811,9 +868,13 @@ extension ChatTurnExecutionCoordinator {
 
   private func transientInstructions(
     session: ChatSession,
+    toolPromptMode: ToolPromptMode,
     turnToolRegistry: ToolRegistry
   ) -> [String] {
     var instructions: [String] = []
+    if toolPromptMode == .afterToolBudgetExhausted {
+      instructions.append(ToolFollowUpNoticePolicy.toolBudgetExhaustedNotice)
+    }
     if session.interactionMode == .agent,
       turnToolRegistry.definition(for: .todoWrite) != nil,
       let planBlock = TodoPromptRenderer.compactPlanBlock(for: session.todoState)

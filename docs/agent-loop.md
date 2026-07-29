@@ -87,13 +87,13 @@ reasoning-only output are not successful stop conditions.
   persisted turn items, so approval, `ask_user`, and reload pauses cannot reset
   it. The selected `ManagedModel` supplies the maximum: catalog models default
   to eight iterations, while the 30B-and-larger entries currently opt into
-  twelve. On first reaching the rounded-up 80-percent threshold, the next model
-  follow-up reports the remaining action batches and prioritizes required work
-  and verification over optional exploration. Invalid batches consume normal
-  budget and receive no extra repair round at the hard boundary. After any Agent
-  path consumes the final action batch, including a continuation resumed after
-  approval, `ask_user`, denial, or reload, exactly one additional generation
-  exposes only `finish_task`.
+  twelve. With exactly two or one action batches remaining, the next model
+  follow-up reports the remaining count and prioritizes required work and
+  verification over optional exploration; no earlier budget warning is emitted.
+  Invalid batches consume normal budget and receive no extra repair round at the
+  hard boundary. After any Agent path consumes the final action batch, including
+  a continuation resumed after approval, `ask_user`, denial, or reload, exactly
+  one additional generation exposes only `finish_task`.
 
 ## MLX Session Policy
 

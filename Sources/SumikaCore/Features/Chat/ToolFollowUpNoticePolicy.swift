@@ -108,10 +108,12 @@ struct ToolFollowUpNoticePolicy: Sendable {
     If more work is needed, briefly say what remains and ask the user to send another message.
     """
 
-  private static let toolBudgetExhaustedNotice =
+  static let toolBudgetExhaustedNotice =
     """
-    The action-tool budget is exhausted. Call finish_task exactly once and alone.
-    Put the complete user-visible final response in summary. Do not emit visible text or call any other tool.
+    The action-tool budget is exhausted. Stop all remaining work and do not attempt another action.
+    Call `finish_task` exactly once and alone.
+    If the requested work is incomplete, call `finish_task` with `status: blocked` and explain what completed and what remains in `summary`.
+    Put the complete user-visible final response in `summary`. Emit no visible prose and call no other tool.
     """
 
   private func toolBudgetWarning(
@@ -129,7 +131,7 @@ struct ToolFollowUpNoticePolicy: Sendable {
     }
 
     let remainingBatchCount = maxToolLoopIterations - consumedBatchCount
-    guard (1...3).contains(remainingBatchCount)
+    guard (1...2).contains(remainingBatchCount)
     else {
       return nil
     }

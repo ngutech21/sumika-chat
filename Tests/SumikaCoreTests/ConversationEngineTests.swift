@@ -1603,9 +1603,10 @@ struct ConversationEngineTests {
     #expect(capturedToolContexts.count == budget + 1)
     let firstToolContext = try #require(capturedToolContexts.first ?? nil)
     #expect(firstToolContext.registry.tools.map(\.name) == [.webSearch, .webFetch])
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.allSatisfy { $0.transientInstructions.isEmpty })
     #expect(firstToolContext.registry.definition(for: .finishTask) == nil)
     #expect(capturedToolContexts[budget] == nil)
-    let capturedPromptPlans = await runtime.capturedPromptPlans
     #expect(capturedPromptPlans[budget].toolContext == nil)
   }
 
