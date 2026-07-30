@@ -231,7 +231,7 @@ lint-analyze:
         set -- "$@" -skipPackagePluginValidation -skipMacroValidation; \
     fi; \
     status=0; \
-    xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} "$@" CODE_SIGNING_ALLOWED=NO clean build >"$log" 2>&1 || status=$?; \
+    xcodebuild -project {{project}} -scheme {{scheme}} -configuration Debug -destination "{{destination}}" -derivedDataPath {{derived_data}} "$@" CODE_SIGNING_ALLOWED=NO clean build >"$log" 2>&1 || status=$?; \
     if [ "$status" -ne 0 ]; then \
         cat "$log"; \
         exit "$status"; \
