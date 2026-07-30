@@ -1915,10 +1915,13 @@ private actor CountingToolOrchestrator: ToolOrchestrating {
     case .editFile(let input):
       payload = .editFile(
         .success(
-          path: Self.canonicalPath(input.path, workspace: workspace),
-          diff: nil,
-          matchStrategy: .exact
-        ))
+          receipt: AppliedEditReceipt(
+            path: Self.canonicalPath(input.path, workspace: workspace),
+            matchStrategy: .exact,
+            oldRange: AppliedEditLineRange(startLine: 1, lineCount: 1),
+            newRange: AppliedEditLineRange(startLine: 1, lineCount: 1),
+            diff: ToolTextOutput(text: "-\(input.oldText)\n+\(input.newText)")
+          )))
     default:
       payload = .failure(
         ToolFailure(

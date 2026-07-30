@@ -144,7 +144,16 @@ struct FocusedFileStateReducerTests {
     )
 
     let state = reducer.applyingToolResult(
-      .editFile(.success(path: path, diff: nil, matchStrategy: .exact)),
+      .editFile(
+        .success(
+          receipt: AppliedEditReceipt(
+            path: path,
+            matchStrategy: .exact,
+            oldRange: AppliedEditLineRange(startLine: 1, lineCount: 1),
+            newRange: AppliedEditLineRange(startLine: 1, lineCount: 1),
+            diff: ToolTextOutput(text: "-old\n+new")
+          )
+        )),
       request: makeRequest(
         toolName: .editFile,
         payload: .editFile(
@@ -166,7 +175,7 @@ struct FocusedFileStateReducerTests {
   }
 
   @Test
-  func editFileSuccessRemovesStaleSnapshotWhenItCannotBeUpdated() {
+  func legacyEditFileSuccessRemovesStaleSnapshotWhenItCannotBeUpdated() {
     let reducer = FocusedFileStateReducer()
     let path = WorkspaceRelativePath(rawValue: "Sources/App.swift")
     let initialState = FocusedFileState(
@@ -182,7 +191,7 @@ struct FocusedFileStateReducerTests {
     )
 
     let state = reducer.applyingToolResult(
-      .editFile(.success(path: path, diff: nil, matchStrategy: .exact)),
+      .editFile(.legacySuccess(path: path, diff: nil, matchStrategy: .exact)),
       request: makeRequest(
         toolName: .editFile,
         payload: .editFile(

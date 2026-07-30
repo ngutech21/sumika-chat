@@ -12,8 +12,53 @@ package struct EditFileInput: Codable, Equatable, Sendable {
   }
 }
 
+package struct AppliedEditLineRange: Codable, Equatable, Sendable {
+  package let startLine: Int
+  package let lineCount: Int
+
+  package init(startLine: Int, lineCount: Int) {
+    self.startLine = startLine
+    self.lineCount = lineCount
+  }
+}
+
+package struct AppliedEditReceipt: Codable, Equatable, Sendable {
+  package let path: WorkspaceRelativePath
+  package let matchStrategy: EditMatchStrategy
+  package let oldRange: AppliedEditLineRange
+  package let newRange: AppliedEditLineRange
+  package let diff: ToolTextOutput
+
+  package init(
+    path: WorkspaceRelativePath,
+    matchStrategy: EditMatchStrategy,
+    oldRange: AppliedEditLineRange,
+    newRange: AppliedEditLineRange,
+    diff: ToolTextOutput
+  ) {
+    self.path = path
+    self.matchStrategy = matchStrategy
+    self.oldRange = oldRange
+    self.newRange = newRange
+    self.diff = diff
+  }
+
+  package var additions: Int {
+    newRange.lineCount
+  }
+
+  package var deletions: Int {
+    oldRange.lineCount
+  }
+}
+
 package enum EditFileResult: Codable, Equatable, Sendable {
-  case success(path: WorkspaceRelativePath, diff: String?, matchStrategy: EditMatchStrategy)
+  case success(receipt: AppliedEditReceipt)
+  case legacySuccess(
+    path: WorkspaceRelativePath,
+    diff: String?,
+    matchStrategy: EditMatchStrategy
+  )
   case oldTextNotFound(
     path: WorkspaceRelativePath,
     currentContent: ToolTextOutput?,
@@ -22,6 +67,87 @@ package enum EditFileResult: Codable, Equatable, Sendable {
   case multipleMatches(path: WorkspaceRelativePath, matchCount: Int, recovery: RecoveryHint)
   case unchanged(path: WorkspaceRelativePath)
   case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
+
+  private enum EnvelopeKey: String, CodingKey {
+    case success
+  }
+
+  private enum SuccessKey: String, CodingKey {
+    case receipt
+  }
+
+  private enum LegacyRepresentation: Codable {
+    case success(path: WorkspaceRelativePath, diff: String?, matchStrategy: EditMatchStrategy)
+    case oldTextNotFound(
+      path: WorkspaceRelativePath,
+      currentContent: ToolTextOutput?,
+      recovery: RecoveryHint
+    )
+    case multipleMatches(path: WorkspaceRelativePath, matchCount: Int, recovery: RecoveryHint)
+    case unchanged(path: WorkspaceRelativePath)
+    case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
+  }
+
+  package init(from decoder: Decoder) throws {
+    let envelope = try decoder.container(keyedBy: EnvelopeKey.self)
+    if envelope.contains(.success) {
+      let success = try envelope.nestedContainer(keyedBy: SuccessKey.self, forKey: .success)
+      if success.contains(.receipt) {
+        self = .success(
+          receipt: try success.decode(AppliedEditReceipt.self, forKey: .receipt)
+        )
+        return
+      }
+    }
+
+    switch try LegacyRepresentation(from: decoder) {
+    case .success(let path, let diff, let matchStrategy):
+      self = .legacySuccess(path: path, diff: diff, matchStrategy: matchStrategy)
+    case .oldTextNotFound(let path, let currentContent, let recovery):
+      self = .oldTextNotFound(
+        path: path,
+        currentContent: currentContent,
+        recovery: recovery
+      )
+    case .multipleMatches(let path, let matchCount, let recovery):
+      self = .multipleMatches(path: path, matchCount: matchCount, recovery: recovery)
+    case .unchanged(let path):
+      self = .unchanged(path: path)
+    case .failed(let path, let reason):
+      self = .failed(path: path, reason: reason)
+    }
+  }
+
+  package func encode(to encoder: Encoder) throws {
+    switch self {
+    case .success(let receipt):
+      var envelope = encoder.container(keyedBy: EnvelopeKey.self)
+      var success = envelope.nestedContainer(keyedBy: SuccessKey.self, forKey: .success)
+      try success.encode(receipt, forKey: .receipt)
+    case .legacySuccess(let path, let diff, let matchStrategy):
+      try LegacyRepresentation.success(
+        path: path,
+        diff: diff,
+        matchStrategy: matchStrategy
+      ).encode(to: encoder)
+    case .oldTextNotFound(let path, let currentContent, let recovery):
+      try LegacyRepresentation.oldTextNotFound(
+        path: path,
+        currentContent: currentContent,
+        recovery: recovery
+      ).encode(to: encoder)
+    case .multipleMatches(let path, let matchCount, let recovery):
+      try LegacyRepresentation.multipleMatches(
+        path: path,
+        matchCount: matchCount,
+        recovery: recovery
+      ).encode(to: encoder)
+    case .unchanged(let path):
+      try LegacyRepresentation.unchanged(path: path).encode(to: encoder)
+    case .failed(let path, let reason):
+      try LegacyRepresentation.failed(path: path, reason: reason).encode(to: encoder)
+    }
+  }
 }
 
 package enum EditMatchStrategy: String, Codable, Equatable, Sendable {
@@ -35,7 +161,12 @@ package enum EditMatchStrategy: String, Codable, Equatable, Sendable {
 nonisolated extension EditFileResult {
   var preview: ToolResultPreview {
     switch self {
-    case .success(let path, let diff, let matchStrategy):
+    case .success(let receipt):
+      return ToolResultPreview(
+        text: "Edited \(receipt.path.rawValue).",
+        affectedPaths: [receipt.path.rawValue]
+      )
+    case .legacySuccess(let path, let diff, let matchStrategy):
       let strategyText =
         matchStrategy == .exact ? "" : " using \(matchStrategy.rawValue) match strategy"
       return ToolResultPreview(
@@ -107,7 +238,28 @@ nonisolated extension ToolDefinition {
   )
 }
 
+nonisolated struct AppliedEditReceiptPolicy: Equatable, Sendable {
+  let maxChangedLines: Int
+  let maxBytes: Int
+
+  init(maxChangedLines: Int = 120, maxBytes: Int = 6 * 1024) {
+    precondition(maxChangedLines > 0)
+    precondition(maxBytes > 0)
+    self.maxChangedLines = maxChangedLines
+    self.maxBytes = maxBytes
+  }
+
+  static let production = AppliedEditReceiptPolicy()
+  static let unbounded = AppliedEditReceiptPolicy(maxChangedLines: .max, maxBytes: .max)
+}
+
 struct EditFileToolExecutor: TypedToolExecutor {
+  private let receiptPolicy: AppliedEditReceiptPolicy
+
+  init(receiptPolicy: AppliedEditReceiptPolicy = .production) {
+    self.receiptPolicy = receiptPolicy
+  }
+
   static let codec = ToolCodec<EditFileInput>(
     definition: ToolDefinition.editFile,
     makePayload: ToolCallPayload.editFile,
@@ -159,10 +311,17 @@ struct EditFileToolExecutor: TypedToolExecutor {
         resolvedURL = try context.workspace.resolveAllowedPath(input.path)
         let edit = try validatedEdit(input, context: context)
         resolvedURL = edit.resolvedURL
+        let receipt = AppliedEditReceiptBuilder(policy: .unbounded).build(
+          path: edit.path,
+          originalContent: edit.originalContent,
+          matchedRange: edit.matchedRange,
+          replacementText: edit.replacementText,
+          matchStrategy: edit.matchStrategy
+        )
         return ToolResultPreview(
           status: .success,
-          text: Self.diffPreview(for: edit),
-          affectedPaths: [context.workspace.relativePath(for: edit.resolvedURL).rawValue]
+          text: receipt.diff.text,
+          affectedPaths: [edit.path.rawValue]
         )
       }
     } catch {
@@ -177,14 +336,15 @@ struct EditFileToolExecutor: TypedToolExecutor {
         resolvedURL = try context.workspace.resolveAllowedPath(input.path)
         let edit = try validatedEdit(input, context: context)
         resolvedURL = edit.resolvedURL
-        try edit.updatedContent.write(to: edit.resolvedURL, atomically: true, encoding: .utf8)
-        return .editFile(
-          .success(
-            path: context.workspace.relativePath(for: edit.resolvedURL),
-            diff: nil,
-            matchStrategy: edit.matchStrategy
-          )
+        let receipt = AppliedEditReceiptBuilder(policy: receiptPolicy).build(
+          path: edit.path,
+          originalContent: edit.originalContent,
+          matchedRange: edit.matchedRange,
+          replacementText: edit.replacementText,
+          matchStrategy: edit.matchStrategy
         )
+        try edit.updatedContent.write(to: edit.resolvedURL, atomically: true, encoding: .utf8)
+        return .editFile(.success(receipt: receipt))
       }
     } catch EditFileValidationError.oldTextNotFound {
       return context.workspace.withSecurityScopedAccess {
@@ -306,10 +466,11 @@ struct EditFileToolExecutor: TypedToolExecutor {
     var updatedContent = content
     updatedContent.replaceSubrange(match.range, with: match.replacementText)
     return ValidatedEdit(
-      path: input.path,
+      path: context.workspace.relativePath(for: resolvedURL),
       resolvedURL: resolvedURL,
-      oldText: String(content[match.range]),
-      newText: match.replacementText,
+      originalContent: content,
+      matchedRange: match.range,
+      replacementText: match.replacementText,
       matchStrategy: match.strategy,
       updatedContent: updatedContent
     )
@@ -561,24 +722,6 @@ struct EditFileToolExecutor: TypedToolExecutor {
     return ranges
   }
 
-  private static func diffPreview(for edit: ValidatedEdit) -> String {
-    let removedLines = edit.oldText.split(separator: "\n", omittingEmptySubsequences: false)
-    let addedLines = edit.newText.split(separator: "\n", omittingEmptySubsequences: false)
-    let removed = removedLines.map { "-\($0)" }.joined(separator: "\n")
-    let added = addedLines.map { "+\($0)" }.joined(separator: "\n")
-
-    let strategyText =
-      edit.matchStrategy == .exact ? "" : " (\(edit.matchStrategy.rawValue) match)"
-
-    return """
-      --- \(edit.path)
-      +++ \(edit.path)
-      @@\(strategyText)
-      \(removed)
-      \(added)
-      """
-  }
-
   fileprivate static func lineSegments(in text: String) -> [TextLine] {
     var lines: [TextLine] = []
     var lineStart = text.startIndex
@@ -767,13 +910,275 @@ struct EditFileToolExecutor: TypedToolExecutor {
   }
 }
 
+nonisolated struct AppliedEditReceiptBuilder {
+  let policy: AppliedEditReceiptPolicy
+
+  func build(
+    path: WorkspaceRelativePath,
+    originalContent: String,
+    matchedRange: Range<String.Index>,
+    replacementText: String,
+    matchStrategy: EditMatchStrategy
+  ) -> AppliedEditReceipt {
+    let oldStart = lineStart(in: originalContent, at: matchedRange.lowerBound)
+    var oldEnd = nextLineBoundary(in: originalContent, atOrAfter: matchedRange.upperBound)
+    let updatedContent =
+      String(originalContent[..<matchedRange.lowerBound])
+      + replacementText
+      + String(originalContent[matchedRange.upperBound...])
+
+    var newStart = index(
+      in: updatedContent,
+      utf8Offset: originalContent[..<oldStart].utf8.count
+    )
+    var newEnd = mappedNewEnd(
+      in: updatedContent,
+      originalContent: originalContent,
+      matchedRange: matchedRange,
+      replacementText: replacementText,
+      oldEnd: oldEnd
+    )
+
+    if !isLineBoundary(in: updatedContent, at: newEnd), oldEnd < originalContent.endIndex {
+      oldEnd = nextLineBoundary(
+        in: originalContent,
+        atOrAfter: originalContent.index(after: oldEnd)
+      )
+      newEnd = mappedNewEnd(
+        in: updatedContent,
+        originalContent: originalContent,
+        matchedRange: matchedRange,
+        replacementText: replacementText,
+        oldEnd: oldEnd
+      )
+    }
+
+    if newStart > newEnd {
+      newStart = newEnd
+    }
+
+    let oldBlock = String(originalContent[oldStart..<oldEnd])
+    let newBlock = String(updatedContent[newStart..<newEnd])
+    let oldLines = EditFileToolExecutor.lineSegments(in: oldBlock)
+    let newLines = EditFileToolExecutor.lineSegments(in: newBlock)
+    let startLine =
+      EditFileToolExecutor.lineSegments(
+        in: String(originalContent[..<oldStart])
+      ).count + 1
+    let oldRange = AppliedEditLineRange(startLine: startLine, lineCount: oldLines.count)
+    let newRange = AppliedEditLineRange(
+      startLine: newLines.isEmpty ? max(0, startLine - 1) : startLine,
+      lineCount: newLines.count
+    )
+    let diff = renderDiff(
+      path: path,
+      oldRange: oldRange,
+      newRange: newRange,
+      oldLines: oldLines,
+      newLines: newLines
+    )
+
+    return AppliedEditReceipt(
+      path: path,
+      matchStrategy: matchStrategy,
+      oldRange: oldRange,
+      newRange: newRange,
+      diff: diff
+    )
+  }
+
+  private func renderDiff(
+    path: WorkspaceRelativePath,
+    oldRange: AppliedEditLineRange,
+    newRange: AppliedEditLineRange,
+    oldLines: [TextLine],
+    newLines: [TextLine]
+  ) -> ToolTextOutput {
+    let headers = [
+      "--- \(diffPath(path, prefix: "a/"))",
+      "+++ \(diffPath(path, prefix: "b/"))",
+      "@@ -\(oldRange.startLine),\(oldRange.lineCount) +\(newRange.startLine),\(newRange.lineCount) @@",
+    ]
+    let changedLines =
+      oldLines.map { renderedChangedLine(prefix: "-", line: $0) }
+      + newLines.map { renderedChangedLine(prefix: "+", line: $0) }
+    let fullText = render(headers: headers, changedLines: changedLines, omittedCount: 0)
+
+    guard
+      changedLines.count > policy.maxChangedLines
+        || fullText.utf8.count > policy.maxBytes
+    else {
+      return ToolTextOutput(text: fullText)
+    }
+
+    var visibleCount = min(changedLines.count, policy.maxChangedLines)
+    if visibleCount == changedLines.count {
+      visibleCount -= 1
+    }
+
+    while visibleCount >= 0 {
+      let visible = headTail(changedLines, count: visibleCount)
+      let candidate = render(
+        headers: headers,
+        changedLines: visible,
+        omittedCount: changedLines.count - visibleCount
+      )
+      if candidate.utf8.count <= policy.maxBytes {
+        return ToolTextOutput(text: candidate, truncated: true)
+      }
+      visibleCount -= 1
+    }
+
+    let markerOnly = render(
+      headers: headers,
+      changedLines: [],
+      omittedCount: changedLines.count
+    )
+    return ToolTextOutput(
+      text: utf8Prefix(markerOnly, maxBytes: policy.maxBytes),
+      truncated: true
+    )
+  }
+
+  private func renderedChangedLine(prefix: String, line: TextLine) -> [String] {
+    var rendered = ["\(prefix)\(line.body)"]
+    if line.lineEnding.isEmpty {
+      rendered.append("\\ No newline at end of file")
+    }
+    return rendered
+  }
+
+  private func render(
+    headers: [String],
+    changedLines: [[String]],
+    omittedCount: Int
+  ) -> String {
+    var lines = headers
+    if omittedCount == 0 {
+      lines.append(contentsOf: changedLines.flatMap(\.self))
+    } else {
+      let headCount = (changedLines.count + 1) / 2
+      lines.append(contentsOf: changedLines.prefix(headCount).flatMap(\.self))
+      lines.append("[\(omittedCount) changed lines omitted]")
+      lines.append(contentsOf: changedLines.dropFirst(headCount).flatMap(\.self))
+    }
+    return lines.joined(separator: "\n")
+  }
+
+  private func headTail<T>(_ values: [T], count: Int) -> [T] {
+    guard count > 0 else {
+      return []
+    }
+    let headCount = (count + 1) / 2
+    let tailCount = count / 2
+    return Array(values.prefix(headCount)) + Array(values.suffix(tailCount))
+  }
+
+  private func diffPath(_ path: WorkspaceRelativePath, prefix: String) -> String {
+    let fullPath = prefix + path.rawValue
+    guard
+      fullPath.contains(where: {
+        $0 == "\t" || $0 == "\n" || $0 == "\r" || $0 == "\\" || $0 == "\""
+          || $0.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F })
+      })
+    else {
+      return fullPath
+    }
+
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.withoutEscapingSlashes]
+    guard
+      let data = try? encoder.encode(fullPath),
+      let encoded = String(data: data, encoding: .utf8)
+    else {
+      return "\"\(fullPath)\""
+    }
+    return encoded
+  }
+
+  private func lineStart(in text: String, at index: String.Index) -> String.Index {
+    var current = index
+    while current > text.startIndex {
+      let previous = text.index(before: current)
+      if isLineEnding(text[previous]) {
+        break
+      }
+      current = previous
+    }
+    return current
+  }
+
+  private func nextLineBoundary(
+    in text: String,
+    atOrAfter index: String.Index
+  ) -> String.Index {
+    if isLineBoundary(in: text, at: index) {
+      return index
+    }
+
+    var current = index
+    while current < text.endIndex {
+      if isLineEnding(text[current]) {
+        return text.index(after: current)
+      }
+      current = text.index(after: current)
+    }
+    return text.endIndex
+  }
+
+  private func isLineBoundary(in text: String, at index: String.Index) -> Bool {
+    guard index > text.startIndex, index < text.endIndex else {
+      return true
+    }
+    return isLineEnding(text[text.index(before: index)])
+  }
+
+  private func isLineEnding(_ character: Character) -> Bool {
+    character == "\n" || character == "\r" || String(character) == "\r\n"
+  }
+
+  private func mappedNewEnd(
+    in updatedContent: String,
+    originalContent: String,
+    matchedRange: Range<String.Index>,
+    replacementText: String,
+    oldEnd: String.Index
+  ) -> String.Index {
+    let offset =
+      originalContent[..<matchedRange.lowerBound].utf8.count
+      + replacementText.utf8.count
+      + originalContent[matchedRange.upperBound..<oldEnd].utf8.count
+    return index(in: updatedContent, utf8Offset: offset)
+  }
+
+  private func index(in text: String, utf8Offset: Int) -> String.Index {
+    let utf8Index = text.utf8.index(text.utf8.startIndex, offsetBy: utf8Offset)
+    return String.Index(utf8Index, within: text) ?? text.endIndex
+  }
+
+  private func utf8Prefix(_ text: String, maxBytes: Int) -> String {
+    var byteCount = 0
+    var result = ""
+    for character in text {
+      let characterBytes = String(character).utf8.count
+      guard byteCount + characterBytes <= maxBytes else {
+        break
+      }
+      result.append(character)
+      byteCount += characterBytes
+    }
+    return result
+  }
+}
+
 nonisolated private struct ValidatedEdit {
-  package let path: String
-  package let resolvedURL: URL
-  package let oldText: String
-  package let newText: String
-  package let matchStrategy: EditMatchStrategy
-  package let updatedContent: String
+  let path: WorkspaceRelativePath
+  let resolvedURL: URL
+  let originalContent: String
+  let matchedRange: Range<String.Index>
+  let replacementText: String
+  let matchStrategy: EditMatchStrategy
+  let updatedContent: String
 }
 
 nonisolated private struct EditMatch {

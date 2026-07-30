@@ -734,7 +734,16 @@ struct ChatModelContextBuilderTests {
         ),
         payload: .editFile(input)
       ),
-      result: .editFile(.success(path: path, diff: nil, matchStrategy: .exact))
+      result: .editFile(
+        .success(
+          receipt: AppliedEditReceipt(
+            path: path,
+            matchStrategy: .exact,
+            oldRange: AppliedEditLineRange(startLine: 1, lineCount: 1),
+            newRange: AppliedEditLineRange(startLine: 1, lineCount: 1),
+            diff: ToolTextOutput(text: "-old\n+new")
+          )
+        ))
     )
   }
 

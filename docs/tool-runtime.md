@@ -747,10 +747,19 @@ declarations.
   semantic matching, guessing between candidates, or replace-all semantics. Zero
   matches, multiple matches, non-UTF-8 files, and identical old/new text fail
   before approval; approved execution re-reads and revalidates the file before
-  writing atomically. Successful non-exact edits report the match strategy for
-  auditability and preserve the matched file's line-ending style. If the target
-  file is missing, `edit_file` fails before approval or during approved
-  revalidation and may include bounded workspace-relative path suggestions.
+  writing atomically. The approval preview is a full, provisional unified diff
+  of the validated edit. The final result is authoritative because execution
+  revalidates current contents; it carries an `AppliedEditReceipt` only after
+  the atomic write succeeds. The receipt stores the canonical workspace-relative
+  path, actual match strategy, old/new line ranges, and an LF-rendered unified
+  diff built internally from the affected lines without Git or a general-purpose
+  diff algorithm. Final receipt diffs are bounded to 120 changed lines and
+  6 KiB with a head/tail omission marker; their `diff_truncated` model metadata
+  is always explicit. Structured receipt facts appear in `TOOL_RESULT_JSON`,
+  while `CONTENT` contains only the diff. Successful non-exact edits preserve
+  the matched file's line-ending style. If the target file is missing,
+  `edit_file` fails before approval or during approved revalidation and may
+  include bounded workspace-relative path suggestions.
 - `edit_file` is the only model-facing tool for changing existing files.
 - `finish_task` accepts exactly `status` and `summary`. `status` is one of
   `done`, `blocked`, or `needs_user`; `summary` must be non-empty after trimming

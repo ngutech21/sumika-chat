@@ -60,12 +60,24 @@ struct ToolEditExecutionTests {
 
     #expect(result.status == .completed)
     #expect(result.state.preview?.status == .success)
-    guard case .editFile(.success(let path, _, let matchStrategy)) = result.resultPayload else {
+    #expect(result.state.preview?.text == "Edited notes.txt.")
+    guard case .editFile(.success(let receipt)) = result.resultPayload else {
       Issue.record("Expected edit_file success payload.")
       return
     }
-    #expect(path.rawValue == "notes.txt")
-    #expect(matchStrategy == .exact)
+    #expect(receipt.path.rawValue == "notes.txt")
+    #expect(receipt.matchStrategy == .exact)
+    #expect(receipt.oldRange == AppliedEditLineRange(startLine: 2, lineCount: 1))
+    #expect(receipt.newRange == AppliedEditLineRange(startLine: 2, lineCount: 1))
+    #expect(!receipt.diff.truncated)
+    #expect(
+      receipt.diff.text == """
+        --- a/notes.txt
+        +++ b/notes.txt
+        @@ -2,1 +2,1 @@
+        -two
+        +TWO
+        """)
     #expect(
       try String(contentsOf: workspace.rootURL.appending(path: "notes.txt"), encoding: .utf8)
         == "one\nTWO\nthree\n")
@@ -86,12 +98,14 @@ struct ToolEditExecutionTests {
     )
 
     #expect(result.status == .completed)
-    #expect(result.state.preview?.text.contains("normalizedLineEndings match strategy") == true)
-    guard case .editFile(.success(_, _, let matchStrategy)) = result.resultPayload else {
+    guard case .editFile(.success(let receipt)) = result.resultPayload else {
       Issue.record("Expected edit_file success payload.")
       return
     }
-    #expect(matchStrategy == .normalizedLineEndings)
+    #expect(receipt.matchStrategy == .normalizedLineEndings)
+    #expect(receipt.oldRange == AppliedEditLineRange(startLine: 2, lineCount: 1))
+    #expect(receipt.newRange == AppliedEditLineRange(startLine: 2, lineCount: 1))
+    #expect(!receipt.diff.text.contains("\r"))
     #expect(
       try String(contentsOf: workspace.rootURL.appending(path: "notes.txt"), encoding: .utf8)
         == "one\r\nTWO\r\nthree\r\n")
@@ -115,11 +129,11 @@ struct ToolEditExecutionTests {
     )
 
     #expect(result.status == .completed)
-    guard case .editFile(.success(_, _, let matchStrategy)) = result.resultPayload else {
+    guard case .editFile(.success(let receipt)) = result.resultPayload else {
       Issue.record("Expected edit_file success payload.")
       return
     }
-    #expect(matchStrategy == .normalizedLineEndings)
+    #expect(receipt.matchStrategy == .normalizedLineEndings)
     #expect(
       try String(contentsOf: workspace.rootURL.appending(path: "notes.txt"), encoding: .utf8)
         == "alpha\r\nbeta\r\ngamma\r\nDELTA\r\nepsilon\r\n")
@@ -144,11 +158,11 @@ struct ToolEditExecutionTests {
     )
 
     #expect(result.status == .completed)
-    guard case .editFile(.success(_, _, let matchStrategy)) = result.resultPayload else {
+    guard case .editFile(.success(let receipt)) = result.resultPayload else {
       Issue.record("Expected edit_file success payload.")
       return
     }
-    #expect(matchStrategy == .trimTrailingWhitespace)
+    #expect(receipt.matchStrategy == .trimTrailingWhitespace)
     #expect(
       try String(
         contentsOf: workspace.rootURL.appending(path: "Sources/App.swift"), encoding: .utf8)
@@ -194,11 +208,11 @@ struct ToolEditExecutionTests {
     )
 
     #expect(result.status == .completed)
-    guard case .editFile(.success(_, _, let matchStrategy)) = result.resultPayload else {
+    guard case .editFile(.success(let receipt)) = result.resultPayload else {
       Issue.record("Expected edit_file success payload.")
       return
     }
-    #expect(matchStrategy == .indentationFlexible)
+    #expect(receipt.matchStrategy == .indentationFlexible)
     #expect(
       try String(
         contentsOf: workspace.rootURL.appending(path: "Sources/App.swift"), encoding: .utf8)
@@ -250,11 +264,11 @@ struct ToolEditExecutionTests {
     )
 
     #expect(result.status == .completed)
-    guard case .editFile(.success(_, _, let matchStrategy)) = result.resultPayload else {
+    guard case .editFile(.success(let receipt)) = result.resultPayload else {
       Issue.record("Expected edit_file success payload.")
       return
     }
-    #expect(matchStrategy == .lineTrimmedBlock)
+    #expect(receipt.matchStrategy == .lineTrimmedBlock)
     #expect(
       try String(
         contentsOf: workspace.rootURL.appending(path: "Sources/App.swift"), encoding: .utf8)
@@ -283,7 +297,7 @@ struct ToolEditExecutionTests {
 
     #expect(result.status == .awaitingApproval)
     #expect(result.state.preview?.status == .success)
-    #expect(result.state.preview?.text.contains("normalizedLineEndings match") == true)
+    #expect(result.state.preview?.text.contains("@@ -2,1 +2,1 @@") == true)
     #expect(result.state.preview?.text.contains("-two") == true)
     #expect(result.state.preview?.text.contains("+TWO") == true)
     #expect(
@@ -308,6 +322,88 @@ struct ToolEditExecutionTests {
   }
 
   @Test
+  func approvalPreviewIsFullWhileFinalReceiptIsBounded() async throws {
+    let workspace = try makeWorkspace()
+    let oldLines = (1...130).map { "old-\($0)" }
+    let newLines = (1...130).map { "new-\($0)" }
+    let oldText = oldLines.joined(separator: "\n") + "\n"
+    let newText = newLines.joined(separator: "\n") + "\n"
+    try write(oldText, to: "large.txt", in: workspace)
+    let editRequest = request(
+      .editFile,
+      workspace: workspace,
+      arguments: editArguments(path: "large.txt", oldText: oldText, newText: newText)
+    )
+
+    let pending = await ToolOrchestrator(executorRegistry: .codingAgent).execute(
+      request: editRequest,
+      workspace: workspace
+    )
+
+    #expect(pending.status == .awaitingApproval)
+    #expect(pending.state.preview?.truncated == false)
+    #expect(pending.state.preview?.text.contains("-old-65") == true)
+    #expect(pending.state.preview?.text.contains("+new-65") == true)
+
+    let completed = await ToolOrchestrator(executorRegistry: .codingAgent).executeApproved(
+      request: editRequest,
+      workspace: workspace
+    )
+
+    guard case .editFile(.success(let receipt)) = completed.resultPayload else {
+      Issue.record("Expected edit_file success payload.")
+      return
+    }
+    #expect(receipt.diff.truncated)
+    #expect(receipt.diff.text.utf8.count <= 6 * 1024)
+    #expect(receipt.diff.text.contains("[140 changed lines omitted]"))
+    #expect(receipt.additions == 130)
+    #expect(receipt.deletions == 130)
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "large.txt"), encoding: .utf8)
+        == newText)
+  }
+
+  @Test
+  func appliedReceiptRoundTripsAndProjectsWithoutDuplicatingStructuredFacts() async throws {
+    let workspace = try makeWorkspace()
+    try write("one\ntwo\nthree\n", to: "notes.txt", in: workspace)
+    let editRequest = request(
+      .editFile,
+      workspace: workspace,
+      arguments: editArguments(path: "notes.txt", oldText: "two", newText: "TWO")
+    )
+    let completed = await ToolOrchestrator(executorRegistry: .codingAgent).executeApproved(
+      request: editRequest,
+      workspace: workspace
+    )
+    let payload = try #require(completed.resultPayload)
+    let persisted = try JSONDecoder().decode(
+      ToolResultPayload.self,
+      from: JSONEncoder().encode(payload)
+    )
+    let projection = ToolResultProjector.project(payload: persisted, request: completed.request)
+    let rendered = ToolModelObservationRenderer.render(projection, callID: completed.request.id)
+
+    #expect(rendered.contains("\"kind\":\"edit_receipt\""))
+    #expect(rendered.contains("\"affected_paths\":[\"notes.txt\"]"))
+    #expect(rendered.contains("\"path\":\"notes.txt\""))
+    #expect(rendered.contains("\"match_strategy\":\"exact\""))
+    #expect(rendered.contains("\"replacements\":1"))
+    #expect(rendered.contains("\"old_start_line\":2"))
+    #expect(rendered.contains("\"old_line_count\":1"))
+    #expect(rendered.contains("\"new_start_line\":2"))
+    #expect(rendered.contains("\"new_line_count\":1"))
+    #expect(rendered.contains("\"additions\":1"))
+    #expect(rendered.contains("\"deletions\":1"))
+    #expect(rendered.contains("\"diff_truncated\":false"))
+    #expect(rendered.contains("CONTENT:\n--- a/notes.txt"))
+    #expect(!rendered.contains("Edited file:"))
+    #expect(!rendered.contains("Match strategy:"))
+    #expect(!rendered.contains("Diff summary:"))
+  }
+
+  @Test
   func approvedEditFileRevalidatesWithCurrentFallbackStrategy() async throws {
     let workspace = try makeWorkspace()
     try write("let value = 1\n", to: "Sources/App.swift", in: workspace)
@@ -325,12 +421,15 @@ struct ToolEditExecutionTests {
     )
 
     #expect(pending.status == .awaitingApproval)
+    #expect(pending.state.preview?.text.contains("-let value = 1\n") == true)
+    #expect(pending.state.preview?.text.contains("-let value = 1   \n") == false)
     #expect(result.status == .completed)
-    guard case .editFile(.success(_, _, let matchStrategy)) = result.resultPayload else {
+    guard case .editFile(.success(let receipt)) = result.resultPayload else {
       Issue.record("Expected edit_file success payload.")
       return
     }
-    #expect(matchStrategy == .trimTrailingWhitespace)
+    #expect(receipt.matchStrategy == .trimTrailingWhitespace)
+    #expect(receipt.diff.text.contains("-let value = 1   \n"))
     #expect(
       try String(
         contentsOf: workspace.rootURL.appending(path: "Sources/App.swift"), encoding: .utf8)
@@ -625,5 +724,93 @@ struct ToolEditExecutionTests {
       withIntermediateDirectories: true
     )
     try content.write(to: url, atomically: true, encoding: .utf8)
+  }
+}
+
+struct AppliedEditReceiptBuilderTests {
+  @Test
+  func wholeFirstLineDeletionUsesUnifiedDiffZeroAnchor() throws {
+    let content = "alpha\nbeta\n"
+    let range = try #require(content.range(of: "alpha\n"))
+
+    let receipt = AppliedEditReceiptBuilder(policy: .unbounded).build(
+      path: WorkspaceRelativePath(rawValue: "notes.txt"),
+      originalContent: content,
+      matchedRange: range,
+      replacementText: "",
+      matchStrategy: .exact
+    )
+
+    #expect(receipt.oldRange == AppliedEditLineRange(startLine: 1, lineCount: 1))
+    #expect(receipt.newRange == AppliedEditLineRange(startLine: 0, lineCount: 0))
+    #expect(
+      receipt.diff.text == """
+        --- a/notes.txt
+        +++ b/notes.txt
+        @@ -1,1 +0,0 @@
+        -alpha
+        """)
+  }
+
+  @Test
+  func partialFinalLineReceiptIncludesFullLineAndNoNewlineMarkers() throws {
+    let content = "prefix old suffix"
+    let range = try #require(content.range(of: "old"))
+
+    let receipt = AppliedEditReceiptBuilder(policy: .unbounded).build(
+      path: WorkspaceRelativePath(rawValue: "notes.txt"),
+      originalContent: content,
+      matchedRange: range,
+      replacementText: "new",
+      matchStrategy: .exact
+    )
+
+    #expect(receipt.oldRange == AppliedEditLineRange(startLine: 1, lineCount: 1))
+    #expect(receipt.newRange == AppliedEditLineRange(startLine: 1, lineCount: 1))
+    #expect(
+      receipt.diff.text == """
+        --- a/notes.txt
+        +++ b/notes.txt
+        @@ -1,1 +1,1 @@
+        -prefix old suffix
+        \\ No newline at end of file
+        +prefix new suffix
+        \\ No newline at end of file
+        """)
+  }
+
+  @Test
+  func removedLineEndingExpandsThroughMergedSuffixLine() throws {
+    let content = "alpha\nbeta\n"
+    let range = try #require(content.range(of: "\n"))
+
+    let receipt = AppliedEditReceiptBuilder(policy: .unbounded).build(
+      path: WorkspaceRelativePath(rawValue: "notes.txt"),
+      originalContent: content,
+      matchedRange: range,
+      replacementText: "",
+      matchStrategy: .exact
+    )
+
+    #expect(receipt.oldRange == AppliedEditLineRange(startLine: 1, lineCount: 2))
+    #expect(receipt.newRange == AppliedEditLineRange(startLine: 1, lineCount: 1))
+    #expect(receipt.diff.text.contains("-alpha\n-beta\n+alphabeta"))
+  }
+
+  @Test
+  func unusualPathIsJSONQuotedInDiffHeaders() throws {
+    let content = "old\n"
+    let range = try #require(content.range(of: "old"))
+
+    let receipt = AppliedEditReceiptBuilder(policy: .unbounded).build(
+      path: WorkspaceRelativePath(rawValue: "dir/a\t\"b\".txt"),
+      originalContent: content,
+      matchedRange: range,
+      replacementText: "new",
+      matchStrategy: .exact
+    )
+
+    #expect(receipt.diff.text.hasPrefix("--- \"a/dir/a\\t\\\"b\\\".txt\""))
+    #expect(receipt.diff.text.contains("+++ \"b/dir/a\\t\\\"b\\\".txt\""))
   }
 }

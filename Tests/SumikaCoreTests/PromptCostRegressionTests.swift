@@ -456,12 +456,21 @@ private struct PromptCostToolStep {
       ],
       result: .editFile(
         .success(
-          path: WorkspaceRelativePath(rawValue: path),
-          diff: """
-            -  let greeting = "Hello"
-            +  let greeting = "Hello, Sumika"
-            """,
-          matchStrategy: .exact
+          receipt: AppliedEditReceipt(
+            path: WorkspaceRelativePath(rawValue: path),
+            matchStrategy: .exact,
+            oldRange: AppliedEditLineRange(startLine: 1, lineCount: 1),
+            newRange: AppliedEditLineRange(startLine: 1, lineCount: 1),
+            diff: ToolTextOutput(
+              text: """
+                --- a/Sources/App.swift
+                +++ b/Sources/App.swift
+                @@ -1,1 +1,1 @@
+                -let greeting = "Hello"
+                +let greeting = "Hello, Sumika"
+                """
+            )
+          )
         ))
     )
   }
@@ -480,12 +489,21 @@ private struct PromptCostToolStep {
       ],
       result: .editFile(
         .success(
-          path: WorkspaceRelativePath(rawValue: path),
-          diff: """
-            -  #expect(App().greeting == "Hello")
-            +  #expect(App().greeting == "Hello, Sumika")
-            """,
-          matchStrategy: .exact
+          receipt: AppliedEditReceipt(
+            path: WorkspaceRelativePath(rawValue: path),
+            matchStrategy: .exact,
+            oldRange: AppliedEditLineRange(startLine: 1, lineCount: 1),
+            newRange: AppliedEditLineRange(startLine: 1, lineCount: 1),
+            diff: ToolTextOutput(
+              text: """
+                --- a/Tests/GreetingTests.swift
+                +++ b/Tests/GreetingTests.swift
+                @@ -1,1 +1,1 @@
+                -#expect(App().greeting == "Hello")
+                +#expect(App().greeting == "Hello, Sumika")
+                """
+            )
+          )
         ))
     )
   }
@@ -787,12 +805,12 @@ private enum PromptCostBaseline {
       toolCount: 3,
       systemPromptBytes: 2_622,
       toolSchemaBytes: 8_300,
-      conversationBytes: 1_292,
+      conversationBytes: 1_429,
       toolCallBytes: 480,
-      toolResultBytes: 1_217,
-      totalBytes: 12_694,
-      estimatedTokens: 3_174,
-      checkpointEstimatedTokens: [2_867, 3_014, 3_174]
+      toolResultBytes: 1_354,
+      totalBytes: 12_831,
+      estimatedTokens: 3_208,
+      checkpointEstimatedTokens: [2_867, 3_048, 3_208]
     ),
     PromptCostSnapshot(
       name: "failed_command_diagnostics",
@@ -811,12 +829,12 @@ private enum PromptCostBaseline {
       toolCount: 9,
       systemPromptBytes: 2_622,
       toolSchemaBytes: 8_300,
-      conversationBytes: 4_434,
+      conversationBytes: 4_716,
       toolCallBytes: 1_326,
-      toolResultBytes: 4_344,
-      totalBytes: 16_682,
-      estimatedTokens: 4_171,
-      checkpointEstimatedTokens: [2_871, 3_015, 3_133, 3_279, 3_582, 3_708, 3_844, 4_011, 4_171]
+      toolResultBytes: 4_626,
+      totalBytes: 16_964,
+      estimatedTokens: 4_241,
+      checkpointEstimatedTokens: [2_871, 3_015, 3_133, 3_314, 3_616, 3_743, 3_878, 4_081, 4_241]
     ),
   ]
 }

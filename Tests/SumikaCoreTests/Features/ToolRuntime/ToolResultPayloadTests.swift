@@ -17,6 +17,16 @@ struct ToolResultPayloadTests {
       .writeFile(
         .success(path: WorkspaceRelativePath(rawValue: "Sources/App.swift"), bytesWritten: 12)),
       .editFile(
+        .success(
+          receipt: AppliedEditReceipt(
+            path: WorkspaceRelativePath(rawValue: "Sources/App.swift"),
+            matchStrategy: .exact,
+            oldRange: AppliedEditLineRange(startLine: 1, lineCount: 1),
+            newRange: AppliedEditLineRange(startLine: 1, lineCount: 1),
+            diff: ToolTextOutput(text: "-old\n+new")
+          )
+        )),
+      .editFile(
         .oldTextNotFound(
           path: WorkspaceRelativePath(rawValue: "Sources/App.swift"),
           currentContent: ToolTextOutput(text: "let value = 1"),
@@ -173,6 +183,41 @@ struct ToolResultPayloadTests {
     #expect(preview.text.contains("matched more than once"))
     #expect(preview.text.contains("Retry with a larger exact old_text block"))
     #expect(preview.affectedPaths == ["Sources/App.swift"])
+  }
+
+  @Test
+  func legacyEditFileSuccessDecodesReencodesAndKeepsFrozenRendering() throws {
+    let json = """
+      {
+        "success": {
+          "path": "README.md",
+          "diff": "-old\\n+new",
+          "matchStrategy": "exact"
+        }
+      }
+      """
+    let originalObject = try #require(
+      JSONSerialization.jsonObject(with: Data(json.utf8)) as? NSDictionary
+    )
+    let result = try JSONDecoder().decode(EditFileResult.self, from: Data(json.utf8))
+
+    guard case .legacySuccess(let path, let diff, let matchStrategy) = result else {
+      Issue.record("Expected the stored edit_file success shape to decode as legacy success.")
+      return
+    }
+    #expect(path == WorkspaceRelativePath(rawValue: "README.md"))
+    #expect(diff == "-old\n+new")
+    #expect(matchStrategy == .exact)
+    #expect(
+      result.preview.text == """
+        -old
+        +new
+        """)
+
+    let reencodedObject = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(result)) as? NSDictionary
+    )
+    #expect(reencodedObject == originalObject)
   }
 
   @Test

@@ -1584,6 +1584,7 @@ Properties:
 
 Cases:
 
+- `appliedEditReceipt(AppliedEditReceipt)`
 - `commandResult(RunCommandResult)`
 - `diagnostics(WorkspaceDiagnosticsResult)`
 - `editReceipt(path: WorkspaceRelativePath, diffSummary: String?, matchStrategy: EditMatchStrategy?)`
@@ -1791,6 +1792,7 @@ Relations:
 
 Properties:
 
+- `includeDefault: Bool`
 - `name: String`
 - `value: ToolResultModelMetadataValue`
 
@@ -1955,6 +1957,8 @@ Properties:
 - `contextSignature: String?`
 - `durationMs: Double`
 - `firstMismatchIndex: Int?`
+- `generatedTokenCount: Int?`
+- `generatedTokenCountIsEstimate: Bool?`
 - `generationID: UUID?`
 - `imageByteCount: Int?`
 - `imageCount: Int?`

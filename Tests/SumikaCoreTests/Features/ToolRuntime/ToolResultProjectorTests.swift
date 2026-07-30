@@ -492,7 +492,7 @@ struct ToolResultProjectorTests {
 
     let editProjection = ToolResultProjector.project(
       payload: .editFile(
-        .success(
+        .legacySuccess(
           path: WorkspaceRelativePath(rawValue: "README.md"),
           diff: "-old\n+new",
           matchStrategy: .exact
@@ -511,6 +511,76 @@ struct ToolResultProjectorTests {
           matchStrategy: .exact
         )
       ])
+    let legacyRendered = ToolModelObservationRenderer.render(editProjection, callID: UUID())
+    #expect(legacyRendered.contains("CONTENT:\nEdited file: README.md"))
+    #expect(legacyRendered.contains("Match strategy: exact"))
+    #expect(legacyRendered.contains("Diff summary:\n-old\n+new"))
+  }
+
+  @Test
+  func appliedEditReceiptPreservesTrailingWhitespaceInModelContent() {
+    let diff =
+      """
+      --- a/README.md
+      +++ b/README.md
+      @@ -1,1 +1,1 @@
+      -foo
+      +foo
+      """ + String(repeating: " ", count: 3)
+    let projection = ToolResultProjector.project(
+      payload: .editFile(
+        .success(
+          receipt: AppliedEditReceipt(
+            path: WorkspaceRelativePath(rawValue: "README.md"),
+            matchStrategy: .exact,
+            oldRange: AppliedEditLineRange(startLine: 1, lineCount: 1),
+            newRange: AppliedEditLineRange(startLine: 1, lineCount: 1),
+            diff: ToolTextOutput(text: diff)
+          )
+        )),
+      request: request(
+        toolName: .editFile,
+        payload: .editFile(EditFileInput(path: "README.md", oldText: "foo", newText: "foo   "))
+      )
+    )
+
+    let rendered = ToolModelObservationRenderer.render(projection, callID: UUID())
+
+    #expect(rendered.hasSuffix("+foo   "))
+  }
+
+  @Test
+  func unsuccessfulEditOutcomesNeverProjectAnAppliedReceipt() {
+    let path = WorkspaceRelativePath(rawValue: "README.md")
+    let editRequest = request(
+      toolName: .editFile,
+      payload: .editFile(EditFileInput(path: "README.md", oldText: "old", newText: "new"))
+    )
+    let outcomes: [ToolResultPayload] = [
+      .editFile(.unchanged(path: path)),
+      .editFile(
+        .oldTextNotFound(
+          path: path,
+          currentContent: nil,
+          recovery: .readFile(path: path)
+        )),
+      .editFile(.failed(path: path, reason: .executionError("write failed"))),
+      .failure(ToolFailure(toolName: .editFile, path: path, reason: .userDenied)),
+    ]
+
+    for outcome in outcomes {
+      let projection = ToolResultProjector.project(payload: outcome, request: editRequest)
+      let rendered = ToolModelObservationRenderer.render(projection, callID: UUID())
+      #expect(!rendered.contains("\"kind\":\"edit_receipt\""))
+      #expect(!rendered.contains("--- a/"))
+      #expect(
+        !projection.observation.blocks.contains(where: {
+          if case .appliedEditReceipt = $0 {
+            return true
+          }
+          return false
+        }))
+    }
   }
 
   @Test
@@ -796,9 +866,13 @@ struct ToolResultProjectorTests {
       ToolResultProjector.project(
         payload: .editFile(
           .success(
-            path: WorkspaceRelativePath(rawValue: "README.md"),
-            diff: nil,
-            matchStrategy: .exact
+            receipt: AppliedEditReceipt(
+              path: WorkspaceRelativePath(rawValue: "README.md"),
+              matchStrategy: .exact,
+              oldRange: AppliedEditLineRange(startLine: 1, lineCount: 1),
+              newRange: AppliedEditLineRange(startLine: 1, lineCount: 1),
+              diff: ToolTextOutput(text: "-old\n+new")
+            )
           )
         ),
         request: request(

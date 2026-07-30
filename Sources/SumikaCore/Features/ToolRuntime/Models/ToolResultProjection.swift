@@ -40,10 +40,16 @@ package struct ToolResultModelMetadata: Equatable, Sendable {
 package struct ToolResultModelMetadataField: Equatable, Sendable {
   package var name: String
   package var value: ToolResultModelMetadataValue
+  package var includeDefault: Bool
 
-  package init(name: String, value: ToolResultModelMetadataValue) {
+  package init(
+    name: String,
+    value: ToolResultModelMetadataValue,
+    includeDefault: Bool = false
+  ) {
     self.name = name
     self.value = value
+    self.includeDefault = includeDefault
   }
 }
 
@@ -268,6 +274,7 @@ package enum ToolObservationBlock: Codable, Equatable, Sendable {
     diffSummary: String?,
     matchStrategy: EditMatchStrategy?
   )
+  case appliedEditReceipt(AppliedEditReceipt)
   case commandResult(RunCommandResult)
   case diagnostics(WorkspaceDiagnosticsResult)
   case webSearch(
@@ -445,7 +452,7 @@ private func resultKind(for block: ToolObservationBlock) -> String {
     return "listing"
   case .searchSnippets:
     return "search_matches"
-  case .editReceipt:
+  case .editReceipt, .appliedEditReceipt:
     return "edit_receipt"
   case .commandResult:
     return "command_result"
@@ -514,6 +521,27 @@ private func metadataFields(for block: ToolObservationBlock) -> [ToolResultModel
     var fields = [ToolResultModelMetadataField(name: "path", value: .string(path.rawValue))]
     if let matchStrategy {
       fields.append(.init(name: "match_strategy", value: .string(matchStrategy.rawValue)))
+    }
+    return fields
+  case .appliedEditReceipt(let receipt):
+    var fields: [ToolResultModelMetadataField] = [
+      .init(name: "path", value: .string(receipt.path.rawValue)),
+      .init(name: "match_strategy", value: .string(receipt.matchStrategy.rawValue)),
+      .init(name: "replacements", value: .int(1)),
+      .init(name: "old_start_line", value: .int(receipt.oldRange.startLine)),
+      .init(name: "old_line_count", value: .int(receipt.oldRange.lineCount)),
+      .init(name: "new_start_line", value: .int(receipt.newRange.startLine)),
+      .init(name: "new_line_count", value: .int(receipt.newRange.lineCount)),
+      .init(name: "additions", value: .int(receipt.additions)),
+      .init(name: "deletions", value: .int(receipt.deletions)),
+      .init(
+        name: "diff_truncated",
+        value: .bool(receipt.diff.truncated),
+        includeDefault: true
+      ),
+    ]
+    if receipt.diff.redacted {
+      fields.append(.init(name: "redacted", value: .bool(true)))
     }
     return fields
   case .commandResult(let result):
@@ -958,7 +986,20 @@ private func projectEditFile(
   request: ToolCallRequest
 ) -> ToolResultProjection {
   switch result {
-  case .success(let path, let diff, let matchStrategy):
+  case .success(let receipt):
+    return toolResultProjection(
+      display: .summary(
+        status: .success,
+        text: "Edited \(receipt.path.rawValue).",
+        affectedPaths: [receipt.path]
+      ),
+      observation: ToolModelObservation.success(
+        toolName: request.toolName,
+        affectedPaths: [receipt.path],
+        blocks: [.appliedEditReceipt(receipt)]
+      )
+    )
+  case .legacySuccess(let path, let diff, let matchStrategy):
     return toolResultProjection(
       display: .summary(
         status: .success,

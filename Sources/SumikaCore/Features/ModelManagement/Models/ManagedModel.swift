@@ -248,7 +248,7 @@ package enum ManagedModelCatalog {
       displayName: "Qwen 3.6 27B Optiq 4-bit",
       detail: "Qwen3.6 model",
       huggingFaceRepoID: "mlx-community/Qwen3.6-27B-OptiQ-4bit",
-      localDirectoryName: "Qwen3.6-27B-8bit",
+      localDirectoryName: "Qwen3.6-27B-OptiQ-4bit",
       estimatedDownloadSize: "20.0 GB",
       isRecommended: false,
       requiresLargeMemory: true,

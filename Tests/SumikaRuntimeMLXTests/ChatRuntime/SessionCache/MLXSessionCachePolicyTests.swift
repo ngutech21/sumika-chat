@@ -608,9 +608,13 @@ struct MLXSessionCachePolicyTests {
           toolName: .editFile,
           payload: .editFile(
             .success(
-              path: WorkspaceRelativePath(rawValue: "main.py"),
-              diff: nil,
-              matchStrategy: .exact
+              receipt: AppliedEditReceipt(
+                path: WorkspaceRelativePath(rawValue: "main.py"),
+                matchStrategy: .exact,
+                oldRange: AppliedEditLineRange(startLine: 1, lineCount: 1),
+                newRange: AppliedEditLineRange(startLine: 1, lineCount: 1),
+                diff: ToolTextOutput(text: "-buffer(bytes(samples))\n+bytes(samples)")
+              )
             ))
         ),
         request: toolRequest(

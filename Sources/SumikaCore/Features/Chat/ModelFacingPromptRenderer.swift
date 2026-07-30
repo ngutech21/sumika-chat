@@ -224,10 +224,17 @@ enum ToolModelObservationRenderer {
         nextStep: nextStep
       )
     )
+    let contentTrimmingCharacters: CharacterSet =
+      observation.blocks.contains(where: {
+        if case .appliedEditReceipt = $0 {
+          return true
+        }
+        return false
+      }) ? .newlines : .whitespacesAndNewlines
     let content = observation.blocks
       .compactMap(renderContentBlock(_:))
       .joined(separator: "\n")
-      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .trimmingCharacters(in: contentTrimmingCharacters)
 
     return """
       TOOL_RESULT_JSON:
@@ -270,7 +277,7 @@ enum ToolModelObservationRenderer {
     fields.append(
       contentsOf: metadata.fields.compactMap { field in
         let value = jsonValue(field.value)
-        return value.isDefaultOrEmpty ? nil : (field.name, value)
+        return value.isDefaultOrEmpty && !field.includeDefault ? nil : (field.name, value)
       }
     )
     if !metadata.nextAllowedActions.isEmpty {
@@ -374,6 +381,8 @@ enum ToolModelObservationRenderer {
         matchStrategy.map { "Match strategy: \($0.rawValue)" },
         diffSummary.map { "Diff summary:\n\($0)" },
       ].compactMap(\.self).joined(separator: "\n")
+    case .appliedEditReceipt(let receipt):
+      return receipt.diff.text
     case .commandResult(let result):
       var lines = [
         "Command: \(result.command)",

@@ -55,28 +55,49 @@ struct FocusedFileStateReducer: Sendable {
         in: state,
         updatedAt: updatedAt
       )
-    case .editFile(.success(let path, _, _)):
-      let content: String?
-      if case .editFile(let input) = request.payload {
-        content = editedSnapshotContent(for: path, input: input, in: state)
-      } else {
-        content = nil
-      }
-      var updatedState = focusing(
-        path,
-        source: .editFile,
-        content: content,
-        fullContentAvailable: content != nil,
-        in: state,
+    case .editFile(.success(let receipt)):
+      return applyingSuccessfulEdit(
+        path: receipt.path,
+        request: request,
+        to: state,
         updatedAt: updatedAt
       )
-      if content == nil {
-        updatedState.snapshots.removeValue(forKey: path)
-      }
-      return updatedState
+    case .editFile(.legacySuccess(let path, _, _)):
+      return applyingSuccessfulEdit(
+        path: path,
+        request: request,
+        to: state,
+        updatedAt: updatedAt
+      )
     default:
       return state
     }
+  }
+
+  private func applyingSuccessfulEdit(
+    path: WorkspaceRelativePath,
+    request: ToolCallRequest,
+    to state: FocusedFileState,
+    updatedAt: Date
+  ) -> FocusedFileState {
+    let content: String?
+    if case .editFile(let input) = request.payload {
+      content = editedSnapshotContent(for: path, input: input, in: state)
+    } else {
+      content = nil
+    }
+    var updatedState = focusing(
+      path,
+      source: .editFile,
+      content: content,
+      fullContentAvailable: content != nil,
+      in: state,
+      updatedAt: updatedAt
+    )
+    if content == nil {
+      updatedState.snapshots.removeValue(forKey: path)
+    }
+    return updatedState
   }
 
   func applyingAttachments(
