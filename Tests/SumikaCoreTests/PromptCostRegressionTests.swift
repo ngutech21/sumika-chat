@@ -404,7 +404,7 @@ private struct PromptCostToolStep {
       payload: .readFile(ReadFileInput(path: path)),
       arguments: ["path": .string(path)],
       result: .readFile(
-        .success(
+        .legacySuccess(
           path: WorkspaceRelativePath(rawValue: path),
           content: ToolTextOutput(
             text: """
@@ -426,7 +426,7 @@ private struct PromptCostToolStep {
       payload: .readFile(ReadFileInput(path: path)),
       arguments: ["path": .string(path)],
       result: .readFile(
-        .success(
+        .legacySuccess(
           path: WorkspaceRelativePath(rawValue: path),
           content: ToolTextOutput(
             text: """

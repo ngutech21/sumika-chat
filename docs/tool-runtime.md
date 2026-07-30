@@ -373,7 +373,13 @@ and tests.
 
    ```swift
    public enum ReadFileResult: Codable, Equatable, Sendable {
-     case success(path: WorkspaceRelativePath, content: ToolTextOutput)
+     case page(ReadFilePage)
+     case lineTooLong(path: WorkspaceRelativePath, line: Int, byteCount: Int)
+     case offsetOutOfRange(
+       path: WorkspaceRelativePath,
+       requestedOffset: Int,
+       lineCount: Int
+     )
      case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
    }
    ```
@@ -583,23 +589,42 @@ declarations.
   `search` are not guessed; they become failed tool observations unless an
   explicit unambiguous alias is registered.
 - Read-only tools may auto-run only after workspace/path validation.
-- `read_file` returns the current UTF-8 preview on the first read of a
-  workspace-relative path/range. Re-reading the same unchanged path/range
-  through the same tool orchestrator returns a compact `unchanged` observation
-  on the second and third reads, then a repeated-read warning from the fourth
-  read onward. Changed content or a different range returns fresh content and
-  updates the tracker. Direct executor calls without a tracker remain
-  stateless. If the requested file is missing, `read_file` fails without
-  redirecting the call and may include up to five canonical workspace-relative
-  path suggestions.
-- `show_file` uses the same read-only path validation and file preview shape as
-  `read_file`, but it represents a different workflow state: display the file
-  directly to the user and stop the current tool turn without asking the model
-  to restate the file. Its UI display projection includes file content; its
-  default model observation records only that the file was displayed, with
-  path/range/count/truncation metadata and no body text. Do not infer this
-  behavior from raw user text; trigger it only from an explicit `show_file`
-  tool call.
+- `read_file` returns a stateless `ReadFilePage` starting at the optional
+  1-based `offset` (default `1`). Its optional `limit` is a call-local maximum
+  line count; when omitted, the executor returns as many complete lines as fit
+  in the fixed 6 KiB rendered-content budget. Model content uses `N|content`;
+  the gutter, line content, separators, and newlines all count toward the
+  budget. The tool never returns a partial line.
+- A page continuation is one of: end of file, a safe next offset with
+  `byte_limit` or `line_limit`, or a blocked line whose full rendered form
+  cannot fit a page. If the first requested line is oversized, `read_file`
+  returns a typed `lineTooLong` failure; targeted `search_files` snippets are
+  the recovery path. An offset past EOF returns `offsetOutOfRange`; an empty
+  file read at offset 1 is a successful empty page. A single final newline does
+  not invent another empty line, CRLF is normalized to LF, and `total_lines` is
+  not computed or returned.
+- Re-reading the same unchanged path/range through the same tool orchestrator
+  returns a compact `unchanged` observation on the second and third reads, then
+  a repeated-read warning from the fourth read onward. Changed content or a
+  different offset/limit returns fresh content and updates the tracker. Direct
+  executor calls without a tracker remain stateless. If the requested file is
+  missing, `read_file` fails without redirecting the call and may include up to
+  five canonical workspace-relative path suggestions.
+- The model-facing `ReadFilePage` projection derives `start_line`, `end_line`,
+  `returned_lines`, explicit `has_more`, conditional `next_offset` or blocked
+  line metadata, truncation reason, and allowed next actions. The continuation
+  hint names only the next offset; it never repeats an earlier `limit`.
+  `ReadFilePage.content` remains raw normalized text in persistence, and stored
+  legacy `success(path:content:)` payloads decode without invented
+  continuation metadata.
+- `show_file` uses the same complete-line page implementation and read-only
+  path validation with a separate 40 KiB display budget, but it represents a
+  different workflow state: display the file directly to the user and stop the
+  current tool turn without asking the model to restate the file. Its UI
+  display projection includes file content; its default model observation
+  records only that the file was displayed, with path/range/count/truncation
+  metadata and no body text. Do not infer this behavior from raw user text;
+  trigger it only from an explicit `show_file` tool call.
 - `glob_files` is a read-only discovery tool. Its `path` is a workspace-relative
   search directory that defaults to `.`, skips project metadata/build
   directories, and caps returned results.

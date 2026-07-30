@@ -49,12 +49,22 @@ struct FocusedFileStateReducerTests {
   }
 
   @Test
-  func readFileSuccessRecordsRecentPathAndSnapshot() {
+  func readFileSuccessRecordsRecentPathAndSnapshot() throws {
     let reducer = FocusedFileStateReducer()
     let path = WorkspaceRelativePath(rawValue: "README.md")
 
     let state = reducer.applyingToolResult(
-      .readFile(.success(path: path, content: ToolTextOutput(text: "Project notes"))),
+      .readFile(
+        .page(
+          try ReadFilePage(
+            path: path,
+            startLine: 1,
+            endLine: 1,
+            content: "Project notes",
+            continuation: .endOfFile
+          )
+        )
+      ),
       request: makeRequest(
         toolName: .readFile, payload: .readFile(ReadFileInput(path: "README.md"))),
       to: .empty,
@@ -78,7 +88,7 @@ struct FocusedFileStateReducerTests {
       ReadFileInput(path: path.rawValue, limit: 20),
     ] {
       let state = reducer.applyingToolResult(
-        .readFile(.success(path: path, content: ToolTextOutput(text: "Project notes"))),
+        .readFile(.legacySuccess(path: path, content: ToolTextOutput(text: "Project notes"))),
         request: makeRequest(toolName: .readFile, payload: .readFile(input)),
         to: .empty,
         updatedAt: Date(timeIntervalSinceReferenceDate: 1)
@@ -86,6 +96,33 @@ struct FocusedFileStateReducerTests {
 
       #expect(state.snapshots[path]?.fullContentAvailable == false)
     }
+  }
+
+  @Test
+  func continuedReadFilePageStoresRawContentButNotFullSnapshot() throws {
+    let reducer = FocusedFileStateReducer()
+    let path = WorkspaceRelativePath(rawValue: "README.md")
+    let state = reducer.applyingToolResult(
+      .readFile(
+        .page(
+          try ReadFilePage(
+            path: path,
+            startLine: 21,
+            endLine: 21,
+            content: "Project notes",
+            continuation: .next(offset: 22, reason: .byteLimit)
+          )
+        )
+      ),
+      request: makeRequest(
+        toolName: .readFile,
+        payload: .readFile(ReadFileInput(path: path.rawValue, offset: 21))
+      ),
+      to: .empty
+    )
+
+    #expect(state.snapshots[path]?.excerpt == "Project notes")
+    #expect(state.snapshots[path]?.fullContentAvailable == false)
   }
 
   @Test
@@ -98,7 +135,7 @@ struct FocusedFileStateReducerTests {
       ToolTextOutput(text: "Project notes", redacted: true),
     ] {
       let state = reducer.applyingToolResult(
-        .readFile(.success(path: path, content: content)),
+        .readFile(.legacySuccess(path: path, content: content)),
         request: makeRequest(
           toolName: .readFile,
           payload: .readFile(ReadFileInput(path: path.rawValue))
@@ -117,7 +154,7 @@ struct FocusedFileStateReducerTests {
     let path = WorkspaceRelativePath(rawValue: "README.md")
 
     let state = reducer.applyingToolResult(
-      .readFile(.success(path: path, content: ToolTextOutput(text: "Project notes"))),
+      .readFile(.legacySuccess(path: path, content: ToolTextOutput(text: "Project notes"))),
       request: makeRequest(
         toolName: .showFile, payload: .showFile(ReadFileInput(path: "README.md"))),
       to: .empty,
@@ -305,7 +342,7 @@ struct FocusedFileStateReducerTests {
     for index in 0..<4 {
       let path = WorkspaceRelativePath(rawValue: "File\(index).swift")
       state = reducer.applyingToolResult(
-        .readFile(.success(path: path, content: ToolTextOutput(text: "\(index)"))),
+        .readFile(.legacySuccess(path: path, content: ToolTextOutput(text: "\(index)"))),
         request: makeRequest(
           toolName: .readFile,
           payload: .readFile(ReadFileInput(path: path.rawValue))
@@ -317,7 +354,7 @@ struct FocusedFileStateReducerTests {
 
     state = reducer.applyingToolResult(
       .readFile(
-        .success(
+        .legacySuccess(
           path: WorkspaceRelativePath(rawValue: "File2.swift"),
           content: ToolTextOutput(text: "updated")
         )),
@@ -364,7 +401,7 @@ struct FocusedFileStateReducerTests {
     let path = WorkspaceRelativePath(rawValue: "README.md")
 
     let state = reducer.applyingToolResult(
-      .readFile(.success(path: path, content: ToolTextOutput(text: "01234567890"))),
+      .readFile(.legacySuccess(path: path, content: ToolTextOutput(text: "01234567890"))),
       request: makeRequest(
         toolName: .readFile,
         payload: .readFile(ReadFileInput(path: path.rawValue))

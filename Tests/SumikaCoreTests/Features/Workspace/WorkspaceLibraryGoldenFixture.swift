@@ -192,7 +192,7 @@ enum WorkspaceLibraryGoldenFixture {
       ),
       state: .completed(
         .readFile(
-          .success(
+          .legacySuccess(
             path: WorkspaceRelativePath(rawValue: "README.md"),
             content: ToolTextOutput(text: "# Golden", truncated: false, redacted: false)
           )

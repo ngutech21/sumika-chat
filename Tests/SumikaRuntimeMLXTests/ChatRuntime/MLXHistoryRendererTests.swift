@@ -92,7 +92,7 @@ struct MLXHistoryRendererTests {
           callID: callID,
           toolName: .readFile,
           payload: .readFile(
-            .success(
+            .legacySuccess(
               path: WorkspaceRelativePath(rawValue: "README.md"),
               content: ToolTextOutput(text: "Project overview")
             )
@@ -442,7 +442,7 @@ struct MLXHistoryRendererTests {
           callID: callID,
           toolName: .readFile,
           payload: .readFile(
-            .success(
+            .legacySuccess(
               path: WorkspaceRelativePath(rawValue: "README.md"),
               content: ToolTextOutput(text: "Project overview")
             ))
@@ -506,7 +506,7 @@ struct MLXHistoryRendererTests {
           callID: callID,
           toolName: .readFile,
           payload: .readFile(
-            .success(
+            .legacySuccess(
               path: WorkspaceRelativePath(rawValue: "README.md"),
               content: ToolTextOutput(text: "Project overview")
             ))
@@ -572,7 +572,7 @@ struct MLXHistoryRendererTests {
           callID: readCallID,
           toolName: .readFile,
           payload: .readFile(
-            .success(
+            .legacySuccess(
               path: WorkspaceRelativePath(rawValue: "README.md"),
               content: ToolTextOutput(text: "Project overview")
             ))
@@ -649,7 +649,7 @@ struct MLXHistoryRendererTests {
           callID: callID,
           toolName: .readFile,
           payload: .readFile(
-            .success(
+            .legacySuccess(
               path: WorkspaceRelativePath(rawValue: "README.md"),
               content: ToolTextOutput(text: "Project overview")
             ))
@@ -752,7 +752,7 @@ struct MLXHistoryRendererTests {
           callID: readCallID,
           toolName: .readFile,
           payload: .readFile(
-            .success(
+            .legacySuccess(
               path: WorkspaceRelativePath(rawValue: "README.md"),
               content: ToolTextOutput(text: "Project overview")
             ))
@@ -898,7 +898,7 @@ struct MLXHistoryRendererTests {
           callID: callID,
           toolName: .readFile,
           payload: .readFile(
-            .success(
+            .legacySuccess(
               path: WorkspaceRelativePath(rawValue: "README.md"),
               content: ToolTextOutput(text: "Project overview")
             ))

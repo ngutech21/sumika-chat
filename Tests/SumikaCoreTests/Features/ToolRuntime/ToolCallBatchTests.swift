@@ -71,7 +71,7 @@ struct ToolCallBatchTests {
     let completed = makeBatchRecord(
       state: .completed(
         .readFile(
-          .success(
+          .legacySuccess(
             path: WorkspaceRelativePath(rawValue: "README.md"),
             content: ToolTextOutput(text: "contents")
           ))

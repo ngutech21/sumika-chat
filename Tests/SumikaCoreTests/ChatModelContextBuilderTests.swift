@@ -259,7 +259,7 @@ struct ChatModelContextBuilderTests {
 
     second.state = .completed(
       .readFile(
-        .success(
+        .legacySuccess(
           path: WorkspaceRelativePath(rawValue: "README.md"),
           content: ToolTextOutput(text: "second result")
         )))
@@ -428,14 +428,14 @@ struct ChatModelContextBuilderTests {
         input: ReadFileInput(path: path.rawValue, offset: 2),
         state: .completed(
           .readFile(
-            .success(path: path, content: ToolTextOutput(text: "partial"))
+            .legacySuccess(path: path, content: ToolTextOutput(text: "partial"))
           ))
       ),
       makeReadFileRecord(
         input: ReadFileInput(path: path.rawValue, limit: 20),
         state: .completed(
           .readFile(
-            .success(path: path, content: ToolTextOutput(text: "limited"))
+            .legacySuccess(path: path, content: ToolTextOutput(text: "limited"))
           ))
       ),
       makeReadFileRecord(
@@ -446,7 +446,7 @@ struct ChatModelContextBuilderTests {
       makeReadFileRecord(
         state: .completed(
           .readFile(
-            .success(
+            .legacySuccess(
               path: path,
               content: ToolTextOutput(text: "truncated", truncated: true)
             ))
@@ -455,7 +455,7 @@ struct ChatModelContextBuilderTests {
       makeReadFileRecord(
         state: .completed(
           .readFile(
-            .success(
+            .legacySuccess(
               path: path,
               content: ToolTextOutput(text: "redacted", redacted: true)
             ))
@@ -823,7 +823,7 @@ struct ChatModelContextBuilderTests {
     makeReadFileRecord(
       state: .completed(
         .readFile(
-          .success(
+          .legacySuccess(
             path: WorkspaceRelativePath(rawValue: "README.md"),
             content: ToolTextOutput(text: "contents", truncated: false, redacted: false)
           )))

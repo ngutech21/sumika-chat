@@ -693,9 +693,12 @@ extension ToolLoopCoordinator {
     }
 
     switch result {
-    case .success(let path, _), .unchanged(let path, _), .repeatedReadWarning(let path, _):
+    case .page(let page):
+      return page.path
+    case .legacySuccess(let path, _), .unchanged(let path, _),
+      .repeatedReadWarning(let path, _):
       return path
-    case .failed:
+    case .lineTooLong, .offsetOutOfRange, .failed:
       return nil
     }
   }

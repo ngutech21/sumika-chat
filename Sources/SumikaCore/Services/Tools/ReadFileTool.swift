@@ -8,7 +8,7 @@ package enum ReadFileTrackedResult: Equatable, Sendable {
 
 internal actor ReadFileReadTracker {
   private struct ReadStamp: Sendable {
-    var content: ToolTextOutput
+    var page: ReadFilePage
     var consecutiveReadCount: Int
   }
 
@@ -17,18 +17,18 @@ internal actor ReadFileReadTracker {
 
   package init() {}
 
-  package func record(readKey: ReadKey, content: ToolTextOutput) -> ReadFileTrackedResult {
+  package func record(readKey: ReadKey, page: ReadFilePage) -> ReadFileTrackedResult {
     defer {
       lastReadKey = readKey
     }
 
-    guard var stamp = stamps[readKey], stamp.content == content else {
-      stamps[readKey] = ReadStamp(content: content, consecutiveReadCount: 1)
+    guard var stamp = stamps[readKey], stamp.page == page else {
+      stamps[readKey] = ReadStamp(page: page, consecutiveReadCount: 1)
       return .success
     }
 
     guard lastReadKey == readKey else {
-      stamps[readKey] = ReadStamp(content: content, consecutiveReadCount: 1)
+      stamps[readKey] = ReadStamp(page: page, consecutiveReadCount: 1)
       return .success
     }
 
@@ -104,17 +104,377 @@ package struct ReadFileInput: Codable, Equatable, Sendable {
   }
 }
 
+package enum ReadFileTruncationReason: String, Codable, Equatable, Sendable {
+  case byteLimit = "byte_limit"
+  case lineLimit = "line_limit"
+}
+
+package enum ReadFileContinuation: Codable, Equatable, Sendable {
+  case endOfFile
+  case next(offset: Int, reason: ReadFileTruncationReason)
+  case blocked(line: Int, byteCount: Int)
+
+  private enum CodingKeys: String, CodingKey {
+    case kind
+    case offset
+    case reason
+    case line
+    case byteCount = "byte_count"
+  }
+
+  private enum Kind: String, Codable {
+    case endOfFile = "end_of_file"
+    case next
+    case blocked
+  }
+
+  package init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    switch try container.decode(Kind.self, forKey: .kind) {
+    case .endOfFile:
+      self = .endOfFile
+    case .next:
+      self = .next(
+        offset: try container.decode(Int.self, forKey: .offset),
+        reason: try container.decode(ReadFileTruncationReason.self, forKey: .reason)
+      )
+    case .blocked:
+      self = .blocked(
+        line: try container.decode(Int.self, forKey: .line),
+        byteCount: try container.decode(Int.self, forKey: .byteCount)
+      )
+    }
+  }
+
+  package func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    switch self {
+    case .endOfFile:
+      try container.encode(Kind.endOfFile, forKey: .kind)
+    case .next(let offset, let reason):
+      try container.encode(Kind.next, forKey: .kind)
+      try container.encode(offset, forKey: .offset)
+      try container.encode(reason, forKey: .reason)
+    case .blocked(let line, let byteCount):
+      try container.encode(Kind.blocked, forKey: .kind)
+      try container.encode(line, forKey: .line)
+      try container.encode(byteCount, forKey: .byteCount)
+    }
+  }
+}
+
+internal enum ReadFilePageValidationError: Error, Equatable, LocalizedError, Sendable {
+  case invalidStartLine(Int)
+  case invalidEmptyPage
+  case endLineBeforeStart(startLine: Int, endLine: Int)
+  case contentLineCountMismatch(expected: Int, actual: Int)
+  case continuationLineMismatch(expected: Int, actual: Int)
+  case invalidBlockedLineByteCount(Int)
+
+  var errorDescription: String? {
+    switch self {
+    case .invalidStartLine(let startLine):
+      return "ReadFilePage.startLine must be greater than zero; received \(startLine)."
+    case .invalidEmptyPage:
+      return
+        "An empty ReadFilePage must start at line 1, contain no content, and end at EOF."
+    case .endLineBeforeStart(let startLine, let endLine):
+      return
+        "ReadFilePage.endLine \(endLine) must not precede startLine \(startLine)."
+    case .contentLineCountMismatch(let expected, let actual):
+      return
+        "ReadFilePage content must contain \(expected) lines; received \(actual)."
+    case .continuationLineMismatch(let expected, let actual):
+      return
+        "ReadFilePage continuation must point to line \(expected); received \(actual)."
+    case .invalidBlockedLineByteCount(let byteCount):
+      return
+        "ReadFilePage blocked-line byte count must be greater than zero; received \(byteCount)."
+    }
+  }
+}
+
+package struct ReadFilePage: Codable, Equatable, Sendable {
+  package let path: WorkspaceRelativePath
+  package let startLine: Int
+  package let endLine: Int?
+  package let content: String
+  package let continuation: ReadFileContinuation
+
+  private enum CodingKeys: String, CodingKey {
+    case path
+    case startLine
+    case endLine
+    case content
+    case continuation
+  }
+
+  init(
+    path: WorkspaceRelativePath,
+    startLine: Int,
+    endLine: Int?,
+    content: String,
+    continuation: ReadFileContinuation
+  ) throws {
+    try Self.validate(
+      startLine: startLine,
+      endLine: endLine,
+      content: content,
+      continuation: continuation
+    )
+    self.path = path
+    self.startLine = startLine
+    self.endLine = endLine
+    self.content = content
+    self.continuation = continuation
+  }
+
+  package init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    do {
+      try self.init(
+        path: container.decode(WorkspaceRelativePath.self, forKey: .path),
+        startLine: container.decode(Int.self, forKey: .startLine),
+        endLine: container.decodeIfPresent(Int.self, forKey: .endLine),
+        content: container.decode(String.self, forKey: .content),
+        continuation: container.decode(ReadFileContinuation.self, forKey: .continuation)
+      )
+    } catch let error as ReadFilePageValidationError {
+      throw DecodingError.dataCorrupted(
+        DecodingError.Context(
+          codingPath: decoder.codingPath,
+          debugDescription: error.localizedDescription
+        )
+      )
+    }
+  }
+
+  private static func validate(
+    startLine: Int,
+    endLine: Int?,
+    content: String,
+    continuation: ReadFileContinuation
+  ) throws {
+    guard startLine > 0 else {
+      throw ReadFilePageValidationError.invalidStartLine(startLine)
+    }
+
+    guard let endLine else {
+      guard startLine == 1, content.isEmpty, continuation == .endOfFile else {
+        throw ReadFilePageValidationError.invalidEmptyPage
+      }
+      return
+    }
+
+    guard endLine >= startLine else {
+      throw ReadFilePageValidationError.endLineBeforeStart(
+        startLine: startLine,
+        endLine: endLine
+      )
+    }
+
+    let expectedLineCount = endLine - startLine + 1
+    let actualLineCount = content.components(separatedBy: "\n").count
+    guard actualLineCount == expectedLineCount else {
+      throw ReadFilePageValidationError.contentLineCountMismatch(
+        expected: expectedLineCount,
+        actual: actualLineCount
+      )
+    }
+
+    switch continuation {
+    case .endOfFile:
+      return
+    case .next(let offset, _):
+      try validateContinuationLine(offset, after: endLine)
+    case .blocked(let line, let byteCount):
+      try validateContinuationLine(line, after: endLine)
+      guard byteCount > 0 else {
+        throw ReadFilePageValidationError.invalidBlockedLineByteCount(byteCount)
+      }
+    }
+  }
+
+  private static func validateContinuationLine(_ line: Int, after endLine: Int) throws {
+    let (expectedLine, overflow) = endLine.addingReportingOverflow(1)
+    guard !overflow, line == expectedLine else {
+      throw ReadFilePageValidationError.continuationLineMismatch(
+        expected: overflow ? endLine : expectedLine,
+        actual: line
+      )
+    }
+  }
+}
+
+nonisolated extension ReadFilePage {
+  var returnedLineCount: Int {
+    guard let endLine else {
+      return 0
+    }
+    return endLine - startLine + 1
+  }
+
+  var hasMore: Bool {
+    continuation != .endOfFile
+  }
+
+  var numberedContent: String {
+    guard let endLine else {
+      return ""
+    }
+    let lines = content.components(separatedBy: "\n")
+    return zip(startLine...endLine, lines)
+      .map { lineNumber, line in "\(lineNumber)|\(line)" }
+      .joined(separator: "\n")
+  }
+
+  var textOutput: ToolTextOutput {
+    ToolTextOutput(text: numberedContent, truncated: hasMore)
+  }
+}
+
 package enum ReadFileResult: Codable, Equatable, Sendable {
-  case success(path: WorkspaceRelativePath, content: ToolTextOutput)
+  case page(ReadFilePage)
+  case legacySuccess(path: WorkspaceRelativePath, content: ToolTextOutput)
   case unchanged(path: WorkspaceRelativePath, readKey: ReadKey)
   case repeatedReadWarning(path: WorkspaceRelativePath, count: Int)
+  case lineTooLong(path: WorkspaceRelativePath, line: Int, byteCount: Int)
+  case offsetOutOfRange(
+    path: WorkspaceRelativePath,
+    requestedOffset: Int,
+    lineCount: Int
+  )
   case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
+
+  private enum CodingKeys: String, CodingKey {
+    case page
+    case success
+    case unchanged
+    case repeatedReadWarning
+    case lineTooLong
+    case offsetOutOfRange
+    case failed
+  }
+
+  private struct LegacySuccessPayload: Codable {
+    let path: WorkspaceRelativePath
+    let content: ToolTextOutput
+  }
+
+  private struct UnchangedPayload: Codable {
+    let path: WorkspaceRelativePath
+    let readKey: ReadKey
+  }
+
+  private struct RepeatedReadWarningPayload: Codable {
+    let path: WorkspaceRelativePath
+    let count: Int
+  }
+
+  private struct LineTooLongPayload: Codable {
+    let path: WorkspaceRelativePath
+    let line: Int
+    let byteCount: Int
+  }
+
+  private struct OffsetOutOfRangePayload: Codable {
+    let path: WorkspaceRelativePath
+    let requestedOffset: Int
+    let lineCount: Int
+  }
+
+  private struct FailedPayload: Codable {
+    let path: WorkspaceRelativePath?
+    let reason: ToolFailureReason
+  }
+
+  package init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    if container.contains(.page) {
+      self = .page(try container.decode(ReadFilePage.self, forKey: .page))
+    } else if container.contains(.success) {
+      let payload = try container.decode(LegacySuccessPayload.self, forKey: .success)
+      self = .legacySuccess(path: payload.path, content: payload.content)
+    } else if container.contains(.unchanged) {
+      let payload = try container.decode(UnchangedPayload.self, forKey: .unchanged)
+      self = .unchanged(path: payload.path, readKey: payload.readKey)
+    } else if container.contains(.repeatedReadWarning) {
+      let payload = try container.decode(
+        RepeatedReadWarningPayload.self,
+        forKey: .repeatedReadWarning
+      )
+      self = .repeatedReadWarning(path: payload.path, count: payload.count)
+    } else if container.contains(.lineTooLong) {
+      let payload = try container.decode(LineTooLongPayload.self, forKey: .lineTooLong)
+      self = .lineTooLong(path: payload.path, line: payload.line, byteCount: payload.byteCount)
+    } else if container.contains(.offsetOutOfRange) {
+      let payload = try container.decode(
+        OffsetOutOfRangePayload.self,
+        forKey: .offsetOutOfRange
+      )
+      self = .offsetOutOfRange(
+        path: payload.path,
+        requestedOffset: payload.requestedOffset,
+        lineCount: payload.lineCount
+      )
+    } else {
+      let payload = try container.decode(FailedPayload.self, forKey: .failed)
+      self = .failed(path: payload.path, reason: payload.reason)
+    }
+  }
+
+  package func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    switch self {
+    case .page(let page):
+      try container.encode(page, forKey: .page)
+    case .legacySuccess(let path, let content):
+      try container.encode(
+        LegacySuccessPayload(path: path, content: content),
+        forKey: .success
+      )
+    case .unchanged(let path, let readKey):
+      try container.encode(
+        UnchangedPayload(path: path, readKey: readKey),
+        forKey: .unchanged
+      )
+    case .repeatedReadWarning(let path, let count):
+      try container.encode(
+        RepeatedReadWarningPayload(path: path, count: count),
+        forKey: .repeatedReadWarning
+      )
+    case .lineTooLong(let path, let line, let byteCount):
+      try container.encode(
+        LineTooLongPayload(path: path, line: line, byteCount: byteCount),
+        forKey: .lineTooLong
+      )
+    case .offsetOutOfRange(let path, let requestedOffset, let lineCount):
+      try container.encode(
+        OffsetOutOfRangePayload(
+          path: path,
+          requestedOffset: requestedOffset,
+          lineCount: lineCount
+        ),
+        forKey: .offsetOutOfRange
+      )
+    case .failed(let path, let reason):
+      try container.encode(FailedPayload(path: path, reason: reason), forKey: .failed)
+    }
+  }
 }
 
 nonisolated extension ReadFileResult {
   var preview: ToolResultPreview {
     switch self {
-    case .success(let path, let content):
+    case .page(let page):
+      let content = page.textOutput
+      return ToolResultPreview(
+        text: content.text,
+        truncated: content.truncated,
+        redacted: content.redacted,
+        affectedPaths: [page.path.rawValue]
+      )
+    case .legacySuccess(let path, let content):
       return ToolResultPreview(
         text: content.text,
         truncated: content.truncated,
@@ -132,6 +492,20 @@ nonisolated extension ReadFileResult {
       return ToolResultPreview(
         text:
           "Repeated read_file loop detected for \(path.rawValue) after \(count) reads. Stop reading this file again unless it changed or you need a different range.",
+        affectedPaths: [path.rawValue]
+      )
+    case .lineTooLong(let path, let line, let byteCount):
+      return ToolResultPreview(
+        status: .failed,
+        text:
+          "Line \(line) in \(path.rawValue) is \(byteCount) bytes and cannot fit in one read_file page. Use search_files for a targeted snippet.",
+        affectedPaths: [path.rawValue]
+      )
+    case .offsetOutOfRange(let path, let requestedOffset, let lineCount):
+      return ToolResultPreview(
+        status: .failed,
+        text:
+          "read_file offset \(requestedOffset) is past the end of \(path.rawValue), which has \(lineCount) lines.",
         affectedPaths: [path.rawValue]
       )
     case .failed(let path, let reason):
@@ -210,7 +584,7 @@ struct ReadFileToolExecutor: TypedToolExecutor {
 
   private let maxBytes: Int
 
-  init(maxBytes: Int = 40 * 1024) {
+  init(maxBytes: Int = 6 * 1024) {
     self.maxBytes = maxBytes
   }
 
@@ -239,7 +613,7 @@ struct ReadFileToolExecutor: TypedToolExecutor {
   func run(_ input: ReadFileInput, context: ToolContext) async -> ToolResultPayload {
     var resolvedURL: URL?
     var relativePath: WorkspaceRelativePath?
-    var output: ToolTextOutput?
+    var result: ReadFileResult?
 
     do {
       let failure: ToolResultPayload? = try context.workspace.withSecurityScopedAccess {
@@ -247,19 +621,20 @@ struct ReadFileToolExecutor: TypedToolExecutor {
         resolvedURL = resolvedPathURL
         let path = context.workspace.relativePath(for: resolvedPathURL)
         relativePath = path
-        let preview = try Self.readPreview(
+        let readResult = try Self.readPage(
           from: resolvedPathURL,
+          path: path,
           startLine: input.offset ?? 1,
           maxLines: input.limit,
           maxBytes: maxBytes
         )
-        guard let content = preview.content else {
+        guard let readResult else {
           return .readFile(
             .failed(path: path, reason: .unsupportedFileType("non-UTF-8 text"))
           )
         }
 
-        output = ToolTextOutput(text: content, truncated: preview.truncated)
+        result = readResult
         return nil
       }
 
@@ -267,20 +642,24 @@ struct ReadFileToolExecutor: TypedToolExecutor {
         return failure
       }
 
-      guard let relativePath, let output else {
+      guard let relativePath, let result else {
         return .readFile(
           .failed(path: relativePath, reason: .executionError("read_file result unavailable."))
         )
       }
 
-      let readKey = ReadKey(path: relativePath, range: Self.rangeKey(for: input))
-      guard let readTracker = context.readTracker else {
-        return .readFile(.success(path: relativePath, content: output))
+      guard case .page(let page) = result else {
+        return .readFile(result)
       }
 
-      switch await readTracker.record(readKey: readKey, content: output) {
+      let readKey = ReadKey(path: relativePath, range: Self.rangeKey(for: input))
+      guard let readTracker = context.readTracker else {
+        return .readFile(result)
+      }
+
+      switch await readTracker.record(readKey: readKey, page: page) {
       case .success:
-        return .readFile(.success(path: relativePath, content: output))
+        return .readFile(result)
       case .unchanged:
         return .readFile(.unchanged(path: relativePath, readKey: readKey))
       case .repeatedReadWarning(let count):
@@ -313,206 +692,232 @@ struct ReadFileToolExecutor: TypedToolExecutor {
     return "offset=\(offset)"
   }
 
-  private static func readPreview(
+  private static func readPage(
     from url: URL,
+    path: WorkspaceRelativePath,
     startLine: Int,
     maxLines: Int?,
     maxBytes: Int
-  ) throws -> (content: String?, truncated: Bool) {
-    let previewByteLimit = max(maxBytes, 0)
-    guard previewByteLimit > 0 else {
-      return ("", true)
-    }
-
+  ) throws -> ReadFileResult? {
     let fileHandle = try FileHandle(forReadingFrom: url)
     defer {
       try? fileHandle.close()
     }
 
-    var accumulator = ReadFilePreviewAccumulator(
-      startLine: startLine,
-      maxLines: maxLines,
-      previewByteLimit: previewByteLimit
-    )
+    var reader = ReadFileLineReader(fileHandle: fileHandle)
     var lineNumber = 1
+    let pageByteLimit = max(maxBytes, 0)
 
-    while !accumulator.shouldStop {
-      let chunk = try fileHandle.read(upToCount: 8 * 1024) ?? Data()
-      guard !chunk.isEmpty else {
-        break
+    while lineNumber < startLine {
+      guard try reader.nextLine(maxBufferedBytes: 0) != nil else {
+        return .offsetOutOfRange(
+          path: path,
+          requestedOffset: startLine,
+          lineCount: lineNumber - 1
+        )
       }
-
-      for byte in chunk {
-        if byte == 0x0A {
-          guard accumulator.processBufferedLine(lineNumber: lineNumber) else {
-            return (nil, false)
-          }
-          lineNumber += 1
-        } else {
-          guard accumulator.append(byte, lineNumber: lineNumber) else {
-            return (nil, false)
-          }
-        }
-
-        if accumulator.shouldStop {
-          break
-        }
-      }
+      lineNumber += 1
     }
 
-    if !accumulator.shouldStop && accumulator.hasBufferedLine {
-      guard accumulator.processBufferedLine(lineNumber: lineNumber) else {
-        return (nil, false)
+    guard
+      var currentLine = try reader.nextLine(
+        maxBufferedBytes: availableContentBytes(
+          for: lineNumber,
+          pageByteLimit: pageByteLimit
+        )
+      )
+    else {
+      if startLine == 1 {
+        return .page(
+          try ReadFilePage(
+            path: path,
+            startLine: 1,
+            endLine: nil,
+            content: "",
+            continuation: .endOfFile
+          )
+        )
       }
+      return .offsetOutOfRange(
+        path: path,
+        requestedOffset: startLine,
+        lineCount: lineNumber - 1
+      )
     }
 
-    return accumulator.result
+    var outputLines: [String] = []
+    var renderedByteCount = 0
+
+    while true {
+      if let maxLines, outputLines.count == maxLines {
+        return .page(
+          try ReadFilePage(
+            path: path,
+            startLine: startLine,
+            endLine: lineNumber - 1,
+            content: outputLines.joined(separator: "\n"),
+            continuation: .next(offset: lineNumber, reason: .lineLimit)
+          )
+        )
+      }
+
+      let gutterByteCount = "\(lineNumber)|".utf8.count
+      let fullLineRenderedByteCount = gutterByteCount + currentLine.byteCount
+      let separatorByteCount = outputLines.isEmpty ? 0 : 1
+      let nextRenderedByteCount =
+        renderedByteCount + separatorByteCount + fullLineRenderedByteCount
+
+      guard nextRenderedByteCount <= pageByteLimit else {
+        if fullLineRenderedByteCount > pageByteLimit {
+          if outputLines.isEmpty {
+            return .lineTooLong(
+              path: path,
+              line: lineNumber,
+              byteCount: currentLine.byteCount
+            )
+          }
+          return .page(
+            try ReadFilePage(
+              path: path,
+              startLine: startLine,
+              endLine: lineNumber - 1,
+              content: outputLines.joined(separator: "\n"),
+              continuation: .blocked(line: lineNumber, byteCount: currentLine.byteCount)
+            )
+          )
+        }
+        return .page(
+          try ReadFilePage(
+            path: path,
+            startLine: startLine,
+            endLine: lineNumber - 1,
+            content: outputLines.joined(separator: "\n"),
+            continuation: .next(offset: lineNumber, reason: .byteLimit)
+          )
+        )
+      }
+
+      guard let lineData = currentLine.content,
+        let decodedLine = String(data: lineData, encoding: .utf8)
+      else {
+        return nil
+      }
+      outputLines.append(decodedLine)
+      renderedByteCount = nextRenderedByteCount
+      lineNumber += 1
+
+      guard
+        let nextLine = try reader.nextLine(
+          maxBufferedBytes: availableContentBytes(
+            for: lineNumber,
+            pageByteLimit: pageByteLimit
+          )
+        )
+      else {
+        return .page(
+          try ReadFilePage(
+            path: path,
+            startLine: startLine,
+            endLine: lineNumber - 1,
+            content: outputLines.joined(separator: "\n"),
+            continuation: .endOfFile
+          )
+        )
+      }
+      currentLine = nextLine
+    }
+  }
+
+  private static func availableContentBytes(
+    for lineNumber: Int,
+    pageByteLimit: Int
+  ) -> Int {
+    max(0, pageByteLimit - "\(lineNumber)|".utf8.count)
   }
 }
 
-nonisolated private struct ReadFilePreviewAccumulator {
-  package let startLine: Int
-  package let maxLines: Int?
-  package let previewByteLimit: Int
+private struct ReadFileLineReader {
+  let fileHandle: FileHandle
+  private var chunk = Data()
+  private var chunkIndex = 0
+  private var reachedEndOfFile = false
 
-  private var lineBuffer = Data()
-  private var outputLines: [String] = []
-  private var outputByteCount = 0
-  private var truncated = false
-  private(set) var shouldStop = false
-
-  package init(startLine: Int, maxLines: Int?, previewByteLimit: Int) {
-    self.startLine = startLine
-    self.maxLines = maxLines
-    self.previewByteLimit = previewByteLimit
+  init(fileHandle: FileHandle) {
+    self.fileHandle = fileHandle
   }
 
-  package var hasBufferedLine: Bool {
-    !lineBuffer.isEmpty
-  }
+  mutating func nextLine(maxBufferedBytes: Int) throws -> ReadFileScannedLine? {
+    var content = Data()
+    var byteCount = 0
+    var lastByte: UInt8?
+    var sawContentByte = false
 
-  package var result: (content: String?, truncated: Bool) {
-    (outputLines.joined(separator: "\n"), truncated)
-  }
-
-  mutating func append(_ byte: UInt8, lineNumber: Int) -> Bool {
-    guard lineNumber >= startLine else {
-      return true
-    }
-
-    guard outputLines.count < (maxLines ?? Int.max) else {
-      truncated = true
-      shouldStop = true
-      return true
-    }
-
-    guard lineBuffer.count < availableBytesForCurrentLine(lineNumber: lineNumber) else {
-      truncated = true
-      shouldStop = true
-      return processBufferedLine(lineNumber: lineNumber)
-    }
-
-    lineBuffer.append(byte)
-    return true
-  }
-
-  mutating func processBufferedLine(lineNumber: Int) -> Bool {
-    defer {
-      lineBuffer.removeAll(keepingCapacity: true)
-    }
-
-    if lineBuffer.last == 0x0D {
-      lineBuffer.removeLast()
-    }
-
-    guard lineNumber >= startLine else {
-      return true
-    }
-
-    if let maxLines, outputLines.count >= maxLines {
-      truncated = true
-      shouldStop = true
-      return true
-    }
-
-    let linePrefix = "\(lineNumber): "
-    let availableByteCount = availableBytesForCurrentLine(lineNumber: lineNumber)
-
-    guard availableByteCount >= 0 else {
-      truncated = true
-      shouldStop = true
-      return true
-    }
-
-    let line: String
-    if lineBuffer.count > availableByteCount {
-      let previewData = Data(lineBuffer.prefix(availableByteCount))
-      guard let previewLine = utf8StringDroppingPartialSuffix(from: previewData) else {
-        return false
+    while true {
+      guard let byte = try nextByte() else {
+        guard sawContentByte else {
+          return nil
+        }
+        return normalizedLine(
+          content: content,
+          byteCount: byteCount,
+          lastByte: lastByte
+        )
       }
-      line = previewLine
-      truncated = true
-      shouldStop = true
-    } else {
-      if let fullLine = String(data: lineBuffer, encoding: .utf8) {
-        line = fullLine
-      } else if truncated,
-        let previewLine = utf8StringDroppingPartialSuffix(from: lineBuffer)
-      {
-        line = previewLine
-      } else {
-        return false
+
+      if byte == 0x0A {
+        return normalizedLine(
+          content: content,
+          byteCount: byteCount,
+          lastByte: lastByte
+        )
+      }
+
+      sawContentByte = true
+      byteCount += 1
+      lastByte = byte
+      if content.count < maxBufferedBytes {
+        content.append(byte)
+      }
+    }
+  }
+
+  private mutating func nextByte() throws -> UInt8? {
+    while chunkIndex >= chunk.endIndex {
+      guard !reachedEndOfFile else {
+        return nil
+      }
+      chunk = try fileHandle.read(upToCount: 8 * 1024) ?? Data()
+      chunkIndex = chunk.startIndex
+      if chunk.isEmpty {
+        reachedEndOfFile = true
       }
     }
 
-    let numberedLine = linePrefix + line
-    let numberedLineByteCount = numberedLine.utf8.count
-    let nextByteCount = outputByteCount + separatorByteCount + numberedLineByteCount
-
-    guard nextByteCount <= previewByteLimit else {
-      truncated = true
-      shouldStop = true
-
-      if outputLines.isEmpty {
-        let previewData = Data(numberedLine.utf8.prefix(previewByteLimit))
-        outputLines.append(utf8StringDroppingPartialSuffix(from: previewData) ?? "")
-      }
-
-      return true
-    }
-
-    outputLines.append(numberedLine)
-    outputByteCount = nextByteCount
-    return true
+    let byte = chunk[chunkIndex]
+    chunkIndex += 1
+    return byte
   }
 
-  private func availableBytesForCurrentLine(lineNumber: Int) -> Int {
-    let linePrefix = "\(lineNumber): "
-    return previewByteLimit - outputByteCount - separatorByteCount - linePrefix.utf8.count
-  }
-
-  private var separatorByteCount: Int {
-    outputLines.isEmpty ? 0 : 1
-  }
-
-  private func utf8StringDroppingPartialSuffix(from data: Data) -> String? {
-    if let string = String(data: data, encoding: .utf8) {
-      return string
+  private func normalizedLine(
+    content: Data,
+    byteCount: Int,
+    lastByte: UInt8?
+  ) -> ReadFileScannedLine {
+    var normalizedContent = content
+    let normalizedByteCount = lastByte == 0x0D ? max(0, byteCount - 1) : byteCount
+    if normalizedContent.last == 0x0D {
+      normalizedContent.removeLast()
     }
-
-    guard !data.isEmpty else {
-      return ""
-    }
-
-    for droppedByteCount in 1...min(3, data.count) {
-      let shortenedData = data.dropLast(droppedByteCount)
-      if let string = String(data: shortenedData, encoding: .utf8) {
-        return string
-      }
-    }
-
-    return nil
+    return ReadFileScannedLine(
+      content: normalizedContent.count == normalizedByteCount ? normalizedContent : nil,
+      byteCount: normalizedByteCount
+    )
   }
+}
+
+private struct ReadFileScannedLine {
+  let content: Data?
+  let byteCount: Int
 }
 
 internal enum ReadFileInputValidationError: LocalizedError {

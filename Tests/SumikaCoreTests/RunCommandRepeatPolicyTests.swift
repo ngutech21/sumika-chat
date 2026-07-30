@@ -168,7 +168,7 @@ private func readFileRecord(id: UUID) -> ToolCallRecord {
     ),
     state: .completed(
       .readFile(
-        .success(
+        .legacySuccess(
           path: WorkspaceRelativePath(rawValue: "README.md"),
           content: ToolTextOutput(text: "hi")
         )))

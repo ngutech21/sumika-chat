@@ -22,14 +22,18 @@ struct ToolExecutionTests {
     )
 
     #expect(result.status == .success)
-    #expect(result.text == "1: let value = 1")
+    #expect(result.text == "1|let value = 1")
     #expect(result.truncated == false)
     #expect(result.affectedPaths == ["Sources/App.swift"])
-    guard case .readFile(.success(let path, _)) = result else {
-      Issue.record("Expected read_file success payload.")
+    guard case .readFile(.page(let page)) = result else {
+      Issue.record("Expected read_file page payload.")
       return
     }
-    #expect(path.rawValue == "Sources/App.swift")
+    #expect(page.path.rawValue == "Sources/App.swift")
+    #expect(page.content == "let value = 1")
+    #expect(page.startLine == 1)
+    #expect(page.endLine == 1)
+    #expect(page.continuation == .endOfFile)
   }
 
   @Test
@@ -93,7 +97,7 @@ struct ToolExecutionTests {
   }
 
   @Test
-  func readFileTruncatesLargeFilesForModelContext() async throws {
+  func readFileRejectsFirstLineThatCannotFitPage() async throws {
     let workspace = try makeWorkspace()
     let fileURL = workspace.rootURL.appending(path: "large.txt")
     try String(repeating: "a", count: 120).write(to: fileURL, atomically: true, encoding: .utf8)
@@ -103,80 +107,74 @@ struct ToolExecutionTests {
       context: ToolContext(workspace: workspace)
     )
 
-    #expect(result.status == .success)
-    #expect(result.text.count == 40)
-    #expect(result.text.hasPrefix("1: "))
-    #expect(result.truncated)
+    #expect(result.status == .failed)
+    guard case .readFile(.lineTooLong(let path, let line, let byteCount)) = result else {
+      Issue.record("Expected a typed oversized-line result.")
+      return
+    }
+    #expect(path.rawValue == "large.txt")
+    #expect(line == 1)
+    #expect(byteCount == 120)
   }
 
   @Test
-  func readFileDoesNotDecodeBytesPastPreviewLimit() async throws {
+  func readFileReturnsOnlyCompleteLinesAndSafeNextOffset() async throws {
     let workspace = try makeWorkspace()
-    let fileURL = workspace.rootURL.appending(path: "mixed.txt")
-    let validPreview = String(repeating: "a", count: 40)
-    var data = Data(validPreview.utf8)
-    data.append(0xff)
-    try data.write(to: fileURL)
+    try write("alpha\nbravo", to: "lines.txt", in: workspace)
 
-    let result = await ReadFileToolExecutor(maxBytes: 40).run(
+    let result = await ReadFileToolExecutor(maxBytes: 10).run(
+      ReadFileInput(path: "lines.txt"),
+      context: ToolContext(workspace: workspace)
+    )
+
+    guard case .readFile(.page(let page)) = result else {
+      Issue.record("Expected a complete first-line page.")
+      return
+    }
+    #expect(page.content == "alpha")
+    #expect(page.numberedContent == "1|alpha")
+    #expect(page.continuation == .next(offset: 2, reason: .byteLimit))
+  }
+
+  @Test
+  func readFileDefaultPageUsesFixedSixKiBRenderedContentBudget() async throws {
+    let workspace = try makeWorkspace()
+    let content = (1...1_000).map { "line \($0)" }.joined(separator: "\n")
+    try write(content, to: "many-lines.txt", in: workspace)
+
+    let result = await ReadFileToolExecutor().run(
+      ReadFileInput(path: "many-lines.txt"),
+      context: ToolContext(workspace: workspace)
+    )
+
+    guard case .readFile(.page(let page)) = result else {
+      Issue.record("Expected a budget-limited page.")
+      return
+    }
+    #expect(page.numberedContent.utf8.count <= 6 * 1024)
+    guard case .next(let offset, .byteLimit) = page.continuation else {
+      Issue.record("Expected a safe byte-limit continuation.")
+      return
+    }
+    #expect(offset == (page.endLine ?? 0) + 1)
+  }
+
+  @Test
+  func readFileBlocksAtOversizedLineAfterReturningCompleteLines() async throws {
+    let workspace = try makeWorkspace()
+    try write("a\n\(String(repeating: "b", count: 50))", to: "mixed.txt", in: workspace)
+
+    let result = await ReadFileToolExecutor(maxBytes: 10).run(
       ReadFileInput(path: "mixed.txt"),
       context: ToolContext(workspace: workspace)
     )
 
-    #expect(result.status == .success)
-    #expect(result.text == "1: " + String(repeating: "a", count: 37))
-    #expect(result.truncated)
-  }
-
-  @Test
-  func readFileDoesNotBufferLongLinePastPreviewLimit() async throws {
-    let workspace = try makeWorkspace()
-    let fileURL = workspace.rootURL.appending(path: "minified.txt")
-    var data = Data(String(repeating: "a", count: 1_000_000).utf8)
-    data.append(0xff)
-    try data.write(to: fileURL)
-
-    let result = await ReadFileToolExecutor(maxBytes: 40).run(
-      ReadFileInput(path: "minified.txt"),
-      context: ToolContext(workspace: workspace)
-    )
-
-    #expect(result.status == .success)
-    #expect(result.text == "1: " + String(repeating: "a", count: 37))
-    #expect(result.truncated)
-  }
-
-  @Test
-  func readFileDropsPartialUTF8SuffixWhenTruncating() async throws {
-    let workspace = try makeWorkspace()
-    let fileURL = workspace.rootURL.appending(path: "emoji.txt")
-    let content = "abc🙂def"
-    try content.write(to: fileURL, atomically: true, encoding: .utf8)
-
-    let result = await ReadFileToolExecutor(maxBytes: 5).run(
-      ReadFileInput(path: "emoji.txt"),
-      context: ToolContext(workspace: workspace)
-    )
-
-    #expect(result.status == .success)
-    #expect(result.text == "1: ab")
-    #expect(result.truncated)
-  }
-
-  @Test
-  func readFileDropsEntirePartialUTF8CharacterWhenPreviewHasNoValidPrefix() async throws {
-    let workspace = try makeWorkspace()
-    let fileURL = workspace.rootURL.appending(path: "emoji.txt")
-    try "🙂".write(to: fileURL, atomically: true, encoding: .utf8)
-
-    let result = await ReadFileToolExecutor(maxBytes: 2).run(
-      ReadFileInput(path: "emoji.txt"),
-      context: ToolContext(workspace: workspace)
-    )
-
-    #expect(result.status == .success)
-    #expect(result.text == "")
-    #expect(result.truncated)
+    guard case .readFile(.page(let page)) = result else {
+      Issue.record("Expected a page blocked by the second line.")
+      return
+    }
+    #expect(page.content == "a")
+    #expect(page.continuation == .blocked(line: 2, byteCount: 50))
   }
 
   @Test
@@ -196,8 +194,76 @@ struct ToolExecutionTests {
     )
 
     #expect(result.status == .success)
-    #expect(result.text == "2: two\n3: three")
+    #expect(result.text == "2|two\n3|three")
     #expect(result.truncated)
+    guard case .readFile(.page(let page)) = result else {
+      Issue.record("Expected a line-limited page.")
+      return
+    }
+    #expect(page.continuation == .next(offset: 4, reason: .lineLimit))
+  }
+
+  @Test
+  func readFileNormalizesLineEndingsAndDoesNotInventTrailingLine() async throws {
+    let workspace = try makeWorkspace()
+    try Data("alpha\r\n\r\n".utf8).write(
+      to: workspace.rootURL.appending(path: "lines.txt")
+    )
+
+    let result = await ReadFileToolExecutor().run(
+      ReadFileInput(path: "lines.txt"),
+      context: ToolContext(workspace: workspace)
+    )
+
+    guard case .readFile(.page(let page)) = result else {
+      Issue.record("Expected normalized file page.")
+      return
+    }
+    #expect(page.content == "alpha\n")
+    #expect(page.numberedContent == "1|alpha\n2|")
+    #expect(page.endLine == 2)
+    #expect(page.continuation == .endOfFile)
+  }
+
+  @Test
+  func readFileReturnsEmptyFileAndRejectsOffsetPastEnd() async throws {
+    let workspace = try makeWorkspace()
+    try write("", to: "empty.txt", in: workspace)
+    try write("one\ntwo\n", to: "two-lines.txt", in: workspace)
+
+    let empty = await ReadFileToolExecutor().run(
+      ReadFileInput(path: "empty.txt"),
+      context: ToolContext(workspace: workspace)
+    )
+    let pastEnd = await ReadFileToolExecutor().run(
+      ReadFileInput(path: "two-lines.txt", offset: 3),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(
+      empty
+        == .readFile(
+          .page(
+            try ReadFilePage(
+              path: WorkspaceRelativePath(rawValue: "empty.txt"),
+              startLine: 1,
+              endLine: nil,
+              content: "",
+              continuation: .endOfFile
+            )
+          )
+        )
+    )
+    #expect(
+      pastEnd
+        == .readFile(
+          .offsetOutOfRange(
+            path: WorkspaceRelativePath(rawValue: "two-lines.txt"),
+            requestedOffset: 3,
+            lineCount: 2
+          )
+        )
+    )
   }
 
   @Test
@@ -215,7 +281,7 @@ struct ToolExecutionTests {
       workspace: workspace
     )
 
-    guard case .readFile(.success(let firstPath, _)) = first.resultPayload else {
+    guard case .readFile(.page(let firstPage)) = first.resultPayload else {
       Issue.record("Expected first read_file to return content.")
       return
     }
@@ -224,7 +290,7 @@ struct ToolExecutionTests {
       return
     }
 
-    #expect(firstPath.rawValue == "README.md")
+    #expect(firstPage.path.rawValue == "README.md")
     #expect(secondPath.rawValue == "README.md")
     #expect(readKey == ReadKey(path: WorkspaceRelativePath(rawValue: "README.md")))
     #expect(second.state.preview?.text.contains("Use the existing context") == true)
@@ -284,12 +350,44 @@ struct ToolExecutionTests {
       Issue.record("Expected second read_file to return unchanged.")
       return
     }
-    guard case .readFile(.success(_, let content)) = changed.resultPayload else {
+    guard case .readFile(.page(let page)) = changed.resultPayload else {
       Issue.record("Expected changed file to return fresh content.")
       return
     }
 
-    #expect(content.text == "1: changed")
+    #expect(page.numberedContent == "1|changed")
+  }
+
+  @Test
+  func readFileDedupResetsWhenContinuationChanges() async throws {
+    let workspace = try makeWorkspace()
+    try write("a\nbravo", to: "mixed.txt", in: workspace)
+    let registry = ToolExecutorRegistry([
+      AnyToolExecutor(ReadFileToolExecutor(maxBytes: 10))
+    ])
+    let orchestrator = ToolOrchestrator(executorRegistry: registry)
+    let request = request(
+      .readFile,
+      workspace: workspace,
+      arguments: ["path": .string("mixed.txt")]
+    )
+
+    let first = await orchestrator.execute(request: request, workspace: workspace)
+    try write("a\n\(String(repeating: "b", count: 50))", to: "mixed.txt", in: workspace)
+    let changed = await orchestrator.execute(request: request, workspace: workspace)
+
+    guard case .readFile(.page(let firstPage)) = first.resultPayload else {
+      Issue.record("Expected the initial read_file page.")
+      return
+    }
+    guard case .readFile(.page(let changedPage)) = changed.resultPayload else {
+      Issue.record("Expected changed continuation metadata to return a fresh page.")
+      return
+    }
+
+    #expect(firstPage.numberedContent == changedPage.numberedContent)
+    #expect(firstPage.continuation == .next(offset: 2, reason: .byteLimit))
+    #expect(changedPage.continuation == .blocked(line: 2, byteCount: 50))
   }
 
   @Test
@@ -355,12 +453,12 @@ struct ToolExecutionTests {
       workspace: workspace
     )
 
-    guard case .readFile(.success(_, let content)) = differentRange.resultPayload else {
+    guard case .readFile(.page(let page)) = differentRange.resultPayload else {
       Issue.record("Expected different line range to return fresh content.")
       return
     }
     guard
-      case .readFile(.success(_, let firstRangeContent)) =
+      case .readFile(.page(let firstRangePage)) =
         firstRangeAfterDifferentRange.resultPayload
     else {
       Issue.record("Expected non-consecutive repeated line range to return fresh content.")
@@ -371,8 +469,8 @@ struct ToolExecutionTests {
       return
     }
 
-    #expect(content.text == "2: two")
-    #expect(firstRangeContent.text == "1: one")
+    #expect(page.numberedContent == "2|two")
+    #expect(firstRangePage.numberedContent == "1|one")
     #expect(readKey.range == "offset=1,limit=1")
   }
 
@@ -396,12 +494,12 @@ struct ToolExecutionTests {
       workspace: workspace
     )
 
-    guard case .readFile(.success(_, let content)) = repeatedAfterDifferentPath.resultPayload else {
+    guard case .readFile(.page(let page)) = repeatedAfterDifferentPath.resultPayload else {
       Issue.record("Expected non-consecutive repeated read_file to return fresh content.")
       return
     }
 
-    #expect(content.text == "1: a")
+    #expect(page.numberedContent == "1|a")
   }
 
   @Test
@@ -419,11 +517,11 @@ struct ToolExecutionTests {
       context: ToolContext(workspace: workspace)
     )
 
-    guard case .readFile(.success) = first else {
+    guard case .readFile(.page) = first else {
       Issue.record("Expected first direct read_file to return content.")
       return
     }
-    guard case .readFile(.success) = second else {
+    guard case .readFile(.page) = second else {
       Issue.record("Expected second direct read_file to return content.")
       return
     }
@@ -1896,7 +1994,7 @@ struct ToolExecutionTests {
     #expect(invalidLimit.status == .failed)
     #expect(invalidLimit.state.preview?.text.contains("limit must be greater") == true)
     #expect(stringPagination.status == .completed)
-    #expect(stringPagination.state.preview?.text == "1: hello")
+    #expect(stringPagination.state.preview?.text == "1|hello")
     #expect(invalidStringLimit.status == .failed)
     #expect(invalidStringLimit.state.preview?.text.contains("limit must be greater") == true)
   }

@@ -256,6 +256,7 @@ package enum ToolObservationBlock: Codable, Equatable, Sendable {
     redacted: Bool
   )
   case fileContent(path: WorkspaceRelativePath, content: ToolTextOutput)
+  case readFilePage(ReadFilePage)
   case fileList(
     root: WorkspaceRelativePath,
     entries: [WorkspaceFileEntry],
@@ -448,6 +449,8 @@ private func resultKind(for block: ToolObservationBlock) -> String {
     return "file_displayed"
   case .fileContent:
     return "file_content"
+  case .readFilePage:
+    return "file_page"
   case .fileList:
     return "listing"
   case .searchSnippets:
@@ -502,6 +505,29 @@ private func metadataFields(for block: ToolObservationBlock) -> [ToolResultModel
       .init(name: "truncated", value: .bool(content.truncated)),
       .init(name: "redacted", value: .bool(content.redacted)),
     ]
+  case .readFilePage(let page):
+    var fields: [ToolResultModelMetadataField] = [
+      .init(name: "path", value: .string(page.path.rawValue)),
+      .init(name: "line_format", value: .string("N|content")),
+      .init(name: "start_line", value: .int(page.startLine)),
+      .init(name: "returned_lines", value: .int(page.returnedLineCount)),
+      .init(name: "has_more", value: .bool(page.hasMore), includeDefault: true),
+      .init(name: "truncated", value: .bool(page.hasMore)),
+    ]
+    if let endLine = page.endLine {
+      fields.append(.init(name: "end_line", value: .int(endLine)))
+    }
+    switch page.continuation {
+    case .endOfFile:
+      break
+    case .next(let offset, let reason):
+      fields.append(.init(name: "next_offset", value: .int(offset)))
+      fields.append(.init(name: "truncation_reason", value: .string(reason.rawValue)))
+    case .blocked(let line, let byteCount):
+      fields.append(.init(name: "blocked_line", value: .int(line)))
+      fields.append(.init(name: "blocked_line_byte_count", value: .int(byteCount)))
+    }
+    return fields
   case .fileList(let root, let entries, let totalCount, let truncated):
     return [
       .init(name: "path", value: .string(root.rawValue)),
@@ -773,7 +799,33 @@ private func projectReadFile(
   policy: ToolResultProjectionPolicy
 ) -> ToolResultProjection {
   switch result {
-  case .success(let path, let content):
+  case .page(let page):
+    let content = page.textOutput
+    let includeBody =
+      request.toolName == .showFile
+      ? policy.includeShowFileBodyInObservation
+      : policy.includeReadFileBodyInObservation
+    return toolResultProjection(
+      display: .fileContent(path: page.path, content: content),
+      observation: ToolModelObservation.success(
+        toolName: request.toolName,
+        affectedPaths: [page.path],
+        blocks: [
+          includeBody
+            ? .readFilePage(page)
+            : .fileDisplayedToUser(
+              path: page.path,
+              range: readRange(from: request),
+              lineCount: page.returnedLineCount,
+              byteCount: content.text.utf8.count,
+              truncated: content.truncated,
+              redacted: content.redacted
+            )
+        ]
+      ),
+      nextAllowedActions: readFileNextAllowedActions(for: page)
+    )
+  case .legacySuccess(let path, let content):
     let includeBody =
       request.toolName == .showFile
       ? policy.includeShowFileBodyInObservation
@@ -813,6 +865,50 @@ private func projectReadFile(
         "Repeated read_file loop detected for \(path.rawValue) after \(count) reads. Stop reading this file again unless it changed or you need a different range.",
       affectedPaths: [path]
     )
+  case .lineTooLong(let path, let line, let byteCount):
+    return toolResultProjection(
+      display: .summary(
+        status: .failed,
+        text:
+          "Line \(line) in \(path.rawValue) is \(byteCount) bytes and cannot fit in one read_file page. Use search_files for a targeted snippet.",
+        affectedPaths: [path]
+      ),
+      observation: ToolModelObservation.failed(
+        toolName: request.toolName,
+        affectedPaths: [path],
+        text:
+          "Line \(line) in \(path.rawValue) is \(byteCount) bytes and cannot fit in one read_file page."
+      ),
+      kind: "line_too_long",
+      metadataFields: [
+        .init(name: "path", value: .string(path.rawValue)),
+        .init(name: "line", value: .int(line)),
+        .init(name: "byte_count", value: .int(byteCount)),
+      ],
+      nextAllowedActions: ["search_files"]
+    )
+  case .offsetOutOfRange(let path, let requestedOffset, let lineCount):
+    return toolResultProjection(
+      display: .summary(
+        status: .failed,
+        text:
+          "read_file offset \(requestedOffset) is past the end of \(path.rawValue), which has \(lineCount) lines.",
+        affectedPaths: [path]
+      ),
+      observation: ToolModelObservation.failed(
+        toolName: request.toolName,
+        affectedPaths: [path],
+        text:
+          "read_file offset \(requestedOffset) is past the end of \(path.rawValue), which has \(lineCount) lines."
+      ),
+      kind: "offset_out_of_range",
+      metadataFields: [
+        .init(name: "path", value: .string(path.rawValue)),
+        .init(name: "requested_offset", value: .int(requestedOffset)),
+        .init(name: "line_count", value: .int(lineCount)),
+      ],
+      nextAllowedActions: ["read_file"]
+    )
   case .failed(let path, let reason):
     return summaryProjection(
       toolName: request.toolName,
@@ -820,6 +916,17 @@ private func projectReadFile(
       text: reason.message,
       affectedPaths: path.map { [$0] } ?? []
     )
+  }
+}
+
+private func readFileNextAllowedActions(for page: ReadFilePage) -> [String] {
+  switch page.continuation {
+  case .endOfFile:
+    return ["edit_file"]
+  case .next:
+    return ["read_file", "edit_file"]
+  case .blocked:
+    return ["search_files", "edit_file"]
   }
 }
 

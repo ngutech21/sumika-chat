@@ -5,15 +5,20 @@ import Testing
 
 struct ToolResultProjectorTests {
   @Test
-  func showFileDisplaysContentButOmitsBodyFromDefaultObservation() {
+  func showFileDisplaysContentButOmitsBodyFromDefaultObservation() throws {
     let request = request(
       toolName: .showFile,
       payload: .showFile(ReadFileInput(path: "Sources/App.swift", offset: 10, limit: 5))
     )
     let payload = ToolResultPayload.readFile(
-      .success(
-        path: WorkspaceRelativePath(rawValue: "Sources/App.swift"),
-        content: ToolTextOutput(text: "10: let secret = true")
+      .page(
+        try ReadFilePage(
+          path: WorkspaceRelativePath(rawValue: "Sources/App.swift"),
+          startLine: 10,
+          endLine: 10,
+          content: "let secret = true",
+          continuation: .endOfFile
+        )
       ))
 
     let projection = ToolResultProjector.project(payload: payload, request: request)
@@ -22,7 +27,7 @@ struct ToolResultProjectorTests {
       projection.display
         == .fileContent(
           path: WorkspaceRelativePath(rawValue: "Sources/App.swift"),
-          content: ToolTextOutput(text: "10: let secret = true")
+          content: ToolTextOutput(text: "10|let secret = true")
         ))
     #expect(
       projection.observation.blocks == [
@@ -30,7 +35,7 @@ struct ToolResultProjectorTests {
           path: WorkspaceRelativePath(rawValue: "Sources/App.swift"),
           range: "offset=10,limit=5",
           lineCount: 1,
-          byteCount: 21,
+          byteCount: 20,
           truncated: false,
           redacted: false,
         )
@@ -41,26 +46,150 @@ struct ToolResultProjectorTests {
   }
 
   @Test
-  func readFileIncludesBodyInDefaultObservation() {
+  func readFileIncludesBodyInDefaultObservation() throws {
     let request = request(
       toolName: .readFile,
       payload: .readFile(ReadFileInput(path: "README.md", offset: nil, limit: nil))
     )
     let payload = ToolResultPayload.readFile(
-      .success(
-        path: WorkspaceRelativePath(rawValue: "README.md"),
-        content: ToolTextOutput(text: "1: project notes")
+      .page(
+        try ReadFilePage(
+          path: WorkspaceRelativePath(rawValue: "README.md"),
+          startLine: 1,
+          endLine: 1,
+          content: "project notes",
+          continuation: .endOfFile
+        )
       ))
 
     let projection = ToolResultProjector.project(payload: payload, request: request)
 
     #expect(
       projection.observation.blocks == [
-        .fileContent(
-          path: WorkspaceRelativePath(rawValue: "README.md"),
-          content: ToolTextOutput(text: "1: project notes")
+        .readFilePage(
+          try ReadFilePage(
+            path: WorkspaceRelativePath(rawValue: "README.md"),
+            startLine: 1,
+            endLine: 1,
+            content: "project notes",
+            continuation: .endOfFile
+          )
         )
       ])
+  }
+
+  @Test
+  func readFilePageRendersContinuationMetadataAndCompleteLines() throws {
+    let page = try ReadFilePage(
+      path: WorkspaceRelativePath(rawValue: "Sources/App.swift"),
+      startLine: 21,
+      endLine: 22,
+      content: "let a = 1\nlet b = 2",
+      continuation: .next(offset: 23, reason: .byteLimit)
+    )
+    let projection = ToolResultProjector.project(
+      payload: .readFile(.page(page)),
+      request: request(
+        toolName: .readFile,
+        payload: .readFile(ReadFileInput(path: page.path.rawValue, offset: 21))
+      )
+    )
+
+    let hybrid = try hybridToolResult(
+      ToolModelObservationRenderer.render(projection, callID: UUID())
+    )
+
+    #expect(hybrid.json["kind"] as? String == "file_page")
+    #expect(hybrid.json["line_format"] as? String == "N|content")
+    #expect(hybrid.json["start_line"] as? Int == 21)
+    #expect(hybrid.json["end_line"] as? Int == 22)
+    #expect(hybrid.json["returned_lines"] as? Int == 2)
+    #expect(hybrid.json["has_more"] as? Bool == true)
+    #expect(hybrid.json["truncated"] as? Bool == true)
+    #expect(hybrid.json["next_offset"] as? Int == 23)
+    #expect(hybrid.json["truncation_reason"] as? String == "byte_limit")
+    #expect(
+      hybrid.json["next_allowed_actions"] as? [String] == ["read_file", "edit_file"]
+    )
+    #expect(hybrid.content == "21|let a = 1\n22|let b = 2")
+  }
+
+  @Test
+  func readFileEndOfFileExplicitlyReportsNoMoreContent() throws {
+    let projection = ToolResultProjector.project(
+      payload: .readFile(
+        .page(
+          try ReadFilePage(
+            path: WorkspaceRelativePath(rawValue: "empty.txt"),
+            startLine: 1,
+            endLine: nil,
+            content: "",
+            continuation: .endOfFile
+          )
+        )
+      ),
+      request: request(
+        toolName: .readFile,
+        payload: .readFile(ReadFileInput(path: "empty.txt"))
+      )
+    )
+
+    let hybrid = try hybridToolResult(
+      ToolModelObservationRenderer.render(projection, callID: UUID())
+    )
+
+    #expect(hybrid.json["has_more"] as? Bool == false)
+    #expect(hybrid.json["truncated"] == nil)
+    #expect(hybrid.json["next_offset"] == nil)
+    #expect(hybrid.json["next_allowed_actions"] as? [String] == ["edit_file"])
+    #expect(hybrid.content == "(empty file)")
+  }
+
+  @Test
+  func oversizedReadFileLineExposesBlockedSearchRecovery() throws {
+    let path = WorkspaceRelativePath(rawValue: "minified.js")
+    let blockedProjection = ToolResultProjector.project(
+      payload: .readFile(
+        .page(
+          try ReadFilePage(
+            path: path,
+            startLine: 1,
+            endLine: 2,
+            content: "const a = 1\nconst b = 2",
+            continuation: .blocked(line: 3, byteCount: 184_320)
+          )
+        )
+      ),
+      request: request(
+        toolName: .readFile,
+        payload: .readFile(ReadFileInput(path: path.rawValue))
+      )
+    )
+    let blocked = try hybridToolResult(
+      ToolModelObservationRenderer.render(blockedProjection, callID: UUID())
+    )
+
+    #expect(blocked.json["blocked_line"] as? Int == 3)
+    #expect(blocked.json["blocked_line_byte_count"] as? Int == 184_320)
+    #expect(blocked.json["next_offset"] == nil)
+    #expect(
+      blocked.json["next_allowed_actions"] as? [String] == ["search_files", "edit_file"]
+    )
+
+    let failureProjection = ToolResultProjector.project(
+      payload: .readFile(.lineTooLong(path: path, line: 3, byteCount: 184_320)),
+      request: request(
+        toolName: .readFile,
+        payload: .readFile(ReadFileInput(path: path.rawValue, offset: 3))
+      )
+    )
+    let failure = try hybridToolResult(
+      ToolModelObservationRenderer.render(failureProjection, callID: UUID())
+    )
+
+    #expect(failure.json["status"] as? String == "failed")
+    #expect(failure.json["kind"] as? String == "line_too_long")
+    #expect(failure.json["next_allowed_actions"] as? [String] == ["search_files"])
   }
 
   @Test
@@ -206,7 +335,7 @@ struct ToolResultProjectorTests {
   func defaultFlagsAndNullMetadataAreOmittedButPositiveWarningsRemain() throws {
     let normalProjection = ToolResultProjector.project(
       payload: .readFile(
-        .success(
+        .legacySuccess(
           path: WorkspaceRelativePath(rawValue: "README.md"),
           content: ToolTextOutput(text: "notes")
         )),
@@ -257,7 +386,7 @@ struct ToolResultProjectorTests {
       (
         ToolResultProjector.project(
           payload: .readFile(
-            .success(
+            .legacySuccess(
               path: WorkspaceRelativePath(rawValue: "README.md"),
               content: ToolTextOutput(text: "intro\n\(readSentinel)\nend")
             )),
@@ -642,7 +771,7 @@ struct ToolResultProjectorTests {
   func projectionsRetainOnlyRealNextActions() {
     let readProjection = ToolResultProjector.project(
       payload: .readFile(
-        .success(
+        .legacySuccess(
           path: WorkspaceRelativePath(rawValue: "README.md"),
           content: ToolTextOutput(text: "notes")
         )),
@@ -818,7 +947,7 @@ struct ToolResultProjectorTests {
     let projections = [
       ToolResultProjector.project(
         payload: .readFile(
-          .success(
+          .legacySuccess(
             path: WorkspaceRelativePath(rawValue: "README.md"),
             content: ToolTextOutput(text: "notes")
           )),
@@ -1100,7 +1229,7 @@ struct ToolResultProjectorTests {
     let fullContent = String(repeating: "0123456789", count: 40)
     let path = WorkspaceRelativePath(rawValue: "README.md")
     let payload = ToolResultPayload.readFile(
-      .success(path: path, content: ToolTextOutput(text: fullContent))
+      .legacySuccess(path: path, content: ToolTextOutput(text: fullContent))
     )
     let request = request(
       toolName: .readFile,

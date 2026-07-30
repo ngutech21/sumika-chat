@@ -67,7 +67,12 @@ package enum ModelFacingPromptRenderer {
       callID: toolResult.callID,
       modelFollowUpNotice: modelFollowUpNotice
     )
-    let content = limitedToolObservationContent(rawContent, policy: policy)
+    let content = limitedToolObservationContent(
+      rawContent,
+      toolResult: toolResult,
+      request: request,
+      policy: policy
+    )
     let observationContext = ToolObservationContext(
       callID: toolResult.callID,
       toolName: toolResult.toolName,
@@ -141,9 +146,20 @@ package enum ModelFacingPromptRenderer {
 
   private static func limitedToolObservationContent(
     _ content: String,
+    toolResult: ToolResultModelMessage,
+    request: ToolCallRequest,
     policy: ToolResultProjectionPolicy
   ) -> String {
-    ProjectionLimiter.limit(content, limit: policy.modelObservationLimit).text
+    if request.toolName == .readFile,
+      case .readFile(.page) = toolResult.payload
+    {
+      precondition(
+        content.count <= policy.modelObservationLimit.maxCharacters,
+        "read_file page observation exceeded the model observation limit."
+      )
+      return content
+    }
+    return ProjectionLimiter.limit(content, limit: policy.modelObservationLimit).text
   }
 
 }
@@ -345,6 +361,8 @@ enum ToolModelObservationRenderer {
         File: \(path.rawValue)\(suffix)
         \(content.text)
         """
+    case .readFilePage(let page):
+      return page.endLine == nil ? "(empty file)" : page.numberedContent
     case .fileList(let root, let entries, let totalCount, let truncated):
       let body =
         entries.isEmpty

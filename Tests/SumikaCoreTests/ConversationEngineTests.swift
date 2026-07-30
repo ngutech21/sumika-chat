@@ -1329,14 +1329,14 @@ struct ConversationEngineTests {
 
     #expect(engine.chatSession.toolCalls.count == 1)
     #expect(engine.chatSession.toolCalls[0].status == .completed)
-    #expect(engine.chatSession.toolCalls[0].state.preview?.text == "1: project notes")
+    #expect(engine.chatSession.toolCalls[0].state.preview?.text == "1|project notes")
     #expect(
       engine.chatSession.focusedFileState.activePath
         == WorkspaceRelativePath(rawValue: "README.md"))
     #expect(engine.chatSession.focusedFileState.recentPaths.first?.source == .readFile)
     #expect(
       engine.chatSession.focusedFileState.snapshots[
-        WorkspaceRelativePath(rawValue: "README.md")]?.excerpt == "1: project notes")
+        WorkspaceRelativePath(rawValue: "README.md")]?.excerpt == "project notes")
     let callID = engine.chatSession.toolCalls[0].request.id
     #expect(engine.chatSession.testMessages.count == 3)
     #expect(engine.chatSession.testMessages[1].kind == .toolResult)
@@ -1352,7 +1352,7 @@ struct ConversationEngineTests {
     #expect(engine.chatSession.testMessages[1].toolResult?.callID == callID)
     #expect(engine.chatSession.testMessages[1].toolResult?.toolName == .readFile)
     #expect(engine.chatSession.testMessages[1].toolResult?.preview.status == .success)
-    #expect(engine.chatSession.testMessages[1].toolResult?.preview.text == "1: project notes")
+    #expect(engine.chatSession.testMessages[1].toolResult?.preview.text == "1|project notes")
     #expect(engine.chatSession.testMessages[2].content == "The README says project notes.")
     let projection = ChatModelContextBuilder().transcript(from: engine.chatSession)
     #expect(
@@ -1365,7 +1365,7 @@ struct ConversationEngineTests {
     #expect(projection.entries[1].frozenContent.content.isEmpty)
     #expect(
       projection.entries[2].frozenContent.content.contains(
-        "1: project notes"))
+        "1|project notes"))
     #expect(
       projection.entries[3].frozenContent.content
         == "The README says project notes.")
@@ -1374,11 +1374,11 @@ struct ConversationEngineTests {
     #expect(capturedMessages.count == 2)
     #expect(
       capturedMessages[1].last(where: { $0.role == .tool })?.content.contains(
-        "1: project notes"
+        "1|project notes"
       ) == true)
     #expect(
       capturedMessages[1].contains(where: { message in
-        message.role == .tool && message.content.contains("1: project notes")
+        message.role == .tool && message.content.contains("1|project notes")
       }))
     #expect(
       !capturedMessages[1].contains(where: { message in
@@ -1435,7 +1435,7 @@ struct ConversationEngineTests {
     #expect(followUp.content.contains("TOOL_RESULT_JSON:"))
     #expect(followUp.content.contains("\"tool\":\"read_file\""))
     #expect(followUp.content.contains("CONTENT:"))
-    #expect(followUp.content.contains("1: project notes"))
+    #expect(followUp.content.contains("1|project notes"))
     let toolCallID = try #require(engine.chatSession.toolCalls.first?.id)
     #expect(
       engine.chatSession.turnID(containingToolCall: toolCallID)
@@ -1866,7 +1866,7 @@ struct ConversationEngineTests {
     #expect(engine.chatSession.testMessages[1].kind == .toolResult)
     #expect(engine.chatSession.testMessages[2].kind == .assistant)
     #expect(engine.chatSession.testMessages[2].content.contains("Here is `README.md`:"))
-    #expect(engine.chatSession.testMessages[2].content.contains("1: project notes"))
+    #expect(engine.chatSession.testMessages[2].content.contains("1|project notes"))
     let projection = ChatModelContextBuilder().transcript(from: engine.chatSession)
     #expect(
       projection.entries.map(\.frozenContent.role) == [
@@ -1877,11 +1877,11 @@ struct ConversationEngineTests {
         "Displayed file to user: README.md"))
     #expect(
       !projection.entries[2].frozenContent.content.contains(
-        "1: project notes"))
+        "1|project notes"))
     #expect(
       projection.entries[3].frozenContent.content
         == "Displayed show_file result for README.md directly to the user.")
-    #expect(!projection.entries[3].frozenContent.content.contains("1: project notes"))
+    #expect(!projection.entries[3].frozenContent.content.contains("1|project notes"))
     #expect(engine.chatSession.focusedFileState == .empty)
 
     let capturedMessages = await runtime.capturedMessages

@@ -275,6 +275,56 @@ struct ToolFollowUpNoticePolicyTests {
   }
 
   @Test
+  func readFileContinuationNoticeUsesNextOffsetWithoutRepeatingLimit() throws {
+    let record = try completedReadPageRecord(
+      path: "Sources/App.swift",
+      startLine: 1,
+      endLine: 20,
+      continuation: .next(offset: 21, reason: .lineLimit),
+      limit: 20
+    )
+
+    let update = try #require(
+      ToolFollowUpNoticePolicy().update(
+        session: session(with: [record]),
+        turnID: defaultTurnID,
+        promptMode: .afterToolResultCanContinue
+      )
+    )
+    let notice = try #require(update.record.modelFollowUpNotice)
+
+    #expect(
+      notice.contains(
+        #"continue with read_file(path: "Sources/App.swift", offset: 21)"#
+      )
+    )
+    #expect(!notice.contains("limit"))
+  }
+
+  @Test
+  func readFileBlockedNoticeDirectsTargetedSearch() throws {
+    let record = try completedReadPageRecord(
+      path: "minified.js",
+      startLine: 1,
+      endLine: 3,
+      continuation: .blocked(line: 4, byteCount: 184_320)
+    )
+
+    let update = try #require(
+      ToolFollowUpNoticePolicy().update(
+        session: session(with: [record]),
+        turnID: defaultTurnID,
+        promptMode: .afterToolResultCanContinue
+      )
+    )
+    let notice = try #require(update.record.modelFollowUpNotice)
+
+    #expect(notice.contains("Line 4 is 184320 bytes"))
+    #expect(notice.contains("use search_files"))
+    #expect(!notice.contains("offset: 4"))
+  }
+
+  @Test
   func noNoticeWithoutMatchingToolRecord() {
     let session = ChatSession(
       turns: [
@@ -373,11 +423,40 @@ private func completedReadRecord(
     toolName: .readFile,
     payload: .readFile(ReadFileInput(path: path)),
     result: .readFile(
-      .success(
+      .legacySuccess(
         path: WorkspaceRelativePath(rawValue: path),
         content: ToolTextOutput(text: content)
       )),
     modelFollowUpNotice: modelFollowUpNotice
+  )
+}
+
+private func completedReadPageRecord(
+  path: String,
+  startLine: Int,
+  endLine: Int?,
+  continuation: ReadFileContinuation,
+  limit: Int? = nil
+) throws -> ToolCallRecord {
+  let content =
+    endLine.map { endLine in
+      (startLine...endLine).map { "line \($0)" }.joined(separator: "\n")
+    } ?? ""
+  return toolRecord(
+    id: UUID(),
+    toolName: .readFile,
+    payload: .readFile(ReadFileInput(path: path, offset: startLine, limit: limit)),
+    result: .readFile(
+      .page(
+        try ReadFilePage(
+          path: WorkspaceRelativePath(rawValue: path),
+          startLine: startLine,
+          endLine: endLine,
+          content: content,
+          continuation: continuation
+        )
+      )
+    )
   )
 }
 

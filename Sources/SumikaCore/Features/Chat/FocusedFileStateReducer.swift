@@ -26,15 +26,21 @@ struct FocusedFileStateReducer: Sendable {
     }
 
     switch payload {
-    case .readFile(.success(let path, let content)) where request.toolName == .readFile:
+    case .readFile(.page(let page)) where request.toolName == .readFile:
+      return focusing(
+        page.path,
+        source: .readFile,
+        content: page.content,
+        fullContentAvailable: page.startLine == 1 && page.continuation == .endOfFile,
+        in: state,
+        updatedAt: updatedAt
+      )
+    case .readFile(.legacySuccess(let path, let content)) where request.toolName == .readFile:
       return focusing(
         path,
         source: .readFile,
         content: content.text,
-        fullContentAvailable: completeReadFileContentIsAvailable(
-          content,
-          request: request
-        ),
+        fullContentAvailable: completeLegacyReadFileContentIsAvailable(content, request: request),
         in: state,
         updatedAt: updatedAt
       )
@@ -223,7 +229,7 @@ struct FocusedFileStateReducer: Sendable {
     return content.replacingOccurrences(of: input.oldText, with: input.newText)
   }
 
-  private func completeReadFileContentIsAvailable(
+  private func completeLegacyReadFileContentIsAvailable(
     _ content: ToolTextOutput,
     request: ToolCallRequest
   ) -> Bool {

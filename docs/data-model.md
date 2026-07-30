@@ -1592,6 +1592,7 @@ Cases:
 - `fileContent(path: WorkspaceRelativePath, content: ToolTextOutput)`
 - `fileDisplayedToUser(path: WorkspaceRelativePath, range: String?, lineCount: Int?, byteCount: Int?, truncated: Bool, redacted: Bool)`
 - `fileList(root: WorkspaceRelativePath, entries: [WorkspaceFileEntry], totalCount: Int, truncated: Bool)`
+- `readFilePage(ReadFilePage)`
 - `searchSnippets(root: WorkspaceRelativePath, pattern: String, matches: [SearchFileMatch], totalCount: Int, truncated: Bool)`
 - `summary(String)`
 - `webFetch(url: String, provider: WebFetchProvider?, finalURL: String, statusCode: Int, contentType: String?, content: ToolTextOutput, byteCount: Int)`

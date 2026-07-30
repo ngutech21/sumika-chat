@@ -160,7 +160,7 @@ struct WorkspaceStoreTests {
     #expect(
       reloadedToolCall.resultPayload
         == .readFile(
-          .success(
+          .legacySuccess(
             path: WorkspaceRelativePath(rawValue: "README.md"),
             content: ToolTextOutput(text: "Preview", truncated: true, redacted: true)
           )))
@@ -417,7 +417,7 @@ struct WorkspaceStoreTests {
       ),
       state: .completed(
         .readFile(
-          .success(
+          .legacySuccess(
             path: WorkspaceRelativePath(rawValue: "README.md"),
             content: ToolTextOutput(text: "Preview", truncated: true, redacted: true)
           )))

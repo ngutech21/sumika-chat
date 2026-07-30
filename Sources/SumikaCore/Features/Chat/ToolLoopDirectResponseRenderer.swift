@@ -24,13 +24,22 @@ enum ToolLoopDirectResponseRenderer {
           "Delivered finish_task summary directly to the user."
         )
       )
-    case .readFile(.success(let path, _)) where record.request.toolName == .showFile:
+    case .readFile(.page(let page)) where record.request.toolName == .showFile:
+      let projection = ToolResultProjector.project(
+        payload: toolResult.payload, request: record.request)
+      return DirectToolResultResponse(
+        content: directReadFileResponse(path: page.path, display: projection.display),
+        modelProjectionPolicy: .override(
+          "Displayed show_file result for \(page.path.rawValue) directly to the user."
+        )
+      )
+    case .readFile(.legacySuccess(let path, _)) where record.request.toolName == .showFile:
       let projection = ToolResultProjector.project(
         payload: toolResult.payload, request: record.request)
       return DirectToolResultResponse(
         content: directReadFileResponse(path: path, display: projection.display),
         modelProjectionPolicy: .override(
-          "Displayed show_file result for \(path.rawValue) directly to the user."
+          "Displayed stored show_file result for \(path.rawValue) directly to the user."
         )
       )
     case .listFiles(let result) where shouldRespondDirectlyToListFiles(request):

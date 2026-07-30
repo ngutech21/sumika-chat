@@ -10,10 +10,35 @@ struct ToolResultPayloadTests {
       UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
     let payloads: [ToolResultPayload] = [
       .readFile(
-        .success(
+        .page(
+          try ReadFilePage(
+            path: WorkspaceRelativePath(rawValue: "Sources/App.swift"),
+            startLine: 41,
+            endLine: 42,
+            content: "let a = 1\nlet b = 2",
+            continuation: .next(offset: 43, reason: .byteLimit)
+          )
+        )
+      ),
+      .readFile(
+        .legacySuccess(
           path: WorkspaceRelativePath(rawValue: "README.md"),
           content: ToolTextOutput(text: "1: hello", truncated: true)
         )),
+      .readFile(
+        .lineTooLong(
+          path: WorkspaceRelativePath(rawValue: "minified.js"),
+          line: 1,
+          byteCount: 120_000
+        )
+      ),
+      .readFile(
+        .offsetOutOfRange(
+          path: WorkspaceRelativePath(rawValue: "README.md"),
+          requestedOffset: 99,
+          lineCount: 10
+        )
+      ),
       .writeFile(
         .success(path: WorkspaceRelativePath(rawValue: "Sources/App.swift"), bytesWritten: 12)),
       .editFile(
@@ -109,6 +134,165 @@ struct ToolResultPayloadTests {
     )
 
     #expect(decoded == payloads)
+  }
+
+  @Test
+  func readFileContinuationUsesStableDiscriminatorSchema() throws {
+    let values: [(ReadFileContinuation, String)] = [
+      (.endOfFile, #"{"kind":"end_of_file"}"#),
+      (
+        .next(offset: 241, reason: .byteLimit),
+        #"{"kind":"next","offset":241,"reason":"byte_limit"}"#
+      ),
+      (
+        .blocked(line: 121, byteCount: 184_320),
+        #"{"byte_count":184320,"kind":"blocked","line":121}"#
+      ),
+    ]
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+
+    for (value, expectedJSON) in values {
+      let data = try encoder.encode(value)
+      #expect(try #require(String(data: data, encoding: .utf8)) == expectedJSON)
+      #expect(try JSONDecoder().decode(ReadFileContinuation.self, from: data) == value)
+    }
+  }
+
+  @Test
+  func readFilePageRejectsInconsistentConstruction() {
+    let path = WorkspaceRelativePath(rawValue: "README.md")
+
+    #expect(throws: ReadFilePageValidationError.invalidStartLine(0)) {
+      try ReadFilePage(
+        path: path,
+        startLine: 0,
+        endLine: 1,
+        content: "line",
+        continuation: .endOfFile
+      )
+    }
+    #expect(
+      throws: ReadFilePageValidationError.endLineBeforeStart(startLine: 2, endLine: 1)
+    ) {
+      try ReadFilePage(
+        path: path,
+        startLine: 2,
+        endLine: 1,
+        content: "line",
+        continuation: .endOfFile
+      )
+    }
+    #expect(
+      throws: ReadFilePageValidationError.contentLineCountMismatch(expected: 2, actual: 1)
+    ) {
+      try ReadFilePage(
+        path: path,
+        startLine: 1,
+        endLine: 2,
+        content: "one line",
+        continuation: .endOfFile
+      )
+    }
+    #expect(
+      throws: ReadFilePageValidationError.continuationLineMismatch(expected: 2, actual: 9)
+    ) {
+      try ReadFilePage(
+        path: path,
+        startLine: 1,
+        endLine: 1,
+        content: "line",
+        continuation: .next(offset: 9, reason: .byteLimit)
+      )
+    }
+    #expect(throws: ReadFilePageValidationError.invalidBlockedLineByteCount(0)) {
+      try ReadFilePage(
+        path: path,
+        startLine: 1,
+        endLine: 1,
+        content: "line",
+        continuation: .blocked(line: 2, byteCount: 0)
+      )
+    }
+    #expect(throws: ReadFilePageValidationError.invalidEmptyPage) {
+      try ReadFilePage(
+        path: path,
+        startLine: 1,
+        endLine: nil,
+        content: "unexpected",
+        continuation: .endOfFile
+      )
+    }
+  }
+
+  @Test
+  func readFilePageDecodeRejectsInconsistentPersistedMetadata() {
+    let invalidPages = [
+      """
+      {
+        "path": "README.md",
+        "startLine": 1,
+        "endLine": 2,
+        "content": "one line",
+        "continuation": {"kind": "end_of_file"}
+      }
+      """,
+      """
+      {
+        "path": "README.md",
+        "startLine": 1,
+        "endLine": 1,
+        "content": "line",
+        "continuation": {"kind": "next", "offset": 9, "reason": "byte_limit"}
+      }
+      """,
+      """
+      {
+        "path": "README.md",
+        "startLine": 1,
+        "content": "unexpected",
+        "continuation": {"kind": "end_of_file"}
+      }
+      """,
+    ]
+
+    for json in invalidPages {
+      #expect(throws: DecodingError.self) {
+        try JSONDecoder().decode(ReadFilePage.self, from: Data(json.utf8))
+      }
+    }
+  }
+
+  @Test
+  func legacyReadFileSuccessDecodesAndReencodesWithoutInventingContinuation() throws {
+    let json = """
+      {
+        "success": {
+          "path": "README.md",
+          "content": {
+            "text": "1: stored",
+            "truncated": true,
+            "redacted": false
+          }
+        }
+      }
+      """
+    let originalObject = try #require(
+      JSONSerialization.jsonObject(with: Data(json.utf8)) as? NSDictionary
+    )
+    let result = try JSONDecoder().decode(ReadFileResult.self, from: Data(json.utf8))
+
+    guard case .legacySuccess(let path, let content) = result else {
+      Issue.record("Expected the stored read_file success shape to decode as legacy success.")
+      return
+    }
+    #expect(path == WorkspaceRelativePath(rawValue: "README.md"))
+    #expect(content == ToolTextOutput(text: "1: stored", truncated: true))
+
+    let reencodedObject = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(result)) as? NSDictionary
+    )
+    #expect(reencodedObject == originalObject)
   }
 
   @Test

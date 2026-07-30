@@ -26,7 +26,7 @@ struct ToolLoopCoordinatorTests {
     #expect(annotatedNativeAssistantMessageID(from: result) == assistantMessageID)
     #expect(toolCall(from: result)?.toolName == .readFile)
     #expect(toolCallRecord(from: result)?.status == .completed)
-    #expect(completedToolResult(from: result)?.preview.text == "1: project notes")
+    #expect(completedToolResult(from: result)?.preview.text == "1|project notes")
     #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
   }
 
@@ -110,7 +110,7 @@ struct ToolLoopCoordinatorTests {
       ),
       state: .completed(
         .readFile(
-          .success(
+          .legacySuccess(
             path: WorkspaceRelativePath(rawValue: "README.md"),
             content: ToolTextOutput(text: "1: project notes")
           )))
@@ -159,7 +159,7 @@ struct ToolLoopCoordinatorTests {
       ),
       state: .completed(
         .readFile(
-          .success(
+          .legacySuccess(
             path: WorkspaceRelativePath(rawValue: "README.md"),
             content: ToolTextOutput(text: "1: project notes")
           )))
@@ -215,7 +215,7 @@ struct ToolLoopCoordinatorTests {
       ),
       state: .completed(
         .readFile(
-          .success(
+          .legacySuccess(
             path: WorkspaceRelativePath(rawValue: "README.md"),
             content: ToolTextOutput(text: "1: project notes")
           )))
@@ -291,7 +291,7 @@ struct ToolLoopCoordinatorTests {
     #expect(await orchestrator.executionCount == 1)
     let records = toolCallRecords(from: result)
     #expect(records.count == 2)
-    guard case .readFile(.success) = records.first?.resultPayload else {
+    guard case .readFile(.legacySuccess) = records.first?.resultPayload else {
       Issue.record("Expected first read_file to execute normally.")
       return
     }
@@ -368,7 +368,7 @@ struct ToolLoopCoordinatorTests {
     #expect(records.count == 2)
     #expect(
       records.allSatisfy {
-        if let payload = $0.resultPayload, case .readFile(.success) = payload {
+        if let payload = $0.resultPayload, case .readFile(.legacySuccess) = payload {
           return true
         }
         return false
@@ -1282,7 +1282,7 @@ struct ToolLoopCoordinatorTests {
     #expect(completedToolResult(from: result)?.toolName == .showFile)
     let assistant = directAssistantMessage(from: result)
     #expect(assistant?.content.contains("Here is `README.md`:") == true)
-    #expect(assistant?.content.contains("1: project notes") == true)
+    #expect(assistant?.content.contains("1|project notes") == true)
     #expect(
       assistant?.modelProjectionPolicy
         == .override("Displayed show_file result for README.md directly to the user."))
@@ -1859,7 +1859,7 @@ private actor CountingToolOrchestrator: ToolOrchestrating {
     case .readFile(let input):
       let path = Self.canonicalPath(input.path, workspace: workspace)
       payload = .readFile(
-        .success(
+        .legacySuccess(
           path: path,
           content: ToolTextOutput(text: "1: project notes")
         ))

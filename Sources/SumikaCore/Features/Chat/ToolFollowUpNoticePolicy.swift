@@ -95,6 +95,9 @@ struct ToolFollowUpNoticePolicy: Sendable {
     ) {
       return duplicateNotice
     }
+    if let readFileNotice = readFileContinuationNotice(state) {
+      return readFileNotice
+    }
     return genericToolFollowUpNotice(state, finishTaskEnabled: finishTaskEnabled)
   }
 
@@ -272,6 +275,40 @@ struct ToolFollowUpNoticePolicy: Sendable {
     return "Use this tool result. Call another necessary web tool, or answer if done."
   }
 
+  private func readFileContinuationNotice(_ state: AgentTurnState) -> String? {
+    guard let record = state.latestCompletedToolRecord,
+      record.request.toolName == .readFile,
+      case .readFile(let result) = record.resultPayload
+    else {
+      return nil
+    }
+
+    switch result {
+    case .page(let page):
+      switch page.continuation {
+      case .endOfFile:
+        return nil
+      case .next(let offset, _):
+        return
+          "Use the visible lines if they are sufficient. Otherwise continue with read_file(path: \"\(page.path.rawValue)\", offset: \(offset))."
+      case .blocked(let line, let byteCount):
+        return
+          "Use the visible lines if they are sufficient. Line \(line) is \(byteCount) bytes and cannot fit in one read_file page; use search_files for a targeted snippet if more context is needed."
+      }
+    case .lineTooLong(let path, let line, let byteCount):
+      return
+        "Line \(line) in \(path.rawValue) is \(byteCount) bytes and cannot fit in one read_file page. Use search_files for a targeted snippet."
+    case .offsetOutOfRange(_, _, let lineCount):
+      if lineCount == 0 {
+        return "The file is empty. Use offset 1, choose another action, or finish the task."
+      }
+      return
+        "Choose a read_file offset from 1 through \(lineCount), use another necessary action, or finish the task."
+    case .legacySuccess, .unchanged, .repeatedReadWarning, .failed:
+      return nil
+    }
+  }
+
   private func agentTurnState(in turn: ChatTurn) -> AgentTurnState {
     AgentTurnState(
       latestCompletedToolRecord: latestCompletedToolRecord(in: turn),
@@ -293,7 +330,7 @@ struct ToolFollowUpNoticePolicy: Sendable {
       }
 
       switch payload {
-      case .readFile(.success), .readFile(.unchanged):
+      case .readFile(.page), .readFile(.legacySuccess), .readFile(.unchanged):
         state = ListingWanderingState()
       case .listFiles(let result):
         state.listingCountWithoutRead += 1

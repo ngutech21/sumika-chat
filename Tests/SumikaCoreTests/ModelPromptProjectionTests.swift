@@ -300,7 +300,7 @@ struct ModelPromptProjectionTests {
       ),
       state: .completed(
         .readFile(
-          .success(
+          .legacySuccess(
             path: WorkspaceRelativePath(rawValue: "README.md"),
             content: ToolTextOutput(text: "Project overview")
           )))
@@ -505,7 +505,7 @@ struct ModelPromptProjectionTests {
           callID: readCallID,
           toolName: .readFile,
           payload: .readFile(
-            .success(
+            .legacySuccess(
               path: WorkspaceRelativePath(rawValue: "README.md"),
               content: ToolTextOutput(text: "Project overview")
             ))
@@ -560,6 +560,34 @@ struct ModelPromptProjectionTests {
     #expect(entry.frozenContent.content.contains("TOOL_RESULT_JSON:"))
     #expect(entry.frozenContent.content.contains("Project overview"))
     #expect(entry.frozenContent.content.contains("Original user request:") == false)
+  }
+
+  @Test
+  func readFilePageFitsObservationLimitWithoutSecondProjectionClipping() throws {
+    let callID = UUID()
+    let line = String(repeating: "x", count: 6 * 1024 - 2)
+    let page = try ReadFilePage(
+      path: WorkspaceRelativePath(rawValue: "large.txt"),
+      startLine: 1,
+      endLine: 1,
+      content: line,
+      continuation: .next(offset: 2, reason: .byteLimit)
+    )
+    let entry = try ModelFacingPromptRenderer.toolResultEntry(
+      toolResult: ToolResultModelMessage(
+        callID: callID,
+        toolName: .readFile,
+        payload: .readFile(.page(page))
+      ),
+      request: readFileRequest(callID: callID),
+      originalUserRequest: nil,
+      modelFollowUpNotice:
+        #"Use visible lines if sufficient. Otherwise continue with read_file(path: "large.txt", offset: 2)."#
+    )
+
+    #expect(entry.frozenContent.content.count <= 8_000)
+    #expect(entry.frozenContent.content.contains("1|\(line)"))
+    #expect(!entry.frozenContent.content.contains("[tool observation truncated]"))
   }
 
   @Test
@@ -660,7 +688,7 @@ struct ModelPromptProjectionTests {
         callID: callID,
         toolName: .readFile,
         payload: .readFile(
-          .success(
+          .legacySuccess(
             path: WorkspaceRelativePath(rawValue: "README.md"),
             content: ToolTextOutput(text: content, truncated: truncated, redacted: redacted)
           ))
