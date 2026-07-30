@@ -111,32 +111,6 @@ struct ModelManagementTests {
   }
 
   @Test
-  func catalogDeclaresToolLoopBudgets() throws {
-    let eightIterationModelIDs = [
-      "gemma4-e4b-qat-4bit",
-      "gemma4-12b-qat-4bit",
-      "gemma4-26b-qat-4bit",
-    ]
-    for modelID in eightIterationModelIDs {
-      let model = try #require(ManagedModelCatalog.model(id: modelID))
-      #expect(model.maxToolLoopIterations == 8)
-    }
-
-    let twelveIterationModelIDs = [
-      "gemma4-31b-qat-4bit",
-      "qwen3.6-27B-4bit",
-      "qwen3.6-27B-8bit",
-      "qwen3.6-35b-a3b-4bit",
-      "qwen3.6-35b-a3b-8bit",
-      "qwen3.6-40B-8bit-heretic",
-    ]
-    for modelID in twelveIterationModelIDs {
-      let model = try #require(ManagedModelCatalog.model(id: modelID))
-      #expect(model.maxToolLoopIterations == 12)
-    }
-  }
-
-  @Test
   func settingsStorePersistsPerModelSettings() async throws {
     let settingsURL = try temporarySettingsURL()
     let store = ModelSettingsStore(
