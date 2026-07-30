@@ -213,7 +213,7 @@ nonisolated extension ToolDefinition {
   package static let editFile = ToolDefinition(
     name: .editFile,
     description:
-      "Replace one unique text span in an existing file. Read first unless the current content is already in context.",
+      "Replace one unique text span in an existing file. Read first unless the current content is already in context. Do not combine this call with another write_file/edit_file for the same file, including equivalent paths, in one response; wait for its result first.",
     parameters: [
       ToolParameterDefinition(
         name: "path",

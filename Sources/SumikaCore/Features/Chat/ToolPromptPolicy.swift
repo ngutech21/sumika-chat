@@ -215,6 +215,7 @@ struct ToolPromptPolicy: Sendable {
       \(todoWorkflowInstruction)
       - Inspect before editing; never guess existing content. Read existing files with read_file unless their current content is already in context. Reuse current read, list, glob, or search results unless the relevant content changed.
       - Use edit_file for targeted changes to existing files. Use write_file only for new files or intentional full-file replacement.
+      - Never emit multiple write_file/edit_file calls for the same file in one response, including equivalent paths; wait for each result before mutating that file again.
       - Keep file mutations bounded. If a file being created or fully replaced may not fit in one response, write a compact valid scaffold first; do not draft the full file in reasoning. Then add one coherent section per edit_file call.
       - After a successful edit or write, inspect or verify as needed. Never claim a change without a successful tool result.
       - Use workspace_diff to review changes. Use run_command after approval for build, test, lint, typecheck, or verification. If errors or warnings include outputRef, inspect workspace_diagnostics before editing.

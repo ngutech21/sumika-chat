@@ -32,7 +32,7 @@ nonisolated extension ToolDefinition {
   package static let writeFile = ToolDefinition(
     name: .writeFile,
     description:
-      "Create or replace one text file. Use for new files or intentional full-file replacement. Parent directories are created automatically.",
+      "Create or replace one text file. Use for new files or intentional full-file replacement. Parent directories are created automatically. Do not combine this call with another write_file/edit_file for the same file, including equivalent paths, in one response; wait for its result first.",
     parameters: [
       ToolParameterDefinition(
         name: "path",

@@ -59,7 +59,7 @@ struct ToolDefinitionSchemaTests {
 
     #expect(
       writeDefinition.description
-        == "Create or replace one text file. Use for new files or intentional full-file replacement. Parent directories are created automatically."
+        == "Create or replace one text file. Use for new files or intentional full-file replacement. Parent directories are created automatically. Do not combine this call with another write_file/edit_file for the same file, including equivalent paths, in one response; wait for its result first."
     )
     #expect(
       writeDefinition.parameters.first { $0.name == "path" }?.description
@@ -74,7 +74,7 @@ struct ToolDefinitionSchemaTests {
     #expect(editDefinition.functionSchema.parameters.required == ["path", "old_text", "new_text"])
     #expect(
       editDefinition.description
-        == "Replace one unique text span in an existing file. Read first unless the current content is already in context."
+        == "Replace one unique text span in an existing file. Read first unless the current content is already in context. Do not combine this call with another write_file/edit_file for the same file, including equivalent paths, in one response; wait for its result first."
     )
     #expect(
       editDefinition.parameters.first { $0.name == "path" }?.description
