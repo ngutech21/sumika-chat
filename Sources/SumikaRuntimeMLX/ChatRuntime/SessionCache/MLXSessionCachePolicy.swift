@@ -32,12 +32,7 @@ enum MLXSessionCachePolicy {
     for mode: MLXSessionCacheMode,
     systemPrompt: String
   ) -> String? {
-    switch mode {
-    case .newSession, .dirtyRebuild:
-      ModelFacingPromptRenderer.normalizedSystemPrompt(systemPrompt)
-    case .reusedSession, .appendDelta:
-      nil
-    }
+    ModelFacingPromptRenderer.normalizedSystemPrompt(systemPrompt)
   }
 
   static func runtimeCacheDebugSnapshot(
@@ -139,24 +134,6 @@ enum MLXSessionCachePolicy {
       return false
     }
     return zip(prefix, messages).allSatisfy(==)
-  }
-
-  /// Whether an append-only delta (the messages appended after `cachedPrefixCount`)
-  /// begins with a tool-response message. Such a delta must not reuse the cached
-  /// session: rendering a lone tool response through the chat template drops it,
-  /// because its paired assistant tool_call lives in the cached prefix, not in the
-  /// delta. The caller forces a full rebuild in that case so call and result are
-  /// templated adjacently.
-  static func deltaBeginsWithToolResult(
-    cachedPrefixCount: Int,
-    historySnapshot: [ProviderPromptMessage],
-    promptFirstRole: String?
-  ) -> Bool {
-    let toolRole = Chat.Message.Role.tool.rawValue
-    if cachedPrefixCount >= historySnapshot.count {
-      return promptFirstRole == toolRole
-    }
-    return historySnapshot[cachedPrefixCount].role == toolRole
   }
 
   static func contentByteCount(for messages: [Chat.Message]) -> Int {

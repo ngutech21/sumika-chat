@@ -334,29 +334,18 @@ struct MLXSessionCachePolicyTests {
   }
 
   @Test
-  func chatSessionInstructionsAreOnlyAppliedWhenBuildingCache() {
+  func chatSessionInstructionsRemainStableAcrossStructuredContinuations() {
     let systemPrompt = "Use concise coding steps."
 
-    #expect(
-      MLXSessionCachePolicy.chatSessionInstructions(
-        for: .newSession,
-        systemPrompt: systemPrompt
-      ) == systemPrompt)
-    #expect(
-      MLXSessionCachePolicy.chatSessionInstructions(
-        for: .dirtyRebuild,
-        systemPrompt: systemPrompt
-      ) == systemPrompt)
-    #expect(
-      MLXSessionCachePolicy.chatSessionInstructions(
-        for: .reusedSession,
-        systemPrompt: systemPrompt
-      ) == nil)
-    #expect(
-      MLXSessionCachePolicy.chatSessionInstructions(
-        for: .appendDelta,
-        systemPrompt: systemPrompt
-      ) == nil)
+    for mode: MLXSessionCacheMode in [
+      .newSession, .dirtyRebuild, .reusedSession, .appendDelta,
+    ] {
+      #expect(
+        MLXSessionCachePolicy.chatSessionInstructions(
+          for: mode,
+          systemPrompt: systemPrompt
+        ) == systemPrompt)
+    }
   }
 
   @Test
@@ -888,93 +877,6 @@ struct MLXSessionCachePolicyTests {
     #expect(trace.reusedMessageCount == 2)
     #expect(trace.appendedMessageCount == 1)
     #expect(trace.mismatchReason == nil)
-  }
-
-  @Test
-  func deltaBeginsWithToolResultDetectsReusedSubcaseToolPrompt() {
-    // Reused subcase: cached prefix equals the whole history, so the delta is the
-    // prompt. A tool-response prompt must force a rebuild; a user prompt must not.
-    let history = [
-      ProviderPromptMessage(role: "user", content: "hi"),
-      ProviderPromptMessage(role: "assistant", content: "call"),
-    ]
-    #expect(
-      MLXSessionCachePolicy.deltaBeginsWithToolResult(
-        cachedPrefixCount: history.count,
-        historySnapshot: history,
-        promptFirstRole: "tool"))
-    #expect(
-      !MLXSessionCachePolicy.deltaBeginsWithToolResult(
-        cachedPrefixCount: history.count,
-        historySnapshot: history,
-        promptFirstRole: "user"))
-    #expect(
-      !MLXSessionCachePolicy.deltaBeginsWithToolResult(
-        cachedPrefixCount: history.count,
-        historySnapshot: history,
-        promptFirstRole: nil))
-  }
-
-  @Test
-  func deltaBeginsWithToolResultDetectsAppendDeltaToolTail() {
-    // Append-delta subcase: the cached prefix is shorter than history, so the delta
-    // starts inside history at cachedPrefixCount. Detect a tool tail there.
-    let history = [
-      ProviderPromptMessage(role: "user", content: "hi"),
-      ProviderPromptMessage(role: "assistant", content: "call"),
-      ProviderPromptMessage(role: "tool", content: "result"),
-    ]
-    #expect(
-      MLXSessionCachePolicy.deltaBeginsWithToolResult(
-        cachedPrefixCount: 2,
-        historySnapshot: history,
-        promptFirstRole: nil))
-
-    let nonToolTail = [
-      ProviderPromptMessage(role: "user", content: "hi"),
-      ProviderPromptMessage(role: "assistant", content: "call"),
-      ProviderPromptMessage(role: "user", content: "again"),
-    ]
-    #expect(
-      !MLXSessionCachePolicy.deltaBeginsWithToolResult(
-        cachedPrefixCount: 2,
-        historySnapshot: nonToolTail,
-        promptFirstRole: nil))
-  }
-
-  @Test
-  func cacheTraceReportsToolFollowUpRebuild() {
-    let prefix = providerMessages(from: [
-      .user("hello"),
-      .assistant("calling read_file"),
-    ])
-    let followUpHistory = providerMessages(from: [
-      .user("hello"),
-      .assistant("calling read_file"),
-      .tool("result", id: "call_1"),
-    ])
-    let identity = MLXSessionCachePolicy.cacheIdentity(
-      systemPrompt: "Use concise coding steps.",
-      settings: .agentDefault,
-      projectionMode: .fullHistory
-    )
-
-    let trace = MLXSessionCachePolicy.trace(
-      mode: .dirtyRebuild,
-      reason: .toolFollowUpRebuild,
-      currentHistory: followUpHistory,
-      currentIdentity: identity,
-      cachedPrefix: prefix,
-      cachedIdentity: identity,
-      appendOnly: MLXSessionCachePolicy.isPrefix(prefix, of: followUpHistory),
-      mismatchReason: "tool_follow_up_response",
-      firstMismatchIndex: nil
-    )
-
-    #expect(trace.cacheMode == .dirtyRebuild)
-    #expect(trace.cacheReason == .toolFollowUpRebuild)
-    #expect(MLXSessionCacheReason.toolFollowUpRebuild.rawValue == "tool_follow_up_rebuild")
-    #expect(trace.mismatchReason == "tool_follow_up_response")
   }
 
   @Test
