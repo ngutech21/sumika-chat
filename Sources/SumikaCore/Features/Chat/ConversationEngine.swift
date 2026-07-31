@@ -560,7 +560,6 @@ extension ConversationEngine {
     toolOrchestrator = toolOrchestrator.replacingExecutorRegistry(executorRegistry)
     invalidateModelContextDebugDocument()
     if shouldRefreshContext {
-      clearRuntimeContextForReuse()
       refreshContextUsage()
     }
   }

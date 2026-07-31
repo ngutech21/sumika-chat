@@ -37,8 +37,8 @@ let package = Package(
     .package(url: "https://github.com/tree-sitter/tree-sitter-typescript", exact: "0.23.2"),
     .package(url: "https://github.com/ml-explore/mlx-swift/", from: "0.31.6"),
     .package(
-      url: "https://github.com/ml-explore/mlx-swift-lm",
-      revision: "861649bf54abe022b2e697ffe6606731ba485210"),
+      url: "https://github.com/ngutech21/mlx-swift-lm",
+      revision: "f9b8f1efeae38b01cf06c45889a0e7242629e05d"),
     .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.3"),
     .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
     .package(url: "https://github.com/FluidInference/FluidAudio", from: "0.15.4"),
@@ -152,7 +152,10 @@ let package = Package(
         "SumikaRuntimeMLX",
         "SumikaCore",
         "SumikaTestSupport",
+        .product(name: "MLX", package: "mlx-swift"),
+        .product(name: "MLXLLM", package: "mlx-swift-lm"),
         .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
+        .product(name: "MLXNN", package: "mlx-swift"),
       ],
       swiftSettings: appConcurrencyChecking
     ),

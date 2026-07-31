@@ -151,6 +151,117 @@ struct MLXToolMapperTests {
     #expect(containsNSNull(parameters) == false)
   }
 
+  @Test
+  func cacheIdentityUsesActualMappedSchemasAndIgnoresMapperDroppedNulls() throws {
+    let withoutDefault = ToolArgumentValue.object([
+      "type": .string("object"),
+      "properties": .object([
+        "query": .object(["type": .string("string")])
+      ]),
+    ])
+    let withNullDefault = ToolArgumentValue.object([
+      "type": .string("object"),
+      "properties": .object([
+        "query": .object([
+          "default": .null,
+          "type": .string("string"),
+        ])
+      ]),
+    ])
+
+    let firstSpecs = try #require(
+      MLXToolMapper.toolSpecs(
+        from: toolContext(name: "mcp__search", rawSchema: withoutDefault)
+      ))
+    let nullDefaultSpecs = try #require(
+      MLXToolMapper.toolSpecs(
+        from: toolContext(name: "mcp__search", rawSchema: withNullDefault)
+      ))
+
+    #expect(
+      cacheIdentity(toolSpecs: firstSpecs)
+        == cacheIdentity(toolSpecs: nullDefaultSpecs))
+  }
+
+  @Test
+  func cacheIdentityChangesForActualMappedSchemaAndToolOrder() throws {
+    let stringSchema = ToolArgumentValue.object([
+      "type": .string("object"),
+      "properties": .object([
+        "query": .object(["type": .string("string")])
+      ]),
+    ])
+    let integerSchema = ToolArgumentValue.object([
+      "type": .string("object"),
+      "properties": .object([
+        "query": .object(["type": .string("integer")])
+      ]),
+    ])
+    let search = toolDefinition(name: "mcp__search", rawSchema: stringSchema)
+    let inspect = toolDefinition(name: "mcp__inspect", rawSchema: stringSchema)
+    let changedSearch = toolDefinition(name: "mcp__search", rawSchema: integerSchema)
+    let baseSpecs = try #require(
+      MLXToolMapper.toolSpecs(
+        from: ChatRuntimeToolContext(registry: ToolRegistry(tools: [search, inspect]))
+      ))
+    let reorderedSpecs = try #require(
+      MLXToolMapper.toolSpecs(
+        from: ChatRuntimeToolContext(registry: ToolRegistry(tools: [inspect, search]))
+      ))
+    let changedSpecs = try #require(
+      MLXToolMapper.toolSpecs(
+        from: ChatRuntimeToolContext(registry: ToolRegistry(tools: [changedSearch, inspect]))
+      ))
+    let base = cacheIdentity(toolSpecs: baseSpecs)
+
+    #expect(
+      MLXSessionCachePolicy.identityMismatchReason(
+        cached: base,
+        current: cacheIdentity(toolSpecs: reorderedSpecs)
+      ) == .toolSchemasChanged)
+    #expect(
+      MLXSessionCachePolicy.identityMismatchReason(
+        cached: base,
+        current: cacheIdentity(toolSpecs: changedSpecs)
+      ) == .toolSchemasChanged)
+  }
+
+  private func toolContext(
+    name: String,
+    rawSchema: ToolArgumentValue
+  ) -> ChatRuntimeToolContext {
+    ChatRuntimeToolContext(
+      registry: ToolRegistry(
+        tools: [toolDefinition(name: name, rawSchema: rawSchema)]
+      )
+    )
+  }
+
+  private func toolDefinition(
+    name: String,
+    rawSchema: ToolArgumentValue
+  ) -> ToolDefinition {
+    ToolDefinition(
+      name: ToolName(rawValue: name),
+      description: "Mapped schema identity fixture.",
+      parameters: [],
+      rawParametersSchema: rawSchema,
+      capabilities: [.externalService],
+      riskLevel: .high
+    )
+  }
+
+  private func cacheIdentity(
+    toolSpecs: [ToolSpec]
+  ) -> MLXSessionCacheIdentity {
+    MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Stable",
+      settings: .agentDefault,
+      projectionMode: .fullHistory,
+      toolSpecs: toolSpecs
+    )
+  }
+
   private func containsNSNull(_ value: Any) -> Bool {
     if value is NSNull {
       return true

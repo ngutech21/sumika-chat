@@ -109,7 +109,7 @@ struct MLXModelStreamProcessorTests {
   }
 
   @Test
-  func completedModelStreamUsesUpstreamGenerateTimeForDecodeTrace() async throws {
+  func completedModelStreamUsesUpstreamCompletionTimesForTerminalTraces() async throws {
     let traceID = UUID()
     let tracer = MLXStreamTurnTraceRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
@@ -142,11 +142,123 @@ struct MLXModelStreamProcessorTests {
 
     try await drainModelStream(stream)
 
-    let event = try #require(await tracer.firstEvent(for: .runtimeDecode))
-    #expect(event.durationMs == 250)
-    #expect(event.generatedTokenCount == 5)
-    #expect(event.generatedTokenCountIsEstimate == false)
-    #expect(event.tokensPerSecond == 20)
+    let prefillEvents = await tracer.events(for: .runtimePrefill)
+    let prefill = try #require(prefillEvents.first)
+    #expect(prefillEvents.count == 1)
+    #expect(prefill.generationID == traceID)
+    #expect(prefill.durationMs == 100)
+    #expect(prefill.promptTokens == 8)
+    #expect(prefill.cacheMode == "new_session")
+    #expect(prefill.cacheReason == "no_cached_session")
+
+    let decode = try #require(await tracer.firstEvent(for: .runtimeDecode))
+    #expect(decode.durationMs == 250)
+    #expect(decode.generatedTokenCount == 5)
+    #expect(decode.generatedTokenCountIsEstimate == false)
+    #expect(decode.tokensPerSecond == 20)
+  }
+
+  @Test
+  func reusedModelStreamRecordsInternalFullPrefillDiagnostics() async throws {
+    let diagnostics = MLXRuntimeCacheDiagnostics(
+      cacheTypes: [
+        "MLXLMCommon.MambaCache",
+        "MLXLMCommon.KVCacheSimple",
+      ],
+      cacheTrimmable: false
+    )
+    let coldGenerationID = UUID()
+    await diagnostics.begin(generationID: coldGenerationID, expectsReuse: false)
+    await diagnostics.recordPreparedInput(
+      MLXPreparedInputDiagnostics(
+        fullPromptTokens: 100,
+        inputMaskPresent: false,
+        preparedMediaPresent: false
+      )
+    )
+    _ = await diagnostics.complete(
+      generationID: coldGenerationID,
+      info: GenerateCompletionInfo(
+        promptTokenCount: 100,
+        generationTokenCount: 20,
+        promptTime: 0.1,
+        generationTime: 0.2
+      )
+    )
+
+    let traceID = UUID()
+    await diagnostics.begin(generationID: traceID, expectsReuse: true)
+    await diagnostics.recordPreparedInput(
+      MLXPreparedInputDiagnostics(
+        fullPromptTokens: 140,
+        inputMaskPresent: false,
+        preparedMediaPresent: false
+      )
+    )
+    let tracer = MLXStreamTurnTraceRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("done"))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 140,
+            generationTokenCount: 5,
+            promptTime: 0.5,
+            generationTime: 0.25
+          )
+        ))
+      continuation.finish()
+    }
+    let cacheTrace = MLXSessionCacheTrace(
+      cacheMode: .appendDelta,
+      cacheReason: .appendOnlyDelta,
+      contextSignature: "context",
+      previousContextSignature: "previous",
+      appendOnly: true,
+      reusedMessageCount: 2,
+      appendedMessageCount: 1,
+      mismatchReason: nil,
+      firstMismatchIndex: nil,
+      systemPromptChanged: false
+    )
+    let stream = modelStream(
+      from: source,
+      traceID: traceID,
+      traceMetadata: TurnTraceMetadata(
+        turnID: nil,
+        generationID: traceID,
+        tracer: tracer
+      ),
+      cacheTrace: cacheTrace,
+      debugTraceStore: temporaryDebugTraceStore(),
+      runtimeCacheDiagnostics: diagnostics,
+      markCompleted: { _ in },
+      markCancelled: { _ in },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
+    )
+
+    try await drainModelStream(stream)
+
+    let prefill = try #require(await tracer.firstEvent(for: .runtimePrefill))
+    #expect(prefill.promptTokens == 140)
+    #expect(prefill.mlxCacheDecision == "full_prefill")
+    #expect(
+      prefill.mlxCacheMismatchReason
+        == "prefix_or_alignment_mismatch_nontrimmable_cache"
+    )
+    #expect(prefill.fullPromptTokens == 140)
+    #expect(prefill.expectedCachedTokens == 120)
+    #expect(prefill.expectedSuffixTokens == 20)
+    #expect(prefill.reusedPromptTokens == 0)
+    #expect(prefill.inputMaskPresent == false)
+    #expect(prefill.preparedMediaPresent == false)
+    #expect(prefill.newMediaPresent == false)
+    #expect(prefill.cacheTrimmable == false)
+    #expect(
+      prefill.cacheTypes == [
+        "MLXLMCommon.MambaCache",
+        "MLXLMCommon.KVCacheSimple",
+      ])
   }
 
   @Test
@@ -330,6 +442,8 @@ struct MLXModelStreamProcessorTests {
   func cancelledModelStreamInvalidatesInsteadOfCompleting() async throws {
     let completionRecorder = MLXStreamCompletionRecorder()
     let invalidationRecorder = MLXStreamInvalidationRecorder()
+    let traceID = UUID()
+    let tracer = MLXStreamTurnTraceRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
       continuation.yield(.chunk("partial"))
       continuation.yield(
@@ -346,8 +460,12 @@ struct MLXModelStreamProcessorTests {
     }
     let stream = modelStream(
       from: source,
-      traceID: UUID(),
-      traceMetadata: nil,
+      traceID: traceID,
+      traceMetadata: TurnTraceMetadata(
+        turnID: nil,
+        generationID: traceID,
+        tracer: tracer
+      ),
       cacheTrace: defaultCacheTrace(),
       debugTraceStore: temporaryDebugTraceStore(),
       markCompleted: { output in
@@ -365,6 +483,10 @@ struct MLXModelStreamProcessorTests {
     } catch is CancellationError {
       #expect(await invalidationRecorder.firstReason == .cancelled)
       #expect(await completionRecorder.firstOutput == nil)
+      let prefill = try #require(await tracer.firstEvent(for: .runtimePrefill))
+      #expect(prefill.durationMs == 100)
+      #expect(prefill.promptTokens == 8)
+      #expect(await tracer.firstEvent(for: .runtimeDecode) == nil)
     } catch {
       Issue.record("Expected CancellationError, got \(error).")
     }
@@ -635,6 +757,37 @@ struct MLXModelStreamProcessorTests {
     let recorder = MLXStreamInvalidationRecorder()
     let boundaryRecorder = MLXNativeBoundaryRecorder()
     let memoryClearRecorder = MLXMemoryClearRecorder()
+    let diagnostics = MLXRuntimeCacheDiagnostics(
+      cacheTypes: ["MLXLMCommon.KVCacheSimple"],
+      cacheTrimmable: true
+    )
+    let previousGenerationID = UUID()
+    await diagnostics.begin(generationID: previousGenerationID, expectsReuse: false)
+    await diagnostics.recordPreparedInput(
+      MLXPreparedInputDiagnostics(
+        fullPromptTokens: 100,
+        inputMaskPresent: false,
+        preparedMediaPresent: false
+      )
+    )
+    _ = await diagnostics.complete(
+      generationID: previousGenerationID,
+      info: GenerateCompletionInfo(
+        promptTokenCount: 100,
+        generationTokenCount: 20,
+        promptTime: 0.1,
+        generationTime: 0.2
+      )
+    )
+    let traceID = UUID()
+    await diagnostics.begin(generationID: traceID, expectsReuse: true)
+    await diagnostics.recordPreparedInput(
+      MLXPreparedInputDiagnostics(
+        fullPromptTokens: 140,
+        inputMaskPresent: false,
+        preparedMediaPresent: false
+      )
+    )
     let toolCall = MLXLMCommon.ToolCall(
       function: .init(
         name: "read_file",
@@ -647,10 +800,11 @@ struct MLXModelStreamProcessorTests {
     }
     let stream = modelStream(
       from: source,
-      traceID: UUID(),
+      traceID: traceID,
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
       debugTraceStore: temporaryDebugTraceStore(),
+      runtimeCacheDiagnostics: diagnostics,
       markCompleted: { _ in
         await recorder.record(.signatureMismatch)
       },
@@ -679,6 +833,29 @@ struct MLXModelStreamProcessorTests {
     #expect(await recorder.firstReason == nil)
     #expect(await boundaryRecorder.firstBoundary?.output == "")
     #expect(await memoryClearRecorder.reasons.isEmpty)
+
+    let nextGenerationID = UUID()
+    await diagnostics.begin(generationID: nextGenerationID, expectsReuse: true)
+    await diagnostics.recordPreparedInput(
+      MLXPreparedInputDiagnostics(
+        fullPromptTokens: 160,
+        inputMaskPresent: false,
+        preparedMediaPresent: false
+      )
+    )
+    let nextResult = try #require(
+      await diagnostics.complete(
+        generationID: nextGenerationID,
+        info: GenerateCompletionInfo(
+          promptTokenCount: 160,
+          generationTokenCount: 5,
+          promptTime: 0.1,
+          generationTime: 0.2
+        )
+      )
+    )
+    #expect(nextResult.decision == .unavailable)
+    #expect(nextResult.mismatchReason == .missingCachedTokenLedger)
   }
 
   @Test
@@ -750,6 +927,7 @@ struct MLXModelStreamProcessorTests {
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
     debugTraceStore: MLXDebugTraceStore,
+    runtimeCacheDiagnostics: MLXRuntimeCacheDiagnostics? = nil,
     markCompleted: @escaping @Sendable (String) async -> Void,
     markNativeToolCallBoundary: @escaping @Sendable (String, [ChatRuntimeToolCall]) async -> Void =
       {
@@ -765,6 +943,7 @@ struct MLXModelStreamProcessorTests {
       traceMetadata: traceMetadata,
       cacheTrace: cacheTrace,
       debugTraceStore: debugTraceStore,
+      runtimeCacheDiagnostics: runtimeCacheDiagnostics,
       markCompleted: markCompleted,
       markNativeToolCallBoundary: markNativeToolCallBoundary,
       markCancelled: markCancelled,
@@ -932,6 +1111,10 @@ struct MLXModelStreamProcessorTests {
 
     func firstEvent(for phase: TurnTracePhase) -> TurnTraceEvent? {
       events.first { $0.phase == phase }
+    }
+
+    func events(for phase: TurnTracePhase) -> [TurnTraceEvent] {
+      events.filter { $0.phase == phase }
     }
   }
 

@@ -17,6 +17,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
   private var cachedSession: CachedMLXSession?
   private var pendingCacheInvalidationReason: MLXSessionInvalidationReason?
   private var lastRuntimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
+  private var runtimeCacheDiagnostics: MLXRuntimeCacheDiagnostics?
   private let attachmentStore = ChatAttachmentStore()
   private var contextTokenLimit: Int?
   private var generationOwnership = MLXGenerationOwnership()
@@ -63,6 +64,12 @@ final actor MLXChatRuntime: ChatModelRuntime {
         )
       }
 
+    runtimeCacheDiagnostics =
+      if MLXDebugTraceStore.isEnabled {
+        await MLXRuntimeCacheDiagnostics.install(on: container)
+      } else {
+        nil
+      }
     modelContainer = container
     loadedModelSupportsImageInput = configuration.supportsImageInput
     loadedReasoningTraceFormat = configuration.reasoningTraceFormat
@@ -77,6 +84,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     await cancelAndDrainActiveGeneration(reason: .modelChanged)
     invalidateCachedSession(reason: .modelChanged)
     modelContainer = nil
+    runtimeCacheDiagnostics = nil
     loadedModelSupportsImageInput = false
     loadedReasoningTraceFormat = .none
     contextTokenLimit = nil
@@ -96,6 +104,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     defer { lifecycleTransitionInProgress = false }
     await cancelAndDrainActiveGeneration(reason: .signatureMismatch)
     invalidateCachedSession(reason: .signatureMismatch)
+    await runtimeCacheDiagnostics?.invalidate()
     lastRuntimeCacheDebugSnapshot = nil
     await MLXModelStreamProcessor.clearMemoryCache(
       reason: .clearContext,
@@ -201,7 +210,6 @@ final actor MLXChatRuntime: ChatModelRuntime {
       reasoningEnabled: settings.reasoningEnabled)
     let systemPrompt = promptPlan.stableInstructions
     let toolSpecs = MLXToolMapper.toolSpecs(from: promptPlan.toolContext)
-    let cacheSystemPrompt = promptPlan.cacheIdentityInstructions
     let historySnapshot = generationInput.historySnapshot
     let history = generationInput.history
     let promptWithTransientInstructions = Self.appendTransientInstructions(
@@ -226,7 +234,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
       historySnapshot: historySnapshot,
       promptMessages: promptMessages,
       systemPrompt: systemPrompt,
-      cacheSystemPrompt: cacheSystemPrompt,
+      toolSpecs: toolSpecs,
       settings: settings,
       generateParameters: generateParameters,
       additionalContext: additionalContext,
@@ -239,8 +247,6 @@ final actor MLXChatRuntime: ChatModelRuntime {
       appendDeltaStartIndex: cachePlan.appendDeltaStartIndex,
       generationID: traceID
     )
-    cachePlan.session.tools = toolSpecs
-
     try await traceDebugRequest(
       id: traceID,
       systemPrompt: systemPrompt,
@@ -269,6 +275,22 @@ final actor MLXChatRuntime: ChatModelRuntime {
     } else {
       generationProgressTracer = .disabled
     }
+    let runtimeCacheDiagnostics = self.runtimeCacheDiagnostics
+    if let runtimeCacheDiagnostics {
+      let cacheCapabilities = await MLXRuntimeCacheDiagnostics.capabilities(
+        of: modelContainer,
+        parameters: generateParameters
+      )
+      await runtimeCacheDiagnostics.begin(
+        generationID: traceID,
+        expectsReuse: cachePlan.trace.cacheMode == .reusedSession
+          || cachePlan.trace.cacheMode == .appendDelta,
+        newMediaPresent: cachePlan.streamMessages.contains {
+          !$0.images.isEmpty || !$0.videos.isEmpty || !$0.audios.isEmpty
+        },
+        capabilities: cacheCapabilities
+      )
+    }
     let stream = cachePlan.session.streamDetails(to: cachePlan.streamMessages)
     ChatDiagnostics.endInterval(createStreamInterval)
     await recordRuntimeStreamStart(
@@ -286,6 +308,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
       traceMetadata: traceMetadata,
       cacheTrace: cachePlan.trace,
       debugTraceStore: debugTraceStore,
+      runtimeCacheDiagnostics: runtimeCacheDiagnostics,
       generationProgressTracer: generationProgressTracer,
       markCompleted: { [weak self] output in
         await self?.markSessionCompleted(
@@ -304,7 +327,8 @@ final actor MLXChatRuntime: ChatModelRuntime {
           nativeToolCalls: nativeToolCalls
         )
       },
-      markCancelled: { [weak self] reason in
+      markCancelled: { [weak self, runtimeCacheDiagnostics] reason in
+        await runtimeCacheDiagnostics?.invalidate()
         await self?.markCachedSessionInvalid(generationID: generationID, reason: reason)
       }
     )
@@ -406,7 +430,7 @@ extension MLXChatRuntime {
     historySnapshot: [ProviderPromptMessage],
     promptMessages: [Chat.Message],
     systemPrompt: String,
-    cacheSystemPrompt: String,
+    toolSpecs: [ToolSpec]?,
     settings: ChatGenerationSettings,
     generateParameters: GenerateParameters,
     additionalContext: [String: any Sendable],
@@ -414,9 +438,11 @@ extension MLXChatRuntime {
     generationID: MLXGenerationID
   ) -> MLXSessionCachePlan {
     let currentIdentity = MLXSessionCachePolicy.cacheIdentity(
-      systemPrompt: cacheSystemPrompt,
+      systemPrompt: systemPrompt,
       settings: settings,
-      projectionMode: projectionMode
+      projectionMode: projectionMode,
+      toolSpecs: toolSpecs,
+      additionalContext: additionalContext
     )
     let cached = cachedSession
     let appendOnly: Bool
@@ -437,6 +463,7 @@ extension MLXChatRuntime {
     let shouldReuse: Bool
     let appendDeltaStartIndex: Int?
     let mismatchReason: String?
+    let isStructuredToolContinuation = promptMessages.first?.role == .tool
     if cached == nil, let invalidationReason = cachedState?.invalidationReason {
       traceMode = .dirtyRebuild
       traceReason = .generationInvalidationReason(from: invalidationReason)
@@ -467,25 +494,9 @@ extension MLXChatRuntime {
       mismatchReason = "identity_changed"
     } else if appendOnly, let cached {
       let deltaStartIndex = cached.prefix.count
-      let deltaBeginsWithToolResult = MLXSessionCachePolicy.deltaBeginsWithToolResult(
-        cachedPrefixCount: deltaStartIndex,
-        historySnapshot: historySnapshot,
-        promptFirstRole: promptMessages.first?.role.rawValue
-      )
-      if deltaBeginsWithToolResult {
-        // A reused/append-delta render templates only the delta. When the delta
-        // begins with a tool response, the chat template drops it (its paired
-        // assistant tool_call sits in the cached prefix, not in this render), so
-        // the model never sees the tool result and repeats the same call. Rebuild
-        // the full history instead so call and result are templated adjacently.
-        traceMode = .dirtyRebuild
-        traceReason = .toolFollowUpRebuild
-        shouldReuse = false
-        appendDeltaStartIndex = nil
-        mismatchReason = "tool_follow_up_response"
-      } else if deltaStartIndex == historySnapshot.count {
-        traceMode = .reusedSession
-        traceReason = .reusedSession
+      if deltaStartIndex == historySnapshot.count {
+        traceMode = isStructuredToolContinuation ? .appendDelta : .reusedSession
+        traceReason = isStructuredToolContinuation ? .appendOnlyDelta : .reusedSession
         shouldReuse = true
         appendDeltaStartIndex = nil
         mismatchReason = nil
@@ -518,12 +529,7 @@ extension MLXChatRuntime {
     pendingCacheInvalidationReason = nil
 
     if shouldReuse, let cached {
-      cached.session.instructions = MLXSessionCachePolicy.chatSessionInstructions(
-        for: traceMode,
-        systemPrompt: systemPrompt
-      )
       cached.session.generateParameters = generateParameters
-      cached.session.additionalContext = additionalContext
       cachedSession = CachedMLXSession(
         session: cached.session,
         prefix: cached.prefix,
@@ -544,14 +550,12 @@ extension MLXChatRuntime {
 
     let session = MLXLMCommon.ChatSession(
       modelContainer,
-      instructions: MLXSessionCachePolicy.chatSessionInstructions(
-        for: traceMode,
-        systemPrompt: systemPrompt
-      ),
+      instructions: ModelFacingPromptRenderer.normalizedSystemPrompt(systemPrompt),
       history: history,
       generateParameters: generateParameters,
       processing: Self.modelNativeMediaProcessing,
-      additionalContext: additionalContext
+      additionalContext: additionalContext,
+      tools: toolSpecs
     )
     cachedSession = CachedMLXSession(
       session: session,
@@ -707,7 +711,7 @@ extension MLXChatRuntime {
   ) -> ProviderPromptMessage {
     ProviderPromptMessage(
       role: Chat.Message.Role.assistant.rawValue,
-      content: output,
+      content: ProviderPromptProjection.canonicalAssistantToolBoundaryContent(output),
       toolCalls: nativeToolCalls.map(Self.toolCallSnapshot(from:))
     )
   }

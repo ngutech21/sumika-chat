@@ -36,10 +36,10 @@ struct MLXDebugTraceStoreTests {
       TurnTraceEvent(
         turnID: turnID,
         generationID: generationID,
-        phase: .runtimeTTFT,
+        phase: .runtimePrefill,
         durationMs: 123.5,
+        promptTokens: 37,
         messageCount: 2,
-        ttftMs: 123.5,
         cacheMode: "reused_session",
         cacheReason: "reused_session",
         memoryClearReason: "runtime_error",
@@ -51,6 +51,17 @@ struct MLXDebugTraceStoreTests {
         mismatchReason: "history_prefix_mismatch",
         firstMismatchIndex: 2,
         systemPromptChanged: false,
+        mlxCacheDecision: "full_prefill",
+        mlxCacheMismatchReason: "prefix_or_alignment_mismatch_nontrimmable_cache",
+        fullPromptTokens: 140,
+        expectedCachedTokens: 120,
+        expectedSuffixTokens: 20,
+        reusedPromptTokens: 0,
+        inputMaskPresent: false,
+        preparedMediaPresent: false,
+        newMediaPresent: false,
+        cacheTrimmable: false,
+        cacheTypes: ["MLXLMCommon.MambaCache", "MLXLMCommon.KVCacheSimple"],
         toolCallFormat: "native",
         toolValidationStatus: "invalid",
         toolValidationError: "Unknown argument(s): id, status.",
@@ -78,10 +89,10 @@ struct MLXDebugTraceStoreTests {
     #expect(object["kind"] as? String == "turn_trace")
     #expect(object["turnID"] as? String == turnID.uuidString)
     #expect(object["generationID"] as? String == generationID.uuidString)
-    #expect(object["phase"] as? String == "runtime_ttft")
+    #expect(object["phase"] as? String == "runtime_prefill")
     #expect(object["durationMs"] as? Double == 123.5)
+    #expect(object["promptTokens"] as? Int == 37)
     #expect(object["messageCount"] as? Int == 2)
-    #expect(object["ttftMs"] as? Double == 123.5)
     #expect(object["cacheMode"] as? String == "reused_session")
     #expect(object["cacheReason"] as? String == "reused_session")
     #expect(object["memoryClearReason"] as? String == "runtime_error")
@@ -93,6 +104,23 @@ struct MLXDebugTraceStoreTests {
     #expect(object["mismatchReason"] as? String == "history_prefix_mismatch")
     #expect(object["firstMismatchIndex"] as? Int == 2)
     #expect(object["systemPromptChanged"] as? Bool == false)
+    #expect(object["mlxCacheDecision"] as? String == "full_prefill")
+    #expect(
+      object["mlxCacheMismatchReason"] as? String
+        == "prefix_or_alignment_mismatch_nontrimmable_cache"
+    )
+    #expect(object["fullPromptTokens"] as? Int == 140)
+    #expect(object["expectedCachedTokens"] as? Int == 120)
+    #expect(object["expectedSuffixTokens"] as? Int == 20)
+    #expect(object["reusedPromptTokens"] as? Int == 0)
+    #expect(object["inputMaskPresent"] as? Bool == false)
+    #expect(object["preparedMediaPresent"] as? Bool == false)
+    #expect(object["newMediaPresent"] as? Bool == false)
+    #expect(object["cacheTrimmable"] as? Bool == false)
+    #expect(
+      object["cacheTypes"] as? [String]
+        == ["MLXLMCommon.MambaCache", "MLXLMCommon.KVCacheSimple"]
+    )
     #expect(object["toolCallFormat"] as? String == "native")
     #expect(object["toolValidationStatus"] as? String == "invalid")
     #expect(object["toolValidationError"] as? String == "Unknown argument(s): id, status.")

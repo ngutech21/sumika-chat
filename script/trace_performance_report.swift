@@ -25,6 +25,19 @@ struct GenerationReport: Codable {
   var responseError: String?
   var streamStartMs: Double?
   var ttftMs: Double?
+  var prefillMs: Double?
+  var promptTokens: Int?
+  var mlxCacheDecision: String?
+  var mlxCacheMismatchReason: String?
+  var fullPromptTokens: Int?
+  var expectedCachedTokens: Int?
+  var expectedSuffixTokens: Int?
+  var reusedPromptTokens: Int?
+  var inputMaskPresent: Bool?
+  var preparedMediaPresent: Bool?
+  var newMediaPresent: Bool?
+  var cacheTrimmable: Bool?
+  var cacheTypes: [String]?
   var decodeMs: Double?
   var partialDecodeMs: Double?
   var memoryClearMs: Double?
@@ -212,26 +225,31 @@ func markdown(_ report: PerformanceReport) -> String {
     "- Rows: \(report.rowCount)",
     "- Generations: \(report.generationCount)",
     "",
-    "| # | Mode | Iter | Cache | Reason | Memory clear | TTFT ms | Decode ms | tok/s | Prompt bytes | Error |",
-    "|---:|---|---:|---|---|---|---:|---:|---:|---:|---|",
+    "| # | Mode | Iter | Cache | Reason | MLX decision | MLX mismatch | Memory clear | TTFT ms | Prefill ms | Prompt tokens | Full tokens | Reused tokens | Decode ms | tok/s | Prompt bytes | Error |",
+    "|---:|---|---:|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
   ]
 
   for (index, generation) in report.generations.enumerated() {
-    lines.append(
-      [
-        "\(index + 1)",
-        generation.interactionMode ?? "-",
-        generation.toolLoopIteration.map(String.init) ?? "-",
-        generation.cacheMode ?? "-",
-        generation.cacheReason ?? "-",
-        generation.memoryClearReason ?? "-",
-        formatted(generation.ttftMs),
-        formatted(generation.decodeMs),
-        formatted(generation.tokensPerSecond),
-        generation.promptBytes.map(String.init) ?? "-",
-        generation.responseError ?? "-",
-      ].joined(separator: " | ").wrappedTableRow()
-    )
+    let row: [String] = [
+      "\(index + 1)",
+      generation.interactionMode ?? "-",
+      generation.toolLoopIteration.map(String.init) ?? "-",
+      generation.cacheMode ?? "-",
+      generation.cacheReason ?? "-",
+      generation.mlxCacheDecision ?? "-",
+      generation.mlxCacheMismatchReason ?? "-",
+      generation.memoryClearReason ?? "-",
+      formatted(generation.ttftMs),
+      formatted(generation.prefillMs),
+      generation.promptTokens.map(String.init) ?? "-",
+      generation.fullPromptTokens.map(String.init) ?? "-",
+      generation.reusedPromptTokens.map(String.init) ?? "-",
+      formatted(generation.decodeMs),
+      formatted(generation.tokensPerSecond),
+      generation.promptBytes.map(String.init) ?? "-",
+      generation.responseError ?? "-",
+    ]
+    lines.append(row.joined(separator: " | ").wrappedTableRow())
   }
 
   appendToolLoopTTFTComparison(to: &lines, generations: report.generations)
@@ -410,6 +428,21 @@ for (rowIndex, row) in rows.enumerated() {
       report.streamStartMs = doubleValue(object, "durationMs")
     case "runtime_ttft":
       report.ttftMs = doubleValue(object, "ttftMs") ?? doubleValue(object, "durationMs")
+    case "runtime_prefill":
+      report.prefillMs = doubleValue(object, "durationMs")
+      report.promptTokens = intValue(object, "promptTokens")
+      report.mlxCacheDecision = value(object, "mlxCacheDecision", as: String.self)
+      report.mlxCacheMismatchReason =
+        value(object, "mlxCacheMismatchReason", as: String.self)
+      report.fullPromptTokens = intValue(object, "fullPromptTokens")
+      report.expectedCachedTokens = intValue(object, "expectedCachedTokens")
+      report.expectedSuffixTokens = intValue(object, "expectedSuffixTokens")
+      report.reusedPromptTokens = intValue(object, "reusedPromptTokens")
+      report.inputMaskPresent = boolValue(object, "inputMaskPresent")
+      report.preparedMediaPresent = boolValue(object, "preparedMediaPresent")
+      report.newMediaPresent = boolValue(object, "newMediaPresent")
+      report.cacheTrimmable = boolValue(object, "cacheTrimmable")
+      report.cacheTypes = value(object, "cacheTypes", as: [String].self)
     case "runtime_decode":
       report.decodeMs = doubleValue(object, "durationMs")
       report.tokensPerSecond = doubleValue(object, "tokensPerSecond") ?? report.tokensPerSecond

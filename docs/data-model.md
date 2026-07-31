@@ -1955,24 +1955,35 @@ Properties:
 - `appendedMessageCount: Int?`
 - `cacheMode: String?`
 - `cacheReason: String?`
+- `cacheTrimmable: Bool?`
+- `cacheTypes: [String]?`
 - `contextSignature: String?`
 - `durationMs: Double`
+- `expectedCachedTokens: Int?`
+- `expectedSuffixTokens: Int?`
 - `firstMismatchIndex: Int?`
+- `fullPromptTokens: Int?`
 - `generatedTokenCount: Int?`
 - `generatedTokenCountIsEstimate: Bool?`
 - `generationID: UUID?`
 - `imageByteCount: Int?`
 - `imageCount: Int?`
 - `imageTypes: [String]?`
+- `inputMaskPresent: Bool?`
 - `interactionMode: WorkspaceInteractionMode?`
 - `memoryClearReason: String?`
 - `messageCount: Int?`
 - `mismatchReason: String?`
+- `mlxCacheDecision: String?`
+- `mlxCacheMismatchReason: String?`
+- `newMediaPresent: Bool?`
 - `phase: TurnTracePhase`
+- `preparedMediaPresent: Bool?`
 - `previousContextSignature: String?`
 - `promptBytes: Int?`
 - `promptTokens: Int?`
 - `reusedMessageCount: Int?`
+- `reusedPromptTokens: Int?`
 - `selectedMCPServerIDs: [UUID]?`
 - `systemPromptChanged: Bool?`
 - `tokensPerSecond: Double?`
@@ -2026,6 +2037,7 @@ Cases:
 - `renderSystemPrompt`
 - `runtimeDecode`
 - `runtimePartialDecode`
+- `runtimePrefill`
 - `runtimeStreamStart`
 - `runtimeTTFT`
 - `tokenizeContextUsage`
