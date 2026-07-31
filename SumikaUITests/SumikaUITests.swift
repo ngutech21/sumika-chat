@@ -269,7 +269,7 @@ final class SumikaUITests: XCTestCase {
       "A plain chat follow-up should reuse the loaded Gemma ChatSession cache."
     )
     XCTAssertTrue(
-      followUpRows.containsRuntimePrefill(
+      followUpRows.containsExactSuffixRuntimePrefill(
         cacheMode: "reused_session",
         cacheReason: "reused_session"
       ),
@@ -487,7 +487,7 @@ final class SumikaUITests: XCTestCase {
       "Gemma 4 native tool follow-ups should keep the MLX ChatSession cache reusable."
     )
     XCTAssertTrue(
-      rows.containsToolLoopRuntimePrefill(
+      rows.containsToolLoopExactSuffixRuntimePrefill(
         cacheMode: "append_delta",
         cacheReason: "append_only_delta"
       ),
@@ -516,7 +516,7 @@ final class SumikaUITests: XCTestCase {
     )
     waitForCompletedTurn(in: application, after: baseline, timeout: 420)
     let rows = try waitForTraceRows(in: fixture.traceURL, afterOffset: traceOffset) { rows in
-      rows.containsToolLoopRuntimePrefill(
+      rows.containsToolLoopExactSuffixRuntimePrefill(
         cacheMode: "append_delta",
         cacheReason: "append_only_delta"
       )
@@ -531,7 +531,7 @@ final class SumikaUITests: XCTestCase {
       1
     )
     XCTAssertTrue(
-      rows.containsToolLoopRuntimePrefill(
+      rows.containsToolLoopExactSuffixRuntimePrefill(
         cacheMode: "append_delta",
         cacheReason: "append_only_delta"
       ),
@@ -1301,7 +1301,7 @@ extension Array where Element == TraceRow {
     }
   }
 
-  fileprivate func containsRuntimePrefill(
+  fileprivate func containsExactSuffixRuntimePrefill(
     cacheMode: String,
     cacheReason: String
   ) -> Bool {
@@ -1312,9 +1312,10 @@ extension Array where Element == TraceRow {
         && row.cacheReason == cacheReason
         && row.durationMs != nil
         && row.promptTokens != nil
-        && row.mlxCacheDecision != nil
+        && row.mlxCacheDecision == "exact_suffix_reuse"
+        && row.mlxCacheMismatchReason == nil
         && row.fullPromptTokens != nil
-        && row.reusedPromptTokens != nil
+        && row.reusedPromptTokens.map { $0 > 0 } == true
         && row.cacheTrimmable != nil
         && row.cacheTypes?.isEmpty == false
     }
@@ -1326,7 +1327,7 @@ extension Array where Element == TraceRow {
     }
   }
 
-  fileprivate func containsToolLoopRuntimePrefill(
+  fileprivate func containsToolLoopExactSuffixRuntimePrefill(
     cacheMode: String,
     cacheReason: String
   ) -> Bool {
@@ -1338,9 +1339,10 @@ extension Array where Element == TraceRow {
         && row.cacheReason == cacheReason
         && row.durationMs != nil
         && row.promptTokens != nil
-        && row.mlxCacheDecision != nil
+        && row.mlxCacheDecision == "exact_suffix_reuse"
+        && row.mlxCacheMismatchReason == nil
         && row.fullPromptTokens != nil
-        && row.reusedPromptTokens != nil
+        && row.reusedPromptTokens.map { $0 > 0 } == true
         && row.cacheTrimmable != nil
         && row.cacheTypes?.isEmpty == false
     }
