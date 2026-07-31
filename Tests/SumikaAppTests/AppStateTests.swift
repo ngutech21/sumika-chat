@@ -44,6 +44,41 @@ struct AppStateTests {
   }
 
   @Test
+  func modelContextDebugRefreshDoesNotInvalidateItsOwnRequest() async throws {
+    let sessionID = UUID()
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [ChatSession(id: sessionID)]
+    )
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspace.id,
+          activeSessionID: sessionID
+        )
+      ),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+    #expect(appState.chatFeatureState.activateSelectedConversation())
+    let requestRevision = appState.chatFeatureState.modelContextDebug.state.documentRevision
+
+    _ = try appState.chatFeatureState.modelContextDebugDocument()
+
+    #expect(
+      appState.chatFeatureState.modelContextDebug.state.documentRevision == requestRevision
+    )
+  }
+
+  @Test
   func modelManagementFacadeRoutesStateChangesThroughExplicitActions() async throws {
     let appState = AppState(
       workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),

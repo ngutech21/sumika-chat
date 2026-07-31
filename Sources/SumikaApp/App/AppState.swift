@@ -457,7 +457,11 @@ final class AppState {
     let selection = normalizedMCPServerSelection(
       workspace.sessions.first(where: { $0.id == sessionID })?.selectedMCPServerIDs ?? []
     )
-    sumika.agent.reconcileSelectedMCPServerIDs(selection)
+    if let activeConversation = sumika.conversation.state.active,
+      activeConversation.composer.selectedMCPServerIDs != selection
+    {
+      sumika.agent.reconcileSelectedMCPServerIDs(selection)
+    }
     reconcileMCPConnectionsIfNeeded()
     return sessionID
   }
