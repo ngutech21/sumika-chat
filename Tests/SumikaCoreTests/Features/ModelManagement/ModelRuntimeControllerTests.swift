@@ -269,6 +269,46 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
+  func loadModelPassesSelectedModelHistoricalReasoningPreservationCapability() async throws {
+    let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
+    let runtime = RuntimeControllerRecordingRuntime()
+    let store = RuntimeFakeModelSettingsStore()
+    let controller = await makeController(
+      initialModelID: "qwen3.6-35b-a3b-optiq-4bit",
+      modelSettingsStore: store,
+      runtime: runtime,
+      modelPath: modelDirectory.path(percentEncoded: false)
+    )
+
+    controller.loadModel()
+
+    try await waitUntil { controller.modelState == .ready }
+
+    let configuration = await runtime.loadedConfiguration
+    #expect(configuration?.supportsHistoricalReasoningPreservation == true)
+  }
+
+  @Test
+  func loadModelLeavesUnverifiedQwenHistoricalReasoningPreservationDisabled() async throws {
+    let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
+    let runtime = RuntimeControllerRecordingRuntime()
+    let store = RuntimeFakeModelSettingsStore()
+    let controller = await makeController(
+      initialModelID: "qwen3.6-35b-a3b-4bit",
+      modelSettingsStore: store,
+      runtime: runtime,
+      modelPath: modelDirectory.path(percentEncoded: false)
+    )
+
+    controller.loadModel()
+
+    try await waitUntil { controller.modelState == .ready }
+
+    let configuration = await runtime.loadedConfiguration
+    #expect(configuration?.supportsHistoricalReasoningPreservation == false)
+  }
+
+  @Test
   func loadModelCapsContextLimitAtUserRequestedSetting() async throws {
     let modelDirectory = try makeModelDirectory(config: #"{"max_position_embeddings":131072}"#)
     let runtime = RuntimeControllerRecordingRuntime()

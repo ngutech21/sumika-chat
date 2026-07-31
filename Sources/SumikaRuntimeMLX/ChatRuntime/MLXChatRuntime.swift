@@ -14,6 +14,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
   private var modelContainer: ModelContainer?
   private var loadedModelSupportsImageInput = false
   private var loadedReasoningTraceFormat: ReasoningTraceFormat = .none
+  private var loadedModelPreservesHistoricalReasoning = false
   private var cachedSession: CachedMLXSession?
   private var pendingCacheInvalidationReason: MLXSessionInvalidationReason?
   private var lastRuntimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
@@ -73,6 +74,8 @@ final actor MLXChatRuntime: ChatModelRuntime {
     modelContainer = container
     loadedModelSupportsImageInput = configuration.supportsImageInput
     loadedReasoningTraceFormat = configuration.reasoningTraceFormat
+    loadedModelPreservesHistoricalReasoning =
+      configuration.supportsHistoricalReasoningPreservation
     contextTokenLimit = configuration.contextTokenLimit
     lastRuntimeCacheDebugSnapshot = nil
     invalidateCachedSession(reason: .modelChanged)
@@ -87,6 +90,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     runtimeCacheDiagnostics = nil
     loadedModelSupportsImageInput = false
     loadedReasoningTraceFormat = .none
+    loadedModelPreservesHistoricalReasoning = false
     contextTokenLimit = nil
     lastRuntimeCacheDebugSnapshot = nil
     await MLXModelStreamProcessor.clearMemoryCache(
@@ -128,11 +132,9 @@ final actor MLXChatRuntime: ChatModelRuntime {
 
   static func appendTransientInstructions(
     _ instructions: [String],
-    toPromptSnapshot promptSnapshot: [ProviderPromptMessage],
-    promptMessages: [Chat.Message]
-  ) -> (promptSnapshot: [ProviderPromptMessage], promptMessages: [Chat.Message]) {
+    toPromptSnapshot promptSnapshot: [ProviderPromptMessage]
+  ) -> [ProviderPromptMessage] {
     var updatedSnapshot = promptSnapshot
-    var updatedMessages = promptMessages
     for instruction in instructions {
       if let lastSnapshot = updatedSnapshot.last,
         lastSnapshot.role == Chat.Message.Role.user.rawValue,
@@ -152,16 +154,8 @@ final actor MLXChatRuntime: ChatModelRuntime {
         )
       }
 
-      if let lastMessage = updatedMessages.last,
-        lastMessage.role == .user
-      {
-        updatedMessages[updatedMessages.count - 1].content =
-          [lastMessage.content, instruction].joined(separator: "\n\n")
-      } else {
-        updatedMessages.append(.user(instruction))
-      }
     }
-    return (updatedSnapshot, updatedMessages)
+    return updatedSnapshot
   }
 
   func streamReply(
@@ -193,7 +187,10 @@ final actor MLXChatRuntime: ChatModelRuntime {
     let projectionMode = MLXHistoryRenderer.runtimeProjectionMode
     let generationInput = try MLXHistoryRenderer.generationInput(
       from: transcript,
-      images: imageInputs
+      images: imageInputs,
+      reasoningEnabled: settings.reasoningEnabled,
+      supportsHistoricalReasoningPreservation:
+        loadedModelPreservesHistoricalReasoning
     )
     let generateParameters = GenerateParameters(
       maxTokens: settings.maxTokens,
@@ -206,19 +203,21 @@ final actor MLXChatRuntime: ChatModelRuntime {
       presencePenalty: Float(settings.presencePenalty),
       presenceContextSize: settings.repetitionContextSize
     )
-    let additionalContext = Self.chatTemplateAdditionalContext(
-      reasoningEnabled: settings.reasoningEnabled)
+    let additionalContext = generationInput.additionalContext
     let systemPrompt = promptPlan.stableInstructions
     let toolSpecs = MLXToolMapper.toolSpecs(from: promptPlan.toolContext)
     let historySnapshot = generationInput.historySnapshot
     let history = generationInput.history
-    let promptWithTransientInstructions = Self.appendTransientInstructions(
+    let promptSnapshot = Self.appendTransientInstructions(
       promptPlan.transientInstructions,
-      toPromptSnapshot: generationInput.promptSnapshot,
-      promptMessages: generationInput.promptMessages
+      toPromptSnapshot: generationInput.promptSnapshot
     )
-    let promptSnapshot = promptWithTransientInstructions.promptSnapshot
-    let promptMessages = promptWithTransientInstructions.promptMessages
+    let promptMessages = MLXHistoryRenderer.chatMessages(
+      from: promptSnapshot,
+      images: imageInputs,
+      supportsHistoricalReasoningPreservation:
+        loadedModelPreservesHistoricalReasoning
+    )
     let finalPrompt = promptMessages.map(\.content).joined(separator: "\n\n")
     await supersedeActiveGenerationBeforeStartingNew()
     let traceMetadata = TurnTraceContext.current
@@ -310,20 +309,20 @@ final actor MLXChatRuntime: ChatModelRuntime {
       debugTraceStore: debugTraceStore,
       runtimeCacheDiagnostics: runtimeCacheDiagnostics,
       generationProgressTracer: generationProgressTracer,
-      markCompleted: { [weak self] output in
+      markCompleted: { [weak self] assistant in
         await self?.markSessionCompleted(
           generationID: generationID,
           historyPrefix: historySnapshot,
           promptSnapshot: promptSnapshot,
-          output: output
+          assistant: assistant
         )
       },
-      markNativeToolCallBoundary: { [weak self] output, nativeToolCalls in
+      markNativeToolCallBoundary: { [weak self] assistant, nativeToolCalls in
         await self?.markSessionNativeToolCallBoundary(
           generationID: generationID,
           historyPrefix: historySnapshot,
           promptSnapshot: promptSnapshot,
-          output: output,
+          assistant: assistant,
           nativeToolCalls: nativeToolCalls
         )
       },
@@ -579,7 +578,7 @@ extension MLXChatRuntime {
     generationID: MLXGenerationID,
     historyPrefix: [ProviderPromptMessage],
     promptSnapshot: [ProviderPromptMessage],
-    output: String
+    assistant: MLXCompletedAssistantSnapshot
   ) {
     guard generationOwnership.completeIfCurrent(generationID) else {
       return
@@ -595,7 +594,15 @@ extension MLXChatRuntime {
     let completedPrefix =
       historyPrefix
       + promptSnapshot
-      + [ProviderPromptMessage(role: Chat.Message.Role.assistant.rawValue, content: output)]
+      + [
+        ProviderPromptMessage(
+          role: Chat.Message.Role.assistant.rawValue,
+          content: assistant.visibleContent,
+          reasoningContent: loadedModelPreservesHistoricalReasoning
+            ? assistant.completedReasoningContent
+            : nil
+        )
+      ]
     cachedSession = CachedMLXSession(
       session: cached.session,
       prefix: completedPrefix,
@@ -609,7 +616,7 @@ extension MLXChatRuntime {
     generationID: MLXGenerationID,
     historyPrefix: [ProviderPromptMessage],
     promptSnapshot: [ProviderPromptMessage],
-    output: String,
+    assistant: MLXCompletedAssistantSnapshot,
     nativeToolCalls: [ChatRuntimeToolCall]
   ) {
     guard generationOwnership.completeIfCurrent(generationID) else {
@@ -625,7 +632,10 @@ extension MLXChatRuntime {
 
     let assistantSnapshots = [
       Self.nativeToolCallBoundarySnapshot(
-        output: output,
+        output: assistant.visibleContent,
+        completedReasoningContent: assistant.completedReasoningContent,
+        supportsHistoricalReasoningPreservation:
+          loadedModelPreservesHistoricalReasoning,
         nativeToolCalls: nativeToolCalls
       )
     ]
@@ -688,12 +698,6 @@ extension MLXChatRuntime {
 
   private static let maxMLXCacheBytes = 512 * 1024 * 1024
 
-  private static func chatTemplateAdditionalContext(
-    reasoningEnabled: Bool
-  ) -> [String: any Sendable] {
-    ["enable_thinking": reasoningEnabled]
-  }
-
   private static func toolCallSnapshot(
     from toolCall: ChatRuntimeToolCall
   ) -> ProviderToolCall {
@@ -707,11 +711,17 @@ extension MLXChatRuntime {
 
   static func nativeToolCallBoundarySnapshot(
     output: String,
+    completedReasoningContent: String? = nil,
+    supportsHistoricalReasoningPreservation: Bool = false,
     nativeToolCalls: [ChatRuntimeToolCall]
   ) -> ProviderPromptMessage {
     ProviderPromptMessage(
       role: Chat.Message.Role.assistant.rawValue,
-      content: ProviderPromptProjection.canonicalAssistantToolBoundaryContent(output),
+      content: ProviderPromptProjection.canonicalAssistantToolBoundaryContent(
+        output),
+      reasoningContent: supportsHistoricalReasoningPreservation
+        ? completedReasoningContent
+        : nil,
       toolCalls: nativeToolCalls.map(Self.toolCallSnapshot(from:))
     )
   }

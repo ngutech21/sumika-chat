@@ -16,6 +16,7 @@ package protocol ChatModelRuntime: Sendable {
 package enum ChatModelStreamEvent: Sendable {
   case chunk(String)
   case thinkingChunk(String)
+  case thinkingCompleted
   case toolCall(ChatRuntimeToolCall)
   case completed(ChatGenerationMetrics?)
   case outputLimitReached(ChatGenerationOutputLimit)

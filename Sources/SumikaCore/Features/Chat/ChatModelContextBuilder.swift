@@ -15,7 +15,8 @@ internal struct ChatModelContextBuilder: Sendable {
 
   internal func transcript(
     from state: ChatSession,
-    includingTurnID: ChatTurn.ID? = nil
+    includingTurnID: ChatTurn.ID? = nil,
+    supportsHistoricalReasoningPreservation: Bool = false
   ) -> ModelPromptProjection {
     var entries: [ModelContextEntry] = []
     var anchorResetBeforeEntryIDs: Set<ModelContextEntry.ID> = []
@@ -32,6 +33,7 @@ internal struct ChatModelContextBuilder: Sendable {
       appendEntries(
         for: turn,
         workspaceInstructionsProjection: workspaceInstructionsProjection,
+        preservesHistoricalReasoning: supportsHistoricalReasoningPreservation,
         to: &entries
       )
       if resetsAnchorBeforeNextProjectedEntry, firstNewEntryIndex < entries.endIndex {
@@ -50,13 +52,14 @@ internal struct ChatModelContextBuilder: Sendable {
   private func appendEntries(
     for turn: ChatTurn,
     workspaceInstructionsProjection: WorkspaceInstructionsProjection?,
+    preservesHistoricalReasoning: Bool,
     to entries: inout [ModelContextEntry]
   ) {
     let suppressedToolCallIDs = unresolvedToolCallIDs(in: turn)
     var previousProjectedItemWasTool = false
     var previousProjectedItemWasAssistantOutput = false
 
-    for item in turn.items {
+    for (itemIndex, item) in turn.items.enumerated() {
       switch item {
       case .userMessage(let message):
         appendUserEntry(
@@ -78,7 +81,17 @@ internal struct ChatModelContextBuilder: Sendable {
           previousProjectedItemWasAssistantOutput = false
           continue
         }
-        appendAssistantEntry(message, content: modelContent, turnID: turn.id, to: &entries)
+        appendAssistantEntry(
+          message,
+          content: modelContent,
+          historicalReasoning: historicalReasoning(
+            in: turn.items,
+            forResponseContaining: itemIndex,
+            isEnabled: preservesHistoricalReasoning
+          ),
+          turnID: turn.id,
+          to: &entries
+        )
         previousProjectedItemWasTool = false
         previousProjectedItemWasAssistantOutput = true
       case .tool(let record):
@@ -90,7 +103,15 @@ internal struct ChatModelContextBuilder: Sendable {
           continue
         }
         if !previousProjectedItemWasTool && !previousProjectedItemWasAssistantOutput {
-          appendAssistantToolBoundary(turnID: turn.id, to: &entries)
+          appendAssistantToolBoundary(
+            historicalReasoning: historicalReasoning(
+              in: turn.items,
+              forResponseContaining: itemIndex,
+              isEnabled: preservesHistoricalReasoning
+            ),
+            turnID: turn.id,
+            to: &entries
+          )
         }
         appendToolEntry(record, turnID: turn.id, to: &entries)
         previousProjectedItemWasTool = true
@@ -192,6 +213,7 @@ internal struct ChatModelContextBuilder: Sendable {
   private func appendAssistantEntry(
     _ message: AssistantTurnMessage,
     content: String,
+    historicalReasoning: HistoricalAssistantReasoning?,
     turnID: ChatTurn.ID,
     to entries: inout [ModelContextEntry]
   ) {
@@ -199,7 +221,8 @@ internal struct ChatModelContextBuilder: Sendable {
       let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
         turnID: turnID,
         sourceMessageID: message.id,
-        content: content
+        content: content,
+        historicalReasoning: historicalReasoning
       )
     else {
       return
@@ -208,18 +231,72 @@ internal struct ChatModelContextBuilder: Sendable {
   }
 
   private func appendAssistantToolBoundary(
+    historicalReasoning: HistoricalAssistantReasoning?,
     turnID: ChatTurn.ID,
     to entries: inout [ModelContextEntry]
   ) {
     guard
       let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
         turnID: turnID,
-        content: ""
+        content: "",
+        historicalReasoning: historicalReasoning
       )
     else {
       return
     }
     entries.append(entry)
+  }
+
+  /// User and assistant messages delimit model responses. Thinking and tool
+  /// records are transparent within that response, matching `ToolCallBatch`.
+  /// Persisted transcripts have no direct thinking-to-response link, so any
+  /// group that is not exactly one confirmed, non-empty thinking item is
+  /// intentionally omitted instead of guessing.
+  private func historicalReasoning(
+    in items: [ChatTurnItem],
+    forResponseContaining itemIndex: Int,
+    isEnabled: Bool
+  ) -> HistoricalAssistantReasoning? {
+    guard isEnabled, items.indices.contains(itemIndex) else {
+      return nil
+    }
+
+    let precedingBoundaryIndex = items[...itemIndex].lastIndex { item in
+      switch item {
+      case .userMessage, .assistantMessage:
+        return true
+      case .assistantThinking, .tool:
+        return false
+      }
+    }
+    let groupStartIndex = precedingBoundaryIndex.map { $0 + 1 } ?? items.startIndex
+    let followingBoundaryIndex = items.indices.dropFirst(itemIndex + 1).first { index in
+      switch items[index] {
+      case .userMessage, .assistantMessage:
+        return true
+      case .assistantThinking, .tool:
+        return false
+      }
+    }
+    let groupEndIndex = followingBoundaryIndex ?? items.endIndex
+    let confirmedThinkingMessages: [AssistantThinkingMessage] = items[
+      groupStartIndex..<groupEndIndex
+    ].compactMap { item in
+      guard case .assistantThinking(let message) = item,
+        message.deliveryStatus == .complete,
+        !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      else {
+        return nil
+      }
+      return message
+    }
+
+    guard confirmedThinkingMessages.count == 1,
+      let thinking = confirmedThinkingMessages.first
+    else {
+      return nil
+    }
+    return HistoricalAssistantReasoning(content: thinking.content)
   }
 
   private func appendToolEntry(

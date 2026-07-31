@@ -64,6 +64,9 @@ package struct ContextUsageSnapshot: Sendable {
     // so we sum the stored content directly instead of allocating a projected array.
     for entry in transcript.entries {
       byteCount += entry.frozenContent.content.utf8.count
+      if case .assistantOutput(let assistantOutput) = entry.body {
+        byteCount += assistantOutput.historicalReasoning?.content.utf8.count ?? 0
+      }
     }
     for attachment in attachments {
       guard attachment.kind == .text else {

@@ -134,6 +134,70 @@ struct MLXHistoryRendererTests {
   }
 
   @Test
+  func qwenCapabilityEncodesHistoricalReasoningOnlyAtMLXAdapterBoundary() throws {
+    let transcript = ModelPromptProjection(entries: [
+      try ModelFacingPromptRenderer.userPromptEntry(prompt: "Solve it"),
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        content: "The result is 42.",
+        historicalReasoning: HistoricalAssistantReasoning(
+          content: "I should calculate carefully."
+        )
+      ),
+      try ModelFacingPromptRenderer.userPromptEntry(prompt: "Explain it"),
+    ])
+
+    let supported = try MLXHistoryRenderer.generationInput(
+      from: transcript,
+      reasoningEnabled: false,
+      supportsHistoricalReasoningPreservation: true
+    )
+    let unsupported = try MLXHistoryRenderer.generationInput(
+      from: transcript,
+      reasoningEnabled: false,
+      supportsHistoricalReasoningPreservation: false
+    )
+
+    #expect(
+      supported.history[1].content
+        == "<think>\nI should calculate carefully.\n</think>\n\nThe result is 42.")
+    #expect(supported.historySnapshot[1].content == "The result is 42.")
+    #expect(supported.historySnapshot[1].reasoningContent == "I should calculate carefully.")
+    #expect(supported.additionalContext["enable_thinking"] as? Bool == false)
+    #expect(supported.additionalContext["preserve_thinking"] as? Bool == true)
+    #expect(unsupported.history[1].content == "The result is 42.")
+    #expect(unsupported.additionalContext["preserve_thinking"] == nil)
+
+    let toolBoundary = MLXHistoryRenderer.chatMessages(
+      from: [
+        ProviderPromptMessage(
+          role: Chat.Message.Role.assistant.rawValue,
+          content: "I will inspect it.",
+          reasoningContent: "The file is relevant.",
+          toolCalls: [
+            ProviderToolCall(
+              id: "call-1",
+              name: ToolName.readFile.rawValue,
+              arguments: ["path": .string("README.md")]
+            )
+          ]
+        )
+      ],
+      supportsHistoricalReasoningPreservation: true
+    )
+    let rawToolBoundary = DefaultMessageGenerator().generate(messages: toolBoundary)
+    let rawToolCalls = try #require(
+      rawToolBoundary.first?["tool_calls"] as? [[String: any Sendable]]
+    )
+    let rawFunction = try #require(
+      rawToolCalls.first?["function"] as? [String: any Sendable]
+    )
+    #expect(rawFunction["name"] as? String == ToolName.readFile.rawValue)
+    #expect(
+      toolBoundary.first?.content
+        == "<think>\nThe file is relevant.\n</think>\n\nI will inspect it.")
+  }
+
+  @Test
   func templateMessagesUseFrozenTranscriptContent() throws {
     let callID = UUID()
     let transcript = ModelPromptProjection(

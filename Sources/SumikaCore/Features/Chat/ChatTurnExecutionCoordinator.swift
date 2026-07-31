@@ -127,53 +127,21 @@ struct ChatTurnExecutionCoordinator {
     async throws
     -> ChatGenerationResult
   {
-    let assistantThinkingMessageID = UUID()
+    var assistantThinkingMessageID = UUID()
     var didAppendAssistantThinking = false
     var didCompleteAssistantThinking = false
-    let toolCallingPolicy = runtime.selectedModel.toolCallingPolicy
-    conversation.setActiveToolPromptMode(toolPromptMode)
-    applyToolFollowUpNoticeIfNeeded(
-      toolPromptMode: toolPromptMode,
-      turnID: turnID,
-      maxToolLoopIterations: runtime.selectedModel.maxToolLoopIterations,
-      conversation: conversation
-    )
-    let systemPromptStartedAt = Date()
-    let promptPlan = runtimePromptPlan(
-      session: conversation.chatSession,
-      stableInstructions: stableInstructions,
-      toolPromptMode: toolPromptMode,
-      toolCallingPolicy: toolCallingPolicy,
-      turnToolRegistry: turnToolRegistry
-    )
-    traceTurnPhase(
-      .renderSystemPrompt,
-      startedAt: systemPromptStartedAt,
-      turnID: turnID,
-      generationID: nil,
-      promptBytes: promptPlan.stableInstructions.utf8.count,
-      messageCount: conversation.chatSession.turns.flatMap(\.items).count,
-      toolLoopIteration: toolLoopIteration,
+    let generationContext = prepareGenerationContext(
+      runtime: runtime,
+      conversation: conversation,
       interactionMode: interactionMode,
-      selectedMCPServerIDs: conversation.chatSession.selectedMCPServerIDs,
-      activeMCPToolCount: promptPlan.toolContext?.registry.tools.count {
-        $0.capabilities.contains(.externalService)
-      } ?? 0
-    )
-    let contextBuildStartedAt = Date()
-    let modelPromptProjection = modelContextBuilder.transcript(
-      from: conversation.chatSession,
-      includingTurnID: turnID
-    )
-    traceTurnPhase(
-      .contextBuild,
-      startedAt: contextBuildStartedAt,
+      toolPromptMode: toolPromptMode,
+      turnToolRegistry: turnToolRegistry,
+      stableInstructions: stableInstructions,
       turnID: turnID,
-      generationID: nil,
-      messageCount: modelPromptProjection.entries.count,
-      toolLoopIteration: toolLoopIteration,
-      interactionMode: interactionMode
+      toolLoopIteration: toolLoopIteration
     )
+    let promptPlan = generationContext.promptPlan
+    let modelPromptProjection = generationContext.modelPromptProjection
     let failedCommandGuard = failedRunCommandGuardContext(
       session: conversation.chatSession,
       turnID: turnID
@@ -201,19 +169,12 @@ struct ChatTurnExecutionCoordinator {
             guardedAssistantChunks += chunk
             return
           }
-          var events: [ChatWorkflowEvent] = []
-          // Reasoning ends the moment visible output starts, not when the whole
-          // generation finishes: the transcript switches the thinking row to its
-          // "Reasoned for Xs" summary while the answer keeps streaming.
-          if didAppendAssistantThinking, !didCompleteAssistantThinking {
-            didCompleteAssistantThinking = true
-            events.append(.assistantThinkingCompleted(messageID: assistantThinkingMessageID))
-          }
-          events.append(
+          let events: [ChatWorkflowEvent] = [
             .assistantChunkAppended(
               chunk: chunk,
               messageID: assistantMessageID
-            ))
+            )
+          ]
           conversation.applyWorkflowEvents(events)
         },
         appendThinkingChunk: { chunk in
@@ -236,21 +197,28 @@ struct ChatTurnExecutionCoordinator {
             ))
           conversation.applyWorkflowEvents(events)
         },
+        completeThinking: {
+          guard conversation.isActive(turnID),
+            didAppendAssistantThinking,
+            !didCompleteAssistantThinking
+          else {
+            return
+          }
+          didCompleteAssistantThinking = true
+          conversation.applyWorkflowEvents([
+            .assistantThinkingCompleted(messageID: assistantThinkingMessageID)
+          ])
+        },
         updateGenerationMetrics: { metrics in
           guard conversation.isActive(turnID) else {
             return
           }
-          var events: [ChatWorkflowEvent] = []
-          if didAppendAssistantThinking, !didCompleteAssistantThinking {
-            didCompleteAssistantThinking = true
-            events.append(.assistantThinkingCompleted(messageID: assistantThinkingMessageID))
-          }
-          events.append(
+          let events: [ChatWorkflowEvent] = [
             .assistantGenerationCompleted(
               messageID: assistantMessageID,
               metrics: metrics
             )
-          )
+          ]
           conversation.applyWorkflowEvents(events)
         },
         updateRuntimeCacheDebugSnapshot: { snapshot in
@@ -268,6 +236,14 @@ struct ChatTurnExecutionCoordinator {
       generationResult.nativeToolCalls.isEmpty,
       generationResult.termination == .outputLimit(discardedToolProtocolTail: true)
     {
+      if didAppendAssistantThinking {
+        conversation.applyWorkflowEvents([
+          .assistantThinkingCancelled(messageID: assistantThinkingMessageID)
+        ])
+      }
+      assistantThinkingMessageID = UUID()
+      didAppendAssistantThinking = false
+      didCompleteAssistantThinking = false
       generationResult = try await generate(
         using: promptPlan.appendingTransientInstruction(
           Self.outputLimitRetryInstruction
@@ -302,11 +278,14 @@ struct ChatTurnExecutionCoordinator {
       generationResult.assistantContent = guardedContent
       guardedAssistantChunks = ""
     }
+    if didAppendAssistantThinking, !didCompleteAssistantThinking {
+      conversation.applyWorkflowEvents([
+        .assistantThinkingCancelled(messageID: assistantThinkingMessageID)
+      ])
+    }
     completeOutputLimitedTranscriptIfNeeded(
       generationResult,
       assistantMessageID: assistantMessageID,
-      assistantThinkingMessageID: assistantThinkingMessageID,
-      hasIncompleteThinking: didAppendAssistantThinking && !didCompleteAssistantThinking,
       conversation: conversation
     )
     conversation.refreshContextUsage(toolPromptMode: toolPromptMode)
@@ -646,6 +625,66 @@ struct ChatTurnExecutionCoordinator {
 }
 
 extension ChatTurnExecutionCoordinator {
+  private func prepareGenerationContext(
+    runtime: ChatTurnRuntimeContext,
+    conversation: ConversationEngine,
+    interactionMode: WorkspaceInteractionMode,
+    toolPromptMode: ToolPromptMode,
+    turnToolRegistry: ToolRegistry,
+    stableInstructions: String,
+    turnID: ChatTurn.ID,
+    toolLoopIteration: Int?
+  ) -> (promptPlan: ChatRuntimePromptPlan, modelPromptProjection: ModelPromptProjection) {
+    conversation.setActiveToolPromptMode(toolPromptMode)
+    applyToolFollowUpNoticeIfNeeded(
+      toolPromptMode: toolPromptMode,
+      turnID: turnID,
+      maxToolLoopIterations: runtime.selectedModel.maxToolLoopIterations,
+      conversation: conversation
+    )
+
+    let systemPromptStartedAt = Date()
+    let promptPlan = runtimePromptPlan(
+      session: conversation.chatSession,
+      stableInstructions: stableInstructions,
+      toolPromptMode: toolPromptMode,
+      toolCallingPolicy: runtime.selectedModel.toolCallingPolicy,
+      turnToolRegistry: turnToolRegistry
+    )
+    traceTurnPhase(
+      .renderSystemPrompt,
+      startedAt: systemPromptStartedAt,
+      turnID: turnID,
+      generationID: nil,
+      promptBytes: promptPlan.stableInstructions.utf8.count,
+      messageCount: conversation.chatSession.turns.flatMap(\.items).count,
+      toolLoopIteration: toolLoopIteration,
+      interactionMode: interactionMode,
+      selectedMCPServerIDs: conversation.chatSession.selectedMCPServerIDs,
+      activeMCPToolCount: promptPlan.toolContext?.registry.tools.count {
+        $0.capabilities.contains(.externalService)
+      } ?? 0
+    )
+
+    let contextBuildStartedAt = Date()
+    let modelPromptProjection = modelContextBuilder.transcript(
+      from: conversation.chatSession,
+      includingTurnID: turnID,
+      supportsHistoricalReasoningPreservation:
+        runtime.selectedModel.supportsHistoricalReasoningPreservation
+    )
+    traceTurnPhase(
+      .contextBuild,
+      startedAt: contextBuildStartedAt,
+      turnID: turnID,
+      generationID: nil,
+      messageCount: modelPromptProjection.entries.count,
+      toolLoopIteration: toolLoopIteration,
+      interactionMode: interactionMode
+    )
+    return (promptPlan, modelPromptProjection)
+  }
+
   private func appendToolBudgetFallback(
     to assistantMessageID: UUID,
     failure: ToolBudgetFinalizationFailure,
@@ -718,21 +757,16 @@ extension ChatTurnExecutionCoordinator {
   private func completeOutputLimitedTranscriptIfNeeded(
     _ result: ChatGenerationResult,
     assistantMessageID: UUID,
-    assistantThinkingMessageID: UUID,
-    hasIncompleteThinking: Bool,
     conversation: ConversationEngine
   ) {
     guard case .outputLimit = result.termination else {
       return
     }
-    var events: [ChatWorkflowEvent] = []
-    if hasIncompleteThinking {
-      events.append(.assistantThinkingCompleted(messageID: assistantThinkingMessageID))
-    }
-    events.append(
+    let events: [ChatWorkflowEvent] = [
       .assistantGenerationOutputLimitReached(
         messageID: assistantMessageID
-      ))
+      )
+    ]
     conversation.applyWorkflowEvents(events)
   }
 

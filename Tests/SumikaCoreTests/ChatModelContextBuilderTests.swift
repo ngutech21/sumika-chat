@@ -5,6 +5,272 @@ import Testing
 
 struct ChatModelContextBuilderTests {
   @Test
+  func completedThinkingUsesTurnModelCapabilityInsteadOfSessionModelID() throws {
+    let state = ChatSession(
+      selectedModelID: ManagedModelCatalog.defaultModelID,
+      turns: [
+        ChatTurn(
+          status: .completed,
+          items: [
+            .userMessage(UserTurnMessage(content: "Question")),
+            .assistantMessage(AssistantTurnMessage(content: "Answer")),
+            .assistantThinking(AssistantThinkingMessage(content: "Reasoning")),
+          ])
+      ]
+    )
+
+    let transcript = ChatModelContextBuilder().transcript(
+      from: state,
+      supportsHistoricalReasoningPreservation: true
+    )
+    let providerMessages = ProviderPromptProjection.normalized(from: transcript).messages
+
+    guard case .assistantOutput(let assistant) = transcript.entries[1].body else {
+      Issue.record("Expected an assistant projection.")
+      return
+    }
+    #expect(assistant.content == "Answer")
+    #expect(assistant.historicalReasoning?.content == "Reasoning")
+    #expect(transcript.entries[1].frozenContent.content == "Answer")
+    #expect(providerMessages[1].content == "Answer")
+    #expect(providerMessages[1].reasoningContent == "Reasoning")
+  }
+
+  @Test
+  func historicalThinkingIsOmittedWhenTurnModelDoesNotSupportPreservation() throws {
+    let state = ChatSession(
+      selectedModelID: "qwen3.6-35b-a3b-optiq-4bit",
+      turns: [
+        ChatTurn(
+          status: .completed,
+          items: [
+            .assistantMessage(AssistantTurnMessage(content: "Answer")),
+            .assistantThinking(AssistantThinkingMessage(content: "Reasoning")),
+          ])
+      ]
+    )
+
+    let transcript = ChatModelContextBuilder().transcript(
+      from: state,
+      supportsHistoricalReasoningPreservation: false
+    )
+    let providerMessage = try #require(
+      ProviderPromptProjection.normalized(from: transcript).messages.first
+    )
+
+    guard case .assistantOutput(let assistant) = transcript.entries[0].body else {
+      Issue.record("Expected an assistant projection.")
+      return
+    }
+    #expect(assistant.historicalReasoning == nil)
+    #expect(providerMessage.reasoningContent == nil)
+  }
+
+  @Test(arguments: [AssistantDeliveryStatus.streaming, .cancelled])
+  func incompleteHistoricalThinkingIsOmitted(status: AssistantDeliveryStatus) throws {
+    let state = ChatSession(
+      selectedModelID: "qwen3.6-35b-a3b-optiq-4bit",
+      turns: [
+        ChatTurn(
+          status: .completed,
+          items: [
+            .assistantMessage(AssistantTurnMessage(content: "Answer")),
+            .assistantThinking(
+              AssistantThinkingMessage(content: "Unconfirmed", deliveryStatus: status)
+            ),
+          ])
+      ]
+    )
+
+    let transcript = ChatModelContextBuilder().transcript(
+      from: state,
+      supportsHistoricalReasoningPreservation: true
+    )
+    let providerMessage = try #require(
+      ProviderPromptProjection.normalized(from: transcript).messages.first
+    )
+
+    guard case .assistantOutput(let assistant) = transcript.entries[0].body else {
+      Issue.record("Expected an assistant projection.")
+      return
+    }
+    #expect(assistant.historicalReasoning == nil)
+    #expect(providerMessage.reasoningContent == nil)
+  }
+
+  @Test
+  func emptyHistoricalThinkingIsOmitted() throws {
+    let state = ChatSession(
+      selectedModelID: "qwen3.6-35b-a3b-optiq-4bit",
+      turns: [
+        ChatTurn(
+          status: .completed,
+          items: [
+            .assistantMessage(AssistantTurnMessage(content: "Answer")),
+            .assistantThinking(AssistantThinkingMessage(content: " \n ")),
+          ])
+      ]
+    )
+
+    let transcript = ChatModelContextBuilder().transcript(
+      from: state,
+      supportsHistoricalReasoningPreservation: true
+    )
+    let providerMessage = try #require(
+      ProviderPromptProjection.normalized(from: transcript).messages.first
+    )
+
+    guard case .assistantOutput(let assistant) = transcript.entries[0].body else {
+      Issue.record("Expected an assistant projection.")
+      return
+    }
+    #expect(assistant.historicalReasoning == nil)
+    #expect(providerMessage.reasoningContent == nil)
+  }
+
+  @Test
+  func ambiguousHistoricalThinkingIsOmitted() throws {
+    let state = ChatSession(
+      selectedModelID: "qwen3.6-35b-a3b-optiq-4bit",
+      turns: [
+        ChatTurn(
+          status: .completed,
+          items: [
+            .assistantMessage(AssistantTurnMessage(content: "Answer")),
+            .assistantThinking(AssistantThinkingMessage(content: "First")),
+            .assistantThinking(AssistantThinkingMessage(content: "Second")),
+          ])
+      ]
+    )
+
+    let transcript = ChatModelContextBuilder().transcript(
+      from: state,
+      supportsHistoricalReasoningPreservation: true
+    )
+    let providerMessage = try #require(
+      ProviderPromptProjection.normalized(from: transcript).messages.first
+    )
+
+    guard case .assistantOutput(let assistant) = transcript.entries[0].body else {
+      Issue.record("Expected an assistant projection.")
+      return
+    }
+    #expect(assistant.historicalReasoning == nil)
+    #expect(providerMessage.reasoningContent == nil)
+  }
+
+  @Test
+  func completedRetryThinkingIsProjectedAfterCancelledAttempt() throws {
+    let state = ChatSession(
+      selectedModelID: "qwen3.6-35b-a3b-optiq-4bit",
+      turns: [
+        ChatTurn(
+          status: .completed,
+          items: [
+            .assistantMessage(AssistantTurnMessage(content: "Answer")),
+            .assistantThinking(
+              AssistantThinkingMessage(
+                content: "Discarded attempt",
+                deliveryStatus: .cancelled
+              )
+            ),
+            .assistantThinking(AssistantThinkingMessage(content: "Confirmed retry")),
+          ])
+      ]
+    )
+
+    let transcript = ChatModelContextBuilder().transcript(
+      from: state,
+      supportsHistoricalReasoningPreservation: true
+    )
+    let providerMessage = try #require(
+      ProviderPromptProjection.normalized(from: transcript).messages.first
+    )
+
+    guard case .assistantOutput(let assistant) = transcript.entries[0].body else {
+      Issue.record("Expected an assistant projection.")
+      return
+    }
+    #expect(assistant.historicalReasoning?.content == "Confirmed retry")
+    #expect(providerMessage.reasoningContent == "Confirmed retry")
+  }
+
+  @Test
+  func toolOnlyResponseProjectsThinkingOnSyntheticAssistantBoundary() throws {
+    let record = makeCompletedReadFileRecord()
+    let state = ChatSession(
+      selectedModelID: "qwen3.6-35b-a3b-optiq-4bit",
+      turns: [
+        ChatTurn(
+          status: .completed,
+          items: [
+            .assistantMessage(
+              AssistantTurnMessage(content: "", deliveryStatus: .cancelled)
+            ),
+            .assistantThinking(AssistantThinkingMessage(content: "Need the file")),
+            .tool(record),
+          ])
+      ]
+    )
+
+    let transcript = ChatModelContextBuilder().transcript(
+      from: state,
+      supportsHistoricalReasoningPreservation: true
+    )
+    let providerMessages = ProviderPromptProjection.normalized(from: transcript).messages
+
+    #expect(transcript.entries.map(\.frozenContent.role) == [.assistant, .tool])
+    guard case .assistantOutput(let boundary) = transcript.entries[0].body else {
+      Issue.record("Expected a synthetic assistant tool boundary.")
+      return
+    }
+    #expect(boundary.content.isEmpty)
+    #expect(boundary.historicalReasoning?.content == "Need the file")
+    #expect(providerMessages[0].content.isEmpty)
+    #expect(providerMessages[0].reasoningContent == "Need the file")
+    #expect(providerMessages[0].toolCalls.count == 1)
+  }
+
+  @Test
+  func persistedThinkingRoundTripRebuildsTheSameDerivedProviderPrompt() throws {
+    let state = ChatSession(
+      selectedModelID: "qwen3.6-35b-a3b-optiq-4bit",
+      turns: [
+        ChatTurn(
+          status: .completed,
+          items: [
+            .userMessage(UserTurnMessage(content: "Question")),
+            .assistantMessage(AssistantTurnMessage(content: "Answer")),
+            .assistantThinking(AssistantThinkingMessage(content: "Reasoning")),
+          ])
+      ]
+    )
+    let before = ProviderPromptProjection.normalized(
+      from: ChatModelContextBuilder().transcript(
+        from: state,
+        supportsHistoricalReasoningPreservation: true
+      )
+    )
+
+    let data = try JSONEncoder().encode(state)
+    let json = try #require(String(data: data, encoding: .utf8))
+    let decoded = try JSONDecoder().decode(ChatSession.self, from: data)
+    let after = ProviderPromptProjection.normalized(
+      from: ChatModelContextBuilder().transcript(
+        from: decoded,
+        supportsHistoricalReasoningPreservation: true
+      )
+    )
+
+    #expect(json.contains("assistantThinking"))
+    #expect(!json.contains("historicalReasoning"))
+    #expect(!json.contains("reasoningContent"))
+    #expect(after.messages == before.messages)
+    #expect(after.byteLedger.totalByteCount == before.byteLedger.totalByteCount)
+    #expect(after.messages[1].reasoningContent == "Reasoning")
+  }
+
+  @Test
   func filtersProjectionEntriesFromExcludedTurns() throws {
     let includedTurnID = UUID()
     let excludedTurnID = UUID()

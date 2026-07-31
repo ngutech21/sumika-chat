@@ -11,6 +11,45 @@ import Testing
 @Suite()
 struct MLXSessionCachePolicyTests {
   @Test
+  func qwenHistoricalReasoningCapabilityAddsPreservationWithoutChangingReasoningSetting() throws {
+    let transcript = ModelPromptProjection(entries: [
+      try ModelFacingPromptRenderer.userPromptEntry(prompt: "Hello")
+    ])
+    let supported = try MLXHistoryRenderer.generationInput(
+      from: transcript,
+      reasoningEnabled: false,
+      supportsHistoricalReasoningPreservation: true
+    ).additionalContext
+    let unsupported = try MLXHistoryRenderer.generationInput(
+      from: transcript,
+      reasoningEnabled: false,
+      supportsHistoricalReasoningPreservation: false
+    ).additionalContext
+
+    #expect(supported["enable_thinking"] as? Bool == false)
+    #expect(supported["preserve_thinking"] as? Bool == true)
+    #expect(unsupported["enable_thinking"] as? Bool == false)
+    #expect(unsupported["preserve_thinking"] == nil)
+    let supportedIdentity = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Stable",
+      settings: .agentDefault,
+      projectionMode: .fullHistory,
+      additionalContext: supported
+    )
+    let unsupportedIdentity = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Stable",
+      settings: .agentDefault,
+      projectionMode: .fullHistory,
+      additionalContext: unsupported
+    )
+    #expect(
+      MLXSessionCachePolicy.identityMismatchReason(
+        cached: unsupportedIdentity,
+        current: supportedIdentity
+      ) == .additionalContextChanged)
+  }
+
+  @Test
   func focusedFileReuseRemainsAppendOnlyForMLXCachePolicy() {
     let path = WorkspaceRelativePath(rawValue: "Sources/App.swift")
     let focusedFileState = FocusedFileState(
@@ -209,6 +248,29 @@ struct MLXSessionCachePolicyTests {
     #expect(
       MLXSessionCachePolicy.contextSignature(for: cachedPrefix)
         != MLXSessionCachePolicy.contextSignature(for: currentHistory))
+  }
+
+  @Test
+  func cacheSignatureAndPrefixComparisonIncludeHistoricalReasoning() {
+    let cachedPrefix = [
+      ProviderPromptMessage(
+        role: "assistant",
+        content: "Same visible answer.",
+        reasoningContent: "First reasoning path."
+      )
+    ]
+    let changedReasoning = [
+      ProviderPromptMessage(
+        role: "assistant",
+        content: "Same visible answer.",
+        reasoningContent: "Different reasoning path."
+      )
+    ]
+
+    #expect(!MLXSessionCachePolicy.isPrefix(cachedPrefix, of: changedReasoning))
+    #expect(
+      MLXSessionCachePolicy.contextSignature(for: cachedPrefix)
+        != MLXSessionCachePolicy.contextSignature(for: changedReasoning))
   }
 
   @Test
@@ -612,12 +674,11 @@ struct MLXSessionCachePolicyTests {
     let finalizationInput = try generationInput(from: [userEntry])
     let consumedPrompt = MLXChatRuntime.appendTransientInstructions(
       [instruction],
-      toPromptSnapshot: finalizationInput.promptSnapshot,
-      promptMessages: finalizationInput.promptMessages
+      toPromptSnapshot: finalizationInput.promptSnapshot
     )
     let cachedPrefix =
       finalizationInput.historySnapshot
-      + consumedPrompt.promptSnapshot
+      + consumedPrompt
       + [
         ProviderPromptMessage(
           role: Chat.Message.Role.assistant.rawValue,
@@ -658,7 +719,7 @@ struct MLXSessionCachePolicyTests {
       )
     )
 
-    #expect(consumedPrompt.promptSnapshot.last?.content.contains(instruction) == true)
+    #expect(consumedPrompt.last?.content.contains(instruction) == true)
     #expect(cachedPrefix.contains { $0.content.contains(instruction) })
     #expect(nextTurnHistory.contains { $0.content.contains(instruction) } == false)
     #expect(!appendOnly)
@@ -671,6 +732,7 @@ struct MLXSessionCachePolicyTests {
     let callID = UUID()
     let turnID = UUID()
     let visibleOutput = "\n\nThe issue is that buffer is unavailable.\n\n"
+    let completedReasoning = "I should replace the unavailable buffer call."
     let arguments: ToolCallArguments = [
       "path": .string("main.py"),
       "old_text": .string("buffer(bytes(samples))"),
@@ -687,6 +749,8 @@ struct MLXSessionCachePolicyTests {
       + [
         MLXChatRuntime.nativeToolCallBoundarySnapshot(
           output: visibleOutput,
+          completedReasoningContent: completedReasoning,
+          supportsHistoricalReasoningPreservation: true,
           nativeToolCalls: [
             ChatRuntimeToolCall(
               id: RuntimeToolCallID.string(for: callID),
@@ -701,7 +765,8 @@ struct MLXSessionCachePolicyTests {
       userEntry,
       try ModelFacingPromptRenderer.assistantOutputEntry(
         turnID: turnID,
-        content: visibleOutput
+        content: visibleOutput,
+        historicalReasoning: HistoricalAssistantReasoning(content: completedReasoning)
       ),
       try ModelFacingPromptRenderer.toolResultEntry(
         turnID: turnID,
@@ -729,6 +794,7 @@ struct MLXSessionCachePolicyTests {
     ])
 
     #expect(cachedPrefix[1].content == visibleOutput)
+    #expect(cachedPrefix[1].reasoningContent == completedReasoning)
     #expect(cachedPrefix == currentInput.historySnapshot)
     #expect(MLXSessionCachePolicy.isPrefix(cachedPrefix, of: currentInput.historySnapshot))
     #expect(
@@ -736,6 +802,26 @@ struct MLXSessionCachePolicyTests {
         cachedPrefix: cachedPrefix,
         currentHistory: currentInput.historySnapshot
       ) == nil)
+  }
+
+  @Test
+  func nativeToolBoundaryCachesReasoningOnlyForSupportedModels() {
+    let toolCall = ChatRuntimeToolCall(name: ToolName.readFile.rawValue)
+    let unsupported = MLXChatRuntime.nativeToolCallBoundarySnapshot(
+      output: "Reading the file.",
+      completedReasoningContent: "I should inspect README.md.",
+      supportsHistoricalReasoningPreservation: false,
+      nativeToolCalls: [toolCall]
+    )
+    let supported = MLXChatRuntime.nativeToolCallBoundarySnapshot(
+      output: "Reading the file.",
+      completedReasoningContent: "I should inspect README.md.",
+      supportsHistoricalReasoningPreservation: true,
+      nativeToolCalls: [toolCall]
+    )
+
+    #expect(unsupported.reasoningContent == nil)
+    #expect(supported.reasoningContent == "I should inspect README.md.")
   }
 
   @Test

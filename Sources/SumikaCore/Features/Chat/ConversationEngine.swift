@@ -754,7 +754,9 @@ extension ConversationEngine {
     let sessionID = sessionID ?? activeSessionID
     let transcript = modelContextBuilder.transcript(
       from: chatSession,
-      includingTurnID: activeTurnID
+      includingTurnID: activeTurnID,
+      supportsHistoricalReasoningPreservation:
+        conversationModelState.selectedModel.supportsHistoricalReasoningPreservation
     )
     return try ModelContextDebugRenderer.render(
       transcript: transcript,
@@ -840,7 +842,9 @@ extension ConversationEngine {
     let contextBuildStartedAt = Date()
     let transcript = modelContextBuilder.transcript(
       from: chatSession,
-      includingTurnID: turnID
+      includingTurnID: turnID,
+      supportsHistoricalReasoningPreservation:
+        conversationModelState.selectedModel.supportsHistoricalReasoningPreservation
     )
     traceTurnPhase(
       .contextBuild,
@@ -1310,6 +1314,7 @@ extension ChatWorkflowEvent {
       .assistantChunkAppended,
       .assistantThinkingChunkAppended,
       .assistantThinkingCompleted,
+      .assistantThinkingCancelled,
       .assistantGenerationCompleted,
       .assistantGenerationOutputLimitReached,
       .focusedFileStateChanged,

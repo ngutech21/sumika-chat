@@ -6,6 +6,7 @@ import Foundation
 package struct ProviderPromptMessage: Sendable {
   package let role: String
   package let content: String
+  package let reasoningContent: String?
   package let toolCalls: [ProviderToolCall]
   package let toolCallID: String?
   package let imageSignatures: [String]
@@ -15,6 +16,7 @@ package struct ProviderPromptMessage: Sendable {
   package init(
     role: String,
     content: String,
+    reasoningContent: String? = nil,
     toolCalls: [ProviderToolCall] = [],
     toolCallID: String? = nil,
     imageSignatures: [String] = [],
@@ -23,6 +25,7 @@ package struct ProviderPromptMessage: Sendable {
   ) {
     self.role = role
     self.content = content
+    self.reasoningContent = reasoningContent
     self.toolCalls = toolCalls
     self.toolCallID = toolCallID
     self.imageSignatures = imageSignatures
@@ -40,6 +43,7 @@ package struct ProviderPromptMessage: Sendable {
   package var projectedPayloadByteCount: Int {
     role.utf8.count
       + content.utf8.count
+      + (reasoningContent?.utf8.count ?? 0)
       + (toolCallID?.utf8.count ?? 0)
       + toolCalls.reduce(0) { $0 + $1.canonicalPayloadJSON.utf8.count }
   }
@@ -59,6 +63,7 @@ extension ProviderPromptMessage: Equatable {
   package static func == (lhs: ProviderPromptMessage, rhs: ProviderPromptMessage) -> Bool {
     lhs.role == rhs.role
       && lhs.content == rhs.content
+      && lhs.reasoningContent == rhs.reasoningContent
       && lhs.toolCalls == rhs.toolCalls
       && lhs.toolCallID == rhs.toolCallID
       && lhs.imageSignatures == rhs.imageSignatures
@@ -151,6 +156,7 @@ struct ProviderPromptByteLedger: Equatable, Sendable {
           : contentStart + sourceRange.contentByteRange.lowerBound
         let upperBound =
           sourceRange.contentByteRange.upperBound == contentByteCount
+            && message.reasoningContent == nil
             && message.toolCallID == nil
             && message.toolCalls.isEmpty
           ? messageRange.upperBound
@@ -286,6 +292,7 @@ private enum ProviderPromptProjector {
             content: calls.map {
               assistantToolBoundaryContent(context.content, toolCalls: $0.map(\.toolCall))
             } ?? context.content,
+            reasoningContent: context.historicalReasoning?.content,
             toolCalls: calls?.map { toolCallMessage(from: $0.toolCall) } ?? [],
             sourceEntryIDs: [entry.id] + (calls?.map(\.sourceEntryID) ?? [])
           ),
@@ -386,6 +393,10 @@ private enum ProviderPromptProjector {
       messages[messages.count - 1] = ProviderPromptMessage(
         role: ModelContextRole.assistant.rawValue,
         content: content,
+        reasoningContent: mergedReasoningContent(
+          last.reasoningContent,
+          message.reasoningContent
+        ),
         toolCalls: message.toolCalls,
         toolCallID: message.toolCallID,
         imageSignatures: last.imageSignatures + message.imageSignatures,
@@ -404,6 +415,10 @@ private enum ProviderPromptProjector {
       messages[messages.count - 1] = ProviderPromptMessage(
         role: last.role,
         content: [last.content, message.content].joined(separator: "\n\n"),
+        reasoningContent: mergedReasoningContent(
+          last.reasoningContent,
+          message.reasoningContent
+        ),
         imageSignatures: last.imageSignatures + message.imageSignatures,
         sourceEntryIDs: uniqueIDs(last.sourceEntryIDs + message.sourceEntryIDs),
         sourceContentByteRanges: last.sourceContentByteRanges
@@ -420,6 +435,17 @@ private enum ProviderPromptProjector {
     }
 
     messages.append(message)
+  }
+
+  private static func mergedReasoningContent(_ lhs: String?, _ rhs: String?) -> String? {
+    switch (lhs, rhs) {
+    case (.none, .none):
+      return nil
+    case (.some(let content), .none), (.none, .some(let content)):
+      return content
+    case (.some(let lhs), .some(let rhs)):
+      return [lhs, rhs].joined(separator: "\n\n")
+    }
   }
 
   private static func uniqueIDs(_ ids: [UUID]) -> [UUID] {

@@ -66,6 +66,27 @@ struct ContextUsageSnapshotTests {
     #expect(snapshot.estimatedUsage().isStale)
   }
 
+  @Test
+  func estimatedUsageCountsProjectedHistoricalReasoning() throws {
+    let snapshot = ContextUsageSnapshot(
+      modelState: .ready,
+      transcript: ModelPromptProjection(entries: [
+        try ModelFacingPromptRenderer.assistantOutputEntry(
+          content: "answer",
+          historicalReasoning: HistoricalAssistantReasoning(content: "reasoning")
+        )
+      ]),
+      attachments: [],
+      systemPrompt: "",
+      contextTokenLimit: 100
+    )
+
+    let usage = snapshot.estimatedUsage(isStale: false)
+
+    // "answer" (6 bytes) + "reasoning" (9 bytes) = 15 bytes -> 4 tokens.
+    #expect(usage.usedTokens == 4)
+  }
+
   private func makeSnapshot(attachments: [ChatAttachment] = []) throws -> ContextUsageSnapshot {
     ContextUsageSnapshot(
       modelState: .ready,

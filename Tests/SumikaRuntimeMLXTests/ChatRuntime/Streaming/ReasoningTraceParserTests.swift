@@ -36,6 +36,7 @@ struct ReasoningTraceParserTests {
       segments == [
         .thinking(" The user said hey."),
         .thinking(" I should greet them."),
+        .thinkingCompleted,
         .visible("Hello"),
         .visible(" there."),
       ])
@@ -55,6 +56,7 @@ struct ReasoningTraceParserTests {
     #expect(
       segments == [
         .thinking(" I should answer."),
+        .thinkingCompleted,
         .visible("Done."),
       ])
   }
@@ -73,6 +75,7 @@ struct ReasoningTraceParserTests {
     #expect(
       segments == [
         .thinking("The user said hey."),
+        .thinkingCompleted,
         .visible("\n\nHello."),
       ])
   }
@@ -91,8 +94,43 @@ struct ReasoningTraceParserTests {
     #expect(
       segments == [
         .thinking("Reasoning"),
+        .thinkingCompleted,
         .visible("Answer"),
       ])
+  }
+
+  @Test
+  func unfinishedReasoningDoesNotEmitCompletionAtEndOfStream() {
+    for format in [ReasoningTraceFormat.gemmaChannel, .qwenThinkTags] {
+      var parser = ReasoningTraceParser(format: format)
+
+      let segments = [
+        parser.append(format == .gemmaChannel ? "<|channel|>thoughtPartial" : "<think>Partial"),
+        parser.finish(),
+      ].flatMap { $0 }
+
+      #expect(segments == [.thinking("Partial")])
+    }
+  }
+
+  @Test
+  func consumedCloseMarkerEmitsExactlyOneCompletionBoundary() {
+    for (format, input) in [
+      (ReasoningTraceFormat.gemmaChannel, "<|channel|>thoughtReasoning<channel|>Answer"),
+      (.qwenThinkTags, "<think>Reasoning</think>Answer"),
+    ] {
+      for splitOffset in 0...input.count {
+        let splitIndex = input.index(input.startIndex, offsetBy: splitOffset)
+        var parser = ReasoningTraceParser(format: format)
+        let segments = [
+          parser.append(String(input[..<splitIndex])),
+          parser.append(String(input[splitIndex...])),
+          parser.finish(),
+        ].flatMap { $0 }
+
+        #expect(segments.filter { $0 == .thinkingCompleted }.count == 1)
+      }
+    }
   }
 
   @Test
@@ -144,7 +182,7 @@ struct ReasoningTraceParserTests {
       switch (kind, segment) {
       case (.visible, .visible(let text)), (.thinking, .thinking(let text)):
         text
-      case (.visible, .thinking), (.thinking, .visible):
+      case (.visible, .thinking), (.thinking, .visible), (_, .thinkingCompleted):
         nil
       }
     }.joined()

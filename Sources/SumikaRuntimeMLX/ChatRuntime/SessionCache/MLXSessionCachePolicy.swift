@@ -198,6 +198,12 @@ enum MLXSessionCachePolicy {
       for byte in message.content.utf8 {
         update(byte)
       }
+      if let reasoningContent = message.reasoningContent {
+        update(0xFB)
+        for byte in reasoningContent.utf8 {
+          update(byte)
+        }
+      }
       if !message.toolCalls.isEmpty {
         update(0xFD)
         for toolCall in message.toolCalls {

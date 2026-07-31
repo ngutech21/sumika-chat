@@ -174,7 +174,7 @@ struct ProviderPromptProjectionTests {
   }
 
   @Test
-  func providerEqualityIgnoresProvenanceButIncludesImageIdentity() {
+  func providerEqualityIgnoresProvenanceButIncludesPayloadIdentity() {
     let firstID = UUID()
     let secondID = UUID()
     let first = ProviderPromptMessage(
@@ -195,10 +195,54 @@ struct ProviderPromptProjectionTests {
       imageSignatures: ["sha256:other"],
       sourceEntryIDs: [firstID]
     )
+    let differentReasoning = ProviderPromptMessage(
+      role: "user",
+      content: "same",
+      reasoningContent: "reasoning",
+      imageSignatures: ["sha256:image"],
+      sourceEntryIDs: [firstID]
+    )
 
     #expect(first == samePayload)
     #expect(first != differentImage)
+    #expect(first != differentReasoning)
     #expect(first.projectedPayloadByteCount == samePayload.projectedPayloadByteCount)
+    #expect(
+      differentReasoning.projectedPayloadByteCount
+        == first.projectedPayloadByteCount + "reasoning".utf8.count)
+  }
+
+  @Test
+  func byteLedgerCountsHistoricalReasoningBetweenPromptEntries() throws {
+    let anchorID = try uuid("00000000-0000-0000-0000-000000000041")
+    let assistantID = try uuid("00000000-0000-0000-0000-000000000042")
+    let candidateID = try uuid("00000000-0000-0000-0000-000000000043")
+    let entries = [
+      try entry(id: anchorID, role: .user, content: "A"),
+      try ModelContextEntry(
+        id: assistantID,
+        body: .assistantOutput(
+          AssistantOutputContext(
+            content: "B",
+            historicalReasoning: HistoricalAssistantReasoning(content: "think")
+          )
+        ),
+        frozenContent: FrozenModelContent(role: .assistant, content: "B")
+      ),
+      try entry(id: candidateID, role: .user, content: "C"),
+    ]
+
+    let projection = ProviderPromptProjection.normalized(
+      from: ModelPromptProjection(entries: entries)
+    )
+
+    #expect(projection.messages[1].reasoningContent == "think")
+    #expect(projection.messages[1].projectedPayloadByteCount == 15)
+    #expect(
+      projection.byteLedger.interveningByteCount(
+        afterSourceEntryID: anchorID,
+        beforeSourceEntryID: candidateID
+      ) == 15)
   }
 
   private func entry(

@@ -4,6 +4,7 @@ struct ReasoningTraceParser {
   enum Segment: Equatable {
     case visible(String)
     case thinking(String)
+    case thinkingCompleted
   }
 
   private enum Storage {
@@ -97,6 +98,7 @@ private struct GemmaThoughtChannelParser {
         appendSegment(.thinking(String(pending[..<closeRange.lowerBound])), to: &segments)
         pending.removeSubrange(pending.startIndex..<closeRange.upperBound)
         isReadingThought = false
+        segments.append(.thinkingCompleted)
         continue
       }
 
@@ -137,6 +139,8 @@ private struct GemmaThoughtChannelParser {
       guard !text.isEmpty else {
         return
       }
+      segments.append(segment)
+    case .thinkingCompleted:
       segments.append(segment)
     }
   }
@@ -193,6 +197,7 @@ private struct QwenThinkTagParser {
         appendSegment(.thinking(String(pending[..<closeRange.lowerBound])), to: &segments)
         pending.removeSubrange(pending.startIndex..<closeRange.upperBound)
         isReadingThinking = false
+        segments.append(.thinkingCompleted)
         continue
       }
 
@@ -224,6 +229,8 @@ private struct QwenThinkTagParser {
       guard !text.isEmpty else {
         return
       }
+      segments.append(segment)
+    case .thinkingCompleted:
       segments.append(segment)
     }
   }

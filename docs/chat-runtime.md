@@ -276,12 +276,19 @@ state.
   transient user prompt or trailing prose block. Rebuilds must read this from the
   current `ChatTurn.items` state, not from an old prompt ledger or reused
   `ModelContextEntry`.
-- Empty or cancelled streaming placeholders and assistant-thinking items are
-  skipped. Completed turns are included by default.
+- `AssistantThinkingMessage` remains the transcript source of truth and is never
+  copied into visible assistant content. For a model with explicit historical-
+  reasoning support, the builder derives `reasoningContent` from exactly one
+  non-empty, completed thinking item in the matching response group and attaches
+  it to the assistant response or derived native tool-call boundary. Streaming,
+  cancelled, empty, and ambiguous groups are omitted rather than guessed.
+  Completed turns are included by default.
 - Cancelled and failed turns with `modelContextPolicy == .excluded` are omitted
   from future prompts and context-usage calculations.
-- The UI/debug model-context pane renders the same derived projection that the
-  runtime receives, so the debug view cannot drift from generation input.
+- The UI/debug model-context pane and runtime start from the same transcript-
+  derived `ModelPromptProjection`. Provider-only `reasoningContent` stays hidden
+  from visible assistant text; the MLX cache signature and provider-facing debug
+  trace account for it separately.
 
 ## MLX Cache Rules
 
@@ -312,6 +319,13 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
   `streamDetails(to messages:)`. MLX retains the full conversation, renders it
   internally, verifies the rendered-token prefix, and prefills only the
   uncached suffix.
+- For the explicitly supported Qwen3.6 model, Sumika's local MLX adapter renders
+  provider `reasoningContent` exactly once as
+  `<think>\n...\n</think>\n\n` before the visible assistant content and supplies
+  `preserve_thinking: true`. `enable_thinking` continues to reflect the user's
+  `reasoningEnabled` setting independently. Unsupported models receive neither
+  the historical reasoning projection nor the preservation flag. Tool-result
+  continuations and dirty rebuilds use the same canonical provider snapshots.
 - Reused MLX sessions update decode parameters only. Their `instructions`,
   `tools`, and `additionalContext` are immutable cache inputs; a change to any
   prompt-affecting value rebuilds the session instead of mutating an already
@@ -332,15 +346,17 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
   session. Signatures are bookkeeping only and are never sent to the model.
   The image tokens stay in the reused KV cache; after a full re-prefill from
   text-only history the image is no longer part of the model context.
-- Dirty states stay conservative. Cancelled turns, interrupted streams, runtime
-  errors, downstream termination, model changes, manual context clearing, and
-  non-append-only history rebuild the MLX session.
+- Dirty states stay conservative. Cancelled turns, interrupted streams,
+  unclosed reasoning, runtime errors, downstream termination, model changes,
+  manual context clearing, and non-append-only history rebuild the MLX session.
 - Cache debug now reports coarse states: `new_session`, `reused_session`,
   `append_delta`, and `dirty_rebuild`, with compact reason/count fields.
-- The cache history signature includes structured message metadata that MLX sees:
-  assistant tool-call IDs, tool names, canonical raw arguments, and `tool`
-  result call IDs. A plain UUID alone is not enough because the cache must prove
-  that the entire provider-facing message shape still matches the session state.
+- The cache history signature includes historical `reasoningContent` and the
+  structured message metadata that MLX sees: assistant tool-call IDs, tool
+  names, canonical raw arguments, and `tool` result call IDs. Prefix equality
+  compares the same reasoning field. A plain UUID alone is not enough because
+  the cache must prove that the entire provider-facing message shape still
+  matches the session state.
 - The ordered model-facing native tool schemas are supplied when the
   `ChatSession` is created and are included directly in the cache identity, not
   in the visible system prompt. Schema changes, including a final no-tools
@@ -438,11 +454,18 @@ families MLX can infer or explicitly configure.
 Thought streaming is model-capability driven through `ManagedModel`'s
 `reasoningTraceFormat`. The MLX stream processor maps Gemma thought-channel
 markers and Qwen `<think>...</think>` traces into `thinkingChunk` events before
-the UI sees the response. Qwen parsing starts in the thinking state when
-reasoning is enabled because the Qwen chat template can place the opening
-`<think>` marker in the prompt instead of the generated stream. The
-`enable_thinking` additional-context key remains generic and parser selection
-stays outside SwiftUI.
+the UI sees the response, and emits `thinkingCompleted` only after consuming the
+matching close marker. EOF, cancellation, or an output limit with an open
+reasoning segment leaves that transcript item incomplete and invalidates the
+runtime cache. Qwen parsing starts in the thinking state when reasoning is
+enabled because the Qwen chat template can place the opening `<think>` marker in
+the prompt instead of the generated stream. The `enable_thinking` additional-
+context key remains generic and parser selection stays outside SwiftUI.
+
+Phase 1 performs Qwen history reconstruction in Sumika without changing
+`MLXLMCommon.ChatSession` or `Chat.Message`. Consequently, a literal
+`</think>` in visible Qwen output remains indistinguishable from the template's
+reasoning close marker until upstream exposes a structured reasoning field.
 
 ## Persistence Rules
 

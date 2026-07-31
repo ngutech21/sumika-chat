@@ -2,10 +2,26 @@ import MLXLMCommon
 import SumikaCore
 
 struct MLXGenerationInput {
-  let history: [Chat.Message]
   let historySnapshot: [ProviderPromptMessage]
-  let promptMessages: [Chat.Message]
   let promptSnapshot: [ProviderPromptMessage]
+  let images: [UserInput.Image]
+  let supportsHistoricalReasoningPreservation: Bool
+  let additionalContext: [String: any Sendable]
+
+  var history: [Chat.Message] {
+    MLXHistoryRenderer.chatMessages(
+      from: historySnapshot,
+      supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation
+    )
+  }
+
+  var promptMessages: [Chat.Message] {
+    MLXHistoryRenderer.chatMessages(
+      from: promptSnapshot,
+      images: images,
+      supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation
+    )
+  }
 }
 
 enum MLXHistoryRenderer {
@@ -52,7 +68,9 @@ enum MLXHistoryRenderer {
 
   static func generationInput(
     from transcript: ModelPromptProjection,
-    images: [UserInput.Image] = []
+    images: [UserInput.Image] = [],
+    reasoningEnabled: Bool = true,
+    supportsHistoricalReasoningPreservation: Bool = false
   ) throws -> MLXGenerationInput {
     guard let segments = ProviderPromptProjection.generationSegments(from: transcript) else {
       throw MLXChatRuntimeError.missingUserMessage
@@ -60,20 +78,56 @@ enum MLXHistoryRenderer {
     let historySnapshot = segments.history.messages
     let promptSnapshot = segments.prompt.messages
 
-    let history = try validatedChatMessages(from: historySnapshot)
-    var promptMessages = chatMessages(from: promptSnapshot)
-    if !images.isEmpty,
-      let userIndex = promptMessages.lastIndex(where: { $0.role == .user })
-    {
-      promptMessages[userIndex].images = images
-    }
+    _ = try validatedChatMessages(
+      from: historySnapshot,
+      supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation
+    )
+    let additionalContext = chatTemplateAdditionalContext(
+      reasoningEnabled: reasoningEnabled,
+      supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation
+    )
 
     return MLXGenerationInput(
-      history: history,
       historySnapshot: historySnapshot,
-      promptMessages: promptMessages,
-      promptSnapshot: promptSnapshot
+      promptSnapshot: promptSnapshot,
+      images: images,
+      supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation,
+      additionalContext: additionalContext
     )
+  }
+
+  static func chatMessages(
+    from snapshots: [ProviderPromptMessage],
+    images: [UserInput.Image] = [],
+    supportsHistoricalReasoningPreservation: Bool
+  ) -> [Chat.Message] {
+    var messages: [Chat.Message] = snapshots.map { snapshot -> Chat.Message in
+      switch snapshot.role {
+      case Chat.Message.Role.assistant.rawValue:
+        return .assistant(
+          assistantContent(
+            from: snapshot,
+            supportsHistoricalReasoningPreservation:
+              supportsHistoricalReasoningPreservation
+          ),
+          toolCalls: snapshot.toolCalls.isEmpty
+            ? nil
+            : snapshot.toolCalls.map(mlxToolCall(from:))
+        )
+      case Chat.Message.Role.tool.rawValue:
+        return .tool(snapshot.content, id: snapshot.toolCallID)
+      case Chat.Message.Role.system.rawValue:
+        return .system(snapshot.content)
+      default:
+        return .user(snapshot.content)
+      }
+    }
+    if !images.isEmpty,
+      let userIndex = messages.lastIndex(where: { $0.role == .user })
+    {
+      messages[userIndex].images = images
+    }
+    return messages
   }
 
   private static func validatedTemplateMessages(
@@ -107,27 +161,30 @@ enum MLXHistoryRenderer {
     return messages
   }
 
-  /// Maps normalized snapshots back to `Chat.Message`.
-  private static func chatMessages(
-    from snapshots: [ProviderPromptMessage]
-  ) -> [Chat.Message] {
-    snapshots.map { snapshot in
-      switch snapshot.role {
-      case Chat.Message.Role.assistant.rawValue:
-        return .assistant(
-          snapshot.content,
-          toolCalls: snapshot.toolCalls.isEmpty
-            ? nil
-            : snapshot.toolCalls.map(mlxToolCall(from:))
-        )
-      case Chat.Message.Role.tool.rawValue:
-        return .tool(snapshot.content, id: snapshot.toolCallID)
-      case Chat.Message.Role.system.rawValue:
-        return .system(snapshot.content)
-      default:
-        return .user(snapshot.content)
-      }
+  private static func assistantContent(
+    from snapshot: ProviderPromptMessage,
+    supportsHistoricalReasoningPreservation: Bool
+  ) -> String {
+    guard supportsHistoricalReasoningPreservation,
+      let reasoningContent = snapshot.reasoningContent,
+      !reasoningContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    else {
+      return snapshot.content
     }
+    return "<think>\n\(reasoningContent)\n</think>\n\n\(snapshot.content)"
+  }
+
+  private static func chatTemplateAdditionalContext(
+    reasoningEnabled: Bool,
+    supportsHistoricalReasoningPreservation: Bool
+  ) -> [String: any Sendable] {
+    var additionalContext: [String: any Sendable] = [
+      "enable_thinking": reasoningEnabled
+    ]
+    if supportsHistoricalReasoningPreservation {
+      additionalContext["preserve_thinking"] = true
+    }
+    return additionalContext
   }
 
   private static func mlxToolCall(
@@ -166,9 +223,15 @@ enum MLXHistoryRenderer {
   }
 
   private static func validatedChatMessages(
-    from snapshots: [ProviderPromptMessage]
+    from snapshots: [ProviderPromptMessage],
+    supportsHistoricalReasoningPreservation: Bool
   ) throws -> [Chat.Message] {
-    try validatedTemplateMessages(chatMessages(from: snapshots))
+    try validatedTemplateMessages(
+      chatMessages(
+        from: snapshots,
+        supportsHistoricalReasoningPreservation:
+          supportsHistoricalReasoningPreservation
+      ))
   }
 
 }

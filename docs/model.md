@@ -52,6 +52,7 @@ classDiagram
     toolCallingPolicy: ToolCallingPolicy
     supportsImageInput: Bool
     reasoningTraceFormat: ReasoningTraceFormat
+    supportsHistoricalReasoningPreservation: Bool
     defaultModeSettings: ChatModeSettingsSet
     defaultContextTokenLimit: Int
     maxToolLoopIterations: Int

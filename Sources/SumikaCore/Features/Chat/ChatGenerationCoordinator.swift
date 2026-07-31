@@ -82,6 +82,7 @@ struct ChatGenerationCoordinator {
     settings: ChatGenerationSettings,
     appendChunk: (String) -> Void,
     appendThinkingChunk: (String) -> Void = { _ in },
+    completeThinking: () -> Void = {},
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
     updateRuntimeCacheDebugSnapshot: (RuntimeCacheDebugSnapshot?) async -> Void = { _ in }
   ) async throws -> ChatGenerationResult {
@@ -112,6 +113,7 @@ struct ChatGenerationCoordinator {
         settings: settings,
         appendChunk: appendChunk,
         appendThinkingChunk: appendThinkingChunk,
+        completeThinking: completeThinking,
         updateGenerationMetrics: updateGenerationMetrics,
         updateRuntimeCacheDebugSnapshot: updateRuntimeCacheDebugSnapshot
       )
@@ -129,6 +131,7 @@ struct ChatGenerationCoordinator {
     settings: ChatGenerationSettings,
     appendChunk: (String) -> Void,
     appendThinkingChunk: (String) -> Void,
+    completeThinking: () -> Void,
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
     updateRuntimeCacheDebugSnapshot: (RuntimeCacheDebugSnapshot?) async -> Void
   ) async throws -> ChatGenerationResult {
@@ -279,6 +282,9 @@ struct ChatGenerationCoordinator {
           if shouldFlushBufferedThinkingChunks() {
             flushBufferedThinkingChunks()
           }
+        case .thinkingCompleted:
+          flushBufferedThinkingChunks()
+          completeThinking()
         case .toolCall(let toolCall):
           flushBufferedThinkingChunks()
           flushBufferedChunks()

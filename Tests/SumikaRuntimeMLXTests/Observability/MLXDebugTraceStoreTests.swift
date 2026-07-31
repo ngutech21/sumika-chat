@@ -348,10 +348,12 @@ struct MLXDebugTraceStoreTests {
           content: toolObservation,
           toolCallID: "call_1"
         )
-      ],
-      promptMessages: [.tool(toolObservation, id: "call_1")]
+      ]
     )
-    let finalPrompt = promptWithTransientInstructions.promptMessages.map(\.content)
+    let finalPrompt = MLXHistoryRenderer.chatMessages(
+      from: promptWithTransientInstructions,
+      supportsHistoricalReasoningPreservation: false
+    ).map(\.content)
       .joined(separator: "\n\n")
 
     await store.traceRequest(

@@ -140,11 +140,24 @@ package struct UserPromptContext: Equatable, Sendable {
   }
 }
 
-package struct AssistantOutputContext: Equatable, Sendable {
+package struct HistoricalAssistantReasoning: Equatable, Sendable {
   package let content: String
 
   package init(content: String) {
     self.content = content
+  }
+}
+
+package struct AssistantOutputContext: Equatable, Sendable {
+  package let content: String
+  package let historicalReasoning: HistoricalAssistantReasoning?
+
+  package init(
+    content: String,
+    historicalReasoning: HistoricalAssistantReasoning? = nil
+  ) {
+    self.content = content
+    self.historicalReasoning = historicalReasoning
   }
 }
 

@@ -7,7 +7,32 @@ struct MLXModelStreamPlan {
   let task: Task<Void, Never>
 }
 
+struct MLXCompletedAssistantSnapshot: Equatable, Sendable {
+  let visibleContent: String
+  let completedReasoningContent: String?
+}
+
 enum MLXModelStreamProcessor {
+  private enum ReasoningBoundaryState {
+    case absent
+    case open
+    case closed
+
+    var isOpen: Bool {
+      if case .open = self {
+        return true
+      }
+      return false
+    }
+
+    var isClosed: Bool {
+      if case .closed = self {
+        return true
+      }
+      return false
+    }
+  }
+
   private struct StreamTerminationState {
     var reachedTokenLimit = false
     var discardedToolProtocolTail = false
@@ -23,8 +48,11 @@ enum MLXModelStreamProcessor {
     debugTraceStore: MLXDebugTraceStore,
     runtimeCacheDiagnostics: MLXRuntimeCacheDiagnostics? = nil,
     generationProgressTracer: MLXGenerationProgressTracer = .disabled,
-    markCompleted: @escaping @Sendable (String) async -> Void,
-    markNativeToolCallBoundary: @escaping @Sendable (String, [ChatRuntimeToolCall]) async -> Void =
+    markCompleted: @escaping @Sendable (MLXCompletedAssistantSnapshot) async -> Void,
+    markNativeToolCallBoundary:
+      @escaping @Sendable (
+        MLXCompletedAssistantSnapshot, [ChatRuntimeToolCall]
+      ) async -> Void =
       {
         _, _ in
       },
@@ -41,6 +69,8 @@ enum MLXModelStreamProcessor {
       defer { ChatDiagnostics.endInterval(streamInterval) }
       var output = ""
       var visibleOutput = ""
+      var reasoningOutput = ""
+      var reasoningBoundaryState = ReasoningBoundaryState.absent
       var reasoningParser = ReasoningTraceParser(format: reasoningTraceFormat)
       var completedMetrics: ChatGenerationMetrics?
       let iterationStartedAt = Date()
@@ -70,7 +100,9 @@ enum MLXModelStreamProcessor {
               pendingChunk: &pendingChunk,
               reasoningParser: &reasoningParser,
               to: continuation,
-              visibleOutput: &visibleOutput
+              visibleOutput: &visibleOutput,
+              reasoningOutput: &reasoningOutput,
+              reasoningBoundaryState: &reasoningBoundaryState
             ) {
               termination.terminatedDownstream = true
               break generationLoop
@@ -103,7 +135,9 @@ enum MLXModelStreamProcessor {
                 &pendingChunk,
                 reasoningParser: &reasoningParser,
                 to: continuation,
-                visibleOutput: &visibleOutput
+                visibleOutput: &visibleOutput,
+                reasoningOutput: &reasoningOutput,
+                reasoningBoundaryState: &reasoningBoundaryState
               ) {
                 termination.terminatedDownstream = true
                 break generationLoop
@@ -119,7 +153,9 @@ enum MLXModelStreamProcessor {
             if yieldSegments(
               reasoningParser.finish(),
               to: continuation,
-              visibleOutput: &visibleOutput
+              visibleOutput: &visibleOutput,
+              reasoningOutput: &reasoningOutput,
+              reasoningBoundaryState: &reasoningBoundaryState
             ) {
               termination.terminatedDownstream = true
               break generationLoop
@@ -131,12 +167,6 @@ enum MLXModelStreamProcessor {
               cacheTrace: cacheTrace
             )
             completedMetrics = metrics
-            if !termination.reachedTokenLimit {
-              if case .terminated = continuation.yield(.completed(metrics)) {
-                termination.terminatedDownstream = true
-                break generationLoop
-              }
-            }
           }
         }
 
@@ -145,7 +175,9 @@ enum MLXModelStreamProcessor {
             &pendingChunk,
             reasoningParser: &reasoningParser,
             to: continuation,
-            visibleOutput: &visibleOutput
+            visibleOutput: &visibleOutput,
+            reasoningOutput: &reasoningOutput,
+            reasoningBoundaryState: &reasoningBoundaryState
           )
         {
           termination.terminatedDownstream = true
@@ -159,7 +191,12 @@ enum MLXModelStreamProcessor {
         await finalizeStream(
           continuation: continuation,
           output: output,
-          visibleOutput: visibleOutput,
+          assistantSnapshot: completedAssistantSnapshot(
+            visibleOutput: visibleOutput,
+            reasoningOutput: reasoningOutput,
+            reasoningBoundaryState: reasoningBoundaryState
+          ),
+          hasUnconfirmedReasoning: reasoningBoundaryState.isOpen,
           completedMetrics: completedMetrics,
           didTerminateDownstream: termination.terminatedDownstream,
           didCompleteNaturally: completedMetrics != nil && !termination.reachedTokenLimit,
@@ -186,37 +223,76 @@ enum MLXModelStreamProcessor {
         )
         continuation.finish(throwing: CancellationError())
       } catch {
-        await markCancelled(.runtimeError)
-        await clearMemoryCache(
-          reason: .runtimeError,
+        await handleRuntimeFailure(
+          error,
+          output: output,
+          completedMetrics: completedMetrics,
+          continuation: continuation,
           traceID: traceID,
           traceMetadata: traceMetadata,
           cacheTrace: cacheTrace,
           debugTraceStore: debugTraceStore,
+          markCancelled: markCancelled,
           memoryCacheClearer: memoryCacheClearer
         )
-        await debugTraceStore.traceResponse(
-          id: traceID,
-          output: output,
-          metrics: completedMetrics,
-          error: error.localizedDescription
-        )
-        continuation.finish(throwing: error)
       }
     }
 
+    observeDownstreamCancellation(
+      of: continuation,
+      task: task,
+      markCancelled: markCancelled
+    )
+
+    return MLXModelStreamPlan(stream: outputStream, task: task)
+  }
+}
+
+extension MLXModelStreamProcessor {
+  private static func observeDownstreamCancellation(
+    of continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
+    task: Task<Void, Never>,
+    markCancelled: @escaping @Sendable (MLXSessionInvalidationReason) async -> Void
+  ) {
     continuation.onTermination = { termination in
       guard case .cancelled = termination else {
         return
       }
-
       Task {
         await markCancelled(.downstreamTerminated)
         task.cancel()
       }
     }
+  }
 
-    return MLXModelStreamPlan(stream: outputStream, task: task)
+  private static func handleRuntimeFailure(
+    _ error: Error,
+    output: String,
+    completedMetrics: ChatGenerationMetrics?,
+    continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
+    traceID: UUID,
+    traceMetadata: TurnTraceMetadata?,
+    cacheTrace: MLXSessionCacheTrace,
+    debugTraceStore: MLXDebugTraceStore,
+    markCancelled: @Sendable (MLXSessionInvalidationReason) async -> Void,
+    memoryCacheClearer: MLXMemoryCacheClearer
+  ) async {
+    await markCancelled(.runtimeError)
+    await clearMemoryCache(
+      reason: .runtimeError,
+      traceID: traceID,
+      traceMetadata: traceMetadata,
+      cacheTrace: cacheTrace,
+      debugTraceStore: debugTraceStore,
+      memoryCacheClearer: memoryCacheClearer
+    )
+    await debugTraceStore.traceResponse(
+      id: traceID,
+      output: output,
+      metrics: completedMetrics,
+      error: error.localizedDescription
+    )
+    continuation.finish(throwing: error)
   }
 
   private static func recordRuntimeTTFTIfNeeded(
@@ -360,7 +436,9 @@ enum MLXModelStreamProcessor {
   private static func yieldSegments(
     _ segments: [ReasoningTraceParser.Segment],
     to continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
-    visibleOutput: inout String
+    visibleOutput: inout String,
+    reasoningOutput: inout String,
+    reasoningBoundaryState: inout ReasoningBoundaryState
   ) -> Bool {
     for segment in segments {
       switch segment {
@@ -370,7 +448,14 @@ enum MLXModelStreamProcessor {
           return true
         }
       case .thinking(let thinkingChunk):
+        reasoningOutput += thinkingChunk
+        reasoningBoundaryState = .open
         if case .terminated = continuation.yield(.thinkingChunk(thinkingChunk)) {
+          return true
+        }
+      case .thinkingCompleted:
+        reasoningBoundaryState = .closed
+        if case .terminated = continuation.yield(.thinkingCompleted) {
           return true
         }
       }
@@ -383,7 +468,9 @@ enum MLXModelStreamProcessor {
     pendingChunk: inout String?,
     reasoningParser: inout ReasoningTraceParser,
     to continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
-    visibleOutput: inout String
+    visibleOutput: inout String,
+    reasoningOutput: inout String,
+    reasoningBoundaryState: inout ReasoningBoundaryState
   ) -> Bool {
     if isPotentialToolProtocolResidual(chunk) {
       pendingChunk = (pendingChunk ?? "") + chunk
@@ -393,14 +480,18 @@ enum MLXModelStreamProcessor {
       &pendingChunk,
       reasoningParser: &reasoningParser,
       to: continuation,
-      visibleOutput: &visibleOutput
+      visibleOutput: &visibleOutput,
+      reasoningOutput: &reasoningOutput,
+      reasoningBoundaryState: &reasoningBoundaryState
     ) {
       return true
     }
     return yieldSegments(
       reasoningParser.append(chunk),
       to: continuation,
-      visibleOutput: &visibleOutput
+      visibleOutput: &visibleOutput,
+      reasoningOutput: &reasoningOutput,
+      reasoningBoundaryState: &reasoningBoundaryState
     )
   }
 
@@ -408,7 +499,9 @@ enum MLXModelStreamProcessor {
     _ pendingChunk: inout String?,
     reasoningParser: inout ReasoningTraceParser,
     to continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
-    visibleOutput: inout String
+    visibleOutput: inout String,
+    reasoningOutput: inout String,
+    reasoningBoundaryState: inout ReasoningBoundaryState
   ) -> Bool {
     guard let chunk = pendingChunk else {
       return false
@@ -417,7 +510,9 @@ enum MLXModelStreamProcessor {
     return yieldSegments(
       reasoningParser.append(chunk),
       to: continuation,
-      visibleOutput: &visibleOutput
+      visibleOutput: &visibleOutput,
+      reasoningOutput: &reasoningOutput,
+      reasoningBoundaryState: &reasoningBoundaryState
     )
   }
 
@@ -455,7 +550,8 @@ enum MLXModelStreamProcessor {
   private static func finalizeStream(
     continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
     output: String,
-    visibleOutput: String,
+    assistantSnapshot: MLXCompletedAssistantSnapshot,
+    hasUnconfirmedReasoning: Bool,
     completedMetrics: ChatGenerationMetrics?,
     didTerminateDownstream: Bool,
     didCompleteNaturally: Bool,
@@ -467,8 +563,11 @@ enum MLXModelStreamProcessor {
     cacheTrace: MLXSessionCacheTrace,
     debugTraceStore: MLXDebugTraceStore,
     runtimeCacheDiagnostics: MLXRuntimeCacheDiagnostics?,
-    markCompleted: @Sendable (String) async -> Void,
-    markNativeToolCallBoundary: @Sendable (String, [ChatRuntimeToolCall]) async -> Void,
+    markCompleted: @Sendable (MLXCompletedAssistantSnapshot) async -> Void,
+    markNativeToolCallBoundary:
+      @Sendable (
+        MLXCompletedAssistantSnapshot, [ChatRuntimeToolCall]
+      ) async -> Void,
     markCancelled: @Sendable (MLXSessionInvalidationReason) async -> Void,
     memoryCacheClearer: MLXMemoryCacheClearer
   ) async {
@@ -504,22 +603,11 @@ enum MLXModelStreamProcessor {
       return
     }
 
-    if !nativeToolCalls.isEmpty {
-      if completedMetrics == nil {
-        await runtimeCacheDiagnostics?.invalidate()
-      }
-      await markNativeToolCallBoundary(visibleOutput, nativeToolCalls)
-      await debugTraceStore.traceResponse(
-        id: traceID,
-        output: output,
-        metrics: completedMetrics
-      )
-      continuation.finish()
-      return
-    }
-
-    if !didCompleteNaturally {
+    let isInterrupted =
+      hasUnconfirmedReasoning || (!didCompleteNaturally && nativeToolCalls.isEmpty)
+    if isInterrupted {
       let error = MLXChatRuntimeError.interruptedStream
+      await runtimeCacheDiagnostics?.invalidate()
       await markCancelled(.interrupted)
       await clearMemoryCache(
         reason: .interruptedStream,
@@ -539,13 +627,70 @@ enum MLXModelStreamProcessor {
       return
     }
 
-    await markCompleted(visibleOutput)
+    if !nativeToolCalls.isEmpty {
+      if completedMetrics == nil {
+        await runtimeCacheDiagnostics?.invalidate()
+      }
+      if yieldCompletion(completedMetrics, to: continuation) {
+        await markCancelled(.downstreamTerminated)
+        continuation.finish()
+        return
+      }
+      await markNativeToolCallBoundary(assistantSnapshot, nativeToolCalls)
+      await debugTraceStore.traceResponse(
+        id: traceID,
+        output: output,
+        metrics: completedMetrics
+      )
+      continuation.finish()
+      return
+    }
+
+    if yieldCompletion(completedMetrics, to: continuation) {
+      await markCancelled(.downstreamTerminated)
+      continuation.finish()
+      return
+    }
+
+    await markCompleted(assistantSnapshot)
     await debugTraceStore.traceResponse(
       id: traceID,
       output: output,
       metrics: completedMetrics
     )
     continuation.finish()
+  }
+
+  private static func completedAssistantSnapshot(
+    visibleOutput: String,
+    reasoningOutput: String,
+    reasoningBoundaryState: ReasoningBoundaryState
+  ) -> MLXCompletedAssistantSnapshot {
+    let completedReasoningContent: String? =
+      if reasoningBoundaryState.isClosed,
+        !reasoningOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      {
+        reasoningOutput
+      } else {
+        nil
+      }
+    return MLXCompletedAssistantSnapshot(
+      visibleContent: visibleOutput,
+      completedReasoningContent: completedReasoningContent
+    )
+  }
+
+  private static func yieldCompletion(
+    _ metrics: ChatGenerationMetrics?,
+    to continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation
+  ) -> Bool {
+    guard let metrics else {
+      return false
+    }
+    if case .terminated = continuation.yield(.completed(metrics)) {
+      return true
+    }
+    return false
   }
 
   static func clearMemoryCache(

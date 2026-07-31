@@ -36,13 +36,19 @@ package enum ModelFacingPromptRenderer {
     id: UUID = UUID(),
     turnID: ChatTurn.ID? = nil,
     sourceMessageID: UUID? = nil,
-    content: String
+    content: String,
+    historicalReasoning: HistoricalAssistantReasoning? = nil
   ) throws -> ModelContextEntry {
     try ModelContextEntry(
       id: id,
       turnID: turnID,
       sourceMessageID: sourceMessageID,
-      body: .assistantOutput(AssistantOutputContext(content: content)),
+      body: .assistantOutput(
+        AssistantOutputContext(
+          content: content,
+          historicalReasoning: historicalReasoning
+        )
+      ),
       frozenContent: FrozenModelContent(role: .assistant, content: content)
     )
   }

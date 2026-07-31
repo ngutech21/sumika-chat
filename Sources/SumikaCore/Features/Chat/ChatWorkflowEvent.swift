@@ -45,6 +45,9 @@ enum ChatWorkflowEvent: Equatable, Sendable {
   case assistantThinkingCompleted(
     messageID: UUID
   )
+  case assistantThinkingCancelled(
+    messageID: UUID
+  )
   case assistantGenerationCompleted(
     messageID: UUID,
     metrics: ChatGenerationMetrics?
@@ -169,6 +172,8 @@ struct ChatWorkflowEventApplier: Sendable {
       mutator.appendThinkingChunk(chunk, to: messageID, in: &state)
     case .assistantThinkingCompleted(let messageID):
       mutator.updateThinkingDeliveryStatus(.complete, for: messageID, in: &state)
+    case .assistantThinkingCancelled(let messageID):
+      mutator.updateThinkingDeliveryStatus(.cancelled, for: messageID, in: &state)
     case .assistantGenerationCompleted(let messageID, let metrics):
       mutator.updateGenerationMetrics(metrics, for: messageID, in: &state)
       mutator.updateDeliveryStatus(.complete, for: messageID, in: &state)
@@ -242,6 +247,7 @@ struct ChatWorkflowEventApplier: Sendable {
     case .assistantChunkAppended(_, let messageID),
       .assistantThinkingChunkAppended(_, let messageID),
       .assistantThinkingCompleted(let messageID),
+      .assistantThinkingCancelled(let messageID),
       .assistantGenerationCompleted(let messageID, _),
       .assistantGenerationOutputLimitReached(let messageID):
       return missingMessageDiagnostics([messageID], event: event, in: state)

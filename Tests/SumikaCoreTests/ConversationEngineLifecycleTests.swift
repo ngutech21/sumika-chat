@@ -448,10 +448,11 @@ struct ConversationEngineLifecycleTests {
   }
 
   @Test
-  func thinkingCompletesWhenFirstVisibleChunkArrives() async throws {
+  func thinkingCompletesAtExplicitBoundaryBeforeFirstVisibleChunk() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [
         .thinkingChunk("Weighing the candidate answers."),
+        .thinkingCompleted,
         .chunk("Here is the answer."),
       ]
     ])
@@ -484,6 +485,43 @@ struct ConversationEngineLifecycleTests {
     #expect(thinkingMessage?.startedAt != nil)
     #expect(thinkingMessage?.completedAt != nil)
     #expect(thinkingMessage?.reasoningDuration != nil)
+  }
+
+  @Test
+  func generationCompletionCancelsThinkingWithoutAnExplicitBoundary() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .thinkingChunk("Unclosed reasoning."),
+        .chunk("Visible answer."),
+      ]
+    ])
+    let session = ChatSession(interactionMode: .chat)
+    let workspace = makeConversationTestWorkspace(
+      containing: session,
+      rootURL: try scopedTemporaryDirectory()
+    )
+    let harness = ConversationEngineLifecycleHarness(
+      session: session,
+      runtime: runtime
+    )
+
+    harness.startUserTurn(
+      prompt: "explain the tradeoff",
+      workspace: workspace,
+      sessionID: session.id
+    )
+
+    try await waitUntil { harness.finishCount == 1 }
+
+    let thinkingMessage = harness.session.turns.first?.items
+      .compactMap { item -> AssistantThinkingMessage? in
+        if case .assistantThinking(let message) = item {
+          return message
+        }
+        return nil
+      }.first
+    #expect(thinkingMessage?.deliveryStatus == .cancelled)
+    #expect(thinkingMessage?.completedAt != nil)
   }
 
   @Test

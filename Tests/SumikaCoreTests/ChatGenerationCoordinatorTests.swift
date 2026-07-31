@@ -245,6 +245,71 @@ struct ChatGenerationCoordinatorTests {
   }
 
   @Test
+  func thinkingCompletionFlushesThinkingBeforePublishingTheBoundary() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [
+        [
+          .thinkingChunk("Reasoning"),
+          .thinkingCompleted,
+          .chunk("Visible answer."),
+          .completed(nil),
+        ]
+      ],
+      automaticallyCompletes: false
+    )
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 3600,
+      streamingFlushCharacterLimit: 1_000
+    )
+    var observations: [String] = []
+
+    _ = try await coordinator.streamAssistantReplyResult(
+      transcript: ModelPromptProjection(),
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
+      settings: .agentDefault,
+      appendChunk: { observations.append("visible:\($0)") },
+      appendThinkingChunk: { observations.append("thinking:\($0)") },
+      completeThinking: { observations.append("thinking-completed") },
+      updateGenerationMetrics: { _ in observations.append("generation-completed") }
+    )
+
+    #expect(
+      observations == [
+        "thinking:Reasoning",
+        "thinking-completed",
+        "visible:Visible answer.",
+        "generation-completed",
+      ])
+  }
+
+  @Test
+  func generationCompletionDoesNotConfirmUnclosedThinking() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [[.thinkingChunk("Partial reasoning"), .completed(nil)]],
+      automaticallyCompletes: false
+    )
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 0,
+      streamingFlushCharacterLimit: 1
+    )
+    var thinkingCompletionCount = 0
+
+    _ = try await coordinator.streamAssistantReplyResult(
+      transcript: ModelPromptProjection(),
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
+      settings: .agentDefault,
+      appendChunk: { _ in },
+      appendThinkingChunk: { _ in },
+      completeThinking: { thinkingCompletionCount += 1 },
+      updateGenerationMetrics: { _ in }
+    )
+
+    #expect(thinkingCompletionCount == 0)
+  }
+
+  @Test
   func streamingPublishesRuntimeCacheDebugSnapshotAfterStreamStarts() async throws {
     let generationID = UUID()
     let runtimeSnapshot = RuntimeCacheDebugSnapshot(

@@ -306,7 +306,7 @@ struct MLXModelStreamProcessorTests {
         outputLimit = limit
       case .completed:
         Issue.record("A token-limited response must not be marked complete.")
-      case .thinkingChunk, .toolCall:
+      case .thinkingChunk, .thinkingCompleted, .toolCall:
         break
       }
     }
@@ -384,7 +384,7 @@ struct MLXModelStreamProcessorTests {
         outputLimit = limit
       case .completed:
         Issue.record("A token-limited response must not be marked complete.")
-      case .thinkingChunk:
+      case .thinkingChunk, .thinkingCompleted:
         break
       }
     }
@@ -537,7 +537,7 @@ struct MLXModelStreamProcessorTests {
         chunks.append(chunk)
       case .thinkingChunk(let chunk):
         thinkingChunks.append(chunk)
-      case .toolCall, .completed, .outputLimitReached:
+      case .thinkingCompleted, .toolCall, .completed, .outputLimitReached:
         break
       }
     }
@@ -593,7 +593,7 @@ struct MLXModelStreamProcessorTests {
         chunks.append(chunk)
       case .thinkingChunk(let chunk):
         thinkingChunks.append(chunk)
-      case .toolCall, .completed, .outputLimitReached:
+      case .thinkingCompleted, .toolCall, .completed, .outputLimitReached:
         break
       }
     }
@@ -602,6 +602,182 @@ struct MLXModelStreamProcessorTests {
     #expect(thinkingChunks.joined() == "The user said hey.")
     #expect(await completionRecorder.firstOutput == "\n\nHello there.")
     #expect(await memoryClearRecorder.reasons.isEmpty)
+  }
+
+  @Test
+  func completedQwenReasoningReachesCacheSnapshotAfterCompletionBoundary() async throws {
+    let snapshotRecorder = MLXAssistantSnapshotRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("Inspect the request."))
+      continuation.yield(.chunk("</think>"))
+      continuation.yield(.chunk("Done."))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8,
+            generationTokenCount: 8,
+            promptTime: 0.1,
+            generationTime: 0.1
+          )
+        ))
+      continuation.finish()
+    }
+    let stream = modelStream(
+      from: source,
+      reasoningTraceFormat: .qwenThinkTags,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
+      markCompleted: { _ in },
+      markCompletedSnapshot: { snapshot in
+        await snapshotRecorder.record(snapshot)
+      },
+      markCancelled: { _ in },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
+    )
+
+    var eventOrder: [String] = []
+    for try await event in stream {
+      switch event {
+      case .thinkingChunk(let chunk):
+        eventOrder.append("thinking:\(chunk)")
+      case .thinkingCompleted:
+        eventOrder.append("thinking_completed")
+      case .chunk(let chunk):
+        eventOrder.append("visible:\(chunk)")
+      case .completed:
+        eventOrder.append("completed")
+      case .toolCall, .outputLimitReached:
+        break
+      }
+    }
+
+    #expect(
+      eventOrder == [
+        "thinking:Inspect the request.",
+        "thinking_completed",
+        "visible:Done.",
+        "completed",
+      ])
+    #expect(
+      await snapshotRecorder.firstSnapshot
+        == MLXCompletedAssistantSnapshot(
+          visibleContent: "Done.",
+          completedReasoningContent: "Inspect the request."
+        ))
+  }
+
+  @Test
+  func unclosedQwenReasoningInvalidatesCacheInsteadOfConfirmingSnapshot() async throws {
+    let snapshotRecorder = MLXAssistantSnapshotRecorder()
+    let invalidationRecorder = MLXStreamInvalidationRecorder()
+    let memoryClearRecorder = MLXMemoryClearRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("Still reasoning"))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8,
+            generationTokenCount: 2,
+            promptTime: 0.1,
+            generationTime: 0.1
+          )
+        ))
+      continuation.finish()
+    }
+    let stream = modelStream(
+      from: source,
+      reasoningTraceFormat: .qwenThinkTags,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
+      markCompleted: { _ in },
+      markCompletedSnapshot: { snapshot in
+        await snapshotRecorder.record(snapshot)
+      },
+      markCancelled: { reason in
+        await invalidationRecorder.record(reason)
+      },
+      memoryCacheClearer: MLXMemoryCacheClearer { reason in
+        await memoryClearRecorder.record(reason)
+      }
+    )
+
+    var didEmitCompletion = false
+    do {
+      for try await event in stream {
+        if case .completed = event {
+          didEmitCompletion = true
+        }
+      }
+      Issue.record("Expected unclosed Qwen reasoning to interrupt the stream.")
+    } catch MLXChatRuntimeError.interruptedStream {
+    } catch {
+      Issue.record("Expected interrupted stream error, got \(error).")
+    }
+
+    #expect(!didEmitCompletion)
+    #expect(await snapshotRecorder.firstSnapshot == nil)
+    #expect(await invalidationRecorder.firstReason == .interrupted)
+    #expect(await memoryClearRecorder.reasons == [.interruptedStream])
+  }
+
+  @Test
+  func laterUnclosedGemmaReasoningSegmentInterruptsAfterEarlierCompletedSegment() async throws {
+    let snapshotRecorder = MLXAssistantSnapshotRecorder()
+    let invalidationRecorder = MLXStreamInvalidationRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("<|channel>thought"))
+      continuation.yield(.chunk("First thought."))
+      continuation.yield(.chunk("<channel|>Visible."))
+      continuation.yield(.chunk("<|channel>thought"))
+      continuation.yield(.chunk("Second thought."))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8,
+            generationTokenCount: 8,
+            promptTime: 0.1,
+            generationTime: 0.1
+          )
+        ))
+      continuation.finish()
+    }
+    let stream = modelStream(
+      from: source,
+      reasoningTraceFormat: .gemmaChannel,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
+      markCompleted: { _ in },
+      markCompletedSnapshot: { snapshot in
+        await snapshotRecorder.record(snapshot)
+      },
+      markCancelled: { reason in
+        await invalidationRecorder.record(reason)
+      },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
+    )
+
+    var didEmitCompletion = false
+    do {
+      for try await event in stream {
+        if case .completed = event {
+          didEmitCompletion = true
+        }
+      }
+      Issue.record("Expected the later unclosed Gemma reasoning segment to interrupt.")
+    } catch MLXChatRuntimeError.interruptedStream {
+    } catch {
+      Issue.record("Expected interrupted stream error, got \(error).")
+    }
+
+    #expect(!didEmitCompletion)
+    #expect(await snapshotRecorder.firstSnapshot == nil)
+    #expect(await invalidationRecorder.firstReason == .interrupted)
   }
 
   @Test
@@ -929,6 +1105,9 @@ struct MLXModelStreamProcessorTests {
     debugTraceStore: MLXDebugTraceStore,
     runtimeCacheDiagnostics: MLXRuntimeCacheDiagnostics? = nil,
     markCompleted: @escaping @Sendable (String) async -> Void,
+    markCompletedSnapshot: @escaping @Sendable (MLXCompletedAssistantSnapshot) async -> Void = {
+      _ in
+    },
     markNativeToolCallBoundary: @escaping @Sendable (String, [ChatRuntimeToolCall]) async -> Void =
       {
         _, _ in
@@ -944,8 +1123,13 @@ struct MLXModelStreamProcessorTests {
       cacheTrace: cacheTrace,
       debugTraceStore: debugTraceStore,
       runtimeCacheDiagnostics: runtimeCacheDiagnostics,
-      markCompleted: markCompleted,
-      markNativeToolCallBoundary: markNativeToolCallBoundary,
+      markCompleted: { assistant in
+        await markCompleted(assistant.visibleContent)
+        await markCompletedSnapshot(assistant)
+      },
+      markNativeToolCallBoundary: { assistant, nativeToolCalls in
+        await markNativeToolCallBoundary(assistant.visibleContent, nativeToolCalls)
+      },
       markCancelled: markCancelled,
       memoryCacheClearer: memoryCacheClearer
     ).stream
@@ -1075,6 +1259,18 @@ struct MLXModelStreamProcessorTests {
 
     func record(_ output: String) {
       outputs.append(output)
+    }
+  }
+
+  private actor MLXAssistantSnapshotRecorder {
+    private var snapshots: [MLXCompletedAssistantSnapshot] = []
+
+    var firstSnapshot: MLXCompletedAssistantSnapshot? {
+      snapshots.first
+    }
+
+    func record(_ snapshot: MLXCompletedAssistantSnapshot) {
+      snapshots.append(snapshot)
     }
   }
 

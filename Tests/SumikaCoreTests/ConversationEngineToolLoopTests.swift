@@ -172,7 +172,7 @@ struct ConversationEngineToolLoopTests {
   }
 
   @Test
-  func outputLimitedBatchCompletesThinkingBeforeApprovalPause() async throws {
+  func outputLimitedBatchDoesNotConfirmUnclosedThinkingBeforeApprovalPause() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(
@@ -209,8 +209,99 @@ struct ConversationEngineToolLoopTests {
       }
     let thinking = try #require(thinkingMessages.first)
     #expect(thinking.content == "Preparing the write.")
-    #expect(thinking.deliveryStatus == .complete)
+    #expect(thinking.deliveryStatus == .cancelled)
     #expect(thinking.completedAt != nil)
+  }
+
+  @Test
+  func outputLimitedBatchKeepsExplicitlyCompletedThinkingBeforeApprovalPause() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [
+        [
+          .thinkingChunk("Preparing the write."),
+          .thinkingCompleted,
+          writeToolCall(path: "index.html", content: "<main></main>"),
+          .outputLimitReached(
+            ChatGenerationOutputLimit(
+              discardedToolProtocolTail: true
+            )),
+        ]
+      ],
+      automaticallyCompletes: false
+    )
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+
+    engine.sendMessage(
+      prompt: "Create the project file.",
+      in: workspace,
+      sessionID: sessionID
+    )
+    try await waitUntil { engine.hasPendingApproval && !engine.isGenerating }
+
+    let thinkingMessages: [AssistantThinkingMessage] =
+      engine.chatSession.transcriptItemsForTesting.compactMap { item in
+        guard case .assistantThinking(let message) = item else {
+          return nil
+        }
+        return message
+      }
+    let thinking = try #require(thinkingMessages.first)
+    #expect(thinking.content == "Preparing the write.")
+    #expect(thinking.deliveryStatus == .complete)
+  }
+
+  @Test
+  func outputLimitRetryUsesASeparateThinkingMessageAndCancelsTheDiscardedAttempt() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [
+        [
+          .thinkingChunk("Discarded attempt."),
+          .thinkingCompleted,
+          .outputLimitReached(
+            ChatGenerationOutputLimit(
+              discardedToolProtocolTail: true
+            )),
+        ],
+        [
+          .thinkingChunk("Confirmed retry."),
+          .thinkingCompleted,
+          writeToolCall(path: "small.txt", content: "small"),
+        ],
+      ],
+      automaticallyCompletes: false
+    )
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+
+    engine.sendMessage(
+      prompt: "Create a small file.",
+      in: workspace,
+      sessionID: sessionID
+    )
+    try await waitUntil { engine.hasPendingApproval && !engine.isGenerating }
+
+    let thinkingMessages: [AssistantThinkingMessage] =
+      engine.chatSession.transcriptItemsForTesting.compactMap { item in
+        guard case .assistantThinking(let message) = item else {
+          return nil
+        }
+        return message
+      }
+    #expect(thinkingMessages.count == 2)
+    #expect(thinkingMessages[0].id != thinkingMessages[1].id)
+    #expect(thinkingMessages[0].content == "Discarded attempt.")
+    #expect(thinkingMessages[0].deliveryStatus == .cancelled)
+    #expect(thinkingMessages[1].content == "Confirmed retry.")
+    #expect(thinkingMessages[1].deliveryStatus == .complete)
   }
 
   @Test

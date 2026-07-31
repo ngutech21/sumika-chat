@@ -282,6 +282,8 @@ final class ModelRuntimeController {
     let requestedContextTokenLimit = modelContextTokenLimit
     let supportsImageInput = selectedModel.supportsImageInput
     let reasoningTraceFormat = selectedModel.reasoningTraceFormat
+    let supportsHistoricalReasoningPreservation =
+      selectedModel.supportsHistoricalReasoningPreservation
 
     loadTask = Task {
       await runtimeOperations.setCurrentOperation(operationID)
@@ -293,6 +295,7 @@ final class ModelRuntimeController {
           requestedContextTokenLimit: requestedContextTokenLimit,
           supportsImageInput: supportsImageInput,
           reasoningTraceFormat: reasoningTraceFormat,
+          supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation,
           operationID: operationID
         )
         try Task.checkCancellation()

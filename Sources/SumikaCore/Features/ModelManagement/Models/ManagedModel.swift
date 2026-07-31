@@ -42,6 +42,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
   package let toolCallingPolicy: ToolCallingPolicy
   package let supportsImageInput: Bool
   package let reasoningTraceFormat: ReasoningTraceFormat
+  package let supportsHistoricalReasoningPreservation: Bool
   package let defaultModeSettings: ChatModeSettingsSet
   package let defaultContextTokenLimit: Int
   package let maxToolLoopIterations: Int
@@ -59,6 +60,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     toolCallingPolicy: ToolCallingPolicy = .nativeMLX,
     supportsImageInput: Bool,
     reasoningTraceFormat: ReasoningTraceFormat = .none,
+    supportsHistoricalReasoningPreservation: Bool = false,
     defaultModeSettings: ChatModeSettingsSet,
     defaultContextTokenLimit: Int,
     maxToolLoopIterations: Int = 8
@@ -75,6 +77,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     self.toolCallingPolicy = toolCallingPolicy
     self.supportsImageInput = supportsImageInput
     self.reasoningTraceFormat = reasoningTraceFormat
+    self.supportsHistoricalReasoningPreservation = supportsHistoricalReasoningPreservation
     self.defaultModeSettings = defaultModeSettings
     self.defaultContextTokenLimit = defaultContextTokenLimit
     self.maxToolLoopIterations = maxToolLoopIterations
@@ -207,6 +210,7 @@ package enum ManagedModelCatalog {
       stability: .stable,
       supportsImageInput: false,
       reasoningTraceFormat: .qwenThinkTags,
+      supportsHistoricalReasoningPreservation: true,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
