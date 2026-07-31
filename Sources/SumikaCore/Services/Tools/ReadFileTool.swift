@@ -1,5 +1,10 @@
 import Foundation
 
+private enum ReadFileLimits {
+  static let maximumLinesPerPage = 500
+  static let renderedContentBytesPerPage = 16 * 1024
+}
+
 package enum ReadFileTrackedResult: Equatable, Sendable {
   case success
   case unchanged
@@ -538,10 +543,12 @@ nonisolated extension ToolDefinition {
       ),
       ToolParameterDefinition(
         name: "limit",
-        description: "Maximum lines to return.",
+        description: "Maximum lines to return, capped at 500.",
         isRequired: false,
         valueType: .integer,
-        minimum: 1
+        defaultValue: .number(Double(ReadFileLimits.maximumLinesPerPage)),
+        minimum: 1,
+        maximum: Double(ReadFileLimits.maximumLinesPerPage)
       ),
     ],
     capabilities: [.readWorkspace],
@@ -583,9 +590,14 @@ struct ReadFileToolExecutor: TypedToolExecutor {
   )
 
   private let maxBytes: Int
+  private let maxLines: Int?
 
-  init(maxBytes: Int = 6 * 1024) {
+  init(
+    maxBytes: Int = ReadFileLimits.renderedContentBytesPerPage,
+    maxLines: Int? = ReadFileLimits.maximumLinesPerPage
+  ) {
     self.maxBytes = maxBytes
+    self.maxLines = maxLines
   }
 
   func evaluatePermission(
@@ -625,7 +637,7 @@ struct ReadFileToolExecutor: TypedToolExecutor {
           from: resolvedPathURL,
           path: path,
           startLine: input.offset ?? 1,
-          maxLines: input.limit,
+          maxLines: resolvedMaxLines(requestedLimit: input.limit),
           maxBytes: maxBytes
         )
         guard let readResult else {
@@ -676,6 +688,19 @@ struct ReadFileToolExecutor: TypedToolExecutor {
             : ToolResultFailureMapper.reason(from: error)
         )
       )
+    }
+  }
+
+  private func resolvedMaxLines(requestedLimit: Int?) -> Int? {
+    switch (requestedLimit, maxLines) {
+    case (.none, .none):
+      nil
+    case (.some(let requestedLimit), .none):
+      requestedLimit
+    case (.none, .some(let maxLines)):
+      maxLines
+    case (.some(let requestedLimit), .some(let maxLines)):
+      min(requestedLimit, maxLines)
     }
   }
 

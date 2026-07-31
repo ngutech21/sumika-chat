@@ -1270,6 +1270,46 @@ struct ToolResultProjectorTests {
   }
 
   @Test
+  func readFilePageUsesItsLargerDedicatedObservationLimit() throws {
+    let fullContent = String(repeating: "x", count: 16 * 1_024)
+    let path = WorkspaceRelativePath(rawValue: "large.txt")
+    let page = try ReadFilePage(
+      path: path,
+      startLine: 1,
+      endLine: 1,
+      content: fullContent,
+      continuation: .endOfFile
+    )
+    let payload = ToolResultPayload.readFile(.page(page))
+    let request = request(
+      toolName: .readFile,
+      payload: .readFile(ReadFileInput(path: path.rawValue))
+    )
+
+    let entry = try ModelFacingPromptRenderer.toolResultEntry(
+      toolResult: ToolResultModelMessage(
+        callID: UUID(),
+        toolName: .readFile,
+        payload: payload
+      ),
+      request: request,
+      originalUserRequest: nil,
+      policy: ToolResultProjectionPolicy(
+        modelObservationLimit: ProjectionLimit(maxCharacters: 160, strategy: .headTail)
+      )
+    )
+
+    guard case .toolObservation(let context) = entry.body else {
+      Issue.record("Expected model-facing read_file observation.")
+      return
+    }
+    #expect(context.content.count > 8_000)
+    #expect(context.content.count <= 20_000)
+    #expect(context.content.contains(fullContent))
+    #expect(!context.content.contains("tool observation truncated"))
+  }
+
+  @Test
   func editFileOldTextNotFoundObservationIncludesRecoveryAndCurrentExcerpt() {
     let path = WorkspaceRelativePath(rawValue: "pong.py")
     let currentContent = ToolTextOutput(text: "20: clock = pygame.time.Clock()\n")

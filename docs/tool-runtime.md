@@ -591,10 +591,13 @@ declarations.
 - Read-only tools may auto-run only after workspace/path validation.
 - `read_file` returns a stateless `ReadFilePage` starting at the optional
   1-based `offset` (default `1`). Its optional `limit` is a call-local maximum
-  line count; when omitted, the executor returns as many complete lines as fit
-  in the fixed 6 KiB rendered-content budget. Model content uses `N|content`;
-  the gutter, line content, separators, and newlines all count toward the
-  budget. The tool never returns a partial line.
+  line count capped at 500; when omitted, the same 500-line maximum applies.
+  Each page also has a fixed 16 KiB rendered-content budget. Model content uses
+  `N|content`; the gutter, line content, separators, and newlines all count
+  toward the budget. The first limit reached ends the page, and the tool never
+  returns a partial line. Complete `read_file` pages have a separate 20,000
+  character model-observation budget; other tools retain the shared 8,000
+  character observation budget.
 - A page continuation is one of: end of file, a safe next offset with
   `byte_limit` or `line_limit`, or a blocked line whose full rendered form
   cannot fit a page. If the first requested line is oversized, `read_file`

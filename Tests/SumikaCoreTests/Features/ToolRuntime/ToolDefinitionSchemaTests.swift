@@ -34,6 +34,8 @@ struct ToolDefinitionSchemaTests {
     #expect(schema.parameters.properties["offset"]?.minimum == 1)
     #expect(schema.parameters.properties["limit"]?.type == .integer)
     #expect(schema.parameters.properties["limit"]?.minimum == 1)
+    #expect(schema.parameters.properties["limit"]?.maximum == 500)
+    #expect(schema.parameters.properties["limit"]?.defaultValue == .number(500))
   }
 
   @Test

@@ -154,7 +154,7 @@ package enum ModelFacingPromptRenderer {
       case .readFile(.page) = toolResult.payload
     {
       precondition(
-        content.count <= policy.modelObservationLimit.maxCharacters,
+        content.count <= ProjectionLimit.readFilePageObservation.maxCharacters,
         "read_file page observation exceeded the model observation limit."
       )
       return content

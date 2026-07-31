@@ -48,7 +48,7 @@ struct ShowFileToolExecutor: TypedToolExecutor {
   private let readFileExecutor: ReadFileToolExecutor
 
   init(maxBytes: Int = 40 * 1024) {
-    readFileExecutor = ReadFileToolExecutor(maxBytes: maxBytes)
+    readFileExecutor = ReadFileToolExecutor(maxBytes: maxBytes, maxLines: nil)
   }
 
   func evaluatePermission(

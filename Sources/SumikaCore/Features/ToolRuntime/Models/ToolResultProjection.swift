@@ -80,6 +80,11 @@ internal struct ProjectionLimit: Equatable, Sendable {
     maxCharacters: 8_000,
     strategy: .headTail
   )
+
+  package static let readFilePageObservation = ProjectionLimit(
+    maxCharacters: 20_000,
+    strategy: .headTail
+  )
 }
 
 internal struct ProjectionLimitResult: Equatable, Sendable {

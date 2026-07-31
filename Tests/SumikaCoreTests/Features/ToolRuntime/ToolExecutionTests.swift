@@ -137,9 +137,11 @@ struct ToolExecutionTests {
   }
 
   @Test
-  func readFileDefaultPageUsesFixedSixKiBRenderedContentBudget() async throws {
+  func readFileDefaultPageUsesFixedSixteenKiBRenderedContentBudget() async throws {
     let workspace = try makeWorkspace()
-    let content = (1...1_000).map { "line \($0)" }.joined(separator: "\n")
+    let content = (1...1_000)
+      .map { "line \($0) \(String(repeating: "x", count: 60))" }
+      .joined(separator: "\n")
     try write(content, to: "many-lines.txt", in: workspace)
 
     let result = await ReadFileToolExecutor().run(
@@ -151,12 +153,59 @@ struct ToolExecutionTests {
       Issue.record("Expected a budget-limited page.")
       return
     }
-    #expect(page.numberedContent.utf8.count <= 6 * 1024)
+    #expect(page.numberedContent.utf8.count > 6 * 1024)
+    #expect(page.numberedContent.utf8.count <= 16 * 1024)
     guard case .next(let offset, .byteLimit) = page.continuation else {
       Issue.record("Expected a safe byte-limit continuation.")
       return
     }
     #expect(offset == (page.endLine ?? 0) + 1)
+  }
+
+  @Test
+  func readFileDefaultAndRequestedLimitsAreCappedAtFiveHundredLines() async throws {
+    let workspace = try makeWorkspace()
+    let content = Array(repeating: "x", count: 1_000).joined(separator: "\n")
+    try write(content, to: "short-lines.txt", in: workspace)
+    let executor = ReadFileToolExecutor()
+
+    let defaultResult = await executor.run(
+      ReadFileInput(path: "short-lines.txt"),
+      context: ToolContext(workspace: workspace)
+    )
+    let oversizedRequestResult = await executor.run(
+      ReadFileInput(path: "short-lines.txt", limit: 800),
+      context: ToolContext(workspace: workspace)
+    )
+
+    for result in [defaultResult, oversizedRequestResult] {
+      guard case .readFile(.page(let page)) = result else {
+        Issue.record("Expected a line-limited read_file page.")
+        continue
+      }
+      #expect(page.returnedLineCount == 500)
+      #expect(page.endLine == 500)
+      #expect(page.continuation == .next(offset: 501, reason: .lineLimit))
+    }
+  }
+
+  @Test
+  func showFileKeepsItsIndependentLineAndByteBudget() async throws {
+    let workspace = try makeWorkspace()
+    let content = Array(repeating: "x", count: 600).joined(separator: "\n")
+    try write(content, to: "display.txt", in: workspace)
+
+    let result = await ShowFileToolExecutor().run(
+      ReadFileInput(path: "display.txt"),
+      context: ToolContext(workspace: workspace)
+    )
+
+    guard case .readFile(.page(let page)) = result else {
+      Issue.record("Expected show_file to return a complete page.")
+      return
+    }
+    #expect(page.returnedLineCount == 600)
+    #expect(page.continuation == .endOfFile)
   }
 
   @Test
