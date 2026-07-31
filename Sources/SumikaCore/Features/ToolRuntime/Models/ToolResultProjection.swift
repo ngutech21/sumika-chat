@@ -513,7 +513,7 @@ private func metadataFields(for block: ToolObservationBlock) -> [ToolResultModel
   case .readFilePage(let page):
     var fields: [ToolResultModelMetadataField] = [
       .init(name: "path", value: .string(page.path.rawValue)),
-      .init(name: "line_format", value: .string("N|content")),
+      .init(name: "line_format", value: .string(ReadFilePage.lineFormat)),
       .init(name: "start_line", value: .int(page.startLine)),
       .init(name: "returned_lines", value: .int(page.returnedLineCount)),
       .init(name: "has_more", value: .bool(page.hasMore), includeDefault: true),

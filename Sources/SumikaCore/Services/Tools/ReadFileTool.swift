@@ -312,6 +312,12 @@ package struct ReadFilePage: Codable, Equatable, Sendable {
 }
 
 nonisolated extension ReadFilePage {
+  static let lineFormat = "N: content"
+
+  static func lineNumberPrefix(for lineNumber: Int) -> String {
+    "\(lineNumber): "
+  }
+
   var returnedLineCount: Int {
     guard let endLine else {
       return 0
@@ -329,7 +335,7 @@ nonisolated extension ReadFilePage {
     }
     let lines = content.components(separatedBy: "\n")
     return zip(startLine...endLine, lines)
-      .map { lineNumber, line in "\(lineNumber)|\(line)" }
+      .map { lineNumber, line in "\(Self.lineNumberPrefix(for: lineNumber))\(line)" }
       .joined(separator: "\n")
   }
 
@@ -786,7 +792,7 @@ struct ReadFileToolExecutor: TypedToolExecutor {
         )
       }
 
-      let gutterByteCount = "\(lineNumber)|".utf8.count
+      let gutterByteCount = ReadFilePage.lineNumberPrefix(for: lineNumber).utf8.count
       let fullLineRenderedByteCount = gutterByteCount + currentLine.byteCount
       let separatorByteCount = outputLines.isEmpty ? 0 : 1
       let nextRenderedByteCount =
@@ -857,7 +863,7 @@ struct ReadFileToolExecutor: TypedToolExecutor {
     for lineNumber: Int,
     pageByteLimit: Int
   ) -> Int {
-    max(0, pageByteLimit - "\(lineNumber)|".utf8.count)
+    max(0, pageByteLimit - ReadFilePage.lineNumberPrefix(for: lineNumber).utf8.count)
   }
 }
 

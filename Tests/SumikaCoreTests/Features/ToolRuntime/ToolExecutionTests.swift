@@ -22,7 +22,7 @@ struct ToolExecutionTests {
     )
 
     #expect(result.status == .success)
-    #expect(result.text == "1|let value = 1")
+    #expect(result.text == "1: let value = 1")
     #expect(result.truncated == false)
     #expect(result.affectedPaths == ["Sources/App.swift"])
     guard case .readFile(.page(let page)) = result else {
@@ -34,6 +34,30 @@ struct ToolExecutionTests {
     #expect(page.startLine == 1)
     #expect(page.endLine == 1)
     #expect(page.continuation == .endOfFile)
+  }
+
+  @Test
+  func readFileNumberedContentUsesUnambiguousColonSpaceGutter() throws {
+    let content = "| Feature | Effort | Impact |\n: label\n123\n  indented\n"
+    let page = try ReadFilePage(
+      path: WorkspaceRelativePath(rawValue: "README.md"),
+      startLine: 84,
+      endLine: 88,
+      content: content,
+      continuation: .endOfFile
+    )
+
+    #expect(page.content == content)
+    #expect(
+      page.numberedContent
+        == [
+          "84: | Feature | Effort | Impact |",
+          "85: : label",
+          "86: 123",
+          "87:   indented",
+          "88: ",
+        ].joined(separator: "\n")
+    )
   }
 
   @Test
@@ -132,8 +156,41 @@ struct ToolExecutionTests {
       return
     }
     #expect(page.content == "alpha")
-    #expect(page.numberedContent == "1|alpha")
+    #expect(page.numberedContent == "1: alpha")
     #expect(page.continuation == .next(offset: 2, reason: .byteLimit))
+  }
+
+  @Test
+  func readFilePaginationCountsCompleteColonSpaceGutter() async throws {
+    let workspace = try makeWorkspace()
+    try write("a\n12345", to: "lines.txt", in: workspace)
+    try write("alpha", to: "oversized.txt", in: workspace)
+
+    let paged = await ReadFileToolExecutor(maxBytes: 12).run(
+      ReadFileInput(path: "lines.txt"),
+      context: ToolContext(workspace: workspace)
+    )
+    let oversized = await ReadFileToolExecutor(maxBytes: 7).run(
+      ReadFileInput(path: "oversized.txt"),
+      context: ToolContext(workspace: workspace)
+    )
+
+    guard case .readFile(.page(let page)) = paged else {
+      Issue.record("Expected a page containing only the complete first rendered line.")
+      return
+    }
+    #expect(page.content == "a")
+    #expect(page.numberedContent == "1: a")
+    #expect(page.continuation == .next(offset: 2, reason: .byteLimit))
+    #expect(
+      oversized
+        == .readFile(
+          .lineTooLong(
+            path: WorkspaceRelativePath(rawValue: "oversized.txt"),
+            line: 1,
+            byteCount: 5
+          ))
+    )
   }
 
   @Test
@@ -243,7 +300,7 @@ struct ToolExecutionTests {
     )
 
     #expect(result.status == .success)
-    #expect(result.text == "2|two\n3|three")
+    #expect(result.text == "2: two\n3: three")
     #expect(result.truncated)
     guard case .readFile(.page(let page)) = result else {
       Issue.record("Expected a line-limited page.")
@@ -269,7 +326,7 @@ struct ToolExecutionTests {
       return
     }
     #expect(page.content == "alpha\n")
-    #expect(page.numberedContent == "1|alpha\n2|")
+    #expect(page.numberedContent == "1: alpha\n2: ")
     #expect(page.endLine == 2)
     #expect(page.continuation == .endOfFile)
   }
@@ -404,7 +461,7 @@ struct ToolExecutionTests {
       return
     }
 
-    #expect(page.numberedContent == "1|changed")
+    #expect(page.numberedContent == "1: changed")
   }
 
   @Test
@@ -518,8 +575,8 @@ struct ToolExecutionTests {
       return
     }
 
-    #expect(page.numberedContent == "2|two")
-    #expect(firstRangePage.numberedContent == "1|one")
+    #expect(page.numberedContent == "2: two")
+    #expect(firstRangePage.numberedContent == "1: one")
     #expect(readKey.range == "offset=1,limit=1")
   }
 
@@ -548,7 +605,7 @@ struct ToolExecutionTests {
       return
     }
 
-    #expect(page.numberedContent == "1|a")
+    #expect(page.numberedContent == "1: a")
   }
 
   @Test
@@ -2043,7 +2100,7 @@ struct ToolExecutionTests {
     #expect(invalidLimit.status == .failed)
     #expect(invalidLimit.state.preview?.text.contains("limit must be greater") == true)
     #expect(stringPagination.status == .completed)
-    #expect(stringPagination.state.preview?.text == "1|hello")
+    #expect(stringPagination.state.preview?.text == "1: hello")
     #expect(invalidStringLimit.status == .failed)
     #expect(invalidStringLimit.state.preview?.text.contains("limit must be greater") == true)
   }

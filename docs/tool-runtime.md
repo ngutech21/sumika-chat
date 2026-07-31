@@ -593,7 +593,7 @@ declarations.
   1-based `offset` (default `1`). Its optional `limit` is a call-local maximum
   line count capped at 500; when omitted, the same 500-line maximum applies.
   Each page also has a fixed 16 KiB rendered-content budget. Model content uses
-  `N|content`; the gutter, line content, separators, and newlines all count
+  `N: content`; the gutter, line content, separators, and newlines all count
   toward the budget. The first limit reached ends the page, and the tool never
   returns a partial line. Complete `read_file` pages have a separate 20,000
   character model-observation budget; other tools retain the shared 8,000

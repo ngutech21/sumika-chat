@@ -27,7 +27,7 @@ struct ToolResultProjectorTests {
       projection.display
         == .fileContent(
           path: WorkspaceRelativePath(rawValue: "Sources/App.swift"),
-          content: ToolTextOutput(text: "10|let secret = true")
+          content: ToolTextOutput(text: "10: let secret = true")
         ))
     #expect(
       projection.observation.blocks == [
@@ -35,7 +35,7 @@ struct ToolResultProjectorTests {
           path: WorkspaceRelativePath(rawValue: "Sources/App.swift"),
           range: "offset=10,limit=5",
           lineCount: 1,
-          byteCount: 20,
+          byteCount: 21,
           truncated: false,
           redacted: false,
         )
@@ -100,7 +100,7 @@ struct ToolResultProjectorTests {
     )
 
     #expect(hybrid.json["kind"] as? String == "file_page")
-    #expect(hybrid.json["line_format"] as? String == "N|content")
+    #expect(hybrid.json["line_format"] as? String == "N: content")
     #expect(hybrid.json["start_line"] as? Int == 21)
     #expect(hybrid.json["end_line"] as? Int == 22)
     #expect(hybrid.json["returned_lines"] as? Int == 2)
@@ -111,7 +111,7 @@ struct ToolResultProjectorTests {
     #expect(
       hybrid.json["next_allowed_actions"] as? [String] == ["read_file", "edit_file"]
     )
-    #expect(hybrid.content == "21|let a = 1\n22|let b = 2")
+    #expect(hybrid.content == "21: let a = 1\n22: let b = 2")
   }
 
   @Test

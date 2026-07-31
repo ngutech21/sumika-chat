@@ -586,7 +586,7 @@ struct ModelPromptProjectionTests {
     )
 
     #expect(entry.frozenContent.content.count <= 8_000)
-    #expect(entry.frozenContent.content.contains("1|\(line)"))
+    #expect(entry.frozenContent.content.contains("1: \(line)"))
     #expect(!entry.frozenContent.content.contains("[tool observation truncated]"))
   }
 
