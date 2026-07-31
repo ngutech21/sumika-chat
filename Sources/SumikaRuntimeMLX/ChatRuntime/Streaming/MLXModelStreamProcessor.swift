@@ -21,6 +21,7 @@ enum MLXModelStreamProcessor {
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
     debugTraceStore: MLXDebugTraceStore,
+    runtimeCacheDiagnostics: MLXRuntimeCacheDiagnostics? = nil,
     generationProgressTracer: MLXGenerationProgressTracer = .disabled,
     markCompleted: @escaping @Sendable (String) async -> Void,
     markNativeToolCallBoundary: @escaping @Sendable (String, [ChatRuntimeToolCall]) async -> Void =
@@ -37,9 +38,7 @@ enum MLXModelStreamProcessor {
         "MLX process model stream",
         category: .generation
       )
-      defer {
-        ChatDiagnostics.endInterval(streamInterval)
-      }
+      defer { ChatDiagnostics.endInterval(streamInterval) }
       var output = ""
       var visibleOutput = ""
       var reasoningParser = ReasoningTraceParser(format: reasoningTraceFormat)
@@ -91,6 +90,13 @@ enum MLXModelStreamProcessor {
           }
 
           if let info = generation.info {
+            await recordRuntimePrefill(
+              info,
+              traceID: traceID,
+              traceMetadata: traceMetadata,
+              cacheTrace: cacheTrace,
+              runtimeCacheDiagnostics: runtimeCacheDiagnostics
+            )
             switch info.stopReason {
             case .stop:
               if flushPendingChunk(
@@ -118,19 +124,13 @@ enum MLXModelStreamProcessor {
               termination.terminatedDownstream = true
               break generationLoop
             }
-            let metrics = ChatGenerationMetrics(
-              generatedTokenCount: info.generationTokenCount,
-              tokensPerSecond: info.tokensPerSecond
-            )
-            completedMetrics = metrics
-            await recordRuntimeDecode(
+            let metrics = await recordRuntimeDecode(
+              info,
               traceID: traceID,
               traceMetadata: traceMetadata,
-              cacheTrace: cacheTrace,
-              durationMs: info.generateTime * 1000,
-              generatedTokenCount: info.generationTokenCount,
-              tokensPerSecond: info.tokensPerSecond
+              cacheTrace: cacheTrace
             )
+            completedMetrics = metrics
             if !termination.reachedTokenLimit {
               if case .terminated = continuation.yield(.completed(metrics)) {
                 termination.terminatedDownstream = true
@@ -155,9 +155,7 @@ enum MLXModelStreamProcessor {
           "MLX finalize model stream",
           category: .generation
         )
-        defer {
-          ChatDiagnostics.endInterval(finalizeInterval)
-        }
+        defer { ChatDiagnostics.endInterval(finalizeInterval) }
         await finalizeStream(
           continuation: continuation,
           output: output,
@@ -172,6 +170,7 @@ enum MLXModelStreamProcessor {
           traceMetadata: traceMetadata,
           cacheTrace: cacheTrace,
           debugTraceStore: debugTraceStore,
+          runtimeCacheDiagnostics: runtimeCacheDiagnostics,
           markCompleted: markCompleted,
           markNativeToolCallBoundary: markNativeToolCallBoundary,
           markCancelled: markCancelled,
@@ -275,25 +274,71 @@ enum MLXModelStreamProcessor {
     )
   }
 
-  private static func recordRuntimeDecode(
+  private static func recordRuntimePrefill(
+    _ info: GenerateCompletionInfo,
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
-    durationMs: Double,
-    generatedTokenCount: Int,
-    tokensPerSecond: Double
+    runtimeCacheDiagnostics: MLXRuntimeCacheDiagnostics?
   ) async {
+    let cacheDiagnostics = await runtimeCacheDiagnostics?.complete(
+      generationID: traceID,
+      info: info
+    )
     guard let traceMetadata else {
       return
+    }
+    let event = TurnTraceEvent(
+      turnID: traceMetadata.turnID,
+      generationID: traceID,
+      phase: .runtimePrefill,
+      durationMs: info.promptTime * 1000,
+      promptTokens: info.promptTokenCount,
+      toolLoopIteration: traceMetadata.toolLoopIteration,
+      cacheMode: cacheTrace.cacheMode.rawValue,
+      cacheReason: cacheTrace.cacheReason.rawValue,
+      interactionMode: traceMetadata.interactionMode,
+      contextSignature: cacheTrace.contextSignature,
+      previousContextSignature: cacheTrace.previousContextSignature,
+      appendOnly: cacheTrace.appendOnly,
+      reusedMessageCount: cacheTrace.reusedMessageCount,
+      appendedMessageCount: cacheTrace.appendedMessageCount,
+      mismatchReason: cacheTrace.mismatchReason,
+      firstMismatchIndex: cacheTrace.firstMismatchIndex,
+      systemPromptChanged: cacheTrace.systemPromptChanged
+    )
+    let runtimeTrace = MLXRuntimePrefillTrace(
+      event: event,
+      cacheDiagnostics: cacheDiagnostics
+    )
+    if let runtimeTracer = traceMetadata.tracer as? any MLXRuntimeTracing {
+      await runtimeTracer.recordRuntimePrefillTrace(runtimeTrace)
+    } else {
+      await traceMetadata.tracer.recordTurnTraceEvent(event)
+    }
+  }
+
+  private static func recordRuntimeDecode(
+    _ info: GenerateCompletionInfo,
+    traceID: UUID,
+    traceMetadata: TurnTraceMetadata?,
+    cacheTrace: MLXSessionCacheTrace
+  ) async -> ChatGenerationMetrics {
+    let metrics = ChatGenerationMetrics(
+      generatedTokenCount: info.generationTokenCount,
+      tokensPerSecond: info.tokensPerSecond
+    )
+    guard let traceMetadata else {
+      return metrics
     }
     await traceMetadata.tracer.recordTurnTraceEvent(
       TurnTraceEvent(
         turnID: traceMetadata.turnID,
         generationID: traceID,
         phase: .runtimeDecode,
-        durationMs: durationMs,
+        durationMs: info.generateTime * 1000,
         toolLoopIteration: traceMetadata.toolLoopIteration,
-        tokensPerSecond: tokensPerSecond,
+        tokensPerSecond: info.tokensPerSecond,
         cacheMode: cacheTrace.cacheMode.rawValue,
         cacheReason: cacheTrace.cacheReason.rawValue,
         interactionMode: traceMetadata.interactionMode,
@@ -305,10 +350,11 @@ enum MLXModelStreamProcessor {
         mismatchReason: cacheTrace.mismatchReason,
         firstMismatchIndex: cacheTrace.firstMismatchIndex,
         systemPromptChanged: cacheTrace.systemPromptChanged,
-        generatedTokenCount: generatedTokenCount,
+        generatedTokenCount: info.generationTokenCount,
         generatedTokenCountIsEstimate: false
       )
     )
+    return metrics
   }
 
   private static func yieldSegments(
@@ -420,6 +466,7 @@ enum MLXModelStreamProcessor {
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
     debugTraceStore: MLXDebugTraceStore,
+    runtimeCacheDiagnostics: MLXRuntimeCacheDiagnostics?,
     markCompleted: @Sendable (String) async -> Void,
     markNativeToolCallBoundary: @Sendable (String, [ChatRuntimeToolCall]) async -> Void,
     markCancelled: @Sendable (MLXSessionInvalidationReason) async -> Void,
@@ -458,6 +505,9 @@ enum MLXModelStreamProcessor {
     }
 
     if !nativeToolCalls.isEmpty {
+      if completedMetrics == nil {
+        await runtimeCacheDiagnostics?.invalidate()
+      }
       await markNativeToolCallBoundary(visibleOutput, nativeToolCalls)
       await debugTraceStore.traceResponse(
         id: traceID,

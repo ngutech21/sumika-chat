@@ -2026,6 +2026,7 @@ Cases:
 - `renderSystemPrompt`
 - `runtimeDecode`
 - `runtimePartialDecode`
+- `runtimePrefill`
 - `runtimeStreamStart`
 - `runtimeTTFT`
 - `tokenizeContextUsage`

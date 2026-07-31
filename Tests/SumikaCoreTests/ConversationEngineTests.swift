@@ -845,6 +845,21 @@ struct ConversationEngineTests {
   }
 
   @Test
+  func agentToolConfigurationDefersCacheDecisionToRuntimeIdentity() async {
+    let runtime = CountingClearContextRuntime()
+    let engine = ConversationEngine(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      chatSession: ChatSession(interactionMode: .agent)
+    )
+
+    engine.configureAgentTools(todoWriteEnabled: true)
+    await Task.yield()
+
+    #expect(await runtime.clearContextCount == 0)
+  }
+
+  @Test
   func sendMessageWaitsForPendingRuntimeContextClear() async throws {
     let runtime = DelayedClearContextRuntime()
     defer { Task { await runtime.releaseClearContext() } }

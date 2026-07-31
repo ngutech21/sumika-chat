@@ -31,14 +31,9 @@ package struct ChatGenerationOutputLimit: Equatable, Sendable {
 
 package struct ChatRuntimeToolContext: Equatable, Sendable {
   package var registry: ToolRegistry
-  package var cacheSystemPrompt: String?
 
-  package init(
-    registry: ToolRegistry,
-    cacheSystemPrompt: String? = nil
-  ) {
+  package init(registry: ToolRegistry) {
     self.registry = registry
-    self.cacheSystemPrompt = cacheSystemPrompt
   }
 }
 
@@ -46,13 +41,11 @@ package struct ChatRuntimePromptPlan: Equatable, Sendable {
   package let stableInstructions: String
   package let transientInstructions: [String]
   package let toolContext: ChatRuntimeToolContext?
-  package let cacheIdentityInstructions: String
 
   package init(
     stableInstructions: String,
     transientInstructions: [String] = [],
-    toolContext: ChatRuntimeToolContext? = nil,
-    cacheIdentityInstructions: String? = nil
+    toolContext: ChatRuntimeToolContext? = nil
   ) {
     self.stableInstructions = stableInstructions
     self.transientInstructions =
@@ -60,15 +53,13 @@ package struct ChatRuntimePromptPlan: Equatable, Sendable {
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
       .filter { !$0.isEmpty }
     self.toolContext = toolContext
-    self.cacheIdentityInstructions = cacheIdentityInstructions ?? stableInstructions
   }
 
   func appendingTransientInstruction(_ instruction: String) -> Self {
     Self(
       stableInstructions: stableInstructions,
       transientInstructions: transientInstructions + [instruction],
-      toolContext: toolContext,
-      cacheIdentityInstructions: cacheIdentityInstructions
+      toolContext: toolContext
     )
   }
 }

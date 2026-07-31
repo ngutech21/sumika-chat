@@ -222,6 +222,10 @@ package struct ProviderPromptProjection: Equatable, Sendable {
   ) -> ProviderPromptGenerationSegments? {
     ProviderPromptProjector.generationSegments(from: transcript)
   }
+
+  package static func canonicalAssistantToolBoundaryContent(_ content: String) -> String {
+    content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : content
+  }
 }
 
 package struct ProviderPromptGenerationSegments: Equatable, Sendable {
@@ -487,10 +491,11 @@ private enum ProviderPromptProjector {
     _ content: String,
     toolCalls: [ToolCallModelMessage]
   ) -> String {
-    let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmedContent.isEmpty else {
+    let canonicalContent = ProviderPromptProjection.canonicalAssistantToolBoundaryContent(content)
+    guard !canonicalContent.isEmpty else {
       return ""
     }
+    let trimmedContent = canonicalContent.trimmingCharacters(in: .whitespacesAndNewlines)
     let syntheticToolCallContent =
       toolCalls
       .map(\.modelContextContent)
@@ -499,7 +504,7 @@ private enum ProviderPromptProjector {
     guard trimmedContent != syntheticToolCallContent else {
       return ""
     }
-    return content
+    return canonicalContent
   }
 
   private static func hasStructuredAssistantBoundary(

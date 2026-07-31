@@ -257,7 +257,7 @@ periphery:
     @set --; \
     if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
     if [ "${SKIP_PACKAGE_PLUGIN_VALIDATION:-0}" = "1" ]; then set -- "$@" -skipPackagePluginValidation -skipMacroValidation; fi; \
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "platform=macOS" -derivedDataPath "{{derived_data}}" -parallelizeTargets "$@" CODE_SIGNING_ALLOWED=NO ENABLE_BITCODE=NO DEBUG_INFORMATION_FORMAT=dwarf COMPILER_INDEX_STORE_ENABLE=YES INDEX_ENABLE_DATA_STORE=YES build
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -configuration Debug -destination "platform=macOS" -derivedDataPath "{{derived_data}}" -parallelizeTargets "$@" CODE_SIGNING_ALLOWED=NO ENABLE_BITCODE=NO DEBUG_INFORMATION_FORMAT=dwarf COMPILER_INDEX_STORE_ENABLE=YES INDEX_ENABLE_DATA_STORE=YES build
     @swiftpm_bin_path="$({{swift}} build --show-bin-path)"; \
     swiftpm_index_store="$swiftpm_bin_path/index/store"; \
     test -d "$swiftpm_index_store" || { echo "No SwiftPM test index found at $swiftpm_index_store."; exit 1; }; \

@@ -6,13 +6,17 @@ enum MLXSessionCachePolicy {
   static func cacheIdentity(
     systemPrompt: String,
     settings: ChatGenerationSettings,
-    projectionMode: ModelContextProjectionMode
+    projectionMode: ModelContextProjectionMode,
+    toolSpecs: [ToolSpec]? = nil,
+    additionalContext: [String: any Sendable]? = nil
   ) -> MLXSessionCacheIdentity {
     MLXSessionCacheIdentity(
       systemPrompt: ModelFacingPromptRenderer.normalizedSystemPrompt(systemPrompt),
       projectionMode: projectionMode,
       maxKVSize: settings.maxKVSize,
-      reasoningEnabled: settings.reasoningEnabled
+      reasoningEnabled: settings.reasoningEnabled,
+      toolSpecs: componentIdentity(for: toolSpecs),
+      additionalContext: componentIdentity(for: additionalContext)
     )
   }
 
@@ -26,18 +30,6 @@ enum MLXSessionCachePolicy {
     }
     let boundedStartIndex = min(max(0, appendDeltaStartIndex), history.count)
     return Array(history[boundedStartIndex...]) + promptMessages
-  }
-
-  static func chatSessionInstructions(
-    for mode: MLXSessionCacheMode,
-    systemPrompt: String
-  ) -> String? {
-    switch mode {
-    case .newSession, .dirtyRebuild:
-      ModelFacingPromptRenderer.normalizedSystemPrompt(systemPrompt)
-    case .reusedSession, .appendDelta:
-      nil
-    }
   }
 
   static func runtimeCacheDebugSnapshot(
@@ -117,6 +109,12 @@ enum MLXSessionCachePolicy {
     if cached.reasoningEnabled != current.reasoningEnabled {
       return .reasoningChanged
     }
+    if cached.toolSpecs != current.toolSpecs {
+      return .toolSchemasChanged
+    }
+    if cached.additionalContext != current.additionalContext {
+      return .additionalContextChanged
+    }
     return .identityChanged
   }
 
@@ -141,24 +139,6 @@ enum MLXSessionCachePolicy {
     return zip(prefix, messages).allSatisfy(==)
   }
 
-  /// Whether an append-only delta (the messages appended after `cachedPrefixCount`)
-  /// begins with a tool-response message. Such a delta must not reuse the cached
-  /// session: rendering a lone tool response through the chat template drops it,
-  /// because its paired assistant tool_call lives in the cached prefix, not in the
-  /// delta. The caller forces a full rebuild in that case so call and result are
-  /// templated adjacently.
-  static func deltaBeginsWithToolResult(
-    cachedPrefixCount: Int,
-    historySnapshot: [ProviderPromptMessage],
-    promptFirstRole: String?
-  ) -> Bool {
-    let toolRole = Chat.Message.Role.tool.rawValue
-    if cachedPrefixCount >= historySnapshot.count {
-      return promptFirstRole == toolRole
-    }
-    return historySnapshot[cachedPrefixCount].role == toolRole
-  }
-
   static func contentByteCount(for messages: [Chat.Message]) -> Int {
     messages.reduce(0) { byteCount, message in
       byteCount + message.content.utf8.count + message.images.count
@@ -176,12 +156,31 @@ enum MLXSessionCachePolicy {
     for identity: MLXSessionCacheIdentity
   ) -> String {
     hashSignature { updateString in
-      updateString("mlx_owned_cache_identity_v1")
+      updateString("mlx_owned_cache_identity_v2")
       updateString(identity.systemPrompt ?? "system:nil")
       updateString(identity.projectionMode.signatureComponent)
       updateString(identity.maxKVSize.map(String.init) ?? "max_kv:nil")
       updateString(identity.reasoningEnabled ? "reasoning:on" : "reasoning:off")
+      updateString(identity.toolSpecs.signatureComponent)
+      updateString(identity.additionalContext.signatureComponent)
     }
+  }
+
+  private static func componentIdentity(
+    for value: (any Sendable)?
+  ) -> MLXSessionCacheComponentIdentity {
+    guard let value else {
+      return .canonical(Data("null".utf8))
+    }
+    guard JSONSerialization.isValidJSONObject(value),
+      let data = try? JSONSerialization.data(
+        withJSONObject: value,
+        options: [.sortedKeys, .withoutEscapingSlashes]
+      )
+    else {
+      return .uncacheable(UUID())
+    }
+    return .canonical(data)
   }
 
   static func contextSignature(for messages: [ProviderPromptMessage]) -> String {

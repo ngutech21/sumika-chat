@@ -139,7 +139,7 @@ struct ChatTurnExecutionCoordinator {
       conversation: conversation
     )
     let systemPromptStartedAt = Date()
-    let promptPlan = try runtimePromptPlan(
+    let promptPlan = runtimePromptPlan(
       session: conversation.chatSession,
       stableInstructions: stableInstructions,
       toolPromptMode: toolPromptMode,
@@ -818,15 +818,11 @@ extension ChatTurnExecutionCoordinator {
     toolPromptMode: ToolPromptMode,
     toolCallingPolicy: ToolCallingPolicy,
     turnToolRegistry: ToolRegistry
-  ) throws -> ChatRuntimePromptPlan {
+  ) -> ChatRuntimePromptPlan {
     let runtimeToolRegistry =
       toolPromptMode == .afterToolBudgetExhausted
       ? ToolRegistry(tools: [.finishTask])
       : turnToolRegistry
-    let cacheIdentityInstructions = try ToolSchemaCacheIdentity.instructions(
-      stableInstructions: stableInstructions,
-      registry: runtimeToolRegistry
-    )
     return ChatRuntimePromptPlan(
       stableInstructions: stableInstructions,
       transientInstructions: transientInstructions(
@@ -837,18 +833,15 @@ extension ChatTurnExecutionCoordinator {
       toolContext: runtimeToolContext(
         for: toolPromptMode,
         policy: toolCallingPolicy,
-        registry: runtimeToolRegistry,
-        cacheIdentityInstructions: cacheIdentityInstructions
-      ),
-      cacheIdentityInstructions: cacheIdentityInstructions
+        registry: runtimeToolRegistry
+      )
     )
   }
 
   private func runtimeToolContext(
     for toolPromptMode: ToolPromptMode,
     policy: ToolCallingPolicy,
-    registry: ToolRegistry,
-    cacheIdentityInstructions: String
+    registry: ToolRegistry
   ) -> ChatRuntimeToolContext? {
     guard policy.isEnabled else {
       return nil
@@ -860,10 +853,7 @@ extension ChatTurnExecutionCoordinator {
       .afterToolBudgetExhausted, .agent:
       break
     }
-    return ChatRuntimeToolContext(
-      registry: registry,
-      cacheSystemPrompt: cacheIdentityInstructions
-    )
+    return ChatRuntimeToolContext(registry: registry)
   }
 
   private func transientInstructions(

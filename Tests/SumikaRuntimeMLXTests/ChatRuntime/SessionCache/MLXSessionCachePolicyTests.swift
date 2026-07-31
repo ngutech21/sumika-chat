@@ -310,6 +310,134 @@ struct MLXSessionCachePolicyTests {
   }
 
   @Test
+  func cacheIdentityCanonicalizesActualMLXTemplateInputs() {
+    let firstTool: ToolSpec = [
+      "type": "function",
+      "function": [
+        "name": "read_file",
+        "description": "Read a file.",
+        "parameters": [
+          "type": "object",
+          "required": ["path"],
+        ] as [String: any Sendable],
+      ] as [String: any Sendable],
+    ]
+    let reorderedTool: ToolSpec = [
+      "function": [
+        "parameters": [
+          "required": ["path"],
+          "type": "object",
+        ] as [String: any Sendable],
+        "description": "Read a file.",
+        "name": "read_file",
+      ] as [String: any Sendable],
+      "type": "function",
+    ]
+
+    let first = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Use concise coding steps.",
+      settings: .agentDefault,
+      projectionMode: .fullHistory,
+      toolSpecs: [firstTool],
+      additionalContext: [
+        "enable_thinking": true,
+        "template_options": [
+          "mode": "agent",
+          "version": 1,
+        ] as [String: any Sendable],
+      ]
+    )
+    let reordered = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Use concise coding steps.",
+      settings: .agentDefault,
+      projectionMode: .fullHistory,
+      toolSpecs: [reorderedTool],
+      additionalContext: [
+        "template_options": [
+          "version": 1,
+          "mode": "agent",
+        ] as [String: any Sendable],
+        "enable_thinking": true,
+      ]
+    )
+
+    #expect(first == reordered)
+  }
+
+  @Test
+  func cacheIdentityReportsActualMLXTemplateInputChanges() {
+    let readTool: ToolSpec = [
+      "type": "function",
+      "function": ["name": "read_file"] as [String: any Sendable],
+    ]
+    let editTool: ToolSpec = [
+      "type": "function",
+      "function": ["name": "edit_file"] as [String: any Sendable],
+    ]
+    let base = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Use concise coding steps.",
+      settings: .agentDefault,
+      projectionMode: .fullHistory,
+      toolSpecs: [readTool, editTool],
+      additionalContext: ["enable_thinking": true]
+    )
+    let reorderedTools = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Use concise coding steps.",
+      settings: .agentDefault,
+      projectionMode: .fullHistory,
+      toolSpecs: [editTool, readTool],
+      additionalContext: ["enable_thinking": true]
+    )
+    let changedContext = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Use concise coding steps.",
+      settings: .agentDefault,
+      projectionMode: .fullHistory,
+      toolSpecs: [readTool, editTool],
+      additionalContext: [
+        "enable_thinking": true,
+        "response_style": "concise",
+      ]
+    )
+
+    #expect(
+      MLXSessionCachePolicy.identityMismatchReason(
+        cached: base,
+        current: reorderedTools
+      ) == .toolSchemasChanged)
+    #expect(
+      MLXSessionCachePolicy.identityMismatchReason(
+        cached: base,
+        current: changedContext
+      ) == .additionalContextChanged)
+  }
+
+  @Test
+  func cacheIdentityFailsClosedForNonCanonicalizableTemplateInputs() {
+    let context: [String: any Sendable] = [
+      "unsupported": URL(filePath: "/tmp/cache-identity")
+    ]
+    let first = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Stable",
+      settings: .agentDefault,
+      projectionMode: .fullHistory,
+      additionalContext: context
+    )
+    let second = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Stable",
+      settings: .agentDefault,
+      projectionMode: .fullHistory,
+      additionalContext: context
+    )
+
+    #expect(first != second)
+    #expect(
+      MLXSessionCachePolicy.identityMismatchReason(
+        cached: first,
+        current: second
+      ) == .additionalContextChanged)
+  }
+
+  @Test
   func streamMessagesUsesOnlyAppendDeltaAndPrompt() {
     let history: [Chat.Message] = [
       .user("hello"),
@@ -331,32 +459,6 @@ struct MLXSessionCachePolicyTests {
 
     #expect(firstPrompt.map(\.role) == [.user])
     #expect(appendDelta.map(\.role) == [.tool, .user])
-  }
-
-  @Test
-  func chatSessionInstructionsAreOnlyAppliedWhenBuildingCache() {
-    let systemPrompt = "Use concise coding steps."
-
-    #expect(
-      MLXSessionCachePolicy.chatSessionInstructions(
-        for: .newSession,
-        systemPrompt: systemPrompt
-      ) == systemPrompt)
-    #expect(
-      MLXSessionCachePolicy.chatSessionInstructions(
-        for: .dirtyRebuild,
-        systemPrompt: systemPrompt
-      ) == systemPrompt)
-    #expect(
-      MLXSessionCachePolicy.chatSessionInstructions(
-        for: .reusedSession,
-        systemPrompt: systemPrompt
-      ) == nil)
-    #expect(
-      MLXSessionCachePolicy.chatSessionInstructions(
-        for: .appendDelta,
-        systemPrompt: systemPrompt
-      ) == nil)
   }
 
   @Test
@@ -637,6 +739,68 @@ struct MLXSessionCachePolicyTests {
   }
 
   @Test
+  func nativeToolCallBoundaryNormalizesWhitespaceOnlyOutputForPrefixParity() throws {
+    let callID = UUID()
+    let turnID = UUID()
+    let arguments: ToolCallArguments = ["path": .string("README.md")]
+    let userEntry = try ModelFacingPromptRenderer.userPromptEntry(
+      turnID: turnID,
+      prompt: "read README.md"
+    )
+    let initialInput = try generationInput(from: [userEntry])
+    let cachedPrefix =
+      initialInput.historySnapshot
+      + initialInput.promptSnapshot
+      + [
+        MLXChatRuntime.nativeToolCallBoundarySnapshot(
+          output: "\n\n",
+          nativeToolCalls: [
+            ChatRuntimeToolCall(
+              id: RuntimeToolCallID.string(for: callID),
+              name: ToolName.readFile.rawValue,
+              arguments: arguments
+            )
+          ]
+        )
+      ]
+
+    let currentInput = try generationInput(from: [
+      userEntry,
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        content: "\n\n"
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        toolResult: ToolResultModelMessage(
+          callID: callID,
+          toolName: .readFile,
+          payload: .readFile(
+            .legacySuccess(
+              path: WorkspaceRelativePath(rawValue: "README.md"),
+              content: ToolTextOutput(text: "Project overview")
+            ))
+        ),
+        request: toolRequest(
+          callID: callID,
+          toolName: .readFile,
+          arguments: arguments
+        ),
+        originalUserRequest: "read README.md"
+      ),
+    ])
+
+    #expect(cachedPrefix[1].content == "")
+    #expect(cachedPrefix == currentInput.historySnapshot)
+    #expect(MLXSessionCachePolicy.isPrefix(cachedPrefix, of: currentInput.historySnapshot))
+    #expect(
+      MLXSessionCachePolicy.firstMismatchIndex(
+        cachedPrefix: cachedPrefix,
+        currentHistory: currentInput.historySnapshot
+      ) == nil)
+  }
+
+  @Test
   func cachePrefixSurvivesToolNoticeBeforeNextToolResult() throws {
     let readCallID = UUID()
     let writeCallID = UUID()
@@ -888,93 +1052,6 @@ struct MLXSessionCachePolicyTests {
     #expect(trace.reusedMessageCount == 2)
     #expect(trace.appendedMessageCount == 1)
     #expect(trace.mismatchReason == nil)
-  }
-
-  @Test
-  func deltaBeginsWithToolResultDetectsReusedSubcaseToolPrompt() {
-    // Reused subcase: cached prefix equals the whole history, so the delta is the
-    // prompt. A tool-response prompt must force a rebuild; a user prompt must not.
-    let history = [
-      ProviderPromptMessage(role: "user", content: "hi"),
-      ProviderPromptMessage(role: "assistant", content: "call"),
-    ]
-    #expect(
-      MLXSessionCachePolicy.deltaBeginsWithToolResult(
-        cachedPrefixCount: history.count,
-        historySnapshot: history,
-        promptFirstRole: "tool"))
-    #expect(
-      !MLXSessionCachePolicy.deltaBeginsWithToolResult(
-        cachedPrefixCount: history.count,
-        historySnapshot: history,
-        promptFirstRole: "user"))
-    #expect(
-      !MLXSessionCachePolicy.deltaBeginsWithToolResult(
-        cachedPrefixCount: history.count,
-        historySnapshot: history,
-        promptFirstRole: nil))
-  }
-
-  @Test
-  func deltaBeginsWithToolResultDetectsAppendDeltaToolTail() {
-    // Append-delta subcase: the cached prefix is shorter than history, so the delta
-    // starts inside history at cachedPrefixCount. Detect a tool tail there.
-    let history = [
-      ProviderPromptMessage(role: "user", content: "hi"),
-      ProviderPromptMessage(role: "assistant", content: "call"),
-      ProviderPromptMessage(role: "tool", content: "result"),
-    ]
-    #expect(
-      MLXSessionCachePolicy.deltaBeginsWithToolResult(
-        cachedPrefixCount: 2,
-        historySnapshot: history,
-        promptFirstRole: nil))
-
-    let nonToolTail = [
-      ProviderPromptMessage(role: "user", content: "hi"),
-      ProviderPromptMessage(role: "assistant", content: "call"),
-      ProviderPromptMessage(role: "user", content: "again"),
-    ]
-    #expect(
-      !MLXSessionCachePolicy.deltaBeginsWithToolResult(
-        cachedPrefixCount: 2,
-        historySnapshot: nonToolTail,
-        promptFirstRole: nil))
-  }
-
-  @Test
-  func cacheTraceReportsToolFollowUpRebuild() {
-    let prefix = providerMessages(from: [
-      .user("hello"),
-      .assistant("calling read_file"),
-    ])
-    let followUpHistory = providerMessages(from: [
-      .user("hello"),
-      .assistant("calling read_file"),
-      .tool("result", id: "call_1"),
-    ])
-    let identity = MLXSessionCachePolicy.cacheIdentity(
-      systemPrompt: "Use concise coding steps.",
-      settings: .agentDefault,
-      projectionMode: .fullHistory
-    )
-
-    let trace = MLXSessionCachePolicy.trace(
-      mode: .dirtyRebuild,
-      reason: .toolFollowUpRebuild,
-      currentHistory: followUpHistory,
-      currentIdentity: identity,
-      cachedPrefix: prefix,
-      cachedIdentity: identity,
-      appendOnly: MLXSessionCachePolicy.isPrefix(prefix, of: followUpHistory),
-      mismatchReason: "tool_follow_up_response",
-      firstMismatchIndex: nil
-    )
-
-    #expect(trace.cacheMode == .dirtyRebuild)
-    #expect(trace.cacheReason == .toolFollowUpRebuild)
-    #expect(MLXSessionCacheReason.toolFollowUpRebuild.rawValue == "tool_follow_up_rebuild")
-    #expect(trace.mismatchReason == "tool_follow_up_response")
   }
 
   @Test

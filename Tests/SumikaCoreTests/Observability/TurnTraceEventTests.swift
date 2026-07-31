@@ -11,6 +11,7 @@ struct TurnTraceEventTests {
     #expect(TurnTracePhase.renderSystemPrompt.rawValue == "render_system_prompt")
     #expect(TurnTracePhase.runtimeStreamStart.rawValue == "runtime_stream_start")
     #expect(TurnTracePhase.runtimeTTFT.rawValue == "runtime_ttft")
+    #expect(TurnTracePhase.runtimePrefill.rawValue == "runtime_prefill")
     #expect(TurnTracePhase.runtimeDecode.rawValue == "runtime_decode")
     #expect(TurnTracePhase.runtimePartialDecode.rawValue == "runtime_partial_decode")
     #expect(TurnTracePhase.toolParse.rawValue == "tool_parse")

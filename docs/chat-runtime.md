@@ -291,25 +291,31 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
 
 - Reuse is safe when the cached session is clean, the prefill identity matches,
   and the cached prefix is a prefix of the current model-facing history.
-- The prefill identity contains only values that affect bytes already consumed by
-  MLX: normalized cache identity instructions, projection mode, `maxKVSize`, and
-  reasoning/template context. The cache identity instructions extend the visible
-  stable runtime instructions with a cache-only fingerprint of the native tool
-  schema. Sampling settings and `maxTokens` remain decode-time inputs and do not
-  rebuild the session.
+- The prefill identity contains every prompt-affecting MLX input: normalized
+  `ChatSession.instructions`, projection mode, `maxKVSize`, reasoning state, the
+  actual ordered `MLXToolMapper.toolSpecs`, and the actual
+  `additionalContext`. Dictionary keys are canonicalized in sorted order, while
+  array and tool order remain significant and `nil` remains distinct from a
+  present value. Inputs that cannot be canonicalized force a conservative
+  rebuild. Sampling settings and `maxTokens` remain decode-time inputs and do
+  not rebuild the session.
 - Each user turn freezes one stable `ChatRuntimePromptPlan.stableInstructions`
-  value for `ChatSession.instructions`; `cacheIdentityInstructions` adds only the
-  tool-schema fingerprint. Final/no-tools guidance and tool-loop nudges are
-  rendered as tool-record follow-up notices instead of system instructions. Todo
-  state remains transient runtime context and is not part of the stable system
-  prompt.
+  value for `ChatSession.instructions`. Final/no-tools guidance and tool-loop
+  nudges are rendered as tool-record follow-up notices instead of system
+  instructions. Todo state remains transient runtime context and is not part of
+  the stable system prompt; its existing history-change invalidation behavior is
+  unchanged.
 - All generation requests use the MLX structured-message path. First requests
-  send only the current prompt to a new `ChatSession(history:)`; reused requests
-  send either the current prompt or the appended history delta plus the current
-  prompt through `streamDetails(to messages:)`.
-- Reused MLX sessions must not set `ChatSession.instructions`: the system prompt
-  is already encoded in the KV cache, so re-sending instructions before a tool
-  result corrupts the continuation.
+  create `ChatSession` with stable instructions, canonical tool specs, actual
+  additional context, and the complete prior history. Reused requests send only
+  the appended structured-history delta plus the current prompt through
+  `streamDetails(to messages:)`. MLX retains the full conversation, renders it
+  internally, verifies the rendered-token prefix, and prefills only the
+  uncached suffix.
+- Reused MLX sessions update decode parameters only. Their `instructions`,
+  `tools`, and `additionalContext` are immutable cache inputs; a change to any
+  prompt-affecting value rebuilds the session instead of mutating an already
+  prefilled session.
 - Native MLX tool calls are not assistant prose in the MLX session. Core
   stores only the canonical turn/tool records. `ChatModelContextBuilder` derives
   a transient assistant tool-call boundary and the MLX renderer sends it as
@@ -335,13 +341,12 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
   assistant tool-call IDs, tool names, canonical raw arguments, and `tool`
   result call IDs. A plain UUID alone is not enough because the cache must prove
   that the entire provider-facing message shape still matches the session state.
-- The active native tool schema is applied through `session.tools` immediately
-  before decode. A deterministic SHA-256 fingerprint of the ordered,
-  model-facing schemas is included in the cache identity but not in the visible
-  system prompt. Schema changes therefore invalidate stale MLX prefixes without
-  spending model tokens on a repeated tool-name list. Final no-tools follow-ups
-  use the same registry fingerprint while clearing `session.tools`, preserving
-  the established cache identity across terminal generation.
+- The ordered model-facing native tool schemas are supplied when the
+  `ChatSession` is created and are included directly in the cache identity, not
+  in the visible system prompt. Schema changes, including a final no-tools
+  transition, therefore invalidate stale MLX prefixes without mutating
+  `session.tools` after prefill. Trace reasons distinguish
+  `tool_schemas_changed` and `additional_context_changed`.
 
 The native MLX tool path preserves the assistant tool-call boundary as a derived
 projection while replaying it to MLX as native structured tool-call metadata.
@@ -357,11 +362,39 @@ is marked with `generatedTokenCountIsEstimate: true`; structured tool parsing
 can buffer provider syntax, so this running value is intentionally not presented
 as an exact MLX counter.
 
+Every terminal MLX completion-info event emits one `runtime_prefill` row before
+terminal stop handling. Its `durationMs` is `promptTime * 1000`, and
+`promptTokens` is MLX's exact `promptTokenCount`; TTFT remains the separately
+measured wall-clock interval.
+
+In debug-trace mode the loaded model processor is wrapped without changing its
+output. The wrapper records the complete rendered prompt-token count plus the
+prepared mask/media state; the runtime records whether the newly appended
+messages themselves contain media. Combined with the previous terminal token
+ledger, `runtime_prefill` reports
+`mlxCacheDecision` (`cold_prefill`, `exact_suffix_reuse`,
+`common_prefix_reuse`, `full_prefill`, `unavailable`, or
+`unexpected_prompt_count`),
+`mlxCacheMismatchReason`, `fullPromptTokens`, `expectedCachedTokens`,
+`expectedSuffixTokens`, `reusedPromptTokens`, `inputMaskPresent`,
+`preparedMediaPresent`, `newMediaPresent`, `cacheTrimmable`, and `cacheTypes`.
+The expected ledger accepts both MLX-valid `.stop` outcomes: an EOS token may
+already be in the cache even though it is excluded from `generationTokenCount`,
+while a textual stop-string token is included in that count. A matching
+continuation reports the candidate proven by the observed suffix.
+For a non-trimmable hybrid cache, a full prefill without a mask or media is
+classified as `prefix_or_alignment_mismatch_nontrimmable_cache`. The pinned MLX
+API does not expose its private cached token IDs, so Sumika does not invent a
+token-level first-mismatch index; exact token localization still requires
+upstream instrumentation.
+
 The terminal `runtime_decode` row records MLX's exact `generatedTokenCount` with
 `generatedTokenCountIsEstimate: false`. The matching `mlx_response` retains the
-same exact count in its metrics when MLX delivered completion info. If generation
-is manually cancelled before completion, the latest partial-decode row remains
-available even though no terminal metrics exist.
+same exact count in its metrics when MLX delivered completion info. A cancelled
+completion that still delivers terminal info records prefill before cancellation
+handling but no decode row. If generation is cancelled without terminal info,
+the latest partial-decode row remains available and no terminal prefill/decode
+metrics are synthesized.
 
 ## Prompt Cost Regression
 
@@ -390,9 +423,10 @@ the byte and estimated-token delta remains reviewable.
 ## MLX Tool Format Coverage
 
 Sumika enables native tools by passing the active registry through
-`ChatRuntimeToolContext` and setting `session.tools` before decode. Core tracks
-only whether native MLX tool calling is enabled and whether multiple tool calls
-are allowed; it does not select a model-family parser.
+`ChatRuntimeToolContext` and supplying the mapped tool schemas when the MLX
+`ChatSession` is created. Core tracks only whether native MLX tool calling is
+enabled and whether multiple tool calls are allowed; it does not select a
+model-family parser.
 
 The pinned MLX revision infers Gemma 4 `gemma4_unified` as `.gemma4` and
 `qwen3_5*`/`qwen3_next*` as `.xmlFunction`. This covers the experimental

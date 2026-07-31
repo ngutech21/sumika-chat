@@ -1,3 +1,4 @@
+import Foundation
 import MLXLMCommon
 import SumikaCore
 
@@ -23,7 +24,8 @@ enum MLXSessionCacheReason: String, Equatable, Sendable {
   case appendOnlyDelta = "append_only_delta"
   case identityChanged = "identity_changed"
   case historyChanged = "history_changed"
-  case toolFollowUpRebuild = "tool_follow_up_rebuild"
+  case toolSchemasChanged = "tool_schemas_changed"
+  case additionalContextChanged = "additional_context_changed"
   case maxKVSizeChanged = "max_kv_size_changed"
   case reasoningChanged = "reasoning_changed"
   case invalidatedGenCancelled = "invalidated_generation_cancelled"
@@ -53,11 +55,27 @@ enum MLXSessionCacheReason: String, Equatable, Sendable {
   }
 }
 
+enum MLXSessionCacheComponentIdentity: Equatable, Sendable {
+  case canonical(Data)
+  case uncacheable(UUID)
+
+  var signatureComponent: String {
+    switch self {
+    case .canonical(let data):
+      "canonical:\(data.base64EncodedString())"
+    case .uncacheable(let id):
+      "uncacheable:\(id.uuidString)"
+    }
+  }
+}
+
 struct MLXSessionCacheIdentity: Equatable, Sendable {
   let systemPrompt: String?
   let projectionMode: ModelContextProjectionMode
   let maxKVSize: Int?
   let reasoningEnabled: Bool
+  let toolSpecs: MLXSessionCacheComponentIdentity
+  let additionalContext: MLXSessionCacheComponentIdentity
 }
 
 enum MLXCachedSessionState: Equatable, Sendable {

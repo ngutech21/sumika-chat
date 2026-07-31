@@ -268,6 +268,13 @@ final class SumikaUITests: XCTestCase {
       followUpRows.containsRuntimeCacheReuse(),
       "A plain chat follow-up should reuse the loaded Gemma ChatSession cache."
     )
+    XCTAssertTrue(
+      followUpRows.containsExactSuffixRuntimePrefill(
+        cacheMode: "reused_session",
+        cacheReason: "reused_session"
+      ),
+      "A plain Gemma follow-up should record exact prefill metrics for the reused session."
+    )
   }
 
   @MainActor
@@ -479,6 +486,57 @@ final class SumikaUITests: XCTestCase {
       rows.containsToolLoopRuntimeCacheReuse(),
       "Gemma 4 native tool follow-ups should keep the MLX ChatSession cache reusable."
     )
+    XCTAssertTrue(
+      rows.containsToolLoopExactSuffixRuntimePrefill(
+        cacheMode: "append_delta",
+        cacheReason: "append_only_delta"
+      ),
+      "Gemma 4 native tool follow-ups should append the structured tool-result delta and record exact prefill metrics."
+    )
+  }
+
+  @MainActor
+  func testQwenAgentReadFileContinuationSmoke() throws {
+    let qwenModelID = "qwen3.6-27B-4bit"
+    let fixture = try launchFixture(
+      readme: "Qwen structured continuation fixture.\n",
+      modelID: qwenModelID
+    )
+    let application = try launchApp(fixture: fixture)
+    defer {
+      application.terminate()
+    }
+
+    try loadSelectedModel(in: application)
+    try selectAgentMode(in: application)
+    let traceOffset = fileSize(at: fixture.traceURL)
+    let baseline = try sendPrompt(
+      "Use the read_file tool with path README.md, offset 1, and limit 1. Then answer with that line only.",
+      in: application
+    )
+    waitForCompletedTurn(in: application, after: baseline, timeout: 420)
+    let rows = try waitForTraceRows(in: fixture.traceURL, afterOffset: traceOffset) { rows in
+      rows.containsToolLoopExactSuffixRuntimePrefill(
+        cacheMode: "append_delta",
+        cacheReason: "append_only_delta"
+      )
+    }
+
+    XCTAssertEqual(
+      rows.toolExecutionCount(
+        named: "read_file",
+        argumentName: "path",
+        preview: "README.md"
+      ),
+      1
+    )
+    XCTAssertTrue(
+      rows.containsToolLoopExactSuffixRuntimePrefill(
+        cacheMode: "append_delta",
+        cacheReason: "append_only_delta"
+      ),
+      "Qwen should retain its ChatSession and prefill only the structured tool-result delta."
+    )
   }
 
   @MainActor
@@ -538,11 +596,13 @@ final class SumikaUITests: XCTestCase {
   private func launchFixture(
     readme: String? = nil,
     files: [String: String] = [:],
-    mcpServers: [MCPServerConfig] = []
+    mcpServers: [MCPServerConfig] = [],
+    modelID selectedModelID: String? = nil
   ) throws -> LaunchFixture {
+    let selectedModelID = selectedModelID ?? modelID
     let model = try XCTUnwrap(
-      ManagedModelCatalog.model(id: modelID),
-      "UI test model \(modelID) must be registered in ManagedModelCatalog."
+      ManagedModelCatalog.model(id: selectedModelID),
+      "UI test model \(selectedModelID) must be registered in ManagedModelCatalog."
     )
     let modelDirectory = modelCacheDirectory(for: model)
     let configURL = modelDirectory.appending(path: "config.json", directoryHint: .notDirectory)
@@ -551,6 +611,7 @@ final class SumikaUITests: XCTestCase {
         "UI test model \(model.displayName) config.json is missing at \(configURL.path(percentEncoded: false))"
       )
     }
+    try requireCompleteModelWeights(for: model, in: modelDirectory)
 
     let storageRoot = FileManager.default.temporaryDirectory.appending(
       path: "sumika-ui-test-\(UUID().uuidString)",
@@ -592,8 +653,51 @@ final class SumikaUITests: XCTestCase {
       storageRoot: storageRoot,
       workspaceURL: workspaceURL,
       traceURL: traceURL,
-      traceOffset: fileSize(at: traceURL)
+      traceOffset: fileSize(at: traceURL),
+      modelID: selectedModelID
     )
+  }
+
+  private func requireCompleteModelWeights(
+    for model: ManagedModel,
+    in modelDirectory: URL
+  ) throws {
+    let fileManager = FileManager.default
+    let indexURL = modelDirectory.appending(
+      path: "model.safetensors.index.json",
+      directoryHint: .notDirectory
+    )
+    if fileManager.fileExists(atPath: indexURL.path(percentEncoded: false)) {
+      let index = try JSONDecoder().decode(
+        SafetensorsIndex.self,
+        from: Data(contentsOf: indexURL)
+      )
+      let missingShards = Set(index.weightMap.values)
+        .filter { filename in
+          let shardURL = modelDirectory.appending(path: filename, directoryHint: .notDirectory)
+          return !fileManager.fileExists(atPath: shardURL.path(percentEncoded: false))
+        }
+        .sorted()
+      guard missingShards.isEmpty else {
+        throw XCTSkip(
+          "UI test model \(model.displayName) has missing weight shards: \(missingShards.joined(separator: ", "))"
+        )
+      }
+      return
+    }
+
+    let hasSingleFileWeights = try fileManager.contentsOfDirectory(
+      at: modelDirectory,
+      includingPropertiesForKeys: [.isRegularFileKey]
+    ).contains { url in
+      url.pathExtension == "safetensors"
+        && (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+    }
+    guard hasSingleFileWeights else {
+      throw XCTSkip(
+        "UI test model \(model.displayName) has no local safetensors weights in \(modelDirectory.path(percentEncoded: false))"
+      )
+    }
   }
 
   @MainActor
@@ -605,7 +709,7 @@ final class SumikaUITests: XCTestCase {
       fixture.storageRoot.path(percentEncoded: false)
     application.launchEnvironment["SUMIKA_UI_TEST_WORKSPACE_PATH"] =
       fixture.workspaceURL.path(percentEncoded: false)
-    application.launchEnvironment["SUMIKA_UI_TEST_MODEL_ID"] = modelID
+    application.launchEnvironment["SUMIKA_UI_TEST_MODEL_ID"] = fixture.modelID
     application.launchEnvironment["SUMIKA_DEBUG_TRACE"] = "1"
     application.launchEnvironment["SUMIKA_DEBUG_TRACE_BASENAME"] =
       Self.testRunTraceBasename
@@ -626,7 +730,7 @@ final class SumikaUITests: XCTestCase {
     XCTAssertFalse(sendButton.isEnabled)
     XCTAssertTrue(
       loadButton.isEnabled,
-      "Load must be enabled for the preinstalled Gemma 4 E4B Experimental cache.")
+      "Load must be enabled for the preinstalled UI test model.")
     let modelPickerFrame = modelPicker.frame
     let loadButtonFrame = loadButton.frame
     XCTAssertEqual(
@@ -875,6 +979,14 @@ final class SumikaUITests: XCTestCase {
         toolLoopIteration: object["toolLoopIteration"] as? Int,
         cacheMode: object["cacheMode"] as? String,
         cacheReason: object["cacheReason"] as? String,
+        durationMs: object["durationMs"] as? Double,
+        promptTokens: object["promptTokens"] as? Int,
+        mlxCacheDecision: object["mlxCacheDecision"] as? String,
+        mlxCacheMismatchReason: object["mlxCacheMismatchReason"] as? String,
+        fullPromptTokens: object["fullPromptTokens"] as? Int,
+        reusedPromptTokens: object["reusedPromptTokens"] as? Int,
+        cacheTrimmable: object["cacheTrimmable"] as? Bool,
+        cacheTypes: object["cacheTypes"] as? [String],
         toolValidationStatus: object["toolValidationStatus"] as? String
       )
     }
@@ -1008,6 +1120,15 @@ private struct LaunchFixture {
   let workspaceURL: URL
   let traceURL: URL
   let traceOffset: UInt64
+  let modelID: String
+}
+
+private struct SafetensorsIndex: Decodable {
+  let weightMap: [String: String]
+
+  private enum CodingKeys: String, CodingKey {
+    case weightMap = "weight_map"
+  }
 }
 
 private struct UITurnBaseline {
@@ -1046,6 +1167,14 @@ private struct TraceRow {
   let toolLoopIteration: Int?
   let cacheMode: String?
   let cacheReason: String?
+  let durationMs: Double?
+  let promptTokens: Int?
+  let mlxCacheDecision: String?
+  let mlxCacheMismatchReason: String?
+  let fullPromptTokens: Int?
+  let reusedPromptTokens: Int?
+  let cacheTrimmable: Bool?
+  let cacheTypes: [String]?
   let toolValidationStatus: String?
 
   var isRuntimeCacheReuse: Bool {
@@ -1172,9 +1301,50 @@ extension Array where Element == TraceRow {
     }
   }
 
+  fileprivate func containsExactSuffixRuntimePrefill(
+    cacheMode: String,
+    cacheReason: String
+  ) -> Bool {
+    contains { row in
+      row.kind == "turn_trace"
+        && row.phase == "runtime_prefill"
+        && row.cacheMode == cacheMode
+        && row.cacheReason == cacheReason
+        && row.durationMs != nil
+        && row.promptTokens != nil
+        && row.mlxCacheDecision == "exact_suffix_reuse"
+        && row.mlxCacheMismatchReason == nil
+        && row.fullPromptTokens != nil
+        && row.reusedPromptTokens.map { $0 > 0 } == true
+        && row.cacheTrimmable != nil
+        && row.cacheTypes?.isEmpty == false
+    }
+  }
+
   fileprivate func containsToolLoopRuntimeCacheReuse() -> Bool {
     contains { row in
       row.toolLoopIteration != nil && row.isRuntimeCacheReuse
+    }
+  }
+
+  fileprivate func containsToolLoopExactSuffixRuntimePrefill(
+    cacheMode: String,
+    cacheReason: String
+  ) -> Bool {
+    contains { row in
+      row.toolLoopIteration != nil
+        && row.kind == "turn_trace"
+        && row.phase == "runtime_prefill"
+        && row.cacheMode == cacheMode
+        && row.cacheReason == cacheReason
+        && row.durationMs != nil
+        && row.promptTokens != nil
+        && row.mlxCacheDecision == "exact_suffix_reuse"
+        && row.mlxCacheMismatchReason == nil
+        && row.fullPromptTokens != nil
+        && row.reusedPromptTokens.map { $0 > 0 } == true
+        && row.cacheTrimmable != nil
+        && row.cacheTypes?.isEmpty == false
     }
   }
 

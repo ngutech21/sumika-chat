@@ -678,13 +678,6 @@ struct ConversationEngineToolLoopTests {
     #expect(capturedPromptPlans.count == budget + 1)
     #expect(capturedPromptPlans[budget].stableInstructions == capturedSystemPrompts[0])
     #expect(
-      capturedPromptPlans[budget].cacheIdentityInstructions.contains("[tool-schema-sha256:"))
-    #expect(
-      capturedPromptPlans[budget].cacheIdentityInstructions != capturedSystemPrompts[0])
-    #expect(
-      capturedPromptPlans[budget].cacheIdentityInstructions
-        != capturedPromptPlans[0].cacheIdentityInstructions)
-    #expect(
       capturedPromptPlans[budget].transientInstructions
         == [toolBudgetFinalizationInstruction])
 
@@ -695,21 +688,10 @@ struct ConversationEngineToolLoopTests {
 
     let capturedToolContexts = await runtime.capturedToolContexts
     #expect(capturedToolContexts.count == budget + 1)
-    #expect(
-      capturedToolContexts[0]?.cacheSystemPrompt
-        == capturedPromptPlans[0].cacheIdentityInstructions)
-    #expect(
-      capturedToolContexts[1]?.cacheSystemPrompt
-        == capturedPromptPlans[1].cacheIdentityInstructions)
     #expect(capturedSystemPrompts[0] == capturedSystemPrompts[1])
-    #expect(
-      capturedToolContexts[0]?.cacheSystemPrompt
-        == capturedToolContexts[1]?.cacheSystemPrompt)
+    #expect(capturedToolContexts[0]?.registry == capturedToolContexts[1]?.registry)
     let finishContext = try #require(capturedToolContexts[budget])
     #expect(finishContext.registry.tools.map(\.name) == [.finishTask])
-    #expect(
-      finishContext.cacheSystemPrompt
-        == capturedPromptPlans[budget].cacheIdentityInstructions)
   }
 
   @Test
