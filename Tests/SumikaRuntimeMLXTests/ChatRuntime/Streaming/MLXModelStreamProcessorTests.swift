@@ -111,7 +111,7 @@ struct MLXModelStreamProcessorTests {
   @Test
   func completedModelStreamUsesUpstreamCompletionTimesForTerminalTraces() async throws {
     let traceID = UUID()
-    let tracer = MLXStreamTurnTraceRecorder()
+    let tracer = CoreOnlyTurnTraceRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
       continuation.yield(.chunk("done"))
       continuation.yield(
@@ -239,23 +239,23 @@ struct MLXModelStreamProcessorTests {
 
     try await drainModelStream(stream)
 
-    let prefill = try #require(await tracer.firstEvent(for: .runtimePrefill))
-    #expect(prefill.promptTokens == 140)
-    #expect(prefill.mlxCacheDecision == "full_prefill")
+    let prefill = try #require(await tracer.firstRuntimePrefillTrace())
+    let cacheDiagnostics = try #require(prefill.cacheDiagnostics)
+    #expect(prefill.event.promptTokens == 140)
+    #expect(cacheDiagnostics.decision == .fullPrefill)
     #expect(
-      prefill.mlxCacheMismatchReason
-        == "prefix_or_alignment_mismatch_nontrimmable_cache"
+      cacheDiagnostics.mismatchReason == .nontrimmablePrefixOrAlignmentMismatch
     )
-    #expect(prefill.fullPromptTokens == 140)
-    #expect(prefill.expectedCachedTokens == 120)
-    #expect(prefill.expectedSuffixTokens == 20)
-    #expect(prefill.reusedPromptTokens == 0)
-    #expect(prefill.inputMaskPresent == false)
-    #expect(prefill.preparedMediaPresent == false)
-    #expect(prefill.newMediaPresent == false)
-    #expect(prefill.cacheTrimmable == false)
+    #expect(cacheDiagnostics.fullPromptTokens == 140)
+    #expect(cacheDiagnostics.expectedCachedTokens == 120)
+    #expect(cacheDiagnostics.expectedSuffixTokens == 20)
+    #expect(cacheDiagnostics.reusedPromptTokens == 0)
+    #expect(cacheDiagnostics.inputMaskPresent == false)
+    #expect(cacheDiagnostics.preparedMediaPresent == false)
+    #expect(cacheDiagnostics.newMediaPresent == false)
+    #expect(cacheDiagnostics.cacheTrimmable == false)
     #expect(
-      prefill.cacheTypes == [
+      cacheDiagnostics.cacheTypes == [
         "MLXLMCommon.MambaCache",
         "MLXLMCommon.KVCacheSimple",
       ])
@@ -1102,7 +1102,33 @@ struct MLXModelStreamProcessorTests {
     }
   }
 
-  private actor MLXStreamTurnTraceRecorder: TurnTracing {
+  private actor MLXStreamTurnTraceRecorder: MLXRuntimeTracing {
+    private var events: [TurnTraceEvent] = []
+    private var runtimePrefillTraces: [MLXRuntimePrefillTrace] = []
+
+    func recordTurnTraceEvent(_ event: TurnTraceEvent) {
+      events.append(event)
+    }
+
+    func recordRuntimePrefillTrace(_ trace: MLXRuntimePrefillTrace) {
+      events.append(trace.event)
+      runtimePrefillTraces.append(trace)
+    }
+
+    func firstRuntimePrefillTrace() -> MLXRuntimePrefillTrace? {
+      runtimePrefillTraces.first
+    }
+
+    func firstEvent(for phase: TurnTracePhase) -> TurnTraceEvent? {
+      events.first { $0.phase == phase }
+    }
+
+    func events(for phase: TurnTracePhase) -> [TurnTraceEvent] {
+      events.filter { $0.phase == phase }
+    }
+  }
+
+  private actor CoreOnlyTurnTraceRecorder: TurnTracing {
     private var events: [TurnTraceEvent] = []
 
     func recordTurnTraceEvent(_ event: TurnTraceEvent) {

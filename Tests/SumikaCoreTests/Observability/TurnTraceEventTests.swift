@@ -52,17 +52,6 @@ struct TurnTraceEventTests {
       mismatchReason: "history_prefix_mismatch",
       firstMismatchIndex: 1,
       systemPromptChanged: true,
-      mlxCacheDecision: "full_prefill",
-      mlxCacheMismatchReason: "prefix_or_alignment_mismatch_nontrimmable_cache",
-      fullPromptTokens: 140,
-      expectedCachedTokens: 120,
-      expectedSuffixTokens: 20,
-      reusedPromptTokens: 0,
-      inputMaskPresent: false,
-      preparedMediaPresent: false,
-      newMediaPresent: false,
-      cacheTrimmable: false,
-      cacheTypes: ["MLXLMCommon.MambaCache", "MLXLMCommon.KVCacheSimple"],
       toolCallFormat: "native",
       toolValidationStatus: "invalid",
       toolValidationError: "Unknown argument(s): id, status.",
@@ -113,23 +102,6 @@ struct TurnTraceEventTests {
     #expect(object["mismatchReason"] as? String == "history_prefix_mismatch")
     #expect(object["firstMismatchIndex"] as? Int == 1)
     #expect(object["systemPromptChanged"] as? Bool == true)
-    #expect(object["mlxCacheDecision"] as? String == "full_prefill")
-    #expect(
-      object["mlxCacheMismatchReason"] as? String
-        == "prefix_or_alignment_mismatch_nontrimmable_cache"
-    )
-    #expect(object["fullPromptTokens"] as? Int == 140)
-    #expect(object["expectedCachedTokens"] as? Int == 120)
-    #expect(object["expectedSuffixTokens"] as? Int == 20)
-    #expect(object["reusedPromptTokens"] as? Int == 0)
-    #expect(object["inputMaskPresent"] as? Bool == false)
-    #expect(object["preparedMediaPresent"] as? Bool == false)
-    #expect(object["newMediaPresent"] as? Bool == false)
-    #expect(object["cacheTrimmable"] as? Bool == false)
-    #expect(
-      object["cacheTypes"] as? [String]
-        == ["MLXLMCommon.MambaCache", "MLXLMCommon.KVCacheSimple"]
-    )
     #expect(object["toolCallFormat"] as? String == "native")
     #expect(object["toolValidationStatus"] as? String == "invalid")
     #expect(object["toolValidationError"] as? String == "Unknown argument(s): id, status.")

@@ -32,51 +32,55 @@ struct MLXDebugTraceStoreTests {
     let fileURL = try temporaryTraceFileURL()
     let store = MLXDebugTraceStore(fileURL: fileURL)
 
-    await store.recordTurnTraceEvent(
-      TurnTraceEvent(
-        turnID: turnID,
-        generationID: generationID,
-        phase: .runtimePrefill,
-        durationMs: 123.5,
-        promptTokens: 37,
-        messageCount: 2,
-        cacheMode: "reused_session",
-        cacheReason: "reused_session",
-        memoryClearReason: "runtime_error",
-        contextSignature: "ctx-new",
-        previousContextSignature: "ctx-old",
-        appendOnly: true,
-        reusedMessageCount: 3,
-        appendedMessageCount: 1,
-        mismatchReason: "history_prefix_mismatch",
-        firstMismatchIndex: 2,
-        systemPromptChanged: false,
-        mlxCacheDecision: "full_prefill",
-        mlxCacheMismatchReason: "prefix_or_alignment_mismatch_nontrimmable_cache",
-        fullPromptTokens: 140,
-        expectedCachedTokens: 120,
-        expectedSuffixTokens: 20,
-        reusedPromptTokens: 0,
-        inputMaskPresent: false,
-        preparedMediaPresent: false,
-        newMediaPresent: false,
-        cacheTrimmable: false,
-        cacheTypes: ["MLXLMCommon.MambaCache", "MLXLMCommon.KVCacheSimple"],
-        toolCallFormat: "native",
-        toolValidationStatus: "invalid",
-        toolValidationError: "Unknown argument(s): id, status.",
-        toolOriginalName: "todo_write",
-        toolArgumentKeys: ["id", "status"],
-        toolArguments: [
-          ToolArgumentTrace(
-            name: "id",
-            valueType: "string",
-            preview: "setup-project",
-            previewTruncated: false
-          )
-        ],
-        generatedTokenCount: 128,
-        generatedTokenCountIsEstimate: true
+    await store.recordRuntimePrefillTrace(
+      MLXRuntimePrefillTrace(
+        event: TurnTraceEvent(
+          turnID: turnID,
+          generationID: generationID,
+          phase: .runtimePrefill,
+          durationMs: 123.5,
+          promptTokens: 37,
+          messageCount: 2,
+          cacheMode: "reused_session",
+          cacheReason: "reused_session",
+          memoryClearReason: "runtime_error",
+          contextSignature: "ctx-new",
+          previousContextSignature: "ctx-old",
+          appendOnly: true,
+          reusedMessageCount: 3,
+          appendedMessageCount: 1,
+          mismatchReason: "history_prefix_mismatch",
+          firstMismatchIndex: 2,
+          systemPromptChanged: false,
+          toolCallFormat: "native",
+          toolValidationStatus: "invalid",
+          toolValidationError: "Unknown argument(s): id, status.",
+          toolOriginalName: "todo_write",
+          toolArgumentKeys: ["id", "status"],
+          toolArguments: [
+            ToolArgumentTrace(
+              name: "id",
+              valueType: "string",
+              preview: "setup-project",
+              previewTruncated: false
+            )
+          ],
+          generatedTokenCount: 128,
+          generatedTokenCountIsEstimate: true
+        ),
+        cacheDiagnostics: MLXRuntimeCacheDiagnosticResult(
+          decision: .fullPrefill,
+          mismatchReason: .nontrimmablePrefixOrAlignmentMismatch,
+          fullPromptTokens: 140,
+          expectedCachedTokens: 120,
+          expectedSuffixTokens: 20,
+          reusedPromptTokens: 0,
+          inputMaskPresent: false,
+          preparedMediaPresent: false,
+          newMediaPresent: false,
+          cacheTrimmable: false,
+          cacheTypes: ["MLXLMCommon.MambaCache", "MLXLMCommon.KVCacheSimple"]
+        )
       )
     )
 

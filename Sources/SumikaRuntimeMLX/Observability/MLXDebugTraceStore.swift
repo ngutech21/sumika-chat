@@ -1,7 +1,16 @@
 import Foundation
 import SumikaCore
 
-actor MLXDebugTraceStore: TurnTracing {
+struct MLXRuntimePrefillTrace: Equatable, Sendable {
+  let event: TurnTraceEvent
+  let cacheDiagnostics: MLXRuntimeCacheDiagnosticResult?
+}
+
+protocol MLXRuntimeTracing: TurnTracing {
+  func recordRuntimePrefillTrace(_ trace: MLXRuntimePrefillTrace) async
+}
+
+actor MLXDebugTraceStore: MLXRuntimeTracing {
   static var isEnabled: Bool {
     let value = ProcessInfo.processInfo.environment["SUMIKA_DEBUG_TRACE"] ?? ""
     return ["1", "true", "yes", "on"].contains(value.lowercased())
@@ -125,6 +134,38 @@ actor MLXDebugTraceStore: TurnTracing {
       return
     }
 
+    append(turnTraceObject(from: event))
+  }
+
+  func recordRuntimePrefillTrace(_ runtimeTrace: MLXRuntimePrefillTrace) async {
+    guard Self.isEnabled else {
+      return
+    }
+
+    var trace = turnTraceObject(from: runtimeTrace.event)
+    if let diagnostics = runtimeTrace.cacheDiagnostics {
+      trace["mlxCacheDecision"] = diagnostics.decision.rawValue
+      if let mismatchReason = diagnostics.mismatchReason {
+        trace["mlxCacheMismatchReason"] = mismatchReason.rawValue
+      }
+      trace["fullPromptTokens"] = diagnostics.fullPromptTokens
+      if let expectedCachedTokens = diagnostics.expectedCachedTokens {
+        trace["expectedCachedTokens"] = expectedCachedTokens
+      }
+      if let expectedSuffixTokens = diagnostics.expectedSuffixTokens {
+        trace["expectedSuffixTokens"] = expectedSuffixTokens
+      }
+      trace["reusedPromptTokens"] = diagnostics.reusedPromptTokens
+      trace["inputMaskPresent"] = diagnostics.inputMaskPresent
+      trace["preparedMediaPresent"] = diagnostics.preparedMediaPresent
+      trace["newMediaPresent"] = diagnostics.newMediaPresent
+      trace["cacheTrimmable"] = diagnostics.cacheTrimmable
+      trace["cacheTypes"] = diagnostics.cacheTypes
+    }
+    append(trace)
+  }
+
+  private func turnTraceObject(from event: TurnTraceEvent) -> [String: Any] {
     var trace: [String: Any] = [
       "timestamp": timestamp(),
       "kind": "turn_trace",
@@ -155,17 +196,6 @@ actor MLXDebugTraceStore: TurnTracing {
       ("mismatchReason", event.mismatchReason),
       ("firstMismatchIndex", event.firstMismatchIndex),
       ("systemPromptChanged", event.systemPromptChanged),
-      ("mlxCacheDecision", event.mlxCacheDecision),
-      ("mlxCacheMismatchReason", event.mlxCacheMismatchReason),
-      ("fullPromptTokens", event.fullPromptTokens),
-      ("expectedCachedTokens", event.expectedCachedTokens),
-      ("expectedSuffixTokens", event.expectedSuffixTokens),
-      ("reusedPromptTokens", event.reusedPromptTokens),
-      ("inputMaskPresent", event.inputMaskPresent),
-      ("preparedMediaPresent", event.preparedMediaPresent),
-      ("newMediaPresent", event.newMediaPresent),
-      ("cacheTrimmable", event.cacheTrimmable),
-      ("cacheTypes", event.cacheTypes),
       ("toolCallFormat", event.toolCallFormat),
       ("toolValidationStatus", event.toolValidationStatus),
       ("toolValidationError", event.toolValidationError),
@@ -183,7 +213,7 @@ actor MLXDebugTraceStore: TurnTracing {
         trace[key] = value
       }
     }
-    append(trace)
+    return trace
   }
 
   private func traceMessage(from message: (role: String, content: String)) -> [String: Any] {

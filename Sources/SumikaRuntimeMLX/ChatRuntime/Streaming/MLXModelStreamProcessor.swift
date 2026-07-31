@@ -288,38 +288,34 @@ enum MLXModelStreamProcessor {
     guard let traceMetadata else {
       return
     }
-    await traceMetadata.tracer.recordTurnTraceEvent(
-      TurnTraceEvent(
-        turnID: traceMetadata.turnID,
-        generationID: traceID,
-        phase: .runtimePrefill,
-        durationMs: info.promptTime * 1000,
-        promptTokens: info.promptTokenCount,
-        toolLoopIteration: traceMetadata.toolLoopIteration,
-        cacheMode: cacheTrace.cacheMode.rawValue,
-        cacheReason: cacheTrace.cacheReason.rawValue,
-        interactionMode: traceMetadata.interactionMode,
-        contextSignature: cacheTrace.contextSignature,
-        previousContextSignature: cacheTrace.previousContextSignature,
-        appendOnly: cacheTrace.appendOnly,
-        reusedMessageCount: cacheTrace.reusedMessageCount,
-        appendedMessageCount: cacheTrace.appendedMessageCount,
-        mismatchReason: cacheTrace.mismatchReason,
-        firstMismatchIndex: cacheTrace.firstMismatchIndex,
-        systemPromptChanged: cacheTrace.systemPromptChanged,
-        mlxCacheDecision: cacheDiagnostics?.decision.rawValue,
-        mlxCacheMismatchReason: cacheDiagnostics?.mismatchReason?.rawValue,
-        fullPromptTokens: cacheDiagnostics?.fullPromptTokens,
-        expectedCachedTokens: cacheDiagnostics?.expectedCachedTokens,
-        expectedSuffixTokens: cacheDiagnostics?.expectedSuffixTokens,
-        reusedPromptTokens: cacheDiagnostics?.reusedPromptTokens,
-        inputMaskPresent: cacheDiagnostics?.inputMaskPresent,
-        preparedMediaPresent: cacheDiagnostics?.preparedMediaPresent,
-        newMediaPresent: cacheDiagnostics?.newMediaPresent,
-        cacheTrimmable: cacheDiagnostics?.cacheTrimmable,
-        cacheTypes: cacheDiagnostics?.cacheTypes
-      )
+    let event = TurnTraceEvent(
+      turnID: traceMetadata.turnID,
+      generationID: traceID,
+      phase: .runtimePrefill,
+      durationMs: info.promptTime * 1000,
+      promptTokens: info.promptTokenCount,
+      toolLoopIteration: traceMetadata.toolLoopIteration,
+      cacheMode: cacheTrace.cacheMode.rawValue,
+      cacheReason: cacheTrace.cacheReason.rawValue,
+      interactionMode: traceMetadata.interactionMode,
+      contextSignature: cacheTrace.contextSignature,
+      previousContextSignature: cacheTrace.previousContextSignature,
+      appendOnly: cacheTrace.appendOnly,
+      reusedMessageCount: cacheTrace.reusedMessageCount,
+      appendedMessageCount: cacheTrace.appendedMessageCount,
+      mismatchReason: cacheTrace.mismatchReason,
+      firstMismatchIndex: cacheTrace.firstMismatchIndex,
+      systemPromptChanged: cacheTrace.systemPromptChanged
     )
+    let runtimeTrace = MLXRuntimePrefillTrace(
+      event: event,
+      cacheDiagnostics: cacheDiagnostics
+    )
+    if let runtimeTracer = traceMetadata.tracer as? any MLXRuntimeTracing {
+      await runtimeTracer.recordRuntimePrefillTrace(runtimeTrace)
+    } else {
+      await traceMetadata.tracer.recordTurnTraceEvent(event)
+    }
   }
 
   private static func recordRuntimeDecode(

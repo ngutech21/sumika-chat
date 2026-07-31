@@ -42,17 +42,6 @@ package struct TurnTraceEvent: Codable, Equatable, Sendable {
   package let mismatchReason: String?
   package let firstMismatchIndex: Int?
   package let systemPromptChanged: Bool?
-  package let mlxCacheDecision: String?
-  package let mlxCacheMismatchReason: String?
-  package let fullPromptTokens: Int?
-  package let expectedCachedTokens: Int?
-  package let expectedSuffixTokens: Int?
-  package let reusedPromptTokens: Int?
-  package let inputMaskPresent: Bool?
-  package let preparedMediaPresent: Bool?
-  package let newMediaPresent: Bool?
-  package let cacheTrimmable: Bool?
-  package let cacheTypes: [String]?
   package let toolCallFormat: String?
   package let toolValidationStatus: String?
   package let toolValidationError: String?
@@ -91,17 +80,6 @@ package struct TurnTraceEvent: Codable, Equatable, Sendable {
     mismatchReason: String? = nil,
     firstMismatchIndex: Int? = nil,
     systemPromptChanged: Bool? = nil,
-    mlxCacheDecision: String? = nil,
-    mlxCacheMismatchReason: String? = nil,
-    fullPromptTokens: Int? = nil,
-    expectedCachedTokens: Int? = nil,
-    expectedSuffixTokens: Int? = nil,
-    reusedPromptTokens: Int? = nil,
-    inputMaskPresent: Bool? = nil,
-    preparedMediaPresent: Bool? = nil,
-    newMediaPresent: Bool? = nil,
-    cacheTrimmable: Bool? = nil,
-    cacheTypes: [String]? = nil,
     toolCallFormat: String? = nil,
     toolValidationStatus: String? = nil,
     toolValidationError: String? = nil,
@@ -139,17 +117,6 @@ package struct TurnTraceEvent: Codable, Equatable, Sendable {
     self.mismatchReason = mismatchReason
     self.firstMismatchIndex = firstMismatchIndex
     self.systemPromptChanged = systemPromptChanged
-    self.mlxCacheDecision = mlxCacheDecision
-    self.mlxCacheMismatchReason = mlxCacheMismatchReason
-    self.fullPromptTokens = fullPromptTokens
-    self.expectedCachedTokens = expectedCachedTokens
-    self.expectedSuffixTokens = expectedSuffixTokens
-    self.reusedPromptTokens = reusedPromptTokens
-    self.inputMaskPresent = inputMaskPresent
-    self.preparedMediaPresent = preparedMediaPresent
-    self.newMediaPresent = newMediaPresent
-    self.cacheTrimmable = cacheTrimmable
-    self.cacheTypes = cacheTypes
     self.toolCallFormat = toolCallFormat
     self.toolValidationStatus = toolValidationStatus
     self.toolValidationError = toolValidationError
