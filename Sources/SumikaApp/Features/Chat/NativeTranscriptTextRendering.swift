@@ -49,6 +49,13 @@ struct NativeMarkdownTableCell {
 }
 
 enum NativeTranscriptMarkdownRenderer {
+  static let inlineCodeColor = NSColor(name: "SumikaInlineCode") { appearance in
+    let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    return isDark
+      ? NSColor(srgbRed: 0.69, green: 0.73, blue: 0.77, alpha: 1)
+      : NSColor(srgbRed: 0.30, green: 0.34, blue: 0.38, alpha: 1)
+  }
+
   static func blocks(for markdown: String) -> [NativeMarkdownBlock] {
     renderMarkdown(markdown)
   }
@@ -141,7 +148,7 @@ private final class NativeTranscriptInlineAccumulator {
         attributes: inlineAttributes(
           style: style,
           font: .monospacedSystemFont(ofSize: style.font.pointSize * 0.92, weight: .regular),
-          backgroundColor: NSColor.secondaryLabelColor.withAlphaComponent(0.16)
+          color: NativeTranscriptMarkdownRenderer.inlineCodeColor
         )
       )
 
@@ -483,7 +490,7 @@ private final class NativeTranscriptMarkdownASTRenderer {
         attributes: inlineAttributes(
           style: style,
           font: .monospacedSystemFont(ofSize: style.font.pointSize * 0.92, weight: .regular),
-          backgroundColor: NSColor.secondaryLabelColor.withAlphaComponent(0.16)
+          color: NativeTranscriptMarkdownRenderer.inlineCodeColor
         )
       )
 

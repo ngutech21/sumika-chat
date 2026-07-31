@@ -27,7 +27,11 @@ struct NativeTranscriptTextRenderingTests {
     #expect(rendered.hasFontTrait(.boldFontMask, inText: "bold"))
     #expect(rendered.hasFontTrait(.italicFontMask, inText: "italic"))
     #expect(rendered.hasMonospacedFont(inText: "code"))
-    #expect(rendered.hasBackgroundColor(inText: "code"))
+    #expect(
+      rendered.foregroundColor(inText: "code")
+        == NativeTranscriptMarkdownRenderer.inlineCodeColor
+    )
+    #expect(!rendered.hasBackgroundColor(inText: "code"))
     #expect(rendered.fontSize(inText: "Title") > NSFont.systemFontSize)
   }
 
@@ -118,7 +122,11 @@ struct NativeTranscriptTextRenderingTests {
 
     #expect(table.rows[0][1].attributedString.hasLink(inText: "Sumika"))
     #expect(table.rows[1][1].attributedString.hasMonospacedFont(inText: "gemma"))
-    #expect(table.rows[1][1].attributedString.hasBackgroundColor(inText: "gemma"))
+    #expect(
+      table.rows[1][1].attributedString.foregroundColor(inText: "gemma")
+        == NativeTranscriptMarkdownRenderer.inlineCodeColor
+    )
+    #expect(!table.rows[1][1].attributedString.hasBackgroundColor(inText: "gemma"))
   }
 
   @Test
