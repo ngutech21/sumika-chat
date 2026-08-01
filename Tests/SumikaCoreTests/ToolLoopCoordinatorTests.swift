@@ -1425,10 +1425,10 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
-  func overlappingNormalizedMutationPathsFailWholeBatchBeforeExecution() async throws {
+  func conflictingMutationPathFailsOnlyItsFileGroup() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let orchestrator = CountingToolOrchestrator(tools: [.writeFile, .editFile])
+    let orchestrator = CountingToolOrchestrator(tools: [.writeFile, .editFile, .readFile])
     let result = try await runToolLoop(
       using: orchestrator,
       request(
@@ -1450,22 +1450,113 @@ struct ToolLoopCoordinatorTests {
               "new_text": .string("new notes"),
             ]
           ),
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("README.md")]
+          ),
         ]
       )
     )
 
-    #expect(await orchestrator.executionCount == 0)
-    #expect(annotatedNativeToolCalls(from: result).map(\.toolName) == [.writeFile, .editFile])
-    #expect(toolCallRecords(from: result).map(\.status) == [.failed, .failed])
-    #expect(toolResults(from: result).map(\.toolName) == [.writeFile, .editFile])
+    #expect(await orchestrator.executionCount == 1)
     #expect(
-      toolCallRecords(from: result).allSatisfy { record in
+      annotatedNativeToolCalls(from: result).map(\.toolName)
+        == [.writeFile, .editFile, .readFile])
+    #expect(toolCallRecords(from: result).map(\.status) == [.failed, .failed, .completed])
+    #expect(toolResults(from: result).map(\.toolName) == [.writeFile, .editFile, .readFile])
+    #expect(
+      toolCallRecords(from: result).prefix(2).allSatisfy { record in
         guard case .invalid(let input) = record.request.payload else {
           return false
         }
         return input.reason.message
           == "Multiple write_file/edit_file calls target the same normalized workspace path: notes.txt."
       })
+    #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
+  }
+
+  @Test
+  func sameFileEditCallsBecomeOneAtomicApprovalGroup() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+
+    let result = try await runToolLoop(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "edit_file",
+            arguments: [
+              "path": .string("README.md"),
+              "old_text": .string("project"),
+              "new_text": .string("Project"),
+            ]
+          ),
+          ChatRuntimeToolCall(
+            name: "edit_file",
+            arguments: [
+              "path": .string("./README.md"),
+              "old_text": .string("notes"),
+              "new_text": .string("Notes"),
+            ]
+          ),
+        ]
+      )
+    )
+
+    let records = toolCallRecords(from: result)
+    #expect(records.map(\.status) == [.awaitingApproval, .awaitingApproval])
+    #expect(records[0].approvalPreview?.text.contains("-project notes") == true)
+    #expect(records[0].approvalPreview?.text.contains("+Project Notes") == true)
+    #expect(records[1].approvalPreview == nil)
+    #expect(result?.continuation == .awaitingApproval)
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "README.md"), encoding: .utf8)
+        == "project notes")
+  }
+
+  @Test
+  func invalidSameFileEditFailsOnlyItsAtomicGroup() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+
+    let result = try await runToolLoop(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "edit_file",
+            arguments: [
+              "path": .string("README.md"),
+              "old_text": .string("project"),
+              "new_text": .string("Project"),
+            ]
+          ),
+          ChatRuntimeToolCall(
+            name: "edit_file",
+            arguments: [
+              "path": .string("./README.md"),
+              "old_text": .string("missing text"),
+              "new_text": .string("replacement"),
+            ]
+          ),
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("README.md")]
+          ),
+        ]
+      )
+    )
+
+    #expect(toolCallRecords(from: result).map(\.status) == [.failed, .failed, .completed])
+    let results = toolResults(from: result)
+    #expect(results.map(\.toolName) == [.editFile, .editFile, .readFile])
+    #expect(results[2].preview.text == "1: project notes")
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "README.md"), encoding: .utf8)
+        == "project notes")
     #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
   }
 
@@ -1941,6 +2032,17 @@ private actor CountingToolOrchestrator: ToolOrchestrating {
     )
   }
 
+  func prepareSameFileEditGroup(
+    requests: [RawToolCallRequest],
+    workspace: Workspace
+  ) async -> [ToolCallRecord] {
+    var records: [ToolCallRecord] = []
+    for request in requests {
+      records.append(await execute(request: request, workspace: workspace))
+    }
+    return records
+  }
+
   private static func canonicalPath(
     _ input: String,
     workspace: Workspace
@@ -1991,5 +2093,16 @@ private struct WorkspaceDiffToolOrchestrator: ToolOrchestrating {
       ),
       state: .completed(.workspaceDiff(.success(path: nil, content: content)))
     )
+  }
+
+  func prepareSameFileEditGroup(
+    requests: [RawToolCallRequest],
+    workspace: Workspace
+  ) async -> [ToolCallRecord] {
+    var records: [ToolCallRecord] = []
+    for request in requests {
+      records.append(await execute(request: request, workspace: workspace))
+    }
+    return records
   }
 }

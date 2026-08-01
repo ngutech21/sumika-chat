@@ -87,11 +87,14 @@ flowchart TD
   approval-required tool actually starts through the approved path. The
   transcript derives its `Auto-approved` indicator from this persisted
   provenance rather than the session's current policy.
-- Approval and denial update one existing batch record in place. The turn stays
-  paused while any sibling call is unresolved and starts exactly one model
-  follow-up only after the whole batch has model-facing results. `Approve all`
-  executes the remaining approved records sequentially in original model order;
-  individual decisions may arrive in any order without changing result order.
+- Approval and denial update existing batch records in place. Same-path
+  `edit_file` siblings form one derived approval group: the transcript shows one
+  combined diff, and approving or denying any member resolves the whole file
+  group. Other calls remain individually resolvable. The turn stays paused while
+  any sibling call is unresolved and starts exactly one model follow-up only
+  after the whole batch has model-facing results. `Approve all` executes ordinary
+  calls sequentially in original model order and each same-file edit group as one
+  transaction; result messages remain in original call order.
 - Immediately before approved execution, the tool input and permission scope are
   evaluated again. A manual approval returns to `awaitingApproval` when the
   normalized target paths or risk level changed since the preview (for example
@@ -677,8 +680,11 @@ declarations.
   permission/path evaluation immediately before the side effect.
 - When an approved execution returns, its record must be updated with the
   terminal result before cancellation or active-turn checks can stop the
-  workflow. Cancellation must prevent every later unstarted batch member and
-  the model follow-up from starting.
+  workflow. A same-file edit group checks cancellation immediately before its
+  single synchronous atomic write. Cancellation before that point leaves the
+  file unchanged; after the write starts, the whole group finishes and all of
+  its records are updated together. Cancellation still prevents every later
+  unstarted batch member and the model follow-up from starting.
 - `run_command` is available only in the Agent registry. It executes
   `/bin/bash -c <command>` in the active workspace root through the approved
   execution path. The
@@ -788,6 +794,17 @@ declarations.
   the matched file's line-ending style. If the target file is missing,
   `edit_file` fails before approval or during approved revalidation and may
   include bounded workspace-relative path suggestions.
+- Multiple `edit_file` calls may target one normalized file path in the same
+  assistant response. The runtime reads one current snapshot, requires every
+  `old_text` to match uniquely, rejects overlapping matched ranges, and renders
+  one combined multi-hunk approval diff on the first group record. Approval
+  re-reads the current file and repeats the complete group validation. If every
+  match remains unique and non-overlapping, the runtime composes replacements in
+  memory from highest to lowest offset and performs one atomic file write. Each
+  call retains its original ID and receives its own post-write
+  `AppliedEditReceipt` in model order. If preparation or revalidation fails, no
+  edit in that file group is written; other normalized file groups in the same
+  assistant batch remain independent.
 - `edit_file` is the only model-facing tool for changing existing files.
 - `finish_task` accepts exactly `status` and `summary`. `status` is one of
   `done`, `blocked`, or `needs_user`; `summary` must be non-empty after trimming
@@ -810,11 +827,14 @@ declarations.
 - The content-budget and incremental-scaffold rules are generation guidance, not
   runtime size limits. Small independent write/edit calls may still share one
   response, while each content-heavy mutation should wait for its own result.
-- Same-response write/edit calls are normalized and validated as one batch;
-  conflicting targets prevent the whole batch from mutating the workspace.
-  Cross-round semantic mutation deduplication is intentionally out of scope: the
-  runtime does not infer that a later generated edit overlaps an earlier one.
-  Revalidation and explicit approval protect each later mutation independently.
+- Same-response write/edit calls are grouped by normalized path. A path group
+  containing `write_file` plus another `write_file` or `edit_file` is rejected
+  without executing that group, while unrelated path groups continue. Atomic
+  same-file grouping applies only to `edit_file`; `write_file` remains a
+  single-call mutation for its path. Cross-round semantic mutation deduplication
+  is intentionally out of scope: the runtime does not infer that a later
+  generated edit overlaps an earlier one. Revalidation and explicit approval
+  protect each later mutation independently.
 - Denied approval-sensitive tools may also receive one final no-tools assistant
   follow-up. The denied tool result stays auditable, no side effect occurs, and
   further tool attempts in the final response are recorded as structured

@@ -1955,11 +1955,12 @@ extension NativeChatMessageCellView {
       stack.addArrangedSubview(makeToolDetails(record: record, metrics: generationMetrics))
     }
 
-    if record.status == .awaitingApproval {
+    if record.status == .awaitingApproval,
+      batchPresentation?.showsApprovalActions != false
+    {
       let actionsRow = horizontalStack(spacing: 8)
       if state.toolApprovalPolicy == .automatic {
-        let showsResume =
-          batchPresentation.map { $0.pendingApprovalCount == 1 || $0.showsApproveAll } ?? true
+        let showsResume = batchPresentation?.showsResumeAutomation ?? true
         if showsResume {
           let anchorID = batchPresentation?.anchorID ?? record.id
           actionsRow.addArrangedSubview(
@@ -1974,6 +1975,7 @@ extension NativeChatMessageCellView {
           )
         }
       } else {
+        let approvalGroupCount = batchPresentation?.approvalGroupCount ?? 1
         if let batch = batchPresentation, batch.showsApproveAll {
           actionsRow.addArrangedSubview(
             makeSmallButton(
@@ -1988,9 +1990,11 @@ extension NativeChatMessageCellView {
         }
         actionsRow.addArrangedSubview(
           makeSmallButton(
-            title: "Approve",
+            title: approvalGroupCount > 1 ? "Approve \(approvalGroupCount) edits" : "Approve",
             accessibilityIdentifier: "chat.tool.approve.\(record.id.uuidString)",
-            accessibilityLabel: "Approve \(toolCall.toolName.rawValue) tool call",
+            accessibilityLabel: approvalGroupCount > 1
+              ? "Approve \(approvalGroupCount) atomic edit_file calls"
+              : "Approve \(toolCall.toolName.rawValue) tool call",
             isEnabled: state.isToolActionEnabled
           ) { [weak self] in
             self?.actions?.approve(record.id)
@@ -1998,9 +2002,11 @@ extension NativeChatMessageCellView {
         )
         actionsRow.addArrangedSubview(
           makeSmallButton(
-            title: "Deny",
+            title: approvalGroupCount > 1 ? "Deny \(approvalGroupCount) edits" : "Deny",
             accessibilityIdentifier: "chat.tool.deny.\(record.id.uuidString)",
-            accessibilityLabel: "Deny \(toolCall.toolName.rawValue) tool call",
+            accessibilityLabel: approvalGroupCount > 1
+              ? "Deny \(approvalGroupCount) atomic edit_file calls"
+              : "Deny \(toolCall.toolName.rawValue) tool call",
             isEnabled: state.isToolActionEnabled
           ) { [weak self] in
             self?.actions?.deny(record.id)

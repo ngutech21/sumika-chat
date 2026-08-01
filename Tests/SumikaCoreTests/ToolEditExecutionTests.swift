@@ -7,6 +7,286 @@ import Testing
 @Suite(TemporaryDirectoryTrait(named: "sumika-tool-edit-tests"))
 struct ToolEditExecutionTests {
   @Test
+  func sameFileEditGroupPreviewsAndCommitsOneCombinedTransaction() async throws {
+    let workspace = try makeWorkspace()
+    try write("one\ntwo\nthree\nfour\n", to: "notes.txt", in: workspace)
+    let orchestrator = ToolOrchestrator(executorRegistry: .codingAgent)
+    let requests = [
+      request(
+        .editFile,
+        workspace: workspace,
+        arguments: editArguments(path: "notes.txt", oldText: "one", newText: "ONE")
+      ),
+      request(
+        .editFile,
+        workspace: workspace,
+        arguments: editArguments(path: "./notes.txt", oldText: "four", newText: "FOUR")
+      ),
+    ]
+
+    let pending = await orchestrator.prepareSameFileEditGroup(
+      requests: requests,
+      workspace: workspace
+    )
+
+    #expect(pending.map(\.status) == [.awaitingApproval, .awaitingApproval])
+    #expect(pending[0].approvalPreview?.affectedPaths == ["notes.txt"])
+    #expect(pending[0].approvalPreview?.text.contains("-one") == true)
+    #expect(pending[0].approvalPreview?.text.contains("+ONE") == true)
+    #expect(pending[0].approvalPreview?.text.contains("-four") == true)
+    #expect(pending[0].approvalPreview?.text.contains("+FOUR") == true)
+    #expect(pending[0].approvalPreview?.text.components(separatedBy: "@@").count == 5)
+    #expect(pending[1].approvalPreview == nil)
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "notes.txt"), encoding: .utf8)
+        == "one\ntwo\nthree\nfour\n")
+
+    let completed = await orchestrator.executeApprovedSameFileEditGroup(
+      records: pending,
+      enforceApprovedScope: true,
+      workspace: workspace
+    )
+
+    #expect(completed.map(\.id) == pending.map(\.id))
+    #expect(completed.map(\.status) == [.completed, .completed])
+    #expect(
+      completed.allSatisfy { record in
+        guard case .editFile(.success) = record.resultPayload else {
+          return false
+        }
+        return true
+      })
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "notes.txt"), encoding: .utf8)
+        == "ONE\ntwo\nthree\nFOUR\n")
+  }
+
+  @Test
+  func sameFileEditGroupUsesTheRegisteredExecutorConfiguration() async throws {
+    let workspace = try makeWorkspace()
+    try write("one\ntwo\n", to: "notes.txt", in: workspace)
+    let registry = ToolExecutorRegistry([
+      AnyToolExecutor(
+        EditFileToolExecutor(
+          receiptPolicy: AppliedEditReceiptPolicy(maxChangedLines: 1, maxBytes: 1_024)
+        ))
+    ])
+    let orchestrator = ToolOrchestrator(executorRegistry: registry)
+    let pending = await orchestrator.prepareSameFileEditGroup(
+      requests: [
+        request(
+          .editFile,
+          workspace: workspace,
+          arguments: editArguments(path: "notes.txt", oldText: "one", newText: "ONE")
+        ),
+        request(
+          .editFile,
+          workspace: workspace,
+          arguments: editArguments(path: "notes.txt", oldText: "two", newText: "TWO")
+        ),
+      ],
+      workspace: workspace
+    )
+
+    let completed = await orchestrator.executeApprovedSameFileEditGroup(
+      records: pending,
+      enforceApprovedScope: true,
+      workspace: workspace
+    )
+
+    let receipts = completed.compactMap { record -> AppliedEditReceipt? in
+      guard case .editFile(.success(let receipt)) = record.resultPayload else {
+        return nil
+      }
+      return receipt
+    }
+    #expect(receipts.count == 2)
+    #expect(receipts.allSatisfy { $0.diff.truncated })
+  }
+
+  @Test
+  func sameFileEditGroupOffsetsLaterReceiptsAfterInsertedLines() async throws {
+    let workspace = try makeWorkspace()
+    try write("alpha\nbeta\ngamma\n", to: "notes.txt", in: workspace)
+    let orchestrator = ToolOrchestrator(executorRegistry: .codingAgent)
+    let pending = await orchestrator.prepareSameFileEditGroup(
+      requests: [
+        request(
+          .editFile,
+          workspace: workspace,
+          arguments: editArguments(path: "notes.txt", oldText: "gamma", newText: "GAMMA")
+        ),
+        request(
+          .editFile,
+          workspace: workspace,
+          arguments: editArguments(
+            path: "notes.txt",
+            oldText: "alpha",
+            newText: "alpha\ninserted"
+          )
+        ),
+      ],
+      workspace: workspace
+    )
+
+    let completed = await orchestrator.executeApprovedSameFileEditGroup(
+      records: pending,
+      enforceApprovedScope: true,
+      workspace: workspace
+    )
+
+    guard case .editFile(.success(let firstReceipt)) = completed[0].resultPayload,
+      case .editFile(.success(let secondReceipt)) = completed[1].resultPayload
+    else {
+      Issue.record("Expected edit_file success payloads.")
+      return
+    }
+    #expect(firstReceipt.oldRange == AppliedEditLineRange(startLine: 3, lineCount: 1))
+    #expect(firstReceipt.newRange == AppliedEditLineRange(startLine: 4, lineCount: 1))
+    #expect(firstReceipt.diff.text.contains("@@ -3,1 +4,1 @@"))
+    #expect(secondReceipt.newRange == AppliedEditLineRange(startLine: 1, lineCount: 2))
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "notes.txt"), encoding: .utf8)
+        == "alpha\ninserted\nbeta\nGAMMA\n")
+  }
+
+  @Test
+  func overlappingSameFileEditGroupFailsWithoutWriting() async throws {
+    let workspace = try makeWorkspace()
+    try write("abcdef\n", to: "notes.txt", in: workspace)
+    let orchestrator = ToolOrchestrator(executorRegistry: .codingAgent)
+
+    let records = await orchestrator.prepareSameFileEditGroup(
+      requests: [
+        request(
+          .editFile,
+          workspace: workspace,
+          arguments: editArguments(path: "notes.txt", oldText: "abc", newText: "ABC")
+        ),
+        request(
+          .editFile,
+          workspace: workspace,
+          arguments: editArguments(path: "notes.txt", oldText: "bcd", newText: "BCD")
+        ),
+      ],
+      workspace: workspace
+    )
+
+    #expect(records.map(\.status) == [.failed, .failed])
+    #expect(records.allSatisfy { $0.state.preview?.text.contains("overlap") == true })
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "notes.txt"), encoding: .utf8)
+        == "abcdef\n")
+  }
+
+  @Test
+  func approvedSameFileEditGroupRevalidatesCurrentContentBeforeCommitting() async throws {
+    let workspace = try makeWorkspace()
+    try write("alpha\nbeta\n", to: "notes.txt", in: workspace)
+    let orchestrator = ToolOrchestrator(executorRegistry: .codingAgent)
+    let pending = await orchestrator.prepareSameFileEditGroup(
+      requests: [
+        request(
+          .editFile,
+          workspace: workspace,
+          arguments: editArguments(path: "notes.txt", oldText: "alpha", newText: "ALPHA")
+        ),
+        request(
+          .editFile,
+          workspace: workspace,
+          arguments: editArguments(path: "notes.txt", oldText: "beta", newText: "BETA")
+        ),
+      ],
+      workspace: workspace
+    )
+    try write("prefix\nalpha\nbeta\n", to: "notes.txt", in: workspace)
+
+    let completed = await orchestrator.executeApprovedSameFileEditGroup(
+      records: pending,
+      enforceApprovedScope: true,
+      workspace: workspace
+    )
+
+    #expect(completed.map(\.status) == [.completed, .completed])
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "notes.txt"), encoding: .utf8)
+        == "prefix\nALPHA\nBETA\n")
+  }
+
+  @Test
+  func failedApprovedSameFileEditGroupDoesNotPartiallyApplyValidSibling() async throws {
+    let workspace = try makeWorkspace()
+    try write("alpha\nbeta\n", to: "notes.txt", in: workspace)
+    let orchestrator = ToolOrchestrator(executorRegistry: .codingAgent)
+    let pending = await orchestrator.prepareSameFileEditGroup(
+      requests: [
+        request(
+          .editFile,
+          workspace: workspace,
+          arguments: editArguments(path: "notes.txt", oldText: "alpha", newText: "ALPHA")
+        ),
+        request(
+          .editFile,
+          workspace: workspace,
+          arguments: editArguments(path: "notes.txt", oldText: "beta", newText: "BETA")
+        ),
+      ],
+      workspace: workspace
+    )
+    try write("alpha\nremoved\n", to: "notes.txt", in: workspace)
+
+    let failed = await orchestrator.executeApprovedSameFileEditGroup(
+      records: pending,
+      enforceApprovedScope: true,
+      workspace: workspace
+    )
+
+    #expect(failed.map(\.status) == [.failed, .failed])
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "notes.txt"), encoding: .utf8)
+        == "alpha\nremoved\n")
+  }
+
+  @Test
+  func cancelledSameFileEditGroupStopsBeforeAtomicWrite() async throws {
+    let workspace = try makeWorkspace()
+    try write("alpha\nbeta\n", to: "notes.txt", in: workspace)
+    let orchestrator = ToolOrchestrator(executorRegistry: .codingAgent)
+    let pending = await orchestrator.prepareSameFileEditGroup(
+      requests: [
+        request(
+          .editFile,
+          workspace: workspace,
+          arguments: editArguments(path: "notes.txt", oldText: "alpha", newText: "ALPHA")
+        ),
+        request(
+          .editFile,
+          workspace: workspace,
+          arguments: editArguments(path: "notes.txt", oldText: "beta", newText: "BETA")
+        ),
+      ],
+      workspace: workspace
+    )
+
+    let task = Task { () -> [ToolCallRecord] in
+      withUnsafeCurrentTask { currentTask in
+        currentTask?.cancel()
+      }
+      return await orchestrator.executeApprovedSameFileEditGroup(
+        records: pending,
+        enforceApprovedScope: true,
+        workspace: workspace
+      )
+    }
+    let cancelled = await task.value
+
+    #expect(cancelled.map(\.status) == [.cancelled, .cancelled])
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "notes.txt"), encoding: .utf8)
+        == "alpha\nbeta\n")
+  }
+
+  @Test
   func editFileAwaitsApprovalWithPreviewWithoutWriting() async throws {
     let workspace = try makeWorkspace()
     try write("let title = \"Old\"\n", to: "Sources/App.swift", in: workspace)

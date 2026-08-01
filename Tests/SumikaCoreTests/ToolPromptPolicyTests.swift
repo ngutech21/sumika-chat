@@ -37,11 +37,12 @@ struct ToolPromptPolicyTests {
       prompt.contains(
         "Reuse current read, list, glob, or search results unless the relevant content changed."))
     #expect(prompt.contains("Use edit_file for targeted changes to existing files."))
+    #expect(prompt.contains("Multiple edit_file calls may target one file in a response"))
+    #expect(prompt.contains("approved and applied atomically per file"))
     #expect(
       prompt.contains(
-        "Never emit multiple write_file/edit_file calls for the same file in one response"))
+        "Never combine write_file with another write_file/edit_file for the same file"))
     #expect(prompt.contains("including equivalent paths"))
-    #expect(prompt.contains("wait for each result before mutating that file again"))
     #expect(prompt.contains("Keep file mutations bounded."))
     #expect(
       prompt.contains("If a file being created or fully replaced may not fit in one response"))

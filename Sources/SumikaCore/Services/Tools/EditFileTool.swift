@@ -213,7 +213,7 @@ nonisolated extension ToolDefinition {
   package static let editFile = ToolDefinition(
     name: .editFile,
     description:
-      "Replace one unique text span in an existing file. Read first unless the current content is already in context. Do not combine this call with another write_file/edit_file for the same file, including equivalent paths, in one response; wait for its result first.",
+      "Replace one unique text span in an existing file. Read first unless the current content is already in context. Multiple edit_file calls may target non-overlapping spans of one current file snapshot; they are approved and applied atomically per file. Do not combine them with write_file for that file.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
@@ -251,6 +251,17 @@ nonisolated struct AppliedEditReceiptPolicy: Equatable, Sendable {
 
   static let production = AppliedEditReceiptPolicy()
   static let unbounded = AppliedEditReceiptPolicy(maxChangedLines: .max, maxBytes: .max)
+}
+
+enum EditFileGroupPreparation {
+  case ready(ToolResultPreview)
+  case failed([ToolResultPreview])
+}
+
+enum EditFileGroupExecution {
+  case completed([ToolResultPayload])
+  case failed([ToolResultPayload])
+  case cancelled
 }
 
 struct EditFileToolExecutor: TypedToolExecutor {
@@ -305,76 +316,24 @@ struct EditFileToolExecutor: TypedToolExecutor {
   func previewApproval(_ input: EditFileInput, context: ToolContext) async
     -> ToolResultPreview?
   {
-    var resolvedURL: URL?
-    do {
-      return try context.workspace.withSecurityScopedAccess {
-        resolvedURL = try context.workspace.resolveAllowedPath(input.path)
-        let edit = try validatedEdit(input, context: context)
-        resolvedURL = edit.resolvedURL
-        let receipt = AppliedEditReceiptBuilder(policy: .unbounded).build(
-          path: edit.path,
-          originalContent: edit.originalContent,
-          matchedRange: edit.matchedRange,
-          replacementText: edit.replacementText,
-          matchStrategy: edit.matchStrategy
-        )
-        return ToolResultPreview(
-          status: .success,
-          text: receipt.diff.text,
-          affectedPaths: [edit.path.rawValue]
-        )
-      }
-    } catch {
-      return failurePreview(for: input, context: context, resolvedURL: resolvedURL, error: error)
+    switch prepareApprovalGroup([input], context: context) {
+    case .ready(let preview):
+      return preview
+    case .failed(let previews):
+      return previews.first
     }
   }
 
   func run(_ input: EditFileInput, context: ToolContext) async -> ToolResultPayload {
-    var resolvedURL: URL?
-    do {
-      return try context.workspace.withSecurityScopedAccess {
-        resolvedURL = try context.workspace.resolveAllowedPath(input.path)
-        let edit = try validatedEdit(input, context: context)
-        resolvedURL = edit.resolvedURL
-        let receipt = AppliedEditReceiptBuilder(policy: receiptPolicy).build(
-          path: edit.path,
-          originalContent: edit.originalContent,
-          matchedRange: edit.matchedRange,
-          replacementText: edit.replacementText,
-          matchStrategy: edit.matchStrategy
-        )
-        try edit.updatedContent.write(to: edit.resolvedURL, atomically: true, encoding: .utf8)
-        return .editFile(.success(receipt: receipt))
-      }
-    } catch EditFileValidationError.oldTextNotFound {
-      return context.workspace.withSecurityScopedAccess {
-        oldTextNotFoundResult(input, context: context, resolvedURL: resolvedURL)
-      }
-    } catch EditFileValidationError.ambiguousOldText {
-      let path = ToolResultFailureMapper.relativePath(
-        for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
-      return .editFile(
-        .multipleMatches(
-          path: path ?? WorkspaceRelativePath(rawValue: input.path),
-          matchCount: 2,
-          recovery: .retryWithMoreContext(path: path ?? WorkspaceRelativePath(rawValue: input.path))
-        )
-      )
-    } catch EditFileValidationError.identicalReplacement {
-      let path = ToolResultFailureMapper.relativePath(
-        for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
-      return .editFile(.unchanged(path: path ?? WorkspaceRelativePath(rawValue: input.path)))
-    } catch {
+    switch runGroup([input], context: context) {
+    case .completed(let payloads), .failed(let payloads):
+      return payloads[0]
+    case .cancelled:
       return .editFile(
         .failed(
-          path: ToolResultFailureMapper.relativePath(
-            for: input.path, resolvedURL: resolvedURL, workspace: context.workspace),
-          reason: ToolResultFailureMapper.isFileNotFound(error)
-            ? ToolResultFailureMapper.missingFileReason(
-              for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
-            : ToolResultFailureMapper.reason(from: error)
-        )
-      )
+          path: WorkspaceRelativePath(rawValue: input.path),
+          reason: .executionError("edit_file was cancelled before writing.")
+        ))
     }
   }
 
@@ -439,44 +398,7 @@ struct EditFileToolExecutor: TypedToolExecutor {
     return ToolTextOutput(text: content)
   }
 
-  private func validatedEdit(
-    _ input: EditFileInput,
-    context: ToolContext
-  ) throws -> ValidatedEdit {
-    guard !input.oldText.isEmpty else {
-      throw EditFileValidationError.emptyOldText
-    }
-
-    guard input.oldText != input.newText else {
-      throw EditFileValidationError.identicalReplacement
-    }
-
-    let resolvedURL = try context.workspace.resolveAllowedPath(input.path)
-    let data = try Data(contentsOf: resolvedURL)
-    guard let content = String(data: data, encoding: .utf8) else {
-      throw EditFileValidationError.nonUTF8
-    }
-
-    let match = try Self.validatedMatch(
-      oldText: input.oldText,
-      newText: input.newText,
-      content: content
-    )
-
-    var updatedContent = content
-    updatedContent.replaceSubrange(match.range, with: match.replacementText)
-    return ValidatedEdit(
-      path: context.workspace.relativePath(for: resolvedURL),
-      resolvedURL: resolvedURL,
-      originalContent: content,
-      matchedRange: match.range,
-      replacementText: match.replacementText,
-      matchStrategy: match.strategy,
-      updatedContent: updatedContent
-    )
-  }
-
-  private static func validatedMatch(
+  fileprivate static func validatedMatch(
     oldText: String,
     newText: String,
     content: String
@@ -910,6 +832,150 @@ struct EditFileToolExecutor: TypedToolExecutor {
   }
 }
 
+extension EditFileToolExecutor {
+  func prepareApprovalGroup(
+    _ inputs: [EditFileInput],
+    context: ToolContext
+  ) -> EditFileGroupPreparation {
+    precondition(!inputs.isEmpty)
+    do {
+      let preview = try EditFileTransaction(receiptPolicy: receiptPolicy).preview(
+        inputs,
+        context: context
+      )
+      return .ready(preview)
+    } catch let failure as EditFileTransactionFailure {
+      return .failed(failurePreviews(for: inputs, context: context, failure: failure))
+    } catch {
+      let failure = EditFileTransactionFailure(inputIndex: 0, resolvedURL: nil, cause: error)
+      return .failed(failurePreviews(for: inputs, context: context, failure: failure))
+    }
+  }
+
+  func runGroup(
+    _ inputs: [EditFileInput],
+    context: ToolContext
+  ) -> EditFileGroupExecution {
+    precondition(!inputs.isEmpty)
+    do {
+      let receipts = try EditFileTransaction(receiptPolicy: receiptPolicy).commit(
+        inputs,
+        context: context
+      )
+      return .completed(receipts.map { .editFile(.success(receipt: $0)) })
+    } catch is CancellationError {
+      return .cancelled
+    } catch let failure as EditFileTransactionFailure {
+      return .failed(failurePayloads(for: inputs, context: context, failure: failure))
+    } catch {
+      let failure = EditFileTransactionFailure(inputIndex: 0, resolvedURL: nil, cause: error)
+      return .failed(failurePayloads(for: inputs, context: context, failure: failure))
+    }
+  }
+
+  private func failurePreviews(
+    for inputs: [EditFileInput],
+    context: ToolContext,
+    failure: EditFileTransactionFailure
+  ) -> [ToolResultPreview] {
+    inputs.enumerated().map { index, input in
+      if index == failure.inputIndex {
+        return failurePreview(
+          for: input,
+          context: context,
+          resolvedURL: failure.resolvedURL,
+          error: failure.cause
+        )
+      }
+      let path =
+        ToolResultFailureMapper.relativePath(
+          for: input.path,
+          resolvedURL: failure.resolvedURL,
+          workspace: context.workspace
+        ) ?? WorkspaceRelativePath(rawValue: input.path)
+      return ToolResultPreview(
+        status: .failed,
+        text: atomicGroupFailureMessage(cause: failure.cause),
+        affectedPaths: [path.rawValue]
+      )
+    }
+  }
+
+  private func failurePayloads(
+    for inputs: [EditFileInput],
+    context: ToolContext,
+    failure: EditFileTransactionFailure
+  ) -> [ToolResultPayload] {
+    inputs.enumerated().map { index, input in
+      guard index == failure.inputIndex else {
+        let path =
+          ToolResultFailureMapper.relativePath(
+            for: input.path,
+            resolvedURL: failure.resolvedURL,
+            workspace: context.workspace
+          ) ?? WorkspaceRelativePath(rawValue: input.path)
+        return .editFile(
+          .failed(
+            path: path,
+            reason: .executionError(atomicGroupFailureMessage(cause: failure.cause))
+          ))
+      }
+      return failurePayload(
+        for: input,
+        context: context,
+        resolvedURL: failure.resolvedURL,
+        error: failure.cause
+      )
+    }
+  }
+
+  private func failurePayload(
+    for input: EditFileInput,
+    context: ToolContext,
+    resolvedURL: URL?,
+    error: Error
+  ) -> ToolResultPayload {
+    if case EditFileValidationError.oldTextNotFound = error {
+      return context.workspace.withSecurityScopedAccess {
+        oldTextNotFoundResult(input, context: context, resolvedURL: resolvedURL)
+      }
+    }
+    if case EditFileValidationError.ambiguousOldText = error {
+      let path =
+        ToolResultFailureMapper.relativePath(
+          for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
+        ?? WorkspaceRelativePath(rawValue: input.path)
+      return .editFile(
+        .multipleMatches(
+          path: path,
+          matchCount: 2,
+          recovery: .retryWithMoreContext(path: path)
+        ))
+    }
+    if case EditFileValidationError.identicalReplacement = error {
+      let path =
+        ToolResultFailureMapper.relativePath(
+          for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
+        ?? WorkspaceRelativePath(rawValue: input.path)
+      return .editFile(.unchanged(path: path))
+    }
+
+    return .editFile(
+      .failed(
+        path: ToolResultFailureMapper.relativePath(
+          for: input.path, resolvedURL: resolvedURL, workspace: context.workspace),
+        reason: ToolResultFailureMapper.isFileNotFound(error)
+          ? ToolResultFailureMapper.missingFileReason(
+            for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
+          : ToolResultFailureMapper.reason(from: error)
+      ))
+  }
+
+  private func atomicGroupFailureMessage(cause: Error) -> String {
+    "Atomic edit_file group was not applied: \(cause.localizedDescription)"
+  }
+}
+
 nonisolated struct AppliedEditReceiptBuilder {
   let policy: AppliedEditReceiptPolicy
 
@@ -918,7 +984,8 @@ nonisolated struct AppliedEditReceiptBuilder {
     originalContent: String,
     matchedRange: Range<String.Index>,
     replacementText: String,
-    matchStrategy: EditMatchStrategy
+    matchStrategy: EditMatchStrategy,
+    newStartLineOffset: Int = 0
   ) -> AppliedEditReceipt {
     let oldStart = lineStart(in: originalContent, at: matchedRange.lowerBound)
     var oldEnd = nextLineBoundary(in: originalContent, atOrAfter: matchedRange.upperBound)
@@ -967,7 +1034,9 @@ nonisolated struct AppliedEditReceiptBuilder {
       ).count + 1
     let oldRange = AppliedEditLineRange(startLine: startLine, lineCount: oldLines.count)
     let newRange = AppliedEditLineRange(
-      startLine: newLines.isEmpty ? max(0, startLine - 1) : startLine,
+      startLine: newLines.isEmpty
+        ? max(0, startLine - 1 + newStartLineOffset)
+        : max(0, startLine + newStartLineOffset),
       lineCount: newLines.count
     )
     let diff = renderDiff(
@@ -1171,14 +1240,275 @@ nonisolated struct AppliedEditReceiptBuilder {
   }
 }
 
-nonisolated private struct ValidatedEdit {
+nonisolated private struct EditFileTransaction {
+  let receiptPolicy: AppliedEditReceiptPolicy
+
+  func preview(
+    _ inputs: [EditFileInput],
+    context: ToolContext
+  ) throws -> ToolResultPreview {
+    try context.workspace.withSecurityScopedAccess {
+      let group = try validatedGroup(inputs, context: context)
+      return ToolResultPreview(
+        text: combinedPreviewDiff(for: group),
+        affectedPaths: [group.path.rawValue]
+      )
+    }
+  }
+
+  func commit(
+    _ inputs: [EditFileInput],
+    context: ToolContext
+  ) throws -> [AppliedEditReceipt] {
+    try context.workspace.withSecurityScopedAccess {
+      let group = try validatedGroup(inputs, context: context)
+      let receiptBuilder = AppliedEditReceiptBuilder(policy: receiptPolicy)
+      var cumulativeLineOffset = 0
+      var indexedReceipts: [(inputIndex: Int, receipt: AppliedEditReceipt)] = []
+      for edit in group.edits.sorted(by: { $0.lowerUTF8Offset < $1.lowerUTF8Offset }) {
+        let receipt = receiptBuilder.build(
+          path: group.path,
+          originalContent: group.originalContent,
+          matchedRange: edit.range,
+          replacementText: edit.replacementText,
+          matchStrategy: edit.matchStrategy,
+          newStartLineOffset: cumulativeLineOffset
+        )
+        indexedReceipts.append((edit.inputIndex, receipt))
+        cumulativeLineOffset += receipt.newRange.lineCount - receipt.oldRange.lineCount
+      }
+      let receipts = indexedReceipts.sorted { $0.inputIndex < $1.inputIndex }.map(\.receipt)
+      try Task.checkCancellation()
+      try group.updatedContent.write(
+        to: group.resolvedURL,
+        atomically: true,
+        encoding: .utf8
+      )
+      return receipts
+    }
+  }
+
+  private func validatedGroup(
+    _ inputs: [EditFileInput],
+    context: ToolContext
+  ) throws -> ValidatedEditGroup {
+    precondition(!inputs.isEmpty)
+    var resolvedURLs: [URL] = []
+    for (index, input) in inputs.enumerated() {
+      do {
+        resolvedURLs.append(try context.workspace.resolveAllowedPath(input.path))
+      } catch {
+        throw EditFileTransactionFailure(
+          inputIndex: index,
+          resolvedURL: nil,
+          cause: error
+        )
+      }
+    }
+
+    let resolvedURL = resolvedURLs[0]
+    let normalizedPath = Workspace.normalizedPath(for: resolvedURL)
+    for (index, candidateURL) in resolvedURLs.enumerated()
+    where Workspace.normalizedPath(for: candidateURL) != normalizedPath {
+      throw EditFileTransactionFailure(
+        inputIndex: index,
+        resolvedURL: candidateURL,
+        cause: EditFileValidationError.mixedPaths
+      )
+    }
+
+    let content: String
+    do {
+      let data = try Data(contentsOf: resolvedURL)
+      guard let decoded = String(data: data, encoding: .utf8) else {
+        throw EditFileValidationError.nonUTF8
+      }
+      content = decoded
+    } catch {
+      throw EditFileTransactionFailure(inputIndex: 0, resolvedURL: resolvedURL, cause: error)
+    }
+
+    var edits: [ValidatedTransactionEdit] = []
+    for (index, input) in inputs.enumerated() {
+      do {
+        guard !input.oldText.isEmpty else {
+          throw EditFileValidationError.emptyOldText
+        }
+        guard input.oldText != input.newText else {
+          throw EditFileValidationError.identicalReplacement
+        }
+        let match = try EditFileToolExecutor.validatedMatch(
+          oldText: input.oldText,
+          newText: input.newText,
+          content: content
+        )
+        edits.append(
+          ValidatedTransactionEdit(
+            inputIndex: index,
+            range: match.range,
+            lowerUTF8Offset: content[..<match.range.lowerBound].utf8.count,
+            upperUTF8Offset: content[..<match.range.upperBound].utf8.count,
+            replacementText: match.replacementText,
+            matchStrategy: match.strategy
+          ))
+      } catch {
+        throw EditFileTransactionFailure(
+          inputIndex: index,
+          resolvedURL: resolvedURL,
+          cause: error
+        )
+      }
+    }
+
+    let orderedEdits = edits.sorted { lhs, rhs in
+      lhs.lowerUTF8Offset < rhs.lowerUTF8Offset
+    }
+    for pairIndex in orderedEdits.indices.dropFirst() {
+      let previous = orderedEdits[orderedEdits.index(before: pairIndex)]
+      let current = orderedEdits[pairIndex]
+      guard previous.upperUTF8Offset <= current.lowerUTF8Offset else {
+        throw EditFileTransactionFailure(
+          inputIndex: current.inputIndex,
+          resolvedURL: resolvedURL,
+          cause: EditFileValidationError.overlappingEdits
+        )
+      }
+    }
+
+    return ValidatedEditGroup(
+      path: context.workspace.relativePath(for: resolvedURL),
+      resolvedURL: resolvedURL,
+      originalContent: content,
+      edits: edits,
+      updatedContent: applying(edits, to: content)
+    )
+  }
+
+  private func applying(
+    _ edits: [ValidatedTransactionEdit],
+    to content: String,
+    baseUTF8Offset: Int = 0
+  ) -> String {
+    var updatedContent = content
+    for edit in edits.sorted(by: { $0.lowerUTF8Offset > $1.lowerUTF8Offset }) {
+      let lowerOffset = edit.lowerUTF8Offset - baseUTF8Offset
+      let upperOffset = edit.upperUTF8Offset - baseUTF8Offset
+      let lowerUTF8Index = updatedContent.utf8.index(
+        updatedContent.utf8.startIndex,
+        offsetBy: lowerOffset
+      )
+      let upperUTF8Index = updatedContent.utf8.index(
+        updatedContent.utf8.startIndex,
+        offsetBy: upperOffset
+      )
+      guard
+        let lowerIndex = String.Index(lowerUTF8Index, within: updatedContent),
+        let upperIndex = String.Index(upperUTF8Index, within: updatedContent)
+      else {
+        preconditionFailure("Validated edit offsets must remain UTF-8 boundaries.")
+      }
+      updatedContent.replaceSubrange(lowerIndex..<upperIndex, with: edit.replacementText)
+    }
+    return updatedContent
+  }
+
+  private func combinedPreviewDiff(for group: ValidatedEditGroup) -> String {
+    let unboundedBuilder = AppliedEditReceiptBuilder(policy: .unbounded)
+    let editsWithRanges = group.edits.sorted { lhs, rhs in
+      lhs.lowerUTF8Offset < rhs.lowerUTF8Offset
+    }.map { edit in
+      let receipt = unboundedBuilder.build(
+        path: group.path,
+        originalContent: group.originalContent,
+        matchedRange: edit.range,
+        replacementText: edit.replacementText,
+        matchStrategy: edit.matchStrategy
+      )
+      return (edit, receipt.oldRange)
+    }
+
+    var clusters: [[ValidatedTransactionEdit]] = []
+    var clusterLineEnd = 0
+    for (edit, oldRange) in editsWithRanges {
+      let lineEnd = oldRange.startLine + oldRange.lineCount
+      if let lastIndex = clusters.indices.last, oldRange.startLine < clusterLineEnd {
+        clusters[lastIndex].append(edit)
+        clusterLineEnd = max(clusterLineEnd, lineEnd)
+      } else {
+        clusters.append([edit])
+        clusterLineEnd = lineEnd
+      }
+    }
+
+    var cumulativeLineOffset = 0
+    var hunkDiffs: [String] = []
+    for cluster in clusters {
+      guard
+        let lowerOffset = cluster.map(\.lowerUTF8Offset).min(),
+        let upperOffset = cluster.map(\.upperUTF8Offset).max()
+      else {
+        continue
+      }
+      let lowerIndex = index(in: group.originalContent, utf8Offset: lowerOffset)
+      let upperIndex = index(in: group.originalContent, utf8Offset: upperOffset)
+      let originalBlock = String(group.originalContent[lowerIndex..<upperIndex])
+      let replacementBlock = applying(
+        cluster,
+        to: originalBlock,
+        baseUTF8Offset: lowerOffset
+      )
+      let receipt = unboundedBuilder.build(
+        path: group.path,
+        originalContent: group.originalContent,
+        matchedRange: lowerIndex..<upperIndex,
+        replacementText: replacementBlock,
+        matchStrategy: .exact,
+        newStartLineOffset: cumulativeLineOffset
+      )
+      cumulativeLineOffset += receipt.newRange.lineCount - receipt.oldRange.lineCount
+      hunkDiffs.append(receipt.diff.text)
+    }
+
+    return hunkDiffs.enumerated().map { index, diff in
+      guard index > 0 else {
+        return diff
+      }
+      return diff.split(separator: "\n", omittingEmptySubsequences: false)
+        .dropFirst(2)
+        .joined(separator: "\n")
+    }.joined(separator: "\n")
+  }
+
+  private func index(in text: String, utf8Offset: Int) -> String.Index {
+    let utf8Index = text.utf8.index(text.utf8.startIndex, offsetBy: utf8Offset)
+    guard let index = String.Index(utf8Index, within: text) else {
+      preconditionFailure("Validated edit offset must be a UTF-8 boundary.")
+    }
+    return index
+  }
+}
+
+nonisolated private struct ValidatedEditGroup {
   let path: WorkspaceRelativePath
   let resolvedURL: URL
   let originalContent: String
-  let matchedRange: Range<String.Index>
+  let edits: [ValidatedTransactionEdit]
+  let updatedContent: String
+}
+
+nonisolated private struct ValidatedTransactionEdit {
+  let inputIndex: Int
+  let range: Range<String.Index>
+  let lowerUTF8Offset: Int
+  let upperUTF8Offset: Int
   let replacementText: String
   let matchStrategy: EditMatchStrategy
-  let updatedContent: String
+}
+
+nonisolated private struct EditFileTransactionFailure: Error {
+  let inputIndex: Int
+  let resolvedURL: URL?
+  let cause: Error
 }
 
 nonisolated private struct EditMatch {
@@ -1309,6 +1639,8 @@ internal enum EditFileValidationError: LocalizedError {
   case nonUTF8
   case oldTextNotFound
   case ambiguousOldText
+  case mixedPaths
+  case overlappingEdits
 
   package var errorDescription: String? {
     switch self {
@@ -1322,6 +1654,10 @@ internal enum EditFileValidationError: LocalizedError {
       "edit_file old_text was not found."
     case .ambiguousOldText:
       "edit_file old_text matched more than once."
+    case .mixedPaths:
+      "Atomic edit_file groups must target one normalized workspace path."
+    case .overlappingEdits:
+      "Atomic edit_file group contains overlapping replacements."
     }
   }
 }

@@ -269,11 +269,14 @@ extension ConversationEngine {
     }
   }
 
-  func denyToolCall(
-    _ existingRecord: ToolCallRecord,
+  func denyToolCalls(
+    _ existingRecords: [ToolCallRecord],
     turnID: ChatTurn.ID,
     runtime: ChatTurnRuntimeContext
   ) {
+    guard !existingRecords.isEmpty else {
+      return
+    }
     applyWorkflowEvents([
       .turnStatusChanged(
         turnID: turnID,
@@ -287,8 +290,8 @@ extension ConversationEngine {
       guard let self else {
         return .stop
       }
-      return try await self.resumeDeniedToolCall(
-        existingRecord,
+      return try await self.resumeDeniedToolCalls(
+        existingRecords,
         turnID: turnID,
         runtime: runtime
       )
@@ -509,7 +512,11 @@ extension ConversationEngine {
     approvalSource: ToolApprovalSource,
     runtime: ChatTurnRuntimeContext
   ) async throws -> ChatTurnTaskOutcome {
+    var processedRecordIDs = Set<ToolCallRecord.ID>()
     for requestedRecord in existingRecords {
+      guard !processedRecordIDs.contains(requestedRecord.id) else {
+        continue
+      }
       try Task.checkCancellation()
       guard isActive(turnID) else {
         return .stop
@@ -527,48 +534,79 @@ extension ConversationEngine {
           )
         }
       }
-      guard
-        let liveRecord = chatSession.toolCallRecord(id: requestedRecord.id),
-        liveRecord.status == .awaitingApproval
+      guard let turn = chatSession.turns.first(where: { $0.id == turnID }),
+        let batch = turn.toolCallBatch(containing: requestedRecord.id),
+        let approvalGroup = batch.pendingApprovalGroup(containing: requestedRecord.id)
       else {
         continue
       }
+      let requestedIDs = Set(existingRecords.map(\.id))
+      let groupedRecords =
+        approvalGroup.isAtomicSameFileEdit
+        ? approvalGroup.records
+        : approvalGroup.records.filter { requestedIDs.contains($0.id) }
+      let liveRecords = groupedRecords.compactMap { record in
+        chatSession.toolCallRecord(id: record.id)
+      }.filter { $0.status == .awaitingApproval }
+      guard !liveRecords.isEmpty else {
+        continue
+      }
+      processedRecordIDs.formUnion(liveRecords.map(\.id))
 
-      var approvedRecord: ToolCallRecord
-      if approvalSource == .automatic {
-        approvedRecord = await toolOrchestrator.executeApproved(
-          request: liveRecord.request,
+      var approvedRecords: [ToolCallRecord]
+      if approvalGroup.isAtomicSameFileEdit {
+        approvedRecords = await toolOrchestrator.executeApprovedSameFileEditGroup(
+          records: liveRecords,
+          enforceApprovedScope: approvalSource == .manual,
           workspace: workspace
         )
       } else {
-        approvedRecord = await toolOrchestrator.executeApproved(
-          request: liveRecord.request,
-          approvedEvaluation: liveRecord.evaluation,
-          workspace: workspace
-        )
+        let liveRecord = liveRecords[0]
+        let approvedRecord =
+          if approvalSource == .automatic {
+            await toolOrchestrator.executeApproved(
+              request: liveRecord.request,
+              workspace: workspace
+            )
+          } else {
+            await toolOrchestrator.executeApproved(
+              request: liveRecord.request,
+              approvedEvaluation: liveRecord.evaluation,
+              workspace: workspace
+            )
+          }
+        approvedRecords = [approvedRecord]
       }
-      approvedRecord.modelFollowUpNotice = liveRecord.modelFollowUpNotice
-      if approvedRecord.status != .awaitingApproval,
-        approvedRecord.evaluation.decision != .denied
-      {
-        approvedRecord.approvalSource = approvalSource
+      let liveRecordsByID = Dictionary(uniqueKeysWithValues: liveRecords.map { ($0.id, $0) })
+      for index in approvedRecords.indices {
+        guard let liveRecord = liveRecordsByID[approvedRecords[index].id] else {
+          continue
+        }
+        approvedRecords[index].modelFollowUpNotice = liveRecord.modelFollowUpNotice
+        if approvedRecords[index].status != .awaitingApproval,
+          approvedRecords[index].evaluation.decision != .denied
+        {
+          approvedRecords[index].approvalSource = approvalSource
+        }
       }
       guard isActive(turnID), !Task.isCancelled else {
-        applyWorkflowEvents([.toolCallUpdated(approvedRecord)])
+        applyWorkflowEvents(approvedRecords.map(ChatWorkflowEvent.toolCallUpdated))
         notifySessionDidChange()
         return .stop
       }
-      if approvedRecord.status == .awaitingApproval {
-        applyWorkflowEvents([.toolCallUpdated(approvedRecord)])
+      if approvedRecords.contains(where: { $0.status == .awaitingApproval }) {
+        applyWorkflowEvents(approvedRecords.map(ChatWorkflowEvent.toolCallUpdated))
         notifySessionDidChange()
         continue
       }
-      let resumeResult = toolResumeCoordinator.approvedToolResult(
-        record: approvedRecord,
-        focusedFileState: chatSession.focusedFileState,
-        turnID: turnID
-      )
-      applyWorkflowEvents(resumeResult.events)
+      for approvedRecord in approvedRecords {
+        let resumeResult = toolResumeCoordinator.approvedToolResult(
+          record: approvedRecord,
+          focusedFileState: chatSession.focusedFileState,
+          turnID: turnID
+        )
+        applyWorkflowEvents(resumeResult.events)
+      }
       notifySessionDidChange()
     }
 
@@ -697,20 +735,25 @@ extension ConversationEngine {
     )
   }
 
-  private func resumeDeniedToolCall(
-    _ existingRecord: ToolCallRecord,
+  private func resumeDeniedToolCalls(
+    _ existingRecords: [ToolCallRecord],
     turnID: ChatTurn.ID,
     runtime: ChatTurnRuntimeContext
   ) async throws -> ChatTurnTaskOutcome {
-    let resumeResult = toolResumeCoordinator.deniedTool(
-      record: existingRecord,
-      turnID: turnID
-    )
-    applyWorkflowEvents(resumeResult.events)
+    guard let firstRecord = existingRecords.first else {
+      return .fail(cancelsStreaming: false)
+    }
+    for existingRecord in existingRecords {
+      let resumeResult = toolResumeCoordinator.deniedTool(
+        record: existingRecord,
+        turnID: turnID
+      )
+      applyWorkflowEvents(resumeResult.events)
+    }
     notifySessionDidChange()
 
     return try await continueAfterResolvedToolBatch(
-      containing: existingRecord.id,
+      containing: firstRecord.id,
       in: nil,
       turnID: turnID,
       runtime: runtime

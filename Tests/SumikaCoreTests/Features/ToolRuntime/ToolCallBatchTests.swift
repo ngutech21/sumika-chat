@@ -102,6 +102,29 @@ struct ToolCallBatchTests {
     #expect(afterStatusChange.anchorID == denied.id)
     #expect(afterStatusChange.records.map(\.id) == [denied.id, completed.id])
   }
+
+  @Test
+  func pendingApprovalGroupDerivesAtomicSameFileEditsFromEvaluationPaths() throws {
+    let first = makeEditBatchRecord(path: "README.md", normalizedPath: "/tmp/project/README.md")
+    let independent = makeEditBatchRecord(path: "Notes.md", normalizedPath: "/tmp/project/Notes.md")
+    let second = makeEditBatchRecord(path: "./README.md", normalizedPath: "/tmp/project/README.md")
+    let turn = ChatTurn(
+      status: .awaitingApproval,
+      items: [.tool(first), .tool(independent), .tool(second)]
+    )
+
+    let batch = try #require(turn.toolCallBatch(containing: second.id))
+    let group = try #require(batch.pendingApprovalGroup(containing: second.id))
+    let independentGroup = try #require(
+      batch.pendingApprovalGroup(containing: independent.id)
+    )
+
+    #expect(group.anchorID == first.id)
+    #expect(group.records.map(\.id) == [first.id, second.id])
+    #expect(group.isAtomicSameFileEdit)
+    #expect(independentGroup.records.map(\.id) == [independent.id])
+    #expect(!independentGroup.isAtomicSameFileEdit)
+  }
 }
 
 private func makeBatchRecord(state: ToolCallState) -> ToolCallRecord {
@@ -122,5 +145,32 @@ private func makeBatchRecord(state: ToolCallState) -> ToolCallRecord {
       riskLevel: .low
     ),
     state: state
+  )
+}
+
+private func makeEditBatchRecord(path: String, normalizedPath: String) -> ToolCallRecord {
+  let raw = RawToolCallRequest(
+    workspaceID: UUID(),
+    sessionID: UUID(),
+    toolName: .editFile,
+    arguments: [
+      "path": .string(path),
+      "old_text": .string("old"),
+      "new_text": .string("new"),
+    ]
+  )
+  return ToolCallRecord(
+    request: .validated(
+      raw: raw,
+      payload: .editFile(EditFileInput(path: path, oldText: "old", newText: "new"))
+    ),
+    evaluation: ToolPermissionEvaluation(
+      decision: .requiresApproval,
+      reason: "Approval required for test.",
+      riskLevel: .high,
+      normalizedPaths: [normalizedPath],
+      workspaceRelativePaths: [WorkspaceRelativePath(rawValue: path)]
+    ),
+    state: .awaitingApproval(preview: nil)
   )
 }

@@ -80,6 +80,8 @@ enum ToolResultFailureMapper {
         return .executionError(editError.localizedDescription)
       case .ambiguousOldText:
         return .executionError(editError.localizedDescription)
+      case .mixedPaths, .overlappingEdits:
+        return .executionError(editError.localizedDescription)
       }
     }
 
@@ -175,6 +177,47 @@ private struct TypedExecutorAdapter<T: TypedToolExecutor>: DynamicToolExecutor {
   }
 }
 
+private struct AnyEditFileGroupExecutor: Sendable {
+  private let evaluatePermissionHandler:
+    @Sendable (EditFileInput, ToolContext) -> ToolPermissionEvaluation
+  private let prepareApprovalHandler:
+    @Sendable ([EditFileInput], ToolContext) -> EditFileGroupPreparation
+  private let runHandler: @Sendable ([EditFileInput], ToolContext) -> EditFileGroupExecution
+
+  init(_ tool: EditFileToolExecutor) {
+    evaluatePermissionHandler = { input, context in
+      tool.evaluatePermission(input, context: context)
+    }
+    prepareApprovalHandler = { inputs, context in
+      tool.prepareApprovalGroup(inputs, context: context)
+    }
+    runHandler = { inputs, context in
+      tool.runGroup(inputs, context: context)
+    }
+  }
+
+  func evaluatePermission(
+    _ input: EditFileInput,
+    context: ToolContext
+  ) -> ToolPermissionEvaluation {
+    evaluatePermissionHandler(input, context)
+  }
+
+  func prepareApprovalGroup(
+    _ inputs: [EditFileInput],
+    context: ToolContext
+  ) -> EditFileGroupPreparation {
+    prepareApprovalHandler(inputs, context)
+  }
+
+  func runGroup(
+    _ inputs: [EditFileInput],
+    context: ToolContext
+  ) -> EditFileGroupExecution {
+    runHandler(inputs, context)
+  }
+}
+
 struct AnyToolExecutor: Sendable {
   let definition: ToolDefinition
   /// Present only for dynamic executors: lets the request validator decode
@@ -183,18 +226,40 @@ struct AnyToolExecutor: Sendable {
   private let runHandler: @Sendable (ToolCallRequest, ToolContext) async -> ToolCallRecord
   private let approvedRunHandler:
     @Sendable (ToolCallRequest, ToolPermissionEvaluation?, ToolContext) async -> ToolCallRecord
+  fileprivate let editFileGroupExecutor: AnyEditFileGroupExecutor?
 
   init<T: TypedToolExecutor>(_ tool: T) {
-    self.init(executor: TypedExecutorAdapter(tool: tool), dynamicCodec: nil)
+    self.init(
+      executor: TypedExecutorAdapter(tool: tool),
+      dynamicCodec: nil,
+      editFileGroupExecutor: nil
+    )
+  }
+
+  init(_ tool: EditFileToolExecutor) {
+    self.init(
+      executor: TypedExecutorAdapter(tool: tool),
+      dynamicCodec: nil,
+      editFileGroupExecutor: AnyEditFileGroupExecutor(tool)
+    )
   }
 
   init<T: DynamicToolExecutor>(dynamic tool: T) {
-    self.init(executor: tool, dynamicCodec: AnyToolCodec(tool.codec))
+    self.init(
+      executor: tool,
+      dynamicCodec: AnyToolCodec(tool.codec),
+      editFileGroupExecutor: nil
+    )
   }
 
-  private init<T: DynamicToolExecutor>(executor tool: T, dynamicCodec: AnyToolCodec?) {
+  private init<T: DynamicToolExecutor>(
+    executor tool: T,
+    dynamicCodec: AnyToolCodec?,
+    editFileGroupExecutor: AnyEditFileGroupExecutor?
+  ) {
     definition = tool.codec.definition
     self.dynamicCodec = dynamicCodec
+    self.editFileGroupExecutor = editFileGroupExecutor
     runHandler = { request, context in
       await Self.evaluateAndRun(tool, request: request, context: context, isApproved: false)
     }
@@ -246,7 +311,7 @@ struct AnyToolExecutor: Sendable {
       if isApproved,
         let approvedEvaluation,
         evaluation.decision != .denied,
-        approvalScopeChanged(from: approvedEvaluation, to: evaluation)
+        toolApprovalScopeChanged(from: approvedEvaluation, to: evaluation)
       {
         let previewIsValid = await prepareApprovalPreview(
           tool,
@@ -292,19 +357,6 @@ struct AnyToolExecutor: Sendable {
     } catch {
       return failedRecord(request: request, definition: definition, error: error)
     }
-  }
-
-  private static func approvalScopeChanged(
-    from approved: ToolPermissionEvaluation,
-    to current: ToolPermissionEvaluation
-  ) -> Bool {
-    let approvedNormalizedPaths = Set(approved.normalizedPaths)
-    let currentNormalizedPaths = Set(current.normalizedPaths)
-    let approvedRelativePaths = Set(approved.workspaceRelativePaths.map(\.rawValue))
-    let currentRelativePaths = Set(current.workspaceRelativePaths.map(\.rawValue))
-    return approvedNormalizedPaths != currentNormalizedPaths
-      || approvedRelativePaths != currentRelativePaths
-      || approved.riskLevel != current.riskLevel
   }
 
   private static func prepareApprovalPreview<T: DynamicToolExecutor>(
@@ -528,6 +580,19 @@ struct ToolExecutorRegistry: Sendable {
     }
     return ToolExecutorRegistry(executors)
   }
+}
+
+private func toolApprovalScopeChanged(
+  from approved: ToolPermissionEvaluation,
+  to current: ToolPermissionEvaluation
+) -> Bool {
+  let approvedNormalizedPaths = Set(approved.normalizedPaths)
+  let currentNormalizedPaths = Set(current.normalizedPaths)
+  let approvedRelativePaths = Set(approved.workspaceRelativePaths.map(\.rawValue))
+  let currentRelativePaths = Set(current.workspaceRelativePaths.map(\.rawValue))
+  return approvedNormalizedPaths != currentNormalizedPaths
+    || approvedRelativePaths != currentRelativePaths
+    || approved.riskLevel != current.riskLevel
 }
 
 enum ToolInputDecodingError: LocalizedError, Equatable {
@@ -772,6 +837,201 @@ struct ToolOrchestrator: Sendable {
     )
   }
 
+  func prepareSameFileEditGroup(
+    requests rawRequests: [RawToolCallRequest],
+    workspace: Workspace
+  ) async -> [ToolCallRecord] {
+    let requests = rawRequests.map { rawRequest in
+      validator.validate(
+        rawRequest,
+        registry: executorRegistry.toolRegistry,
+        dynamicCodecs: executorRegistry.dynamicCodecs
+      )
+    }
+    return await executeSameFileEditGroup(
+      requests: requests,
+      approvedRecords: nil,
+      enforceApprovedScope: false,
+      workspace: workspace
+    )
+  }
+
+  func executeApprovedSameFileEditGroup(
+    records: [ToolCallRecord],
+    enforceApprovedScope: Bool,
+    workspace: Workspace
+  ) async -> [ToolCallRecord] {
+    let requests = records.map { record in
+      validator.validate(
+        record.request.raw,
+        registry: executorRegistry.toolRegistry,
+        dynamicCodecs: executorRegistry.dynamicCodecs
+      )
+    }
+    return await executeSameFileEditGroup(
+      requests: requests,
+      approvedRecords: records,
+      enforceApprovedScope: enforceApprovedScope,
+      workspace: workspace
+    )
+  }
+
+  private func executeSameFileEditGroup(
+    requests: [ToolCallRequest],
+    approvedRecords: [ToolCallRecord]?,
+    enforceApprovedScope: Bool,
+    workspace: Workspace
+  ) async -> [ToolCallRecord] {
+    precondition(requests.count >= 2)
+    guard requests.allSatisfy({ $0.workspaceID == workspace.id }) else {
+      let message = "Tool call workspace does not match the active workspace."
+      return requests.map { deniedRecord(request: $0, message: message) }
+    }
+    guard let executor = executorRegistry.executor(for: .editFile) else {
+      return requests.map { request in
+        failedRecord(request: request, message: "Unknown tool: edit_file.", riskLevel: .high)
+      }
+    }
+    guard let tool = executor.editFileGroupExecutor else {
+      return requests.map { request in
+        failedRecord(
+          request: request,
+          message: "Registered edit_file executor does not support atomic edit groups.",
+          riskLevel: .high
+        )
+      }
+    }
+
+    if let invalidIndex = requests.firstIndex(where: { request in
+      if case .invalid = request.payload {
+        return true
+      }
+      return false
+    }) {
+      let invalidRequest = requests[invalidIndex]
+      let invalidMessage: String
+      if case .invalid(let input) = invalidRequest.payload {
+        invalidMessage = input.reason.message
+      } else {
+        invalidMessage = "Invalid edit_file request."
+      }
+      return requests.enumerated().map { index, request in
+        if index == invalidIndex, case .invalid(let input) = request.payload {
+          return invalidToolCallRecord(request: request, invalidInput: input)
+        }
+        return failedRecord(
+          request: request,
+          message: "Atomic edit_file group was not applied: \(invalidMessage)",
+          riskLevel: .high
+        )
+      }
+    }
+
+    let inputs = requests.compactMap { request -> EditFileInput? in
+      guard case .editFile(let input) = request.payload else {
+        return nil
+      }
+      return input
+    }
+    guard inputs.count == requests.count else {
+      return requests.map { request in
+        failedRecord(
+          request: request,
+          message: "Atomic edit_file groups may contain only edit_file calls.",
+          riskLevel: .high
+        )
+      }
+    }
+
+    let context = await toolContext(
+      workspace: workspace,
+      sessionID: requests.first?.sessionID
+    )
+    let evaluations = inputs.map { tool.evaluatePermission($0, context: context) }
+    if let deniedEvaluation = evaluations.first(where: { $0.decision == .denied }) {
+      return zip(requests, evaluations).map { request, evaluation in
+        let reason =
+          evaluation.decision == .denied
+          ? evaluation.reason
+          : "Atomic edit_file group was denied: \(deniedEvaluation.reason)"
+        return ToolCallRecord(
+          request: request,
+          evaluation: ToolPermissionEvaluation(
+            decision: .denied,
+            reason: reason,
+            riskLevel: .high,
+            normalizedPaths: evaluation.normalizedPaths,
+            workspaceRelativePaths: evaluation.workspaceRelativePaths
+          ),
+          state: .denied(
+            .failure(
+              ToolFailure(
+                toolName: .editFile,
+                path: evaluation.firstModelFacingPath,
+                reason: .permissionDenied,
+                recovery: .askUser(message: reason)
+              )))
+        )
+      }
+    }
+
+    let scopeChanged: Bool = {
+      guard enforceApprovedScope else {
+        return false
+      }
+      guard let approvedRecords, approvedRecords.count == evaluations.count else {
+        return true
+      }
+      return zip(approvedRecords, evaluations).contains { record, evaluation in
+        toolApprovalScopeChanged(from: record.evaluation, to: evaluation)
+      }
+    }()
+
+    if approvedRecords == nil || scopeChanged {
+      switch tool.prepareApprovalGroup(inputs, context: context) {
+      case .ready(let preview):
+        return zip(requests, evaluations).enumerated().map { index, pair in
+          ToolCallRecord(
+            request: pair.0,
+            evaluation: pair.1,
+            state: .awaitingApproval(preview: index == 0 ? preview : nil)
+          )
+        }
+      case .failed(let previews):
+        return zip(zip(requests, evaluations), previews).map { pair, preview in
+          let resultPayload =
+            preview.resultPayload
+            ?? .failure(
+              ToolFailure(
+                toolName: .editFile,
+                path: preview.affectedPaths.first.map(WorkspaceRelativePath.init(rawValue:)),
+                reason: .executionError(preview.text)
+              ))
+          return ToolCallRecord(
+            request: pair.0,
+            evaluation: pair.1,
+            state: .failed(resultPayload)
+          )
+        }
+      }
+    }
+
+    switch tool.runGroup(inputs, context: context) {
+    case .completed(let payloads):
+      return zip(zip(requests, evaluations), payloads).map { pair, payload in
+        ToolCallRecord(request: pair.0, evaluation: pair.1, state: .completed(payload))
+      }
+    case .failed(let payloads):
+      return zip(zip(requests, evaluations), payloads).map { pair, payload in
+        ToolCallRecord(request: pair.0, evaluation: pair.1, state: .failed(payload))
+      }
+    case .cancelled:
+      return zip(requests, evaluations).map { request, evaluation in
+        ToolCallRecord(request: request, evaluation: evaluation, state: .cancelled)
+      }
+    }
+  }
+
   private func executeValidated(
     request: ToolCallRequest,
     workspace: Workspace,
@@ -792,37 +1052,32 @@ struct ToolOrchestrator: Sendable {
       return failedRecord(request: request, message: message, riskLevel: .high)
     }
 
-    let webAccessSettings = await webAccessSettingsProvider()
+    let context = await toolContext(workspace: workspace, sessionID: request.sessionID)
 
     if isApproved {
       return await executor.runApproved(
         request,
         approvedEvaluation: approvedEvaluation,
-        context: ToolContext(
-          workspace: workspace,
-          sessionID: request.sessionID,
-          readTracker: readTracker,
-          latestCommandResultStore: latestCommandResultStore,
-          webAccessSettings: webAccessSettings,
-          webSearcher: webSearcher,
-          webFetcher: webFetcher,
-          browserToolService: browserToolService
-        )
+        context: context
       )
     }
 
-    return await executor.run(
-      request,
-      context: ToolContext(
-        workspace: workspace,
-        sessionID: request.sessionID,
-        readTracker: readTracker,
-        latestCommandResultStore: latestCommandResultStore,
-        webAccessSettings: webAccessSettings,
-        webSearcher: webSearcher,
-        webFetcher: webFetcher,
-        browserToolService: browserToolService
-      )
+    return await executor.run(request, context: context)
+  }
+
+  private func toolContext(
+    workspace: Workspace,
+    sessionID: ChatSession.ID?
+  ) async -> ToolContext {
+    ToolContext(
+      workspace: workspace,
+      sessionID: sessionID,
+      readTracker: readTracker,
+      latestCommandResultStore: latestCommandResultStore,
+      webAccessSettings: await webAccessSettingsProvider(),
+      webSearcher: webSearcher,
+      webFetcher: webFetcher,
+      browserToolService: browserToolService
     )
   }
 

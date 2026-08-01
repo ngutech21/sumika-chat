@@ -76,7 +76,7 @@ struct ToolDefinitionSchemaTests {
     #expect(editDefinition.functionSchema.parameters.required == ["path", "old_text", "new_text"])
     #expect(
       editDefinition.description
-        == "Replace one unique text span in an existing file. Read first unless the current content is already in context. Do not combine this call with another write_file/edit_file for the same file, including equivalent paths, in one response; wait for its result first."
+        == "Replace one unique text span in an existing file. Read first unless the current content is already in context. Multiple edit_file calls may target non-overlapping spans of one current file snapshot; they are approved and applied atomically per file. Do not combine them with write_file for that file."
     )
     #expect(
       editDefinition.parameters.first { $0.name == "path" }?.description

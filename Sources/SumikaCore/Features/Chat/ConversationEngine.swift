@@ -965,20 +965,34 @@ extension ConversationEngine {
     guard existingRecord.status == .awaitingApproval else {
       return
     }
-    guard let turnID = chatSession.turnID(containingToolCall: toolCallID)
+    guard let turnID = chatSession.turnID(containingToolCall: toolCallID),
+      let turn = chatSession.turns.first(where: { $0.id == turnID }),
+      let batch = turn.toolCallBatch(containing: toolCallID),
+      let approvalGroup = batch.pendingApprovalGroup(containing: toolCallID)
     else {
       return
     }
 
     isGenerating = true
     errorMessage = nil
-    approveToolCall(
-      existingRecord,
-      in: workspace,
-      turnID: turnID,
-      toolOrchestrator: toolOrchestrator(for: existingRecord, turnID: turnID),
-      runtime: turnRuntimeContext()
-    )
+    if approvalGroup.isAtomicSameFileEdit {
+      approveToolCallBatch(
+        approvalGroup.records,
+        batchAnchorID: approvalGroup.anchorID,
+        in: workspace,
+        turnID: turnID,
+        toolOrchestrator: toolOrchestrator(for: existingRecord, turnID: turnID),
+        runtime: turnRuntimeContext()
+      )
+    } else {
+      approveToolCall(
+        existingRecord,
+        in: workspace,
+        turnID: turnID,
+        toolOrchestrator: toolOrchestrator(for: existingRecord, turnID: turnID),
+        runtime: turnRuntimeContext()
+      )
+    }
   }
 
   // Test-only workspace adapter; exercised through @testable import.
@@ -1168,15 +1182,18 @@ extension ConversationEngine {
     guard existingRecord.status == .awaitingApproval else {
       return
     }
-    guard let turnID = chatSession.turnID(containingToolCall: toolCallID)
+    guard let turnID = chatSession.turnID(containingToolCall: toolCallID),
+      let turn = chatSession.turns.first(where: { $0.id == turnID }),
+      let batch = turn.toolCallBatch(containing: toolCallID),
+      let approvalGroup = batch.pendingApprovalGroup(containing: toolCallID)
     else {
       return
     }
 
     isGenerating = true
     errorMessage = nil
-    denyToolCall(
-      existingRecord,
+    denyToolCalls(
+      approvalGroup.records,
       turnID: turnID,
       runtime: turnRuntimeContext()
     )

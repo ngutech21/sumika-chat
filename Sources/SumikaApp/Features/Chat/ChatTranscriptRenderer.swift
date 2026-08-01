@@ -305,6 +305,27 @@ struct ToolApprovalBatchPresentation: Equatable {
   let anchorID: ToolCallRecord.ID
   let pendingApprovalCount: Int
   let showsApproveAll: Bool
+  let approvalGroupCount: Int
+  let showsApprovalActions: Bool
+
+  var showsResumeAutomation: Bool {
+    showsApproveAll
+      || (showsApprovalActions && approvalGroupCount == pendingApprovalCount)
+  }
+
+  init(
+    anchorID: ToolCallRecord.ID,
+    pendingApprovalCount: Int,
+    showsApproveAll: Bool,
+    approvalGroupCount: Int = 1,
+    showsApprovalActions: Bool = true
+  ) {
+    self.anchorID = anchorID
+    self.pendingApprovalCount = pendingApprovalCount
+    self.showsApproveAll = showsApproveAll
+    self.approvalGroupCount = approvalGroupCount
+    self.showsApprovalActions = showsApprovalActions
+  }
 
   static func presentations(
     for turn: ChatTurn
@@ -318,10 +339,20 @@ struct ToolApprovalBatchPresentation: Equatable {
       }
 
       for batchRecord in batch.records {
+        let approvalGroup = batch.pendingApprovalGroup(containing: batchRecord.id)
+        let isOnlyAtomicGroup =
+          approvalGroup?.isAtomicSameFileEdit == true
+          && approvalGroup?.records.count == pendingRecords.count
         presentations[batchRecord.id] = ToolApprovalBatchPresentation(
           anchorID: batch.anchorID,
           pendingApprovalCount: pendingRecords.count,
-          showsApproveAll: pendingRecords.count >= 2 && batchRecord.id == firstPendingID
+          showsApproveAll: pendingRecords.count >= 2
+            && batchRecord.id == firstPendingID
+            && !isOnlyAtomicGroup,
+          approvalGroupCount: approvalGroup?.records.count ?? 1,
+          showsApprovalActions: approvalGroup.map { group in
+            !group.isAtomicSameFileEdit || group.anchorID == batchRecord.id
+          } ?? true
         )
       }
     }

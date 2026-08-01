@@ -20,10 +20,54 @@ package struct ToolCallBatch: Equatable, Sendable {
     records.allSatisfy { $0.resultPayload != nil }
   }
 
+  package func pendingApprovalGroup(
+    containing toolCallID: ToolCallRecord.ID
+  ) -> ToolCallApprovalGroup? {
+    guard let target = records.first(where: { $0.id == toolCallID }),
+      target.status == .awaitingApproval
+    else {
+      return nil
+    }
+
+    guard let normalizedPath = sameFileEditGroupPath(for: target) else {
+      return ToolCallApprovalGroup(records: [target], isAtomicSameFileEdit: false)
+    }
+    let groupedRecords = records.filter { record in
+      record.status == .awaitingApproval
+        && sameFileEditGroupPath(for: record) == normalizedPath
+    }
+    return ToolCallApprovalGroup(
+      records: groupedRecords,
+      isAtomicSameFileEdit: groupedRecords.count >= 2
+    )
+  }
+
+  private func sameFileEditGroupPath(for record: ToolCallRecord) -> String? {
+    guard record.request.toolName == .editFile,
+      record.evaluation.normalizedPaths.count == 1
+    else {
+      return nil
+    }
+    return record.evaluation.normalizedPaths[0]
+  }
+
   fileprivate init(records: [ToolCallRecord]) {
     precondition(!records.isEmpty, "A tool-call batch must contain at least one record.")
     self.anchorID = records[0].id
     self.records = records
+  }
+}
+
+package struct ToolCallApprovalGroup: Equatable, Sendable {
+  package let anchorID: ToolCallRecord.ID
+  package let records: [ToolCallRecord]
+  package let isAtomicSameFileEdit: Bool
+
+  fileprivate init(records: [ToolCallRecord], isAtomicSameFileEdit: Bool) {
+    precondition(!records.isEmpty, "A tool approval group must contain at least one record.")
+    anchorID = records[0].id
+    self.records = records
+    self.isAtomicSameFileEdit = isAtomicSameFileEdit
   }
 }
 

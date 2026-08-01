@@ -696,6 +696,32 @@ struct ChatTranscriptRendererTests {
   }
 
   @Test
+  func sameFileEditPresentationShowsOneAtomicApprovalAction() throws {
+    let first = try makeEditApprovalRecord(path: "README.md", normalizedPath: "/tmp/README.md")
+    let second = try makeEditApprovalRecord(
+      path: "./README.md",
+      normalizedPath: "/tmp/README.md"
+    )
+    let turn = ChatTurn(
+      status: .awaitingApproval,
+      items: [.tool(first), .tool(second)]
+    )
+
+    let presentations = ToolApprovalBatchPresentation.presentations(for: turn)
+    let firstPresentation = try #require(presentations[first.id])
+    let secondPresentation = try #require(presentations[second.id])
+
+    #expect(firstPresentation.approvalGroupCount == 2)
+    #expect(firstPresentation.showsApprovalActions)
+    #expect(!firstPresentation.showsApproveAll)
+    #expect(firstPresentation.showsResumeAutomation)
+    #expect(secondPresentation.approvalGroupCount == 2)
+    #expect(!secondPresentation.showsApprovalActions)
+    #expect(!secondPresentation.showsApproveAll)
+    #expect(!secondPresentation.showsResumeAutomation)
+  }
+
+  @Test
   func multiApprovalPresentationKeepsSeparateCanonicalBatches() {
     let firstAnchorID = UUID()
     let firstPendingID = UUID()
@@ -1069,6 +1095,37 @@ private func makeToolCallRecord(
       riskLevel: .low
     ),
     state: toolCallState(status: status, hard: hard, approvalPreview: approvalPreview)
+  )
+}
+
+private func makeEditApprovalRecord(
+  path: String,
+  normalizedPath: String
+) throws -> ToolCallRecord {
+  let rawRequest = RawToolCallRequest(
+    workspaceID: UUID(),
+    sessionID: UUID(),
+    toolName: .editFile,
+    arguments: [
+      "path": .string(path),
+      "old_text": .string("old"),
+      "new_text": .string("new"),
+    ]
+  )
+  let input = try JSONDecoder().decode(
+    EditFileInput.self,
+    from: JSONEncoder().encode(rawRequest.arguments)
+  )
+  return ToolCallRecord(
+    request: .validated(raw: rawRequest, payload: .editFile(input)),
+    evaluation: ToolPermissionEvaluation(
+      decision: .requiresApproval,
+      reason: "Approval required for test.",
+      riskLevel: .high,
+      normalizedPaths: [normalizedPath],
+      workspaceRelativePaths: [WorkspaceRelativePath(rawValue: path)]
+    ),
+    state: .awaitingApproval(preview: nil)
   )
 }
 

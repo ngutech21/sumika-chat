@@ -4,6 +4,10 @@ protocol ToolOrchestrating: Sendable {
   var toolRegistry: ToolRegistry { get }
 
   func execute(request: RawToolCallRequest, workspace: Workspace) async -> ToolCallRecord
+  func prepareSameFileEditGroup(
+    requests: [RawToolCallRequest],
+    workspace: Workspace
+  ) async -> [ToolCallRecord]
 }
 
 extension ToolOrchestrator: ToolOrchestrating {}
@@ -16,6 +20,12 @@ enum ToolExecutionProfile: Equatable, Sendable {
   var allowsToolLoop: Bool {
     self != .disabled
   }
+}
+
+private struct SamePathMutationGroup {
+  let indices: [Int]
+  let isAtomicEditGroup: Bool
+  let failureMessage: String
 }
 
 struct ToolLoopRequest: Sendable {
@@ -157,11 +167,7 @@ struct ToolLoopCoordinator: Sendable {
       return ChatWorkflowStep(events: [], continuation: .none)
     }
 
-    if let invalidReason = invalidBatchReason(
-      outputs,
-      request: request,
-      registry: registry
-    ) {
+    if let invalidReason = invalidBatchReason(outputs) {
       return await invalidBatchStep(
         outputs,
         request: request,
@@ -177,29 +183,21 @@ struct ToolLoopCoordinator: Sendable {
     var isAwaitingApproval = false
     var isAwaitingUserAnswer = false
     var batchAnchorID: ToolCallRecord.ID?
+    let mutationGroups = samePathMutationGroups(outputs, workspace: request.workspace)
+    var preparedMutationRecords: [ToolCallRecord.ID: ToolCallRecord] = [:]
 
     for (index, output) in outputs.enumerated() {
-      var record: ToolCallRecord
-      if let duplicateRecord = duplicateToolCallRecord(
+      var record = await preparedRecord(
         for: output,
+        at: index,
+        outputs: outputs,
+        mutationGroups: mutationGroups,
+        preparedMutationRecords: &preparedMutationRecords,
         registry: registry,
-        workspace: request.workspace,
-        items: seenItems
-      ) {
-        record = duplicateRecord
-      } else {
-        let executeStartedAt = Date()
-        record = await toolOrchestrator.execute(
-          request: output.request,
-          workspace: request.workspace
-        )
-        await traceToolExecution(
-          startedAt: executeStartedAt,
-          loopRequest: request,
-          rawRequest: output.request,
-          record: record
-        )
-      }
+        seenItems: seenItems,
+        request: request,
+        toolOrchestrator: toolOrchestrator
+      )
       if index == outputs.count - 1, let notice = request.batchFollowUpNotice {
         record.modelFollowUpNotice = [record.modelFollowUpNotice, notice]
           .compactMap(\.self)
@@ -302,13 +300,81 @@ struct ToolLoopCoordinator: Sendable {
       )
     )
   }
+
+  private func preparedRecord(
+    for output: ToolCallParseOutput,
+    at index: Int,
+    outputs: [ToolCallParseOutput],
+    mutationGroups: [Int: SamePathMutationGroup],
+    preparedMutationRecords: inout [ToolCallRecord.ID: ToolCallRecord],
+    registry: ToolRegistry,
+    seenItems: [ChatTurnItem],
+    request: ToolLoopRequest,
+    toolOrchestrator: any ToolOrchestrating
+  ) async -> ToolCallRecord {
+    if let mutationGroup = mutationGroups[index] {
+      if index == mutationGroup.indices[0] {
+        let groupedOutputs = mutationGroup.indices.map { outputs[$0] }
+        let preparedRecords: [ToolCallRecord]
+        if mutationGroup.isAtomicEditGroup {
+          preparedRecords = await toolOrchestrator.prepareSameFileEditGroup(
+            requests: groupedOutputs.map(\.request),
+            workspace: request.workspace
+          )
+        } else {
+          preparedRecords = groupedOutputs.map { groupedOutput in
+            invalidToolCallRecord(
+              for: groupedOutput,
+              message: mutationGroup.failureMessage
+            )
+          }
+        }
+        for preparedRecord in preparedRecords {
+          preparedMutationRecords[preparedRecord.id] = preparedRecord
+        }
+      }
+      let record =
+        preparedMutationRecords[output.request.id]
+        ?? invalidToolCallRecord(
+          for: output,
+          message: "Failed to prepare the same-file mutation group."
+        )
+      await traceToolExecution(
+        startedAt: Date(),
+        loopRequest: request,
+        rawRequest: output.request,
+        record: record
+      )
+      return record
+    }
+
+    if let duplicateRecord = duplicateToolCallRecord(
+      for: output,
+      registry: registry,
+      workspace: request.workspace,
+      items: seenItems
+    ) {
+      return duplicateRecord
+    }
+
+    let executeStartedAt = Date()
+    let record = await toolOrchestrator.execute(
+      request: output.request,
+      workspace: request.workspace
+    )
+    await traceToolExecution(
+      startedAt: executeStartedAt,
+      loopRequest: request,
+      rawRequest: output.request,
+      record: record
+    )
+    return record
+  }
 }
 
 extension ToolLoopCoordinator {
   private func invalidBatchReason(
-    _ outputs: [ToolCallParseOutput],
-    request: ToolLoopRequest,
-    registry: ToolRegistry?
+    _ outputs: [ToolCallParseOutput]
   ) -> String? {
     guard outputs.count > 1 else {
       return nil
@@ -321,38 +387,71 @@ extension ToolLoopCoordinator {
       return "ask_user must be the only native tool call in a response."
     }
 
-    guard let registry else {
-      return nil
-    }
-
-    var mutationPaths = Set<String>()
-    for output in outputs {
-      let validatedRequest = ToolCallRequestValidator().validate(
-        output.request,
-        registry: registry
-      )
-      let inputPath: String
-      switch validatedRequest.payload {
-      case .writeFile(let input):
-        inputPath = input.path
-      case .editFile(let input):
-        inputPath = input.path
-      default:
-        continue
-      }
-
-      guard let resolvedPath = try? request.workspace.resolveAllowedPath(inputPath) else {
-        continue
-      }
-      let normalizedPath = Workspace.normalizedPath(for: resolvedPath)
-      if !mutationPaths.insert(normalizedPath).inserted {
-        let relativePath = request.workspace.relativePath(for: resolvedPath).rawValue
-        return
-          "Multiple write_file/edit_file calls target the same normalized workspace path: \(relativePath)."
-      }
-    }
-
     return nil
+  }
+
+  private func samePathMutationGroups(
+    _ outputs: [ToolCallParseOutput],
+    workspace: Workspace
+  ) -> [Int: SamePathMutationGroup] {
+    var indicesByPath: [String: [Int]] = [:]
+    var relativePathByPath: [String: String] = [:]
+
+    for (index, output) in outputs.enumerated() {
+      guard output.request.toolName == .writeFile || output.request.toolName == .editFile,
+        case .string(let inputPath) = output.request.arguments["path"],
+        let resolvedURL = try? workspace.resolveAllowedPath(inputPath)
+      else {
+        continue
+      }
+      let normalizedPath = Workspace.normalizedPath(for: resolvedURL)
+      indicesByPath[normalizedPath, default: []].append(index)
+      relativePathByPath[normalizedPath] = workspace.relativePath(for: resolvedURL).rawValue
+    }
+
+    var groupsByIndex: [Int: SamePathMutationGroup] = [:]
+    for (normalizedPath, indices) in indicesByPath where indices.count >= 2 {
+      let isAtomicEditGroup = indices.allSatisfy { index in
+        outputs[index].request.toolName == .editFile
+      }
+      let relativePath = relativePathByPath[normalizedPath] ?? normalizedPath
+      let group = SamePathMutationGroup(
+        indices: indices,
+        isAtomicEditGroup: isAtomicEditGroup,
+        failureMessage:
+          "Multiple write_file/edit_file calls target the same normalized workspace path: \(relativePath)."
+      )
+      for index in indices {
+        groupsByIndex[index] = group
+      }
+    }
+    return groupsByIndex
+  }
+
+  private func invalidToolCallRecord(
+    for output: ToolCallParseOutput,
+    message: String
+  ) -> ToolCallRecord {
+    let invalidReason = InvalidToolCallReason.parserError(message)
+    let invalidInput = InvalidToolInput(
+      originalName: output.request.originalToolName ?? output.request.toolName.rawValue,
+      rawArguments: output.request.arguments,
+      reason: invalidReason
+    )
+    return ToolCallRecord(
+      request: ToolCallRequest.invalid(raw: output.request, input: invalidInput),
+      evaluation: ToolPermissionEvaluation(
+        decision: .denied,
+        reason: message,
+        riskLevel: .high
+      ),
+      state: .failed(
+        .invalidTool(
+          InvalidToolResult(
+            originalName: invalidInput.originalName,
+            reason: invalidReason
+          )))
+    )
   }
 
   private func invalidBatchStep(
@@ -362,30 +461,7 @@ extension ToolLoopCoordinator {
   ) async -> ChatWorkflowStep {
     var events: [ChatWorkflowEvent] = []
     for output in outputs {
-      let invalidReason = InvalidToolCallReason.parserError(message)
-      let invalidInput = InvalidToolInput(
-        originalName: output.request.originalToolName ?? output.request.toolName.rawValue,
-        rawArguments: output.request.arguments,
-        reason: invalidReason
-      )
-      let invalidRequest = ToolCallRequest.invalid(
-        raw: output.request,
-        input: invalidInput
-      )
-      let record = ToolCallRecord(
-        request: invalidRequest,
-        evaluation: ToolPermissionEvaluation(
-          decision: .denied,
-          reason: message,
-          riskLevel: .high
-        ),
-        state: .failed(
-          .invalidTool(
-            InvalidToolResult(
-              originalName: invalidInput.originalName,
-              reason: invalidReason
-            )))
-      )
+      let record = invalidToolCallRecord(for: output, message: message)
       await traceToolExecution(
         startedAt: Date(),
         loopRequest: request,

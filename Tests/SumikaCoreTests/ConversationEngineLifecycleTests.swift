@@ -177,6 +177,104 @@ struct ConversationEngineLifecycleTests {
   }
 
   @Test
+  func approvingOneSameFileEditApprovesAndCommitsTheWholeFileGroup() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "edit_file",
+            arguments: [
+              "path": .string("README.md"),
+              "old_text": .string("project"),
+              "new_text": .string("Project"),
+            ]
+          )),
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "edit_file",
+            arguments: [
+              "path": .string("./README.md"),
+              "old_text": .string("notes"),
+              "new_text": .string("Notes"),
+            ]
+          )),
+      ],
+      [.chunk("Applied both README edits.")],
+    ])
+    let harness = ConversationEngineLifecycleHarness(
+      session: ChatSession(id: sessionID, interactionMode: .agent),
+      runtime: runtime
+    )
+
+    harness.startUserTurn(prompt: "update both words", workspace: workspace, sessionID: sessionID)
+    try await waitUntil {
+      harness.session.toolCalls.count == 2
+        && harness.session.toolCalls.allSatisfy { $0.status == .awaitingApproval }
+    }
+
+    harness.approve(harness.session.toolCalls[1], in: workspace)
+    try await waitUntil { harness.session.turns.first?.status == .completed }
+
+    #expect(harness.session.toolCalls.map(\.status) == [.completed, .completed])
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "README.md"), encoding: .utf8)
+        == "Project Notes")
+    let toolMessages = await runtime.capturedMessages[1].filter { $0.role == .tool }
+    #expect(toolMessages.count == 2)
+    #expect(toolMessages[0].content.contains("+Project notes"))
+    #expect(toolMessages[1].content.contains("+project Notes"))
+  }
+
+  @Test
+  func denyingOneSameFileEditDeniesTheWholeFileGroup() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "edit_file",
+            arguments: [
+              "path": .string("README.md"),
+              "old_text": .string("project"),
+              "new_text": .string("Project"),
+            ]
+          )),
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "edit_file",
+            arguments: [
+              "path": .string("README.md"),
+              "old_text": .string("notes"),
+              "new_text": .string("Notes"),
+            ]
+          )),
+      ],
+      [.chunk("Left the README unchanged.")],
+    ])
+    let harness = ConversationEngineLifecycleHarness(
+      session: ChatSession(id: sessionID, interactionMode: .agent),
+      runtime: runtime
+    )
+
+    harness.startUserTurn(prompt: "update both words", workspace: workspace, sessionID: sessionID)
+    try await waitUntil {
+      harness.session.toolCalls.count == 2
+        && harness.session.toolCalls.allSatisfy { $0.status == .awaitingApproval }
+    }
+
+    harness.deny(harness.session.toolCalls[1])
+    try await waitUntil { harness.session.turns.first?.status == .completed }
+
+    #expect(harness.session.toolCalls.map(\.status) == [.denied, .denied])
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "README.md"), encoding: .utf8)
+        == "project notes")
+  }
+
+  @Test
   func multipleApprovalsWaitForEveryDecisionAndKeepModelOrder() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
