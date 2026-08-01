@@ -185,7 +185,7 @@ package enum ManagedModelCatalog {
     ManagedModel(
       id: "qwen3.6-35b-a3b-4bit",
       displayName: "Qwen 3.6 35B A3B 4-bit",
-      detail: "Experimental Qwen3.6 MoE model with local vision support.",
+      detail: "Qwen3.6 MoE model with local vision support.",
       huggingFaceRepoID: "mlx-community/Qwen3.6-35B-A3B-4bit",
       localDirectoryName: "Qwen3.6-35B-A3B-4bit",
       estimatedDownloadSize: "20.4 GB",
@@ -194,6 +194,7 @@ package enum ManagedModelCatalog {
       stability: .stable,
       supportsImageInput: true,
       reasoningTraceFormat: .qwenThinkTags,
+      supportsHistoricalReasoningPreservation: true,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
@@ -201,7 +202,7 @@ package enum ManagedModelCatalog {
     ManagedModel(
       id: "qwen3.6-35b-a3b-optiq-4bit",
       displayName: "Qwen 3.6 35B A3B Optiq 4-bit",
-      detail: "Experimental Qwen3.6 MoE model with local vision support.",
+      detail: "Qwen3.6 MoE model",
       huggingFaceRepoID: "mlx-community/Qwen3.6-35B-A3B-OptiQ-4bit",
       localDirectoryName: "Qwen3.6-35B-A3B-OptiQ-4bit",
       estimatedDownloadSize: "24.7 GB",
@@ -218,7 +219,7 @@ package enum ManagedModelCatalog {
     ManagedModel(
       id: "qwen3.6-35b-a3b-8bit",
       displayName: "Qwen 3.6 35B A3B 8-bit",
-      detail: "Experimental Qwen3.6 MoE model with local vision support.",
+      detail: "Qwen3.6 MoE model with local vision support.",
       huggingFaceRepoID: "mlx-community/Qwen3.6-35B-A3B-8bit",
       localDirectoryName: "Qwen3.6-35B-A3B-8bit",
       estimatedDownloadSize: "37.7 GB",
@@ -227,6 +228,7 @@ package enum ManagedModelCatalog {
       stability: .stable,
       supportsImageInput: true,
       reasoningTraceFormat: .qwenThinkTags,
+      supportsHistoricalReasoningPreservation: true,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
@@ -234,7 +236,7 @@ package enum ManagedModelCatalog {
     ManagedModel(
       id: "qwen3.6-27B-4bit",
       displayName: "Qwen 3.6 27B 4-bit",
-      detail: "Experimental Qwen3.6 model with local vision support.",
+      detail: "Qwen3.6 model with local vision support.",
       huggingFaceRepoID: "mlx-community/Qwen3.6-27B-4bit",
       localDirectoryName: "Qwen3.6-27B-4bit",
       estimatedDownloadSize: "16.1 GB",
@@ -243,6 +245,7 @@ package enum ManagedModelCatalog {
       stability: .stable,
       supportsImageInput: true,
       reasoningTraceFormat: .qwenThinkTags,
+      supportsHistoricalReasoningPreservation: true,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
@@ -259,6 +262,7 @@ package enum ManagedModelCatalog {
       stability: .stable,
       supportsImageInput: false,
       reasoningTraceFormat: .qwenThinkTags,
+      supportsHistoricalReasoningPreservation: true,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
@@ -266,7 +270,7 @@ package enum ManagedModelCatalog {
     ManagedModel(
       id: "qwen3.6-27B-8bit",
       displayName: "Qwen 3.6 27B 8-bit",
-      detail: "Experimental Qwen3.6 model with local vision support.",
+      detail: "Qwen3.6 model with local vision support.",
       huggingFaceRepoID: "mlx-community/Qwen3.6-27B-8bit",
       localDirectoryName: "Qwen3.6-27B-8bit",
       estimatedDownloadSize: "29.5 GB",
@@ -275,6 +279,7 @@ package enum ManagedModelCatalog {
       stability: .stable,
       supportsImageInput: true,
       reasoningTraceFormat: .qwenThinkTags,
+      supportsHistoricalReasoningPreservation: true,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
@@ -292,6 +297,7 @@ package enum ManagedModelCatalog {
       stability: .stable,
       supportsImageInput: false,
       reasoningTraceFormat: .qwenThinkTags,
+      supportsHistoricalReasoningPreservation: true,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
