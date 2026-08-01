@@ -8,6 +8,68 @@ import Testing
 @MainActor
 struct WorkspaceFeatureStateTests {
   @Test
+  func sidebarOrdersSessionsNewestFirst() {
+    let oldestSession = ChatSession(
+      title: "Oldest",
+      createdAt: Date(timeIntervalSinceReferenceDate: 10)
+    )
+    let newestSession = ChatSession(
+      title: "Newest",
+      createdAt: Date(timeIntervalSinceReferenceDate: 30)
+    )
+    let middleSession = ChatSession(
+      title: "Middle",
+      createdAt: Date(timeIntervalSinceReferenceDate: 20)
+    )
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory,
+      sessions: [oldestSession, newestSession, middleSession]
+    )
+
+    let sidebarState = WorkspaceSidebarState(
+      library: WorkspaceLibrary(workspaces: [workspace])
+    )
+
+    #expect(
+      sidebarState.workspaces.first?.sessions.map(\.id)
+        == [newestSession.id, middleSession.id, oldestSession.id]
+    )
+  }
+
+  @Test
+  func newlyCreatedSessionAppearsFirstInSidebar() async throws {
+    let existingSession = ChatSession(
+      title: "Existing",
+      createdAt: Date(timeIntervalSinceReferenceDate: 10)
+    )
+    let workspaceID = UUID()
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory,
+      sessions: [existingSession]
+    )
+    let state = WorkspaceFeatureState(
+      workspaceStore: WorkspaceFeatureInMemoryStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspaceID
+        )
+      ),
+      workspaceOpener: WorkspaceFeatureRecordingOpener(),
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(),
+      turnTracer: NoopTurnTracer()
+    )
+    await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
+
+    let change = state.createSession(in: workspaceID)
+
+    let createdSessionID = try #require(change.activeSessionID)
+    #expect(state.sidebarState.workspaces.first?.sessions.map(\.id).first == createdSessionID)
+  }
+
+  @Test
   func loadLibraryNormalizesAndPersistsActiveWorkspaceWithoutSession() async throws {
     let workspaceID = UUID()
     let workspace = Workspace(

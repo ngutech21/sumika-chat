@@ -29,7 +29,14 @@ struct WorkspaceSidebarWorkspace: Equatable, Identifiable, Sendable {
     self.init(
       id: workspace.id,
       name: workspace.name,
-      sessions: workspace.sessions.map(WorkspaceSidebarSession.init)
+      sessions: workspace.sessions.enumerated()
+        .sorted { lhs, rhs in
+          if lhs.element.createdAt == rhs.element.createdAt {
+            return lhs.offset > rhs.offset
+          }
+          return lhs.element.createdAt > rhs.element.createdAt
+        }
+        .map { WorkspaceSidebarSession(session: $0.element) }
     )
   }
 }
