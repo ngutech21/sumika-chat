@@ -42,7 +42,6 @@ flowchart TD
   FocusedPath --> FocusedPathSource
   FocusedPath --> WorkspaceRelativePath
   FrozenModelContent --> ModelContextRole
-  FunctionToolSchema --> ToolJSONSchemaObject
   InvalidToolInput --> InvalidToolCallReason
   InvalidToolInput --> ToolCallArguments
   InvalidToolResult --> InvalidToolCallReason
@@ -655,24 +654,6 @@ Properties:
 Relations:
 
 - `ModelContextRole`
-
-### FunctionToolSchema
-
-- Kind: `struct`
-- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolDefinition.swift`
-- Conforms to: `Codable`, `Equatable`, `Sendable`
-
-Properties:
-
-- `description: String`
-- `name: String`
-- `parameters: ToolJSONSchemaObject`
-- `strict: Bool?`
-- `type: String`
-
-Relations:
-
-- `ToolJSONSchemaObject`
 
 ### HistoricalAssistantReasoning
 

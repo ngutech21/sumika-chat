@@ -14,14 +14,6 @@ struct MLXGenerationInput {
       supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation
     )
   }
-
-  var promptMessages: [Chat.Message] {
-    MLXHistoryRenderer.chatMessages(
-      from: promptSnapshot,
-      images: images,
-      supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation
-    )
-  }
 }
 
 enum MLXHistoryRenderer {

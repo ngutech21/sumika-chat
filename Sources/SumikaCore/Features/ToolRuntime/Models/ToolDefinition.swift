@@ -88,28 +88,6 @@ package struct ToolDefinition: Codable, Identifiable, Equatable, Sendable {
   }
 }
 
-package struct FunctionToolSchema: Codable, Equatable, Sendable {
-  package var type: String
-  package var name: String
-  package var description: String
-  package var parameters: ToolJSONSchemaObject
-  package var strict: Bool?
-
-  package init(
-    type: String = "function",
-    name: String,
-    description: String,
-    parameters: ToolJSONSchemaObject,
-    strict: Bool? = nil
-  ) {
-    self.type = type
-    self.name = name
-    self.description = description
-    self.parameters = parameters
-    self.strict = strict
-  }
-}
-
 package struct ToolJSONSchemaObject: Codable, Equatable, Sendable {
   package var type: String
   package var properties: [String: ToolJSONSchemaProperty]
@@ -126,33 +104,6 @@ package struct ToolJSONSchemaObject: Codable, Equatable, Sendable {
     self.properties = properties
     self.required = required
     self.additionalProperties = additionalProperties
-  }
-
-  package init(parameters: [ToolParameterDefinition]) {
-    var properties: [String: ToolJSONSchemaProperty] = [:]
-    var required: [String] = []
-
-    for parameter in parameters {
-      guard properties[parameter.name] == nil else {
-        continue
-      }
-
-      properties[parameter.name] = ToolJSONSchemaProperty(
-        type: parameter.valueType,
-        description: parameter.description,
-        enumValues: parameter.enumValues,
-        defaultValue: parameter.defaultValue,
-        minimum: parameter.minimum,
-        maximum: parameter.maximum,
-        arrayItems: parameter.arrayItems
-      )
-
-      if parameter.isRequired {
-        required.append(parameter.name)
-      }
-    }
-
-    self.init(properties: properties, required: required)
   }
 }
 
@@ -203,15 +154,5 @@ package struct ToolRegistry: Equatable, Sendable {
 
   package func definition(for name: ToolName) -> ToolDefinition? {
     tools.first { $0.name == name }
-  }
-}
-
-nonisolated extension ToolDefinition {
-  package var functionSchema: FunctionToolSchema {
-    FunctionToolSchema(
-      name: name.rawValue,
-      description: description,
-      parameters: ToolJSONSchemaObject(parameters: parameters)
-    )
   }
 }

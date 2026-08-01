@@ -274,9 +274,9 @@ flowchart TD
 - `ToolContext` carries runtime context such as the active workspace, active
   session ID, read tracker, and latest command result store.
 - `ToolDefinition` describes a tool for prompts and provider adapters,
-  including capability, risk, structured parameter metadata, and a
-  provider-neutral function-tool schema projection. Provider-specific wire
-  shapes should adapt from this model instead of becoming the core runtime
+  including capability, risk, structured parameter metadata, and an optional
+  provider-neutral raw parameter schema for dynamic tools. Provider-specific
+  wire shapes should adapt from this model instead of becoming the core runtime
   representation.
 - When `SUMIKA_DEBUG_TRACE=1`, `tool_execute` `turn_trace` rows include
   compact tool-call diagnostics: `toolCallFormat`, `toolValidationStatus`,
@@ -307,8 +307,8 @@ central runtime files keep the exhaustive cross-tool boundaries.
   `ToolTextOutput` central.
 - `ToolDefinition.<tool>`: the model-facing contract. It declares the tool
   name, description, parameters, examples, capabilities, and risk level. Its
-  `functionSchema` projection is what provider adapters render as a function
-  schema. Keep this next to the tool so schema text and runtime validation stay
+  structured metadata is what provider adapters render as a function schema.
+  Keep this next to the tool so schema text and runtime validation stay
   reviewable together.
 - `ToolCodec<Input>`: the bridge between raw model arguments and the central
   payload ADT. It owns raw argument decoding, input validation, `Input ->

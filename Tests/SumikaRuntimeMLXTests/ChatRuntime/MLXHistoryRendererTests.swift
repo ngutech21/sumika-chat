@@ -8,6 +8,17 @@ import Testing
 #if canImport(SumikaTestSupport)
   import SumikaTestSupport
 #endif
+
+extension MLXGenerationInput {
+  fileprivate var promptMessages: [Chat.Message] {
+    MLXHistoryRenderer.chatMessages(
+      from: promptSnapshot,
+      images: images,
+      supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation
+    )
+  }
+}
+
 @Suite(TemporaryDirectoryTrait(named: "sumika-mlx-history-tests"))
 struct MLXHistoryRendererTests {
   @Test
