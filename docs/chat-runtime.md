@@ -378,6 +378,13 @@ is marked with `generatedTokenCountIsEstimate: true`; structured tool parsing
 can buffer provider syntax, so this running value is intentionally not presented
 as an exact MLX counter.
 
+`./script/build_and_run.sh --trace` writes each app run to a separate
+`~/Library/Application Support/Sumika/debug/traces/<timestamp>-<UUID>-mlx-trace.jsonl`
+file. `SUMIKA_DEBUG_TRACE_FILE` and `SUMIKA_DEBUG_TRACE_BASENAME` remain available
+for callers that require an explicit path. The performance-report script uses
+the most recently modified manual run trace or legacy `mlx-trace.jsonl` when no
+trace path is supplied.
+
 Every terminal MLX completion-info event emits one `runtime_prefill` row before
 terminal stop handling. Its `durationMs` is `promptTime * 1000`, and
 `promptTokens` is MLX's exact `promptTokenCount`; TTFT remains the separately

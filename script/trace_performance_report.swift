@@ -81,17 +81,49 @@ func usage() -> Never {
   exit(2)
 }
 
+func debugDirectories() -> [URL] {
+  let homeDirectory = URL(filePath: NSHomeDirectory(), directoryHint: .isDirectory)
+  return [
+    homeDirectory
+      .appending(path: "Library/Application Support/Sumika/debug", directoryHint: .isDirectory),
+    homeDirectory
+      .appending(
+        path: "Library/Containers/chat.sumika/Data/Library/Application Support/Sumika/debug",
+        directoryHint: .isDirectory
+      ),
+  ]
+}
+
 func defaultTraceURL() -> URL {
-  URL(filePath: NSHomeDirectory(), directoryHint: .isDirectory)
-    .appending(path: "Library", directoryHint: .isDirectory)
-    .appending(path: "Containers", directoryHint: .isDirectory)
-    .appending(path: "chat.sumika", directoryHint: .isDirectory)
-    .appending(path: "Data", directoryHint: .isDirectory)
-    .appending(path: "Library", directoryHint: .isDirectory)
-    .appending(path: "Application Support", directoryHint: .isDirectory)
-    .appending(path: "Sumika", directoryHint: .isDirectory)
-    .appending(path: "debug", directoryHint: .isDirectory)
-    .appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory)
+  let fileManager = FileManager.default
+  var candidates = debugDirectories().map {
+    $0.appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory)
+  }
+
+  for directory in debugDirectories() {
+    let traceDirectory = directory.appending(path: "traces", directoryHint: .isDirectory)
+    let runTraces =
+      (try? fileManager.contentsOfDirectory(
+        at: traceDirectory,
+        includingPropertiesForKeys: [.contentModificationDateKey],
+        options: [.skipsHiddenFiles]
+      )) ?? []
+    candidates.append(
+      contentsOf: runTraces.filter {
+        $0.lastPathComponent.hasSuffix("-mlx-trace.jsonl")
+      })
+  }
+
+  let existingCandidates = candidates.filter {
+    fileManager.fileExists(atPath: $0.path(percentEncoded: false))
+  }
+  return existingCandidates.max { left, right in
+    let leftDate = try? left.resourceValues(forKeys: [.contentModificationDateKey])
+      .contentModificationDate
+    let rightDate = try? right.resourceValues(forKeys: [.contentModificationDateKey])
+      .contentModificationDate
+    return (leftDate ?? .distantPast) < (rightDate ?? .distantPast)
+  } ?? candidates[0]
 }
 
 func value<T>(_ dictionary: [String: Any], _ key: String, as _: T.Type) -> T? {
@@ -184,7 +216,8 @@ func newGenerationReport(id: String, rowIndex: Int) -> GenerationReport {
 
 func mergeTraceFields(_ object: [String: Any], into report: inout GenerationReport) {
   report.turnID = report.turnID ?? value(object, "turnID", as: String.self)
-  report.interactionMode = report.interactionMode ?? value(object, "interactionMode", as: String.self)
+  report.interactionMode =
+    report.interactionMode ?? value(object, "interactionMode", as: String.self)
   report.toolLoopIteration = report.toolLoopIteration ?? intValue(object, "toolLoopIteration")
   report.cacheMode = report.cacheMode ?? value(object, "cacheMode", as: String.self)
   report.cacheReason =
@@ -263,14 +296,17 @@ func appendToolLoopTTFTComparison(to lines: inout [String], generations: [Genera
     grouping: generations.filter { $0.turnID != nil && $0.toolLoopIteration != nil },
     by: { $0.turnID ?? "" }
   )
-  let comparisons = groupedByTurn.compactMap { turnID, generations -> (
-    String, Double?, Double?, Double?
-  )? in
-    let firstToolTTFT = generations
+  let comparisons = groupedByTurn.compactMap {
+    turnID, generations -> (
+      String, Double?, Double?, Double?
+    )? in
+    let firstToolTTFT =
+      generations
       .filter { $0.toolLoopIteration == 1 }
       .compactMap(\.ttftMs)
       .first
-    let followUpTTFTs = generations
+    let followUpTTFTs =
+      generations
       .filter { ($0.toolLoopIteration ?? 0) > 1 }
       .compactMap(\.ttftMs)
 
