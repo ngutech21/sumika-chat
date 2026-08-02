@@ -146,9 +146,11 @@ test:
   start=$SECONDS
   
   {{swift}} test --no-parallel
+  status=$?
 
   elapsed=$((SECONDS - start))
   printf 'elapsed: %dm %02ds\n' "$((elapsed / 60))" "$((elapsed % 60))"
+  exit "$status"
 
 
 prompt-cost:

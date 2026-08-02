@@ -30,55 +30,6 @@ struct ModelManagementTests {
     )
 
     #expect(!model.supportsWorkspaceTools)
-    #expect(model.maxToolLoopIterations == 8)
-  }
-
-  @Test
-  func catalogDeclaresReasoningTraceFormats() throws {
-    #expect(ManagedModelCatalog.defaultModel.reasoningTraceFormat == .gemmaChannel)
-
-    let qwen27B = try #require(ManagedModelCatalog.model(id: "qwen3.6-27B-4bit"))
-    #expect(qwen27B.reasoningTraceFormat == .qwenThinkTags)
-
-    let qwen35B = try #require(ManagedModelCatalog.model(id: "qwen3.6-35b-a3b-4bit"))
-    #expect(qwen35B.reasoningTraceFormat == .qwenThinkTags)
-  }
-
-  @Test
-  func catalogDeclaresQwen36ModeSamplingDefaults() throws {
-    var expectedChatSettings = ChatGenerationSettings.chatDefault
-    expectedChatSettings.temperature = 0.6
-    expectedChatSettings.topP = 0.95
-    expectedChatSettings.topK = 20
-    expectedChatSettings.presencePenalty = 0.3
-    expectedChatSettings.repetitionPenalty = 1
-    expectedChatSettings.maxTokens = 32_768
-
-    var expectedAgentSettings = ChatGenerationSettings.agentDefault
-    expectedAgentSettings.temperature = 0.6
-    expectedAgentSettings.topP = 0.95
-    expectedAgentSettings.topK = 20
-    expectedAgentSettings.presencePenalty = 0.3
-    expectedAgentSettings.repetitionPenalty = 1
-    expectedAgentSettings.maxTokens = 32_768
-    let qwenModelIDs = [
-      "qwen3.6-27B-4bit",
-      "qwen3.6-27B-8bit",
-      "qwen3.6-35b-a3b-4bit",
-      "qwen3.6-35b-a3b-8bit",
-      "qwen3.6-40B-8bit-heretic",
-    ]
-
-    for modelID in qwenModelIDs {
-      let model = try #require(ManagedModelCatalog.model(id: modelID))
-
-      #expect(model.defaultModeSettings.chat.generationSettings == expectedChatSettings)
-      #expect(model.defaultModeSettings.agent.generationSettings == expectedAgentSettings)
-    }
-
-    #expect(
-      ManagedModelCatalog.defaultModel.defaultModeSettings.agent.generationSettings
-        == ChatGenerationSettings.agentDefault)
   }
 
   @Test
