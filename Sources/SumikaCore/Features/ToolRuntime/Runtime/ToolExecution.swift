@@ -837,6 +837,8 @@ struct ToolOrchestrator: Sendable {
     )
   }
 
+  // Test-only raw-request adapter; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   func prepareSameFileEditGroup(
     requests rawRequests: [RawToolCallRequest],
     workspace: Workspace
