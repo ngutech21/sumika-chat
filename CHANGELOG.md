@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.5.0](https://github.com/ngutech21/sumika-chat/compare/v1.4.1...v1.5.0) (2026-08-02)
+
+
+### Features
+
+* add generation progress tracing and related settings to model management ([087c7c9](https://github.com/ngutech21/sumika-chat/commit/087c7c957adbf3d4dc62cacb329fcd0579ace856))
+* allow search_files path to target a single file ([9b50126](https://github.com/ngutech21/sumika-chat/commit/9b50126871e13cd7893cef961c0c63a8210e4040)), closes [#179](https://github.com/ngutech21/sumika-chat/issues/179)
+* implement Qwen3.6 preserve_thinking correctly ([2269c8b](https://github.com/ngutech21/sumika-chat/commit/2269c8b6c3afe6b0bcf68c78b21d646bb753c367)), closes [#177](https://github.com/ngutech21/sumika-chat/issues/177)
+* render markdown in user bubble ([94bb7a5](https://github.com/ngutech21/sumika-chat/commit/94bb7a5e3487d8e2ad9f97ee66f915351f505805))
+* return a bounded applied-edit receipt from edit_file ([c773a8e](https://github.com/ngutech21/sumika-chat/commit/c773a8ed3eddb21958c14c0d4842b5f039fc87f4)), closes [#183](https://github.com/ngutech21/sumika-chat/issues/183)
+* show newest chats first ([8f21771](https://github.com/ngutech21/sumika-chat/commit/8f21771a6adfee48a25368140c6dbf7a870b6f54))
+* support atomic same-file edit_file batches ([8bd3583](https://github.com/ngutech21/sumika-chat/commit/8bd358309b5e0e804e9f089e3979a273339fa168)), closes [#198](https://github.com/ngutech21/sumika-chat/issues/198)
+
+
+### Bug Fixes
+
+* adjust insets for user and assistant message cells to ensure consistent layout ([b41506e](https://github.com/ngutech21/sumika-chat/commit/b41506e95e5b91f1b056aba83b5cfd757e8bb731))
+* change build configuration to Debug in lint-analyze task ([c961ff1](https://github.com/ngutech21/sumika-chat/commit/c961ff1d9768065f639a80f789f0dbbeac189fe0))
+* datamodel generation ([#175](https://github.com/ngutech21/sumika-chat/issues/175)) ([76d81f2](https://github.com/ngutech21/sumika-chat/commit/76d81f2b545e84f95b196b78c7c8e860fedc114f))
+* don't fail tests if directory was not deleted ([8f7df74](https://github.com/ngutech21/sumika-chat/commit/8f7df74834bd4562196b3f360646b6d3d48290ed))
+* finalize transcript after output-limited tool batches ([3b2356e](https://github.com/ngutech21/sumika-chat/commit/3b2356e90ea04bd55e573f2314646aafb7a5e083))
+* harden finish_task-only budget finalization and explain fallback cause ([efa7588](https://github.com/ngutech21/sumika-chat/commit/efa75888b3d0ba8dfafac4fa9346f3a065fa0906)), closes [#180](https://github.com/ngutech21/sumika-chat/issues/180)
+* implement tool budget warning and update maxToolLoopIterations to 20 in agent mode ([fc62b2b](https://github.com/ngutech21/sumika-chat/commit/fc62b2be8ac4cdd6d275b6e955f4b62d89b6792c))
+* keep transcript scrollbar full height ([7342e61](https://github.com/ngutech21/sumika-chat/commit/7342e619fc5ff64f10d9ebc904c74c86f71298d3))
+* mlx cache reuse ([#189](https://github.com/ngutech21/sumika-chat/issues/189)) ([56037cf](https://github.com/ngutech21/sumika-chat/commit/56037cf505684e3223d7211f01cb4db57c04acdf))
+* prevent unnecessary MCP server reconciliation during active conversation ([37ed95d](https://github.com/ngutech21/sumika-chat/commit/37ed95dc2220dc1bfadbc5ffa5577a4b97e8e2fc))
+* remove unnecessary blank line in ManagedModelCatalog ([bd89465](https://github.com/ngutech21/sumika-chat/commit/bd8946567498ffba26f1a26cac8fc852b2135e7d))
+* update maxToolLoopIterations to 15 and remove outdated tool loop budget test ([3803cad](https://github.com/ngutech21/sumika-chat/commit/3803cad297e208ab9cb82d730d7aef19c1ee9728))
+* update maxToolLoopIterations to 18 for multiple ManagedModel instances ([fa5d612](https://github.com/ngutech21/sumika-chat/commit/fa5d612b43ad14a1a023aed00e0b359d8727e651))
+* update source packages path handling in appcast generation scripts ([bdab66a](https://github.com/ngutech21/sumika-chat/commit/bdab66aa6469866a68292e692f080a406cd0790a))
+* use unambiguous colon-space gutters for read_file output ([213af10](https://github.com/ngutech21/sumika-chat/commit/213af104d314362fc31dffda4d218f2c48e2c331)), closes [#191](https://github.com/ngutech21/sumika-chat/issues/191)
+
+
+### Performance Improvements
+
+* avoid generation progress tracing overhead when disabled ([5b177ee](https://github.com/ngutech21/sumika-chat/commit/5b177eed13cbef3083e92ddcba14217478722f7b)), closes [#181](https://github.com/ngutech21/sumika-chat/issues/181)
+
 ## [1.4.1](https://github.com/ngutech21/sumika-chat/compare/v1.4.0...v1.4.1) (2026-07-26)
 
 
