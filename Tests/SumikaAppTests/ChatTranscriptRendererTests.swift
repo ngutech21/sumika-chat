@@ -531,6 +531,60 @@ struct ChatTranscriptRendererTests {
   }
 
   @Test
+  func completionAddsTotalDurationOnlyToFinalAssistantWithoutReparsingContent() {
+    let turnID = UUID()
+    let firstAssistantID = UUID()
+    let finalAssistantID = UUID()
+    let createdAt = Date(timeIntervalSinceReferenceDate: 100)
+    let parser = AssistantBlockParserSpy()
+    let renderer = ChatTranscriptRenderer(assistantBlocks: parser.blocks)
+    let turnItems: [ChatTurnItem] = [
+      .assistantMessage(
+        AssistantTurnMessage(id: firstAssistantID, content: "I will inspect the workspace.")),
+      .assistantMessage(
+        AssistantTurnMessage(id: finalAssistantID, content: "Implemented and verified.")),
+    ]
+
+    let runningItems = renderer.items(for: [
+      ChatTurn(
+        id: turnID,
+        status: .running,
+        items: turnItems,
+        createdAt: createdAt,
+        updatedAt: createdAt.addingTimeInterval(60)
+      )
+    ])
+    let runningRevisions = runningItems.map(\.renderRevision)
+
+    let completedItems = renderer.items(for: [
+      ChatTurn(
+        id: turnID,
+        status: .completed,
+        items: turnItems,
+        createdAt: createdAt,
+        updatedAt: createdAt.addingTimeInterval(220)
+      )
+    ])
+
+    #expect(
+      parser.parsedContents == [
+        "I will inspect the workspace.", "Implemented and verified.",
+      ])
+    #expect(runningItems.map(\.totalDuration) == [nil, nil])
+    #expect(completedItems.map(\.totalDuration) == [nil, 220])
+    #expect(completedItems[0].renderRevision == runningRevisions[0])
+    #expect(completedItems[1].renderRevision != runningRevisions[1])
+  }
+
+  @Test
+  func transcriptDurationFormatterUsesClockStyleUnits() {
+    #expect(TranscriptDurationFormatter.string(from: 0.3) == "1s")
+    #expect(TranscriptDurationFormatter.string(from: 12.2) == "12s")
+    #expect(TranscriptDurationFormatter.string(from: 220) == "3m 40s")
+    #expect(TranscriptDurationFormatter.string(from: 3_723) == "1h 2m 3s")
+  }
+
+  @Test
   func metricsAndToolStatusUpdatesDoNotReparseUnchangedAssistantContent() {
     let turnID = UUID()
     let assistantID = UUID()

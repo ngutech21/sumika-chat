@@ -129,6 +129,15 @@ package struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
     try container.encode(updatedAt, forKey: .updatedAt)
   }
 
+  /// Wall-clock time from user-turn creation through successful turn completion.
+  /// Approval and user-answer pauses remain part of the total elapsed time.
+  package var completedDuration: TimeInterval? {
+    guard status == .completed else {
+      return nil
+    }
+    return max(0, updatedAt.timeIntervalSince(createdAt))
+  }
+
   mutating func appendItem(_ item: ChatTurnItem, at timestamp: Date = Date()) {
     items.append(item)
     updatedAt = timestamp

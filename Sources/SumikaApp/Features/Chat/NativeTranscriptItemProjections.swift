@@ -68,6 +68,13 @@ extension RenderedChatTurnItem {
     }
   }
 
+  var visibleTotalDurationSummary: String? {
+    guard let totalDuration else {
+      return nil
+    }
+    return "Total \(TranscriptDurationFormatter.string(from: totalDuration))"
+  }
+
   var nativeAccessibilityIdentifier: String {
     switch item {
     case .assistantThinking:
@@ -148,6 +155,23 @@ extension RenderedChatTurnItem {
       return nil
     }
     return message
+  }
+}
+
+enum TranscriptDurationFormatter {
+  static func string(from duration: TimeInterval) -> String {
+    let totalSeconds = max(1, Int(duration.rounded()))
+    let hours = totalSeconds / 3600
+    let minutes = (totalSeconds % 3600) / 60
+    let seconds = totalSeconds % 60
+
+    if hours > 0 {
+      return "\(hours)h \(minutes)m \(seconds)s"
+    }
+    if minutes > 0 {
+      return "\(minutes)m \(seconds)s"
+    }
+    return "\(seconds)s"
   }
 }
 

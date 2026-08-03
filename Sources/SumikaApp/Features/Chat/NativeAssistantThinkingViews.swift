@@ -285,15 +285,7 @@ final class NativeAssistantThinkingView: NSView {
     guard message.deliveryStatus == .complete, let duration = message.reasoningDuration else {
       return "Reasoning"
     }
-    return "Reasoned for \(formattedReasoningDuration(duration))"
-  }
-
-  private static func formattedReasoningDuration(_ duration: TimeInterval) -> String {
-    let totalSeconds = max(1, Int(duration.rounded()))
-    guard totalSeconds >= 60 else {
-      return "\(totalSeconds)s"
-    }
-    return "\(totalSeconds / 60)m \(totalSeconds % 60)s"
+    return "Reasoned for \(TranscriptDurationFormatter.string(from: duration))"
   }
 
   private func updateContent(_ content: String, isExpanded: Bool) {

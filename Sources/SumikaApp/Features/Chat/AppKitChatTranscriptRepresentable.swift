@@ -1683,6 +1683,9 @@ final class NativeChatMessageCellView: NSTableCellView {
     if let metrics = item.visibleGenerationMetrics {
       footer.addArrangedSubview(makeSecondaryLabel(metrics.visibleSummary))
     }
+    if let totalDurationSummary = item.visibleTotalDurationSummary {
+      footer.addArrangedSubview(makeSecondaryLabel(totalDurationSummary))
+    }
     if footer.arrangedSubviews.isEmpty {
       return nil
     }

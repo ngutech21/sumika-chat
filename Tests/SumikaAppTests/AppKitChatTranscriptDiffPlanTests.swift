@@ -1489,6 +1489,19 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func completedAssistantFooterShowsTotalTurnDuration() {
+    let cell = configuredNativeCell(
+      for: nativeAssistantRow(
+        id: "assistant",
+        revision: 1,
+        totalDuration: 220
+      )
+    )
+
+    #expect(cell.descendantTextValues.contains("Total 3m 40s"))
+  }
+
+  @Test
   func sameThinkingRowReconfigureKeepsHostedViewAndHeader() throws {
     let cell = NativeChatMessageCellView(
       identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
@@ -2329,7 +2342,8 @@ private func nativeUserRow(
 private func nativeAssistantRow(
   id: String,
   revision: Int,
-  attachments: [ChatAttachment] = []
+  attachments: [ChatAttachment] = [],
+  totalDuration: TimeInterval? = nil
 ) -> NativeTranscriptRow {
   NativeTranscriptRow(
     id: id,
@@ -2341,6 +2355,7 @@ private func nativeAssistantRow(
           AssistantTurnMessage(content: "Answer", attachments: attachments)
         ),
         generationMetrics: nil,
+        totalDuration: totalDuration,
         assistantRenderBlocks: [
           .paragraph(.init(id: .init(rawValue: "answer"), text: "Answer"))
         ],
