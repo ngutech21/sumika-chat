@@ -845,7 +845,7 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
-  func nativeToolNameRepairKeepsOriginalName() async throws {
+  func nativeToolAndArgumentNameRepairUseCanonicalRequest() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
@@ -854,7 +854,7 @@ struct ToolLoopCoordinatorTests {
         workspace: workspace,
         sessionID: sessionID,
         nativeToolCalls: [
-          ChatRuntimeToolCall(name: "READ-FILE", arguments: ["path": .string("README.md")])
+          ChatRuntimeToolCall(name: "READ-FILE", arguments: ["Path": .string("README.md")])
         ]
       )
     )
@@ -862,6 +862,7 @@ struct ToolLoopCoordinatorTests {
     let record = try #require(toolCallRecord(from: result))
     #expect(record.request.toolName == .readFile)
     #expect(record.request.raw.originalToolName == "READ-FILE")
+    #expect(record.request.raw.arguments == ["path": .string("README.md")])
     #expect(record.status == .completed)
   }
 

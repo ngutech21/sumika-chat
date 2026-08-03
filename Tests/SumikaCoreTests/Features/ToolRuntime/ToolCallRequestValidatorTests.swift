@@ -192,6 +192,71 @@ struct ToolCallRequestValidatorTests {
   }
 
   @Test
+  func validatorRepairsDeterministicBuiltInArgumentNameVariants() {
+    let registry = ToolExecutorRegistry.codingAgent.toolRegistry
+    let edit = validator.validate(
+      raw(
+        .editFile,
+        arguments: [
+          "Path": .string("Sources/App.swift"),
+          "old-text": .string("old"),
+          "newText": .string("new"),
+        ]),
+      registry: registry
+    )
+    let command = validator.validate(
+      raw(
+        .runCommand,
+        arguments: [
+          "Command": .string("just test-core"),
+          "TimeoutSeconds": .number(30),
+        ]),
+      registry: registry
+    )
+
+    #expect(
+      edit.payload
+        == .editFile(EditFileInput(path: "Sources/App.swift", oldText: "old", newText: "new")))
+    #expect(edit.raw.arguments.keys.sorted() == ["new_text", "old_text", "path"])
+    #expect(
+      command.payload
+        == .runCommand(RunCommandInput(command: "just test-core", timeoutSeconds: 30)))
+    #expect(command.raw.arguments.keys.sorted() == ["command", "timeoutSeconds"])
+  }
+
+  @Test
+  func validatorDoesNotGuessSemanticArgumentAliasesOrOverwriteRepairCollisions() {
+    let registry = ToolExecutorRegistry.codingAgent.toolRegistry
+    let semanticAlias = validator.validate(
+      raw(
+        .runCommand,
+        arguments: [
+          "command": .string("just test-core"),
+          "timeout": .number(30),
+        ]),
+      registry: registry
+    )
+    let collidingPath = validator.validate(
+      raw(
+        .readFile,
+        arguments: [
+          "path": .string("README.md"),
+          "Path": .string("Sources/App.swift"),
+        ]),
+      registry: registry
+    )
+
+    #expect(invalidReason(semanticAlias) == .unknownArguments(["timeout"]))
+    #expect(invalidReason(collidingPath) == .unknownArguments(["Path"]))
+    #expect(
+      invalidInput(collidingPath)?.rawArguments
+        == [
+          "path": .string("README.md"),
+          "Path": .string("Sources/App.swift"),
+        ])
+  }
+
+  @Test
   func invalidPayloadsKeepRawArgumentsAndPreciseReasons() {
     let registry = ToolExecutorRegistry.readOnly.toolRegistry
     let rawArguments: ToolCallArguments = ["path": .string("README.md")]

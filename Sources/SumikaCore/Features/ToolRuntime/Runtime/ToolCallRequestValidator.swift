@@ -26,16 +26,27 @@ struct ToolCallRequestValidator: Sendable {
       )
     }
 
-    if let argumentError = validateArgumentNames(
-      rawRequest.arguments,
+    let knownArgumentNames = knownArgumentNames(
       definition: definition,
       isDynamic: dynamicCodec != nil
+    )
+    var normalizedRequest = rawRequest
+    normalizedRequest.arguments = normalizedArgumentNames(
+      rawRequest.arguments,
+      knownArgumentNames: knownArgumentNames
+    )
+
+    if let argumentError = validateArgumentNames(
+      normalizedRequest.arguments,
+      definition: definition,
+      isDynamic: dynamicCodec != nil,
+      knownArgumentNames: knownArgumentNames
     ) {
       return invalidRequest(rawRequest, reason: argumentError)
     }
 
-    let normalizedRequest = normalizedDynamicRequest(
-      rawRequest,
+    normalizedRequest = normalizedDynamicRequest(
+      normalizedRequest,
       definition: definition,
       isDynamic: dynamicCodec != nil
     )
@@ -56,13 +67,21 @@ struct ToolCallRequestValidator: Sendable {
   private func validateArgumentNames(
     _ arguments: ToolCallArguments,
     definition: ToolDefinition,
-    isDynamic: Bool
+    isDynamic: Bool,
+    knownArgumentNames: Set<String>?
   ) -> InvalidToolCallReason? {
+    if let knownArgumentNames {
+      let unknownArguments = Set(arguments.keys).subtracting(knownArgumentNames)
+      guard unknownArguments.isEmpty else {
+        return .unknownArguments(unknownArguments.sorted())
+      }
+    }
+
     if isDynamic {
       // Dynamic tools carry an opaque schema the external server owns and
-      // validates itself. Only enforce required parameters the schema states
-      // explicitly; unknown-argument rejection needs a full property list the
-      // structured definition does not have.
+      // validates itself. Enforce required parameters the schema states
+      // explicitly. Name repair and unknown-argument rejection apply only when
+      // the schema explicitly closes the finite top-level property list.
       guard let rawSchema = definition.rawParametersSchema else {
         return nil
       }
@@ -74,12 +93,6 @@ struct ToolCallRequestValidator: Sendable {
       return nil
     }
 
-    let knownArguments = Set(definition.parameters.map(\.name))
-    let unknownArguments = Set(arguments.keys).subtracting(knownArguments)
-    guard unknownArguments.isEmpty else {
-      return .unknownArguments(unknownArguments.sorted())
-    }
-
     for parameter in definition.parameters where parameter.isRequired {
       guard arguments[parameter.name] != nil else {
         return .missingRequiredArgument(parameter.name)
@@ -87,6 +100,63 @@ struct ToolCallRequestValidator: Sendable {
     }
 
     return nil
+  }
+
+  private func knownArgumentNames(
+    definition: ToolDefinition,
+    isDynamic: Bool
+  ) -> Set<String>? {
+    guard isDynamic else {
+      return Set(definition.parameters.map(\.name))
+    }
+    guard
+      let rawSchema = definition.rawParametersSchema,
+      case .object(let fields) = rawSchema,
+      fields["additionalProperties"] == .bool(false),
+      case .object(let properties)? = fields["properties"],
+      fields["patternProperties"] == nil,
+      fields["$ref"] == nil,
+      fields["allOf"] == nil,
+      fields["anyOf"] == nil,
+      fields["oneOf"] == nil
+    else {
+      return nil
+    }
+    return Set(properties.keys)
+  }
+
+  private func normalizedArgumentNames(
+    _ arguments: ToolCallArguments,
+    knownArgumentNames: Set<String>?
+  ) -> ToolCallArguments {
+    guard let knownArgumentNames else {
+      return arguments
+    }
+
+    let resolver = ToolIdentifierResolver()
+    let resolvedNames = arguments.keys.reduce(into: [String: String]()) { result, originalName in
+      let resolution = resolver.resolve(originalName, candidates: knownArgumentNames)
+      if let canonicalName = resolution.canonicalName {
+        result[originalName] = canonicalName
+      }
+    }
+    let originalNamesByCanonical = Dictionary(grouping: resolvedNames.keys) { originalName in
+      resolvedNames[originalName] ?? originalName
+    }
+
+    var normalizedArguments = arguments
+    for originalName in arguments.keys.sorted() {
+      guard
+        let canonicalName = resolvedNames[originalName],
+        canonicalName != originalName,
+        originalNamesByCanonical[canonicalName]?.count == 1,
+        let value = normalizedArguments.removeValue(forKey: originalName)
+      else {
+        continue
+      }
+      normalizedArguments[canonicalName] = value
+    }
+    return normalizedArguments
   }
 
   private func normalizedDynamicRequest(

@@ -535,8 +535,11 @@ declarations.
   model family. Provider adapters (`MLXToolMapper`) pass the normalized
   schema through instead of deriving a flat one, dropping JSON `null` values
   because the shared Jinja engine cannot represent them regardless of model.
-  Argument validation for dynamic tools enforces only the schema's explicit
-  `required` list; the server owns full argument validation.
+  Argument validation for dynamic tools always enforces the schema's explicit
+  `required` list. Deterministic top-level argument-name repair and unknown-key
+  rejection apply only when the schema exposes a finite `properties` list and
+  explicitly sets `additionalProperties: false`; otherwise the server owns full
+  argument validation.
 - Every MCP tool call requires approval before every execution, with a preview
   of server, tool, and arguments. `ChatSession.selectedMCPServerIDs` is the
   ordered, deduplicated per-session selection; new sessions select no MCP
@@ -591,6 +594,12 @@ declarations.
   Unknown names and semantic aliases such as `run`, `write`, `edit`, or
   `search` are not guessed; they become failed tool observations unless an
   explicit unambiguous alias is registered.
+- Top-level argument names use the same deterministic case, separator, and
+  camelCase repair against the active typed tool definition. Repairs are
+  accepted only when each key resolves to exactly one canonical parameter and
+  no two supplied keys resolve to the same parameter; semantic aliases are not
+  guessed. Dynamic MCP arguments use this repair only for explicitly closed
+  object schemas.
 - Read-only tools may auto-run only after workspace/path validation.
 - `read_file` returns a stateless `ReadFilePage` starting at the optional
   1-based `offset` (default `1`). Its optional `limit` is a call-local maximum

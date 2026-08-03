@@ -274,6 +274,14 @@ struct MCPToolRuntimeTests {
       registry: registry.toolRegistry,
       dynamicCodecs: registry.dynamicCodecs
     )
+    let misspelledRequired = validator.validate(
+      rawRequest(
+        toolName: ToolName(rawValue: "mcp__github__create_issue"),
+        arguments: ["Title": .string("Bug")]
+      ),
+      registry: registry.toolRegistry,
+      dynamicCodecs: registry.dynamicCodecs
+    )
 
     guard case .invalid(let input) = missing.payload else {
       Issue.record("Expected invalid payload, got \(missing.payload)")
@@ -284,6 +292,42 @@ struct MCPToolRuntimeTests {
       Issue.record("Expected mcp payload, got \(unknownArgumentsAllowed.payload)")
       return
     }
+    guard case .invalid(let misspelledInput) = misspelledRequired.payload else {
+      Issue.record("Expected invalid payload, got \(misspelledRequired.payload)")
+      return
+    }
+    #expect(misspelledInput.reason == .missingRequiredArgument("title"))
+    #expect(misspelledInput.rawArguments == ["Title": .string("Bug")])
+  }
+
+  @Test
+  func validatorRepairsArgumentNamesOnlyForClosedMCPObjectSchemas() {
+    let schema = ToolArgumentValue.object([
+      "type": .string("object"),
+      "properties": .object([
+        "issue_title": .object(["type": .string("string")])
+      ]),
+      "required": .array([.string("issue_title")]),
+      "additionalProperties": .bool(false),
+    ])
+    let executor = makeExecutor(result: nil, inputSchema: schema)
+    let registry = ToolExecutorRegistry.codingAgent.merging([AnyToolExecutor(dynamic: executor)])
+
+    let request = validator.validate(
+      rawRequest(
+        toolName: ToolName(rawValue: "mcp__github__create_issue"),
+        arguments: ["issueTitle": .string("Bug")]
+      ),
+      registry: registry.toolRegistry,
+      dynamicCodecs: registry.dynamicCodecs
+    )
+
+    guard case .mcp(let input) = request.payload else {
+      Issue.record("Expected mcp payload, got \(request.payload)")
+      return
+    }
+    #expect(input.arguments == ["issue_title": .string("Bug")])
+    #expect(request.raw.arguments == ["issue_title": .string("Bug")])
   }
 
   // MARK: - Executor state machine

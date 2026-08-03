@@ -1,22 +1,21 @@
 import Foundation
 
-enum ToolNameRepairMethod: String, Codable, Equatable, Sendable {
+enum ToolIdentifierRepairMethod: String, Codable, Equatable, Sendable, CaseIterable {
   case caseFold
   case separator
   case camelCase
-
 }
 
-enum ToolNameResolution: Equatable, Sendable {
-  case exact(ToolName)
-  case repaired(original: String, canonical: ToolName, method: ToolNameRepairMethod)
+enum ToolIdentifierResolution: Equatable, Sendable {
+  case exact(String)
+  case repaired(original: String, canonical: String, method: ToolIdentifierRepairMethod)
   case unknown(original: String)
-  case ambiguous(original: String, candidates: [ToolName])
+  case ambiguous(original: String, candidates: [String])
 
-  var canonicalToolName: ToolName? {
+  var canonicalName: String? {
     switch self {
-    case .exact(let toolName):
-      toolName
+    case .exact(let name):
+      name
     case .repaired(_, let canonical, _):
       canonical
     case .unknown, .ambiguous:
@@ -25,37 +24,25 @@ enum ToolNameResolution: Equatable, Sendable {
   }
 }
 
-struct ToolNameResolver: Sendable {
-
-  func resolve(_ rawName: String, registry: ToolRegistry) -> ToolNameResolution {
+struct ToolIdentifierResolver: Sendable {
+  func resolve(_ rawName: String, candidates: some Sequence<String>) -> ToolIdentifierResolution {
     let original = rawName
     let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-    let exact = ToolName(rawValue: trimmed)
-    if registry.definition(for: exact) != nil {
-      return .exact(exact)
+    let canonicalNames = Set(candidates)
+    if canonicalNames.contains(trimmed) {
+      return .exact(trimmed)
     }
 
-    var candidates: [ToolName: ToolNameRepairMethod] = [:]
-    collectCandidate(
-      method: .caseFold,
-      repairedName: trimmed.lowercased(),
-      registry: registry,
-      candidates: &candidates
-    )
-    collectCandidate(
-      method: .separator,
-      repairedName: separatorRepaired(trimmed),
-      registry: registry,
-      candidates: &candidates
-    )
-    collectCandidate(
-      method: .camelCase,
-      repairedName: camelCaseRepaired(trimmed),
-      registry: registry,
-      candidates: &candidates
-    )
+    var matches: [String: ToolIdentifierRepairMethod] = [:]
+    for method in ToolIdentifierRepairMethod.allCases {
+      let repairedName = normalized(trimmed, method: method)
+      for candidate in canonicalNames
+      where normalized(candidate, method: method) == repairedName && matches[candidate] == nil {
+        matches[candidate] = method
+      }
+    }
 
-    let sortedCandidates = candidates.keys.sorted { $0.rawValue < $1.rawValue }
+    let sortedCandidates = matches.keys.sorted()
     guard let canonical = sortedCandidates.first else {
       return .unknown(original: original)
     }
@@ -65,30 +52,22 @@ struct ToolNameResolver: Sendable {
     return .repaired(
       original: original,
       canonical: canonical,
-      method: candidates[canonical] ?? .caseFold
+      method: matches[canonical] ?? .caseFold
     )
   }
 
-  private func collectCandidate(
-    method: ToolNameRepairMethod,
-    repairedName: String,
-    registry: ToolRegistry,
-    candidates: inout [ToolName: ToolNameRepairMethod]
-  ) {
-    let candidate = ToolName(rawValue: repairedName)
-    guard registry.definition(for: candidate) != nil else {
-      return
+  private func normalized(_ name: String, method: ToolIdentifierRepairMethod) -> String {
+    switch method {
+    case .caseFold:
+      name.lowercased()
+    case .separator:
+      name
+        .replacingOccurrences(of: "-", with: "_")
+        .replacingOccurrences(of: " ", with: "_")
+        .lowercased()
+    case .camelCase:
+      camelCaseRepaired(name)
     }
-    if candidates[candidate] == nil {
-      candidates[candidate] = method
-    }
-  }
-
-  private func separatorRepaired(_ name: String) -> String {
-    name
-      .replacingOccurrences(of: "-", with: "_")
-      .replacingOccurrences(of: " ", with: "_")
-      .lowercased()
   }
 
   private func camelCaseRepaired(_ name: String) -> String {
@@ -115,5 +94,49 @@ struct ToolNameResolver: Sendable {
     }
 
     return output
+  }
+}
+
+enum ToolNameResolution: Equatable, Sendable {
+  case exact(ToolName)
+  case repaired(original: String, canonical: ToolName, method: ToolIdentifierRepairMethod)
+  case unknown(original: String)
+  case ambiguous(original: String, candidates: [ToolName])
+
+  var canonicalToolName: ToolName? {
+    switch self {
+    case .exact(let toolName):
+      toolName
+    case .repaired(_, let canonical, _):
+      canonical
+    case .unknown, .ambiguous:
+      nil
+    }
+  }
+}
+
+struct ToolNameResolver: Sendable {
+  func resolve(_ rawName: String, registry: ToolRegistry) -> ToolNameResolution {
+    let resolution = ToolIdentifierResolver().resolve(
+      rawName,
+      candidates: registry.tools.map(\.name.rawValue)
+    )
+    switch resolution {
+    case .exact(let canonical):
+      return .exact(ToolName(rawValue: canonical))
+    case .repaired(let original, let canonical, let method):
+      return .repaired(
+        original: original,
+        canonical: ToolName(rawValue: canonical),
+        method: method
+      )
+    case .unknown(let original):
+      return .unknown(original: original)
+    case .ambiguous(let original, let candidates):
+      return .ambiguous(
+        original: original,
+        candidates: candidates.map { ToolName(rawValue: $0) }
+      )
+    }
   }
 }
