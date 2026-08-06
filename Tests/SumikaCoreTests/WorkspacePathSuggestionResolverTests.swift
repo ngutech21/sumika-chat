@@ -7,16 +7,16 @@ import Testing
 @Suite(TemporaryDirectoryTrait(named: "sumika-workspace-path-suggestion-tests"))
 struct WorkspacePathSuggestionResolverTests {
   @Test
-  func suggestsSimilarBasenameAndExtension() throws {
+  func suggestsSimilarBasenameAndExtension() async throws {
     let workspace = try makeWorkspace()
     try write("html", to: "index.html", in: workspace)
     try write("swift", to: "Sources/ToolLoopCoordinator.swift", in: workspace)
 
-    let htmlSuggestions = WorkspacePathSuggestionResolver().suggestions(
+    let htmlSuggestions = await WorkspacePathSuggestionResolver().suggestions(
       forMissingPath: "landing.html",
       workspace: workspace
     )
-    let swiftSuggestions = WorkspacePathSuggestionResolver().suggestions(
+    let swiftSuggestions = await WorkspacePathSuggestionResolver().suggestions(
       forMissingPath: "Sources/ToolLoop.swift",
       workspace: workspace
     )
@@ -32,12 +32,12 @@ struct WorkspacePathSuggestionResolverTests {
   }
 
   @Test
-  func ranksSameDirectoryBeforeDistantExtensionMatch() throws {
+  func ranksSameDirectoryBeforeDistantExtensionMatch() async throws {
     let workspace = try makeWorkspace()
     try write("near", to: "Sources/AppView.swift", in: workspace)
     try write("far", to: "Tests/AppView.swift", in: workspace)
 
-    let suggestions = WorkspacePathSuggestionResolver().suggestions(
+    let suggestions = await WorkspacePathSuggestionResolver().suggestions(
       forMissingPath: "Sources/App.swift",
       workspace: workspace
     )
@@ -46,7 +46,7 @@ struct WorkspacePathSuggestionResolverTests {
   }
 
   @Test
-  func ignoresNoiseDirectoriesAndLimitsStableResults() throws {
+  func ignoresNoiseDirectoriesAndLimitsStableResults() async throws {
     let workspace = try makeWorkspace()
     try write("ignored", to: ".git/hooks/page.html", in: workspace)
     try write("ignored", to: "node_modules/pkg/page.html", in: workspace)
@@ -57,7 +57,7 @@ struct WorkspacePathSuggestionResolverTests {
     try write("5", to: "E/page.html", in: workspace)
     try write("6", to: "F/page.html", in: workspace)
 
-    let suggestions = WorkspacePathSuggestionResolver().suggestions(
+    let suggestions = await WorkspacePathSuggestionResolver().suggestions(
       forMissingPath: "page.html",
       workspace: workspace,
       maxSuggestions: 5

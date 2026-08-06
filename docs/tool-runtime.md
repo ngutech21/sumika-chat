@@ -640,17 +640,33 @@ declarations.
   records only that the file was displayed, with path/range/count/truncation
   metadata and no body text. Do not infer this behavior from raw user text;
   trigger it only from an explicit `show_file` tool call.
-- `glob_files` is a read-only discovery tool. Its `path` is a workspace-relative
-  search directory that defaults to `.`, skips project metadata/build
-  directories, and caps returned results.
+- Workspace discovery has one canonical fixed exclusion list: `.git`,
+  `.DS_Store`, `DerivedData`, `.build`, `build`, `.swiftpm`, and `node_modules`.
+  In a recognized Git repository, discovery also uses Git's standard ignore
+  sources (nested `.gitignore`, `.git/info/exclude`, and readable global
+  excludes). Tracked, physically present files remain discoverable. A missing
+  Git executable or inaccessible repository metadata falls back to the fixed
+  FileManager policy; a timeout or other failure after repository recognition
+  fails the tool call instead of exposing an unfiltered result. Ignore rules are
+  discovery policy, not an access boundary: explicitly targeting an ignored
+  directory bypasses Git ignore filtering, and direct file tools retain their
+  existing path validation and access semantics.
+- `list_files` is a read-only, flat listing of direct physical children. It
+  hides ignored entries, preserves nonignored empty directories, keeps
+  submodules as directory entries, and caps returned entries.
+- `glob_files` is a read-only recursive discovery tool. Its `path` is a
+  workspace-relative search directory that defaults to `.`, uses the canonical
+  discovery policy, and caps returned results.
 - `search_files` is a read-only discovery tool whose workspace-relative `path`
   may name a regular file or directory and defaults to `.`. Directory paths are
-  searched recursively while skipping project metadata/build directories. An
+  searched recursively through the canonical discovery policy. An
   explicitly targeted regular file is searched directly, including inside a
-  skipped directory. The optional `include` glob remains an additional filter
-  for either path kind. Results are capped. A valid pattern is treated as a
-  regular expression; invalid regular expressions fall back to literal
-  substring matching.
+  fixed or ignored directory. Submodules are opaque during discovery from the
+  parent repository but are inventoried as their own repository when explicitly
+  selected. The optional `include` glob remains an additional filter for either
+  path kind. Results are capped. A valid pattern is treated as a regular
+  expression; invalid regular expressions fall back to literal substring
+  matching.
 - `browser_refresh` and `browser_inspect` are Agent-only preview tools. They
   operate only on the current integrated HTML preview target, not arbitrary
   URLs or file paths. `browser_refresh` reloads the current preview page without

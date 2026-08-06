@@ -44,10 +44,10 @@ enum ToolResultFailureMapper {
     for inputPath: String,
     resolvedURL: URL?,
     workspace: Workspace
-  ) -> ToolFailureReason {
+  ) async -> ToolFailureReason {
     let path = relativePath(for: inputPath, resolvedURL: resolvedURL, workspace: workspace)
-    let suggestions = workspace.withSecurityScopedAccess {
-      WorkspacePathSuggestionResolver()
+    let suggestions = await workspace.withAsyncSecurityScopedAccess {
+      await WorkspacePathSuggestionResolver()
         .suggestions(forMissingPath: inputPath, workspace: workspace)
     }
     return .fileNotFound(
@@ -181,18 +181,18 @@ private struct AnyEditFileGroupExecutor: Sendable {
   private let evaluatePermissionHandler:
     @Sendable (EditFileInput, ToolContext) -> ToolPermissionEvaluation
   private let prepareApprovalHandler:
-    @Sendable ([EditFileInput], ToolContext) -> EditFileGroupPreparation
-  private let runHandler: @Sendable ([EditFileInput], ToolContext) -> EditFileGroupExecution
+    @Sendable ([EditFileInput], ToolContext) async -> EditFileGroupPreparation
+  private let runHandler: @Sendable ([EditFileInput], ToolContext) async -> EditFileGroupExecution
 
   init(_ tool: EditFileToolExecutor) {
     evaluatePermissionHandler = { input, context in
       tool.evaluatePermission(input, context: context)
     }
     prepareApprovalHandler = { inputs, context in
-      tool.prepareApprovalGroup(inputs, context: context)
+      await tool.prepareApprovalGroup(inputs, context: context)
     }
     runHandler = { inputs, context in
-      tool.runGroup(inputs, context: context)
+      await tool.runGroup(inputs, context: context)
     }
   }
 
@@ -206,15 +206,15 @@ private struct AnyEditFileGroupExecutor: Sendable {
   func prepareApprovalGroup(
     _ inputs: [EditFileInput],
     context: ToolContext
-  ) -> EditFileGroupPreparation {
-    prepareApprovalHandler(inputs, context)
+  ) async -> EditFileGroupPreparation {
+    await prepareApprovalHandler(inputs, context)
   }
 
   func runGroup(
     _ inputs: [EditFileInput],
     context: ToolContext
-  ) -> EditFileGroupExecution {
-    runHandler(inputs, context)
+  ) async -> EditFileGroupExecution {
+    await runHandler(inputs, context)
   }
 }
 
@@ -990,7 +990,7 @@ struct ToolOrchestrator: Sendable {
     }()
 
     if approvedRecords == nil || scopeChanged {
-      switch tool.prepareApprovalGroup(inputs, context: context) {
+      switch await tool.prepareApprovalGroup(inputs, context: context) {
       case .ready(let preview):
         return zip(requests, evaluations).enumerated().map { index, pair in
           ToolCallRecord(
@@ -1018,7 +1018,7 @@ struct ToolOrchestrator: Sendable {
       }
     }
 
-    switch tool.runGroup(inputs, context: context) {
+    switch await tool.runGroup(inputs, context: context) {
     case .completed(let payloads):
       return zip(zip(requests, evaluations), payloads).map { pair, payload in
         ToolCallRecord(request: pair.0, evaluation: pair.1, state: .completed(payload))

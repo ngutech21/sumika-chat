@@ -71,18 +71,16 @@ struct ListFilesToolExecutor: TypedToolExecutor {
 
   private let maxDepth: Int
   private let maxEntries: Int
-  private let skippedNames: Set<String>
+  private let fileDiscovery: WorkspaceFileDiscovery
 
   init(
     maxDepth: Int = 0,
     maxEntries: Int = 300,
-    skippedNames: Set<String> = [
-      ".DS_Store"
-    ]
+    fileDiscovery: WorkspaceFileDiscovery = WorkspaceFileDiscovery()
   ) {
     self.maxDepth = maxDepth
     self.maxEntries = maxEntries
-    self.skippedNames = skippedNames
+    self.fileDiscovery = fileDiscovery
   }
 
   func evaluatePermission(
@@ -112,15 +110,16 @@ struct ListFilesToolExecutor: TypedToolExecutor {
     var resolvedURL: URL?
 
     do {
-      return try context.workspace.withSecurityScopedAccess {
+      return try await context.workspace.withAsyncSecurityScopedAccess {
         let rootURL = try context.workspace.resolveAllowedPath(path)
         resolvedURL = rootURL
         let rootPath = context.workspace.relativePath(for: rootURL)
-        var entries: [String] = []
+        let workspaceRootURL = try context.workspace.resolveAllowedPath(".")
+        var entries: [WorkspaceFileEntry] = []
         var truncated = false
-        try appendEntries(
+        try await appendEntries(
           at: rootURL,
-          displayPrefix: "",
+          workspaceRootURL: workspaceRootURL,
           depth: 0,
           entries: &entries,
           truncated: &truncated
@@ -129,16 +128,7 @@ struct ListFilesToolExecutor: TypedToolExecutor {
         return .listFiles(
           ListFilesResult(
             root: rootPath,
-            entries: entries.map { entry in
-              let isDirectory = entry.hasSuffix("/")
-              let path = isDirectory ? String(entry.dropLast()) : entry
-              let workspacePath =
-                rootPath.rawValue == "." ? path : rootPath.rawValue + "/" + path
-              return WorkspaceFileEntry(
-                path: WorkspaceRelativePath(rawValue: workspacePath),
-                kind: isDirectory ? .directory : .file
-              )
-            },
+            entries: entries,
             truncated: truncated
           )
         )
@@ -157,34 +147,31 @@ struct ListFilesToolExecutor: TypedToolExecutor {
 
   private func appendEntries(
     at url: URL,
-    displayPrefix: String,
+    workspaceRootURL: URL,
     depth: Int,
-    entries: inout [String],
+    entries: inout [WorkspaceFileEntry],
     truncated: inout Bool
-  ) throws {
-    guard entries.count < maxEntries else {
-      truncated = true
-      return
-    }
+  ) async throws {
     guard depth <= maxDepth else {
       return
     }
 
     let resourceValues = try url.resourceValues(forKeys: [.isDirectoryKey])
     guard resourceValues.isDirectory == true else {
-      entries.append(displayPrefix.isEmpty ? url.lastPathComponent : displayPrefix)
+      if entries.count >= maxEntries {
+        truncated = true
+      } else {
+        let path = WorkspaceRelativePath(
+          rawValue: lexicalRelativePath(for: url, rootURL: workspaceRootURL))
+        entries.append(WorkspaceFileEntry(path: path, kind: .file))
+      }
       return
     }
 
-    let children = try FileManager.default.contentsOfDirectory(
+    let children = try await fileDiscovery.directChildren(
       at: url,
-      includingPropertiesForKeys: [.isDirectoryKey],
-      options: []
+      relativeTo: workspaceRootURL
     )
-    .filter { !skippedNames.contains($0.lastPathComponent) }
-    .sorted { lhs, rhs in
-      lhs.lastPathComponent.localizedStandardCompare(rhs.lastPathComponent) == .orderedAscending
-    }
 
     for child in children {
       guard entries.count < maxEntries else {
@@ -192,28 +179,35 @@ struct ListFilesToolExecutor: TypedToolExecutor {
         return
       }
 
-      let childValues = try child.resourceValues(forKeys: [.isDirectoryKey])
-      let isDirectory = childValues.isDirectory == true
-      let relativePath =
-        displayPrefix.isEmpty
-        ? child.lastPathComponent
-        : displayPrefix + "/" + child.lastPathComponent
-      entries.append(isDirectory ? relativePath + "/" : relativePath)
+      entries.append(
+        WorkspaceFileEntry(
+          path: WorkspaceRelativePath(rawValue: child.relativePath),
+          kind: child.kind
+        ))
 
       // A subdirectory is shown as a "name/" entry the model can descend into with a
       // follow-up list_files call. Not expanding it is by design (flat listing), NOT
       // truncation — `truncated` must only reflect the maxEntries cap, otherwise every
       // listing that contains a subdirectory falsely signals "there is more", which
       // makes small models re-list instead of progressing.
-      if isDirectory, depth < maxDepth {
-        try appendEntries(
-          at: child,
-          displayPrefix: relativePath,
+      if child.kind == .directory, depth < maxDepth {
+        try await appendEntries(
+          at: child.url,
+          workspaceRootURL: workspaceRootURL,
           depth: depth + 1,
           entries: &entries,
           truncated: &truncated
         )
       }
     }
+  }
+
+  private func lexicalRelativePath(for url: URL, rootURL: URL) -> String {
+    let rootPath = rootURL.standardizedFileURL.path(percentEncoded: false)
+    let candidatePath = url.standardizedFileURL.path(percentEncoded: false)
+    guard candidatePath.hasPrefix(rootPath + "/") else {
+      return candidatePath
+    }
+    return String(candidatePath.dropFirst(rootPath.count + 1))
   }
 }

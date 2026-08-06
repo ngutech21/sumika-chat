@@ -316,7 +316,7 @@ struct EditFileToolExecutor: TypedToolExecutor {
   func previewApproval(_ input: EditFileInput, context: ToolContext) async
     -> ToolResultPreview?
   {
-    switch prepareApprovalGroup([input], context: context) {
+    switch await prepareApprovalGroup([input], context: context) {
     case .ready(let preview):
       return preview
     case .failed(let previews):
@@ -325,7 +325,7 @@ struct EditFileToolExecutor: TypedToolExecutor {
   }
 
   func run(_ input: EditFileInput, context: ToolContext) async -> ToolResultPayload {
-    switch runGroup([input], context: context) {
+    switch await runGroup([input], context: context) {
     case .completed(let payloads), .failed(let payloads):
       return payloads[0]
     case .cancelled:
@@ -342,7 +342,7 @@ struct EditFileToolExecutor: TypedToolExecutor {
     context: ToolContext,
     resolvedURL: URL?,
     error: Error
-  ) -> ToolResultPreview {
+  ) async -> ToolResultPreview {
     if case EditFileValidationError.oldTextNotFound = error {
       return oldTextNotFoundResult(input, context: context, resolvedURL: resolvedURL).preview
     }
@@ -355,7 +355,7 @@ struct EditFileToolExecutor: TypedToolExecutor {
       .failed(
         path: ToolResultFailureMapper.relativePath(
           for: input.path, resolvedURL: resolvedURL, workspace: context.workspace),
-        reason: ToolResultFailureMapper.missingFileReason(
+        reason: await ToolResultFailureMapper.missingFileReason(
           for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
       )
     ).preview
@@ -836,7 +836,7 @@ extension EditFileToolExecutor {
   func prepareApprovalGroup(
     _ inputs: [EditFileInput],
     context: ToolContext
-  ) -> EditFileGroupPreparation {
+  ) async -> EditFileGroupPreparation {
     precondition(!inputs.isEmpty)
     do {
       let preview = try EditFileTransaction(receiptPolicy: receiptPolicy).preview(
@@ -845,17 +845,19 @@ extension EditFileToolExecutor {
       )
       return .ready(preview)
     } catch let failure as EditFileTransactionFailure {
-      return .failed(failurePreviews(for: inputs, context: context, failure: failure))
+      return .failed(
+        await failurePreviews(for: inputs, context: context, failure: failure))
     } catch {
       let failure = EditFileTransactionFailure(inputIndex: 0, resolvedURL: nil, cause: error)
-      return .failed(failurePreviews(for: inputs, context: context, failure: failure))
+      return .failed(
+        await failurePreviews(for: inputs, context: context, failure: failure))
     }
   }
 
   func runGroup(
     _ inputs: [EditFileInput],
     context: ToolContext
-  ) -> EditFileGroupExecution {
+  ) async -> EditFileGroupExecution {
     precondition(!inputs.isEmpty)
     do {
       let receipts = try EditFileTransaction(receiptPolicy: receiptPolicy).commit(
@@ -866,10 +868,12 @@ extension EditFileToolExecutor {
     } catch is CancellationError {
       return .cancelled
     } catch let failure as EditFileTransactionFailure {
-      return .failed(failurePayloads(for: inputs, context: context, failure: failure))
+      return .failed(
+        await failurePayloads(for: inputs, context: context, failure: failure))
     } catch {
       let failure = EditFileTransactionFailure(inputIndex: 0, resolvedURL: nil, cause: error)
-      return .failed(failurePayloads(for: inputs, context: context, failure: failure))
+      return .failed(
+        await failurePayloads(for: inputs, context: context, failure: failure))
     }
   }
 
@@ -877,15 +881,18 @@ extension EditFileToolExecutor {
     for inputs: [EditFileInput],
     context: ToolContext,
     failure: EditFileTransactionFailure
-  ) -> [ToolResultPreview] {
-    inputs.enumerated().map { index, input in
+  ) async -> [ToolResultPreview] {
+    var previews: [ToolResultPreview] = []
+    for (index, input) in inputs.enumerated() {
       if index == failure.inputIndex {
-        return failurePreview(
-          for: input,
-          context: context,
-          resolvedURL: failure.resolvedURL,
-          error: failure.cause
-        )
+        previews.append(
+          await failurePreview(
+            for: input,
+            context: context,
+            resolvedURL: failure.resolvedURL,
+            error: failure.cause
+          ))
+        continue
       }
       let path =
         ToolResultFailureMapper.relativePath(
@@ -893,20 +900,23 @@ extension EditFileToolExecutor {
           resolvedURL: failure.resolvedURL,
           workspace: context.workspace
         ) ?? WorkspaceRelativePath(rawValue: input.path)
-      return ToolResultPreview(
-        status: .failed,
-        text: atomicGroupFailureMessage(cause: failure.cause),
-        affectedPaths: [path.rawValue]
-      )
+      previews.append(
+        ToolResultPreview(
+          status: .failed,
+          text: atomicGroupFailureMessage(cause: failure.cause),
+          affectedPaths: [path.rawValue]
+        ))
     }
+    return previews
   }
 
   private func failurePayloads(
     for inputs: [EditFileInput],
     context: ToolContext,
     failure: EditFileTransactionFailure
-  ) -> [ToolResultPayload] {
-    inputs.enumerated().map { index, input in
+  ) async -> [ToolResultPayload] {
+    var payloads: [ToolResultPayload] = []
+    for (index, input) in inputs.enumerated() {
       guard index == failure.inputIndex else {
         let path =
           ToolResultFailureMapper.relativePath(
@@ -914,19 +924,23 @@ extension EditFileToolExecutor {
             resolvedURL: failure.resolvedURL,
             workspace: context.workspace
           ) ?? WorkspaceRelativePath(rawValue: input.path)
-        return .editFile(
-          .failed(
-            path: path,
-            reason: .executionError(atomicGroupFailureMessage(cause: failure.cause))
-          ))
+        payloads.append(
+          .editFile(
+            .failed(
+              path: path,
+              reason: .executionError(atomicGroupFailureMessage(cause: failure.cause))
+            )))
+        continue
       }
-      return failurePayload(
-        for: input,
-        context: context,
-        resolvedURL: failure.resolvedURL,
-        error: failure.cause
-      )
+      payloads.append(
+        await failurePayload(
+          for: input,
+          context: context,
+          resolvedURL: failure.resolvedURL,
+          error: failure.cause
+        ))
     }
+    return payloads
   }
 
   private func failurePayload(
@@ -934,7 +948,7 @@ extension EditFileToolExecutor {
     context: ToolContext,
     resolvedURL: URL?,
     error: Error
-  ) -> ToolResultPayload {
+  ) async -> ToolResultPayload {
     if case EditFileValidationError.oldTextNotFound = error {
       return context.workspace.withSecurityScopedAccess {
         oldTextNotFoundResult(input, context: context, resolvedURL: resolvedURL)
@@ -965,7 +979,7 @@ extension EditFileToolExecutor {
         path: ToolResultFailureMapper.relativePath(
           for: input.path, resolvedURL: resolvedURL, workspace: context.workspace),
         reason: ToolResultFailureMapper.isFileNotFound(error)
-          ? ToolResultFailureMapper.missingFileReason(
+          ? await ToolResultFailureMapper.missingFileReason(
             for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
           : ToolResultFailureMapper.reason(from: error)
       ))

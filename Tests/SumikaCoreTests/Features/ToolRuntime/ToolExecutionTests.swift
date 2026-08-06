@@ -683,6 +683,7 @@ struct ToolExecutionTests {
   func listFilesSortsSkipsAndTruncatesFlatDefault() async throws {
     let workspace = try makeWorkspace()
     try write("root", to: "zeta.txt", in: workspace)
+    try write("root", to: "zzzz.txt", in: workspace)
     try write("root", to: "alpha.txt", in: workspace)
     try write("skip", to: ".DS_Store", in: workspace)
     try write("skip", to: ".git/config", in: workspace)
@@ -697,11 +698,13 @@ struct ToolExecutionTests {
     #expect(result.status == .success)
     #expect(
       result.text.split(separator: "\n").map(String.init) == [
-        ".git/", "alpha.txt", "node_modules/",
+        "alpha.txt", "Sources/", "zeta.txt",
       ])
     #expect(!result.text.contains(".DS_Store"))
     #expect(!result.text.contains(".git/config"))
+    #expect(!result.text.contains(".git/"))
     #expect(!result.text.contains("node_modules/pkg/index.js"))
+    #expect(!result.text.contains("node_modules/"))
     #expect(!result.text.contains("Sources/App.swift"))
     #expect(result.truncated)
   }
@@ -1627,6 +1630,47 @@ struct ToolExecutionTests {
     #expect(result.stderr == "err")
     #expect(!result.timedOut)
     #expect(!result.cancelled)
+  }
+
+  @Test
+  func defaultCommandProcessRunnerBoundsOutputAndWritesStandardInput() async throws {
+    let runner = DefaultCommandProcessRunner()
+    let result = try await runner.run(
+      CommandProcessRequest(
+        executableURL: URL(filePath: "/bin/bash"),
+        arguments: ["-c", "read -r value; printf '%s-abcdefghij' \"$value\""],
+        environment: [:],
+        workingDirectoryURL: try makeTemporaryDirectory(),
+        timeoutSeconds: 5,
+        standardInput: Data("input\n".utf8),
+        maxStdoutBytes: 8
+      )
+    )
+
+    #expect(result.stdout == "input-ab")
+    #expect(result.stdoutTruncated)
+    #expect(!result.stderrTruncated)
+  }
+
+  @Test
+  func defaultCommandProcessRunnerPreservesBytesWhenLimitSplitsUTF8() async throws {
+    let runner = DefaultCommandProcessRunner()
+    let completeRecord = Data("Complete.swift\0".utf8)
+    let result = try await runner.run(
+      CommandProcessRequest(
+        executableURL: URL(filePath: "/bin/bash"),
+        arguments: ["-c", "printf 'Complete.swift\\0\\303\\251'"],
+        environment: [:],
+        workingDirectoryURL: try makeTemporaryDirectory(),
+        timeoutSeconds: 5,
+        maxStdoutBytes: completeRecord.count + 1
+      )
+    )
+
+    var expected = completeRecord
+    expected.append(0xC3)
+    #expect(result.stdoutData == expected)
+    #expect(result.stdoutTruncated)
   }
 
   @Test

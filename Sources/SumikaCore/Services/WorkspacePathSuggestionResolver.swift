@@ -8,23 +8,23 @@ internal struct WorkspacePathSuggestionResolver: Sendable {
   }
 
   private let maxScannedFiles: Int
-  private let skippedNames: Set<String>
+  private let fileDiscovery: WorkspaceFileDiscovery
 
   package init(
     maxScannedFiles: Int = 1_000,
-    skippedNames: Set<String> = WorkspaceFileEnumeration.skippedNames
+    fileDiscovery: WorkspaceFileDiscovery = WorkspaceFileDiscovery()
   ) {
     self.maxScannedFiles = maxScannedFiles
-    self.skippedNames = skippedNames
+    self.fileDiscovery = fileDiscovery
   }
 
   package func suggestions(
     forMissingPath inputPath: String,
     workspace: Workspace,
     maxSuggestions: Int = 5
-  ) -> [MissingPathSuggestion] {
+  ) async -> [MissingPathSuggestion] {
     let requested = RequestedPath(inputPath)
-    guard maxSuggestions > 0, !requested.path.isEmpty else {
+    guard maxScannedFiles > 0, maxSuggestions > 0, !requested.path.isEmpty else {
       return []
     }
 
@@ -32,11 +32,13 @@ internal struct WorkspacePathSuggestionResolver: Sendable {
     var scannedFiles = 0
 
     do {
-      try WorkspaceFileEnumeration.enumerateFiles(
-        at: workspace.rootURL,
-        skippedNames: skippedNames
-      ) { _, relativePath in
+      let rootURL = try workspace.resolveAllowedPath(".")
+      _ = try await fileDiscovery.visitRecursiveFiles(
+        at: rootURL,
+        relativeTo: rootURL
+      ) { file in
         scannedFiles += 1
+        let relativePath = file.relativePath
         if let candidate = Self.candidate(for: relativePath, requested: requested) {
           candidates.append(candidate)
         }

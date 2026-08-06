@@ -108,19 +108,28 @@ internal struct CommandProcessRequest: Equatable, Sendable {
   package var environment: [String: String]
   package var workingDirectoryURL: URL
   package var timeoutSeconds: Int
+  package var standardInput: Data?
+  package var maxStdoutBytes: Int?
+  package var maxStderrBytes: Int?
 
   package init(
     executableURL: URL,
     arguments: [String],
     environment: [String: String],
     workingDirectoryURL: URL,
-    timeoutSeconds: Int
+    timeoutSeconds: Int,
+    standardInput: Data? = nil,
+    maxStdoutBytes: Int? = nil,
+    maxStderrBytes: Int? = nil
   ) {
     self.executableURL = executableURL
     self.arguments = arguments
     self.environment = environment
     self.workingDirectoryURL = workingDirectoryURL
     self.timeoutSeconds = timeoutSeconds
+    self.standardInput = standardInput
+    self.maxStdoutBytes = maxStdoutBytes
+    self.maxStderrBytes = maxStderrBytes
   }
 }
 
@@ -128,24 +137,33 @@ internal struct CommandProcessResult: Equatable, Sendable {
   package var exitCode: Int32?
   package var durationMs: Int
   package var stdout: String
+  package var stdoutData: Data
   package var stderr: String
   package var timedOut: Bool
   package var cancelled: Bool
+  package var stdoutTruncated: Bool
+  package var stderrTruncated: Bool
 
   package init(
     exitCode: Int32?,
     durationMs: Int,
     stdout: String,
     stderr: String,
+    stdoutData: Data? = nil,
     timedOut: Bool = false,
-    cancelled: Bool = false
+    cancelled: Bool = false,
+    stdoutTruncated: Bool = false,
+    stderrTruncated: Bool = false
   ) {
     self.exitCode = exitCode
     self.durationMs = durationMs
     self.stdout = stdout
+    self.stdoutData = stdoutData ?? Data(stdout.utf8)
     self.stderr = stderr
     self.timedOut = timedOut
     self.cancelled = cancelled
+    self.stdoutTruncated = stdoutTruncated
+    self.stderrTruncated = stderrTruncated
   }
 }
 
@@ -161,12 +179,15 @@ private enum CommandProcessWaitOutcome: Sendable {
 
 private final class PipeDataCollector: @unchecked Sendable {
   private let fileHandle: FileHandle
+  private let maxBytes: Int?
   private let lock = NSLock()
   private var data = Data()
   private var reachedEnd = false
+  private var truncated = false
 
-  init(fileHandle: FileHandle) {
+  init(fileHandle: FileHandle, maxBytes: Int? = nil) {
     self.fileHandle = fileHandle
+    self.maxBytes = maxBytes
     fileHandle.readabilityHandler = { [weak self] handle in
       let chunk = handle.availableData
       if chunk.isEmpty {
@@ -186,6 +207,13 @@ private final class PipeDataCollector: @unchecked Sendable {
 
   func close() {
     _ = snapshotAndClose()
+  }
+
+  var wasTruncated: Bool {
+    lock.lock()
+    let value = truncated
+    lock.unlock()
+    return value
   }
 
   private func snapshotAndClose() -> Data {
@@ -210,7 +238,13 @@ private final class PipeDataCollector: @unchecked Sendable {
     if chunk.isEmpty {
       reachedEnd = true
     } else {
-      data.append(chunk)
+      let remainingBytes = maxBytes.map { max($0 - data.count, 0) } ?? chunk.count
+      if remainingBytes > 0 {
+        data.append(chunk.prefix(remainingBytes))
+      }
+      if remainingBytes < chunk.count {
+        truncated = true
+      }
     }
     lock.unlock()
   }
@@ -237,13 +271,29 @@ private func runCommandProcess(_ request: CommandProcessRequest) async throws
   let stderrPipe = Pipe()
   process.standardOutput = stdoutPipe
   process.standardError = stderrPipe
-  let stdoutCollector = PipeDataCollector(fileHandle: stdoutPipe.fileHandleForReading)
-  let stderrCollector = PipeDataCollector(fileHandle: stderrPipe.fileHandleForReading)
+  let standardInputPipe = request.standardInput.map { _ in Pipe() }
+  process.standardInput = standardInputPipe
+  let stdoutCollector = PipeDataCollector(
+    fileHandle: stdoutPipe.fileHandleForReading,
+    maxBytes: request.maxStdoutBytes
+  )
+  let stderrCollector = PipeDataCollector(
+    fileHandle: stderrPipe.fileHandleForReading,
+    maxBytes: request.maxStderrBytes
+  )
 
   let startedAt = Date()
   do {
     try process.run()
+    if let standardInput = request.standardInput, let standardInputPipe {
+      try standardInputPipe.fileHandleForWriting.write(contentsOf: standardInput)
+      try standardInputPipe.fileHandleForWriting.close()
+    }
   } catch {
+    try? standardInputPipe?.fileHandleForWriting.close()
+    if process.isRunning {
+      terminateProcessTree(process)
+    }
     stdoutCollector.close()
     stderrCollector.close()
     throw error
@@ -263,17 +313,27 @@ private func runCommandProcess(_ request: CommandProcessRequest) async throws
 
   let durationMs = max(Int(Date().timeIntervalSince(startedAt) * 1000), 0)
   let pipeDrainGrace: Duration = .milliseconds(25)
-  async let stdoutData = stdoutCollector.snapshot(afterExitDrain: pipeDrainGrace)
-  async let stderrData = stderrCollector.snapshot(afterExitDrain: pipeDrainGrace)
+  async let stdoutCapture = stdoutCollector.snapshot(afterExitDrain: pipeDrainGrace)
+  async let stderrCapture = stderrCollector.snapshot(afterExitDrain: pipeDrainGrace)
+  let (stdoutData, stderrData) = await (stdoutCapture, stderrCapture)
 
   return CommandProcessResult(
     exitCode: process.isRunning ? nil : process.terminationStatus,
     durationMs: durationMs,
-    stdout: String(data: await stdoutData, encoding: .utf8) ?? "",
-    stderr: String(data: await stderrData, encoding: .utf8) ?? "",
+    stdout: decodeUTF8Lossily(stdoutData),
+    stderr: String(bytes: stderrData, encoding: .utf8) ?? "",
+    stdoutData: stdoutData,
     timedOut: waitOutcome == .timedOut,
-    cancelled: waitOutcome == .cancelled
+    cancelled: waitOutcome == .cancelled,
+    stdoutTruncated: stdoutCollector.wasTruncated,
+    stderrTruncated: stderrCollector.wasTruncated
   )
+}
+
+private func decodeUTF8Lossily(_ data: Data) -> String {
+  // Invalid or byte-truncated output still needs a useful display projection.
+  // swiftlint:disable:next optional_data_string_conversion
+  return String(decoding: data, as: UTF8.self)
 }
 
 private func waitForExitOrTimeout(

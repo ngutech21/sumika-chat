@@ -77,14 +77,14 @@ struct GlobFilesToolExecutor: TypedToolExecutor {
   )
 
   private let maxResults: Int
-  private let skippedNames: Set<String>
+  private let fileDiscovery: WorkspaceFileDiscovery
 
   init(
     maxResults: Int = 300,
-    skippedNames: Set<String> = WorkspaceFileEnumeration.skippedNames
+    fileDiscovery: WorkspaceFileDiscovery = WorkspaceFileDiscovery()
   ) {
     self.maxResults = maxResults
-    self.skippedNames = skippedNames
+    self.fileDiscovery = fileDiscovery
   }
 
   func evaluatePermission(
@@ -112,30 +112,21 @@ struct GlobFilesToolExecutor: TypedToolExecutor {
   func run(_ input: GlobFilesInput, context: ToolContext) async -> ToolResultPayload {
     var resolvedURL: URL?
     do {
-      return try context.workspace.withSecurityScopedAccess {
+      return try await context.workspace.withAsyncSecurityScopedAccess {
         let rootURL = try context.workspace.resolveAllowedPath(input.path ?? ".")
         resolvedURL = rootURL
         let rootPath = context.workspace.relativePath(for: rootURL)
         let workspaceRootURL = try context.workspace.resolveAllowedPath(".")
         let matcher = try GlobPatternMatcher(pattern: input.pattern)
         var results: [String] = []
-        var truncated = false
-
-        try WorkspaceFileEnumeration.enumerateFiles(
+        let truncated = try await fileDiscovery.visitRecursiveFiles(
           at: rootURL,
-          relativeTo: workspaceRootURL,
-          skippedNames: skippedNames
-        ) { _, relativePath in
-          if matcher.matches(relativePath) {
-            results.append(relativePath)
+          relativeTo: workspaceRootURL
+        ) { file in
+          if matcher.matches(file.relativePath) {
+            results.append(file.relativePath)
           }
-
-          if results.count >= maxResults {
-            truncated = true
-            return false
-          }
-
-          return true
+          return results.count < maxResults
         }
 
         return .globFiles(

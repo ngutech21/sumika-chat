@@ -689,7 +689,7 @@ struct ReadFileToolExecutor: TypedToolExecutor {
           path: ToolResultFailureMapper.relativePath(
             for: input.path, resolvedURL: resolvedURL, workspace: context.workspace),
           reason: ToolResultFailureMapper.isFileNotFound(error)
-            ? ToolResultFailureMapper.missingFileReason(
+            ? await ToolResultFailureMapper.missingFileReason(
               for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
             : ToolResultFailureMapper.reason(from: error)
         )

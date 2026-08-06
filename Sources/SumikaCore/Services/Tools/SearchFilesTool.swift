@@ -88,18 +88,18 @@ struct SearchFilesToolExecutor: TypedToolExecutor {
   private let maxMatches: Int
   private let maxSnippetLength: Int
   private let maxFileBytes: Int
-  private let skippedNames: Set<String>
+  private let fileDiscovery: WorkspaceFileDiscovery
 
   init(
     maxMatches: Int = 200,
     maxSnippetLength: Int = 240,
     maxFileBytes: Int = 2 * 1024 * 1024,
-    skippedNames: Set<String> = WorkspaceFileEnumeration.skippedNames
+    fileDiscovery: WorkspaceFileDiscovery = WorkspaceFileDiscovery()
   ) {
     self.maxMatches = maxMatches
     self.maxSnippetLength = maxSnippetLength
     self.maxFileBytes = maxFileBytes
-    self.skippedNames = skippedNames
+    self.fileDiscovery = fileDiscovery
   }
 
   func evaluatePermission(
@@ -127,7 +127,7 @@ struct SearchFilesToolExecutor: TypedToolExecutor {
   func run(_ input: SearchFilesInput, context: ToolContext) async -> ToolResultPayload {
     var resolvedURL: URL?
     do {
-      return try context.workspace.withSecurityScopedAccess {
+      return try await context.workspace.withAsyncSecurityScopedAccess {
         let rootURL = try context.workspace.resolveAllowedPath(input.path ?? ".")
         resolvedURL = rootURL
         let rootPath = context.workspace.relativePath(for: rootURL)
@@ -170,12 +170,13 @@ struct SearchFilesToolExecutor: TypedToolExecutor {
         if rootValues.isRegularFile == true {
           _ = try visitFile(rootURL, rootPath.rawValue)
         } else if rootValues.isDirectory == true {
-          try WorkspaceFileEnumeration.enumerateFiles(
+          let discoveryTruncated = try await fileDiscovery.visitRecursiveFiles(
             at: rootURL,
-            relativeTo: workspaceRootURL,
-            skippedNames: skippedNames,
-            visit: visitFile
-          )
+            relativeTo: workspaceRootURL
+          ) { file in
+            try visitFile(file.url, file.relativePath)
+          }
+          truncated = truncated || discoveryTruncated
         } else {
           return .failure(
             ToolFailure(
