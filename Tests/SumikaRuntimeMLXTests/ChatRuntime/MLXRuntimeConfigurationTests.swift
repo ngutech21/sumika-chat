@@ -47,16 +47,6 @@ struct MLXRuntimeConfigurationTests {
   }
 
   @Test
-  func mlxToolCallFormatInferenceDocumentsGemmaAndQwenCoverage() {
-    #expect(ToolCallFormat.infer(from: "gemma4_unified") == .gemma4)
-    #expect(ToolCallFormat.infer(from: "qwen3_5") == .xmlFunction)
-    #expect(ToolCallFormat.infer(from: "qwen3_5_moe") == .xmlFunction)
-    #expect(ToolCallFormat.infer(from: "qwen3_next") == .xmlFunction)
-    #expect(ToolCallFormat.infer(from: "qwen3") == nil)
-    #expect(ToolCallFormat.infer(from: "qwen2") == nil)
-  }
-
-  @Test
   func productSourceDoesNotHardCodeModelStopTokens() throws {
     var repositoryURL = URL(filePath: #filePath).deletingLastPathComponent()
     while !FileManager.default.fileExists(

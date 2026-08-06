@@ -1,5 +1,5 @@
 {
-  "originHash" : "486f6056d054a422aa968a0a7a23a600456e845260f7179538f82adfbf1226eb",
+  "originHash" : "2b02c9608680c9fb419b026a8cc6aa4610838d255fdb9908ce628a85eada3d43",
   "pins" : [
     {
       "identity" : "eventsource",
@@ -31,9 +31,9 @@
     {
       "identity" : "mlx-swift-lm",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ngutech21/mlx-swift-lm",
+      "location" : "https://github.com/ml-explore/mlx-swift-lm",
       "state" : {
-        "revision" : "616dca2bf3b533096313a80ff8d5742b2a5d2ea8"
+        "revision" : "38927f5f3da6d4720ac952f4d97f88d4424f11aa"
       }
     },
     {

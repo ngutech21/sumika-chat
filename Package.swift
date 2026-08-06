@@ -37,8 +37,8 @@ let package = Package(
     .package(url: "https://github.com/tree-sitter/tree-sitter-typescript", exact: "0.23.2"),
     .package(url: "https://github.com/ml-explore/mlx-swift/", from: "0.31.6"),
     .package(
-      url: "https://github.com/ngutech21/mlx-swift-lm",
-      revision: "616dca2bf3b533096313a80ff8d5742b2a5d2ea8"),
+      url: "https://github.com/ml-explore/mlx-swift-lm",
+      revision: "38927f5f3da6d4720ac952f4d97f88d4424f11aa"),
     .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.3"),
     .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
     .package(url: "https://github.com/FluidInference/FluidAudio", from: "0.15.4"),
