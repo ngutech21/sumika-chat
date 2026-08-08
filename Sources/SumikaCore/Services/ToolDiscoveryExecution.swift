@@ -14,11 +14,6 @@ internal struct WorkspaceFileDiscovery: Sendable {
     package var relativePath: String
   }
 
-  package struct FileInventory: Equatable, Sendable {
-    package var files: [DiscoveredFile]
-    package var truncated: Bool
-  }
-
   package struct DiscoveredEntry: Equatable, Sendable {
     package var url: URL
     package var relativePath: String
@@ -65,24 +60,6 @@ internal struct WorkspaceFileDiscovery: Sendable {
     self.processRunner = processRunner
     self.gitTimeoutSeconds = gitTimeoutSeconds
     self.maxGitOutputBytes = maxGitOutputBytes
-  }
-
-  package func recursiveFiles(
-    at rootURL: URL,
-    relativeTo workspaceRootURL: URL
-  ) async throws -> FileInventory {
-    var files: [DiscoveredFile] = []
-    let truncated = try await visitRecursiveFiles(
-      at: rootURL,
-      relativeTo: workspaceRootURL
-    ) { file in
-      files.append(file)
-      return true
-    }
-    return FileInventory(
-      files: naturallySorted(files, path: \.relativePath),
-      truncated: truncated
-    )
   }
 
   package func visitRecursiveFiles(

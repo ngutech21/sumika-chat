@@ -215,7 +215,8 @@ struct WorkspaceFileDiscoveryGitTests {
       processRunner: runner
     )
 
-    let inventory = try await discovery.recursiveFiles(
+    let inventory = try await recursiveFiles(
+      using: discovery,
       at: workspace.rootURL,
       relativeTo: workspace.rootURL
     )
@@ -237,7 +238,8 @@ struct WorkspaceFileDiscoveryGitTests {
     )
 
     do {
-      _ = try await discovery.recursiveFiles(
+      _ = try await recursiveFiles(
+        using: discovery,
         at: workspace.rootURL,
         relativeTo: workspace.rootURL
       )
@@ -292,7 +294,8 @@ struct WorkspaceFileDiscoveryGitTests {
       processRunner: runner
     )
 
-    let inventory = try await discovery.recursiveFiles(
+    let inventory = try await recursiveFiles(
+      using: discovery,
       at: workspace.rootURL,
       relativeTo: workspace.rootURL
     )
@@ -322,7 +325,8 @@ struct WorkspaceFileDiscoveryGitTests {
     )
 
     do {
-      _ = try await discovery.recursiveFiles(
+      _ = try await recursiveFiles(
+        using: discovery,
         at: workspace.rootURL,
         relativeTo: workspace.rootURL
       )
@@ -340,6 +344,22 @@ struct WorkspaceFileDiscoveryGitTests {
       name: "Project",
       rootURL: URL(filePath: Workspace.normalizedPath(for: rootURL))
     )
+  }
+
+  private func recursiveFiles(
+    using discovery: WorkspaceFileDiscovery,
+    at rootURL: URL,
+    relativeTo workspaceRootURL: URL
+  ) async throws -> (files: [WorkspaceFileDiscovery.DiscoveredFile], truncated: Bool) {
+    var files: [WorkspaceFileDiscovery.DiscoveredFile] = []
+    let truncated = try await discovery.visitRecursiveFiles(
+      at: rootURL,
+      relativeTo: workspaceRootURL
+    ) { file in
+      files.append(file)
+      return true
+    }
+    return (files, truncated)
   }
 
   private func initializeGitRepository(in workspace: Workspace) throws {
