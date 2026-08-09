@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.6.0](https://github.com/ngutech21/sumika-chat/compare/v1.5.0...v1.6.0) (2026-08-08)
+
+
+### Features
+
+* add security policy and reporting guidelines ([8124950](https://github.com/ngutech21/sumika-chat/commit/81249506c4ea9532608e7da35123c4435d0d77ea))
+* add total duration summary to chat messages and improve duration formatting ([1c3a4b7](https://github.com/ngutech21/sumika-chat/commit/1c3a4b717a8f6efcc85b35b0bf321051a8e4c5f3))
+* enhance argument name validation and repair for tool requests ([d3f4f7f](https://github.com/ngutech21/sumika-chat/commit/d3f4f7f76a999cc2cd8e5f10a0faa914b237bc7f))
+* respect .gitignore in workspace file discovery ([d6a4575](https://github.com/ngutech21/sumika-chat/commit/d6a45750abc2d0dffcb57b86435628782eacdcce)), closes [#196](https://github.com/ngutech21/sumika-chat/issues/196)
+
 ## [1.5.0](https://github.com/ngutech21/sumika-chat/compare/v1.4.1...v1.5.0) (2026-08-02)
 
 
