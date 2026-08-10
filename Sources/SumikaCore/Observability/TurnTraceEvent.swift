@@ -2,7 +2,6 @@ import Foundation
 
 package enum TurnTracePhase: String, Codable, CaseIterable, Equatable, Sendable {
   case contextBuild = "context_build"
-  case tokenizeContextUsage = "tokenize_context_usage"
   case renderSystemPrompt = "render_system_prompt"
   case runtimeStreamStart = "runtime_stream_start"
   case runtimeTTFT = "runtime_ttft"

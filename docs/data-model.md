@@ -13,7 +13,6 @@ flowchart TD
   AssistantTurnMessage --> AssistantDeliveryStatus
   AssistantTurnMessage --> AssistantModelProjectionPolicy
   AssistantTurnMessage --> ChatGenerationMetrics
-  ChatContextUsage --> ChatContextUsageAccuracy
   ChatModeSettings --> ChatGenerationSettings
   ChatModeSettingsSet --> ChatModeSettings
   ChatModelConfiguration --> ReasoningTraceFormat
@@ -31,8 +30,6 @@ flowchart TD
   ChatTurnItem --> AssistantTurnMessage
   ChatTurnItem --> ToolCallRecord
   ChatTurnItem --> UserTurnMessage
-  ContextUsageSnapshot --> ModelLoadState
-  ContextUsageSnapshot --> ModelPromptProjection
   DuplicateToolCallResult --> ToolModelObservation
   DuplicateToolCallResult --> WorkspaceRelativePath
   FocusedFileState --> FocusedFileSnapshot
@@ -75,6 +72,7 @@ flowchart TD
   SearchFileMatch --> WorkspaceRelativePath
   TodoItem --> TodoStatus
   TodoState --> TodoItem
+  ToolCallApprovalGroup --> ToolCallRecord
   ToolCallArguments --> ToolArgumentValue
   ToolCallBatch --> ToolCallRecord
   ToolCallModelMessage --> ToolCallArguments
@@ -282,34 +280,6 @@ Relations:
 - `AssistantDeliveryStatus`
 - `AssistantModelProjectionPolicy`
 - `ChatGenerationMetrics`
-
-### ChatContextUsage
-
-- Kind: `struct`
-- Source: `Sources/SumikaCore/Features/Chat/Models/ChatContextUsage.swift`
-- Conforms to: `Equatable`, `Sendable`
-
-Properties:
-
-- `accuracy: ChatContextUsageAccuracy`
-- `isStale: Bool`
-- `tokenLimit: Int?`
-- `usedTokens: Int`
-
-Relations:
-
-- `ChatContextUsageAccuracy`
-
-### ChatContextUsageAccuracy
-
-- Kind: `enum`
-- Source: `Sources/SumikaCore/Features/Chat/Models/ChatContextUsage.swift`
-- Conforms to: `Equatable`, `Sendable`, `String`
-
-Cases:
-
-- `estimate`
-- `exact`
 
 ### ChatGenerationConfigPreset
 
@@ -524,26 +494,6 @@ Cases:
 Properties:
 
 - `maxCharacters: Int`
-
-### ContextUsageSnapshot
-
-- Kind: `struct`
-- Source: `Sources/SumikaCore/Features/Chat/Models/ChatContextUsage.swift`
-- Conforms to: `Sendable`
-- Summary: Point-in-time input for the context-usage estimate: the transcript, prompt, and attachments the next generation would send, plus the model state that gates whether an estimate is meaningful at all.
-
-Properties:
-
-- `attachments: [ChatAttachment]`
-- `contextTokenLimit: Int?`
-- `modelState: ModelLoadState`
-- `systemPrompt: String`
-- `transcript: ModelPromptProjection`
-
-Relations:
-
-- `ModelLoadState`
-- `ModelPromptProjection`
 
 ### DuplicateToolCallResult
 
@@ -1207,6 +1157,22 @@ Cases:
 - `number(Double)`
 - `object([String: ToolArgumentValue])`
 - `string(String)`
+
+### ToolCallApprovalGroup
+
+- Kind: `struct`
+- Source: `Sources/SumikaCore/Features/Chat/Models/ChatTurn.swift`
+- Conforms to: `Equatable`, `Sendable`
+
+Properties:
+
+- `anchorID: ToolCallRecord.ID`
+- `isAtomicSameFileEdit: Bool`
+- `records: [ToolCallRecord]`
+
+Relations:
+
+- `ToolCallRecord`
 
 ### ToolCallArguments
 
@@ -2028,7 +1994,6 @@ Cases:
 - `runtimePrefill`
 - `runtimeStreamStart`
 - `runtimeTTFT`
-- `tokenizeContextUsage`
 - `toolExecute`
 - `toolParse`
 - `uiFlush`

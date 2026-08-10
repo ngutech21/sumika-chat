@@ -259,30 +259,6 @@ actor NonCooperativeStreamingRuntime: ChatModelRuntime {
   }
 }
 
-actor ControlledContextUsageRuntime: ChatModelRuntime {
-  func load(configuration: ChatModelConfiguration) async throws {
-    _ = configuration
-  }
-
-  func unload() async {}
-  func clearContext() async {}
-
-  func streamReply(
-    for transcript: ModelPromptProjection,
-    attachments: [ChatAttachment],
-    promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = transcript
-    _ = attachments
-    _ = promptPlan
-    _ = settings
-    return AsyncThrowingStream { continuation in
-      continuation.finish()
-    }
-  }
-}
-
 actor CountingClearContextRuntime: ChatModelRuntime {
   private(set) var clearContextCount = 0
 

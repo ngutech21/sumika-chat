@@ -18,7 +18,6 @@ package struct ActiveConversationState: Equatable, Sendable {
   package let turns: [ChatTurn]
   package let activity: ConversationActivity
   package let isGenerating: Bool
-  package let contextUsage: ChatContextUsage?
   package let errorMessage: String?
   package let modelContextDebug: ModelContextDebugState
   package let canChangeInteractionMode: Bool
@@ -100,7 +99,6 @@ package final class ConversationFeature {
         turns: engine.turns,
         activity: engine.activity,
         isGenerating: engine.isGenerating,
-        contextUsage: engine.contextUsage,
         errorMessage: engine.errorMessage,
         modelContextDebug: engine.modelContextDebugState,
         canChangeInteractionMode: engine.canChangeInteractionMode,
@@ -210,12 +208,6 @@ package final class ConversationFeature {
   package func snapshot() -> ChatSession? {
     engine.activeSessionSnapshot()
   }
-
-  #if DEBUG
-    package func refreshContextUsageForTesting() {
-      engine.refreshContextUsage()
-    }
-  #endif
 
   private func requireActiveConversation() throws {
     guard engine.hasActiveConversation else {

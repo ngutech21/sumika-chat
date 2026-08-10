@@ -38,28 +38,25 @@ package final class ModelManagementFeature {
   }
 
   package func selectModel(_ model: ManagedModel) {
-    selectModel(
-      model,
-      shouldInvalidateContext: state.selectedModel.id != model.id
-    )
+    selectModelIfAllowed(model)
   }
 
   package func selectConversationModel(_ model: ManagedModel) {
-    selectModel(model, shouldInvalidateContext: true)
+    selectModelIfAllowed(model)
   }
 
   package func downloadSelectedModel() {
-    prepareForModelOperation(cancelGeneration: false, invalidateContext: false)
+    prepareForModelOperation(cancelGeneration: false)
     modelController.downloadSelectedModel()
   }
 
   package func loadSelectedModel() {
-    prepareForModelOperation(cancelGeneration: false, invalidateContext: true)
+    prepareForModelOperation(cancelGeneration: false)
     modelController.loadModel()
   }
 
   package func unloadModel() {
-    prepareForModelOperation(cancelGeneration: true, invalidateContext: true)
+    prepareForModelOperation(cancelGeneration: true)
     modelController.unloadModel()
   }
 
@@ -70,8 +67,7 @@ package final class ModelManagementFeature {
       return false
     }
     conversationEngine.prepareForModelRuntimeAction(
-      cancelGeneration: false,
-      invalidateContext: true
+      cancelGeneration: false
     )
     if state.selectedModel.id != availableModel.id {
       modelController.selectModel(availableModel)
@@ -107,28 +103,18 @@ package final class ModelManagementFeature {
     }
   #endif
 
-  private func selectModel(
-    _ model: ManagedModel,
-    shouldInvalidateContext: Bool
-  ) {
+  private func selectModelIfAllowed(_ model: ManagedModel) {
     guard canChangeModel else {
       return
     }
-    prepareForModelOperation(
-      cancelGeneration: false,
-      invalidateContext: shouldInvalidateContext
-    )
+    prepareForModelOperation(cancelGeneration: false)
     modelController.selectModel(model)
   }
 
-  private func prepareForModelOperation(
-    cancelGeneration: Bool,
-    invalidateContext: Bool
-  ) {
+  private func prepareForModelOperation(cancelGeneration: Bool) {
     errorMessage = nil
     conversationEngine.prepareForModelRuntimeAction(
-      cancelGeneration: cancelGeneration,
-      invalidateContext: invalidateContext
+      cancelGeneration: cancelGeneration
     )
   }
 

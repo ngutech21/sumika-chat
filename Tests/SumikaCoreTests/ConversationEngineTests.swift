@@ -391,7 +391,6 @@ struct ConversationEngineTests {
     let targetModel = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
     engine.modelRuntime.modelState = .ready
     engine.modelRuntime.selectedModelID = "gemma4-26b-qat-4bit"
-    engine.contextUsage = ChatContextUsage(usedTokens: 12, tokenLimit: 128)
 
     engine.modelRuntime.selectModel(targetModel)
 
@@ -1970,78 +1969,6 @@ struct ConversationEngineTests {
   }
 
   @Test
-  func refreshContextUsagePublishesEstimateWithoutRuntimeTokenization() async throws {
-    let runtime = ControlledContextUsageRuntime()
-    var session = ChatSession()
-    session.testMessages = [TestTranscriptMessage(userContent: "hello")]
-    let engine = ConversationEngine(
-      runtime: runtime,
-      modelPath: "/tmp/model",
-      chatSession: session
-    )
-    engine.modelRuntime.modelState = .ready
-
-    engine.refreshContextUsage()
-    engine.refreshContextUsage()
-    await Task.yield()
-
-    #expect(engine.contextUsage?.accuracy == .estimate)
-    #expect(engine.contextUsage?.isStale == false)
-  }
-
-  @Test
-  func refreshContextUsageEstimatesWhileGeneratingWithoutDeferredTokenization() async throws {
-    let runtime = ControlledStreamingRuntime(turns: [["done"]], blockedCallIndexes: [0])
-    defer { Task { await runtime.releaseStream(callIndex: 0) } }
-    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
-    engine.modelRuntime.modelState = .ready
-    try engine.sendMessageInTestWorkspace(prompt: "Wait before answering")
-
-    try await waitUntilAsync { await runtime.startedStreamCount == 1 }
-    engine.refreshContextUsage()
-    await Task.yield()
-
-    #expect(engine.contextUsage?.accuracy == .estimate)
-    #expect(engine.contextUsage?.isStale == false)
-
-    await runtime.releaseStream(callIndex: 0)
-    try await waitUntil { !engine.isGenerating }
-    try await Task.sleep(for: .milliseconds(50))
-  }
-
-  @Test
-  func clearChatHistoryDoesNotPublishStaleContextUsageAfterModelChange() async throws {
-    let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
-    let runtime = DelayedClearContextRuntime()
-    defer { Task { await runtime.releaseClearContext() } }
-    let engine = ConversationEngine(
-      runtime: runtime,
-      modelPath: modelDirectory.path(percentEncoded: false),
-      chatSession: {
-        var session = ChatSession()
-        session.testMessages = [TestTranscriptMessage(userContent: "old session")]
-        return session
-      }()
-    )
-    engine.modelRuntime.modelState = .ready
-    engine.contextUsage = ChatContextUsage(usedTokens: 12, tokenLimit: 128)
-
-    engine.clearChatHistory()
-    try await waitUntilAsync { await runtime.didStartClearContext }
-
-    engine.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
-    engine.modelRuntime.loadModel()
-    try await waitUntil { engine.contextUsage?.usedTokens != 12 }
-
-    await runtime.releaseClearContext()
-    try await waitUntilAsync { await runtime.didFinishClearContext }
-    try await waitUntil(timeout: .seconds(2)) { engine.modelRuntime.modelState == .ready }
-
-    #expect(engine.modelRuntime.modelState == .ready)
-    #expect(engine.contextUsage?.usedTokens != 12)
-  }
-
-  @Test
   func staleAttachmentLoadDoesNotAppendAfterNewerAttachmentRequest() async throws {
     let loader = BlockingFirstAttachmentLoader()
     defer { loader.releaseFirstLoad() }
@@ -2174,20 +2101,6 @@ struct ConversationEngineTests {
     case .cancelled:
       return .cancelled
     }
-  }
-
-  private func makeModelDirectory(config: String) throws -> URL {
-    let modelDirectory = try scopedTemporaryDirectory().appending(
-      path: UUID().uuidString,
-      directoryHint: .isDirectory
-    )
-    try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
-    try config.write(
-      to: modelDirectory.appending(path: "config.json", directoryHint: .notDirectory),
-      atomically: true,
-      encoding: .utf8
-    )
-    return modelDirectory
   }
 
   private func messageID(from item: ChatTurnItem) -> UUID? {

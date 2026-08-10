@@ -64,7 +64,6 @@ struct WorkspaceChatComposerHost: View {
         onSelectServerIDs: onSelectMCPServerIDs
       ),
       todoState: composerState.todoState,
-      contextUsage: presentation.contextUsage,
       canChangeModel: !localDownloadedModels.isEmpty && modelManagementState.canChangeModel,
       canChangeInteractionMode: presentation.canChangeInteractionMode,
       canSend: modelManagementState.canSend,

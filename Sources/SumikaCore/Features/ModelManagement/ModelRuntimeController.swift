@@ -23,7 +23,6 @@ final class ModelRuntimeController {
 
   @ObservationIgnored var onModelDidChange: (@MainActor (StoredModelSettings) -> Void)?
   @ObservationIgnored var onRuntimeDidReset: (@MainActor () -> Void)?
-  @ObservationIgnored var onContextUsageShouldRefresh: (@MainActor () async -> Void)?
   @ObservationIgnored var onError: (@MainActor (String) -> Void)?
 
   var selectedModel: ManagedModel {
@@ -86,7 +85,6 @@ final class ModelRuntimeController {
   func setEventHandlers(_ handlers: ModelManagementEventHandlers) {
     onModelDidChange = handlers.modelDidChange
     onRuntimeDidReset = handlers.runtimeDidReset
-    onContextUsageShouldRefresh = handlers.contextUsageShouldRefresh
     onError = handlers.errorDidOccur
   }
 
@@ -303,7 +301,6 @@ final class ModelRuntimeController {
           return
         }
         modelState = .ready
-        await onContextUsageShouldRefresh?()
       } catch is CancellationError {
         if await runtimeOperations.isCurrent(operationID), operationID == modelOperationID {
           modelState = .notLoaded

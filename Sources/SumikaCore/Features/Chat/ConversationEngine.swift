@@ -47,7 +47,6 @@ final class ConversationEngine {
   }
   private(set) var composerSessionState = ChatComposerSessionState()
   private(set) var modelContextDebugState = ModelContextDebugState()
-  var contextUsage: ChatContextUsage?
   var isGenerating = false
   private(set) var isLoadingAttachments = false
   private(set) var errorMessage: String?
@@ -57,7 +56,6 @@ final class ConversationEngine {
   @ObservationIgnored private let chatGenerationCoordinator: ChatGenerationCoordinator
   @ObservationIgnored private var toolOrchestrator: ToolOrchestrator
   @ObservationIgnored private let toolLoopCoordinator: ToolLoopCoordinator
-  @ObservationIgnored private let turnTracer: any TurnTracing
   @ObservationIgnored var activeTurnID: ChatTurn.ID?
   @ObservationIgnored var activeTurnTask: Task<Void, Never>?
   @ObservationIgnored var turnToolOrchestrators: [ChatTurn.ID: ToolOrchestrator] = [:]
@@ -139,7 +137,6 @@ final class ConversationEngine {
     self.conversationModel = conversationModel
     self.runtimeContextClearCoordinator = runtimeContextClearCoordinator
     self.chatGenerationCoordinator = chatGenerationCoordinator
-    self.turnTracer = turnTracer
     self.turnExecutionCoordinator = ChatTurnExecutionCoordinator(
       turnTracer: turnTracer
     )
@@ -224,9 +221,6 @@ extension ConversationEngine {
       runtimeDidReset: { [weak self] in
         self?.handleModelRuntimeDidReset()
       },
-      contextUsageShouldRefresh: { [weak self] in
-        await self?.updateContextUsage()
-      },
       errorDidOccur: errorDidOccur
     )
   }
@@ -238,18 +232,15 @@ extension ConversationEngine {
     }
     updateRuntimeCacheDebugSnapshot(nil)
     invalidateModelContextDebugDocument()
-    invalidateContextUsage()
     if hasActiveConversation {
       notifySessionDidChange()
     }
 
     clearRuntimeContextForReuse()
-    refreshContextUsage()
   }
 
   private func handleModelRuntimeDidReset() {
     updateRuntimeCacheDebugSnapshot(nil)
-    invalidateContextUsage()
   }
 
   private func syncComposerSessionState() {
@@ -302,7 +293,6 @@ extension ConversationEngine {
     }
 
     chatSession.modeSettings = modeSettings
-    refreshContextUsage()
     notifySessionDidChange()
     return true
   }
@@ -329,7 +319,6 @@ extension ConversationEngine {
     prepareRuntimeContext: Bool = true
   ) {
     errorMessage = nil
-    contextUsage = nil
     updateRuntimeCacheDebugSnapshot(nil)
     activeConversation = ActiveConversation(workspace: workspace, session: session)
     syncComposerSessionState()
@@ -341,14 +330,10 @@ extension ConversationEngine {
       return
     }
 
-    if modelRuntimeWasReset {
-      invalidateContextUsage()
-    } else if conversationModelState.loadState == .loading {
-      invalidateContextUsage()
-    } else {
-      clearRuntimeContextForReuse()
-      refreshContextUsage()
+    guard !modelRuntimeWasReset, conversationModelState.loadState != .loading else {
+      return
     }
+    clearRuntimeContextForReuse()
   }
 
   func sessionSnapshot() -> ChatSession {
@@ -384,7 +369,6 @@ extension ConversationEngine {
     publishSessionSnapshot()
     activeConversation = nil
     composerSessionState = ChatComposerSessionState()
-    contextUsage = nil
     errorMessage = nil
     updateRuntimeCacheDebugSnapshot(nil)
     invalidateModelContextDebugDocument()
@@ -406,7 +390,6 @@ extension ConversationEngine {
     errorMessage = nil
     invalidateModelContextDebugDocument()
     clearRuntimeContextForReuse()
-    refreshContextUsage(toolPromptMode: mode == .chat ? .disabled : .agent)
     notifySessionDidChange()
   }
 
@@ -421,8 +404,6 @@ extension ConversationEngine {
     errorMessage = nil
     invalidateModelContextDebugDocument()
     clearRuntimeContextForReuse()
-    refreshContextUsage(
-      toolPromptMode: chatSession.interactionMode == .chat ? .disabled : .agent)
     notifySessionDidChange()
   }
 
@@ -499,8 +480,7 @@ extension ConversationEngine {
     }
     let selectedServerIDs = chatSession.selectedMCPServerIDs
     applyAgentToolExecutorRegistry(
-      configuredAgentToolExecutorRegistry(selectedMCPServerIDs: selectedServerIDs),
-      shouldRefreshContext: false
+      configuredAgentToolExecutorRegistry(selectedMCPServerIDs: selectedServerIDs)
     )
   }
 
@@ -509,7 +489,7 @@ extension ConversationEngine {
       pendingAgentToolExecutorRegistry = executorRegistry
       return
     }
-    applyAgentToolExecutorRegistry(executorRegistry, shouldRefreshContext: true)
+    applyAgentToolExecutorRegistry(executorRegistry)
   }
 
   func setSelectedMCPServerIDs(_ serverIDs: [UUID]) {
@@ -539,8 +519,7 @@ extension ConversationEngine {
   }
 
   func prepareForModelRuntimeAction(
-    cancelGeneration shouldCancelGeneration: Bool,
-    invalidateContext shouldInvalidateContext: Bool
+    cancelGeneration shouldCancelGeneration: Bool
   ) {
     if shouldCancelGeneration {
       cancelGeneration()
@@ -548,20 +527,11 @@ extension ConversationEngine {
     if hasActiveConversation {
       errorMessage = nil
     }
-    if shouldInvalidateContext, hasActiveConversation {
-      invalidateContextUsage()
-    }
   }
 
-  private func applyAgentToolExecutorRegistry(
-    _ executorRegistry: ToolExecutorRegistry,
-    shouldRefreshContext: Bool
-  ) {
+  private func applyAgentToolExecutorRegistry(_ executorRegistry: ToolExecutorRegistry) {
     toolOrchestrator = toolOrchestrator.replacingExecutorRegistry(executorRegistry)
     invalidateModelContextDebugDocument()
-    if shouldRefreshContext {
-      refreshContextUsage()
-    }
   }
 
   private func applySelectedMCPServerIDs(
@@ -573,8 +543,7 @@ extension ConversationEngine {
     let selectionChanged = chatSession.selectedMCPServerIDs != serverIDs
     chatSession.setSelectedMCPServerIDs(serverIDs)
     applyAgentToolExecutorRegistry(
-      configuredAgentToolExecutorRegistry(selectedMCPServerIDs: serverIDs),
-      shouldRefreshContext: true
+      configuredAgentToolExecutorRegistry(selectedMCPServerIDs: serverIDs)
     )
     if selectionChanged {
       notifySessionDidChange()
@@ -599,9 +568,9 @@ extension ConversationEngine {
     )
   }
 
-  func finishGeneratingTurn(contextRefreshMode: ToolPromptMode = .disabled) {
+  func finishGeneratingTurn() {
     isGenerating = false
-    flushPendingContextUsageRefresh(defaultMode: contextRefreshMode)
+    applyPendingConversationUpdates()
   }
 
   func sendMessage(prompt rawPrompt: String) throws {
@@ -633,7 +602,7 @@ extension ConversationEngine {
     }
 
     updateDefaultSessionTitleIfNeeded(fromFirstPrompt: prompt)
-    applyPendingAgentToolExecutorRegistry(shouldRefreshContext: false)
+    applyPendingAgentToolExecutorRegistry()
     errorMessage = nil
     pendingAttachments.removeAll()
     isGenerating = true
@@ -694,7 +663,7 @@ extension ConversationEngine {
     let didCancel = cancelActiveTurn()
     if !didCancel {
       isGenerating = false
-      flushPendingContextUsageRefresh(defaultMode: .disabled)
+      applyPendingConversationUpdates()
     }
     if notify {
       notifySessionDidChange()
@@ -711,36 +680,9 @@ extension ConversationEngine {
     transcriptMutator.clearTranscript(in: &chatSession)
     updateRuntimeCacheDebugSnapshot(nil)
     invalidateModelContextDebugDocument()
-    invalidateContextUsage()
     notifySessionDidChange()
 
     clearRuntimeContextForReuse()
-    refreshContextUsage()
-  }
-
-  func refreshContextUsage() {
-    guard hasActiveConversation else {
-      contextUsage = nil
-      return
-    }
-    refreshContextUsage(toolPromptMode: .disabled)
-  }
-
-  func refreshContextUsage(toolPromptMode: ToolPromptMode) {
-    guard hasActiveConversation else {
-      contextUsage = nil
-      return
-    }
-    let snapshot = contextUsageSnapshot(toolPromptMode: toolPromptMode)
-    guard snapshot.modelState == .ready else {
-      contextUsage = nil
-      return
-    }
-    contextUsage = snapshot.estimatedUsage(isStale: false)
-  }
-
-  private func updateContextUsage() async {
-    refreshContextUsage()
   }
 
   func modelContextDebugDocument(
@@ -766,10 +708,6 @@ extension ConversationEngine {
           sessionID: sessionID
         ))
     )
-  }
-
-  private func invalidateContextUsage() {
-    contextUsage = nil
   }
 
   func updateRuntimeCacheDebugSnapshot(_ snapshot: RuntimeCacheDebugSnapshot?) {
@@ -805,21 +743,20 @@ extension ConversationEngine {
       if let error {
         self?.errorMessage = error.localizedDescription
       } else {
-        self?.flushPendingContextUsageRefresh(defaultMode: .disabled)
+        self?.applyPendingConversationUpdates()
       }
     }
   }
 
-  private func flushPendingContextUsageRefresh(defaultMode: ToolPromptMode) {
+  private func applyPendingConversationUpdates() {
     if activeModelContextDebugToolPromptMode != nil {
       activeModelContextDebugToolPromptMode = nil
       invalidateModelContextDebugDocument()
     }
-    applyPendingAgentToolExecutorRegistry(shouldRefreshContext: false)
-    refreshContextUsage(toolPromptMode: defaultMode)
+    applyPendingAgentToolExecutorRegistry()
   }
 
-  private func applyPendingAgentToolExecutorRegistry(shouldRefreshContext: Bool) {
+  private func applyPendingAgentToolExecutorRegistry() {
     guard let pendingAgentToolExecutorRegistry else {
       return
     }
@@ -829,52 +766,7 @@ extension ConversationEngine {
       chatSession.setSelectedMCPServerIDs(pendingSelectedMCPServerIDs)
       notifySessionDidChange()
     }
-    applyAgentToolExecutorRegistry(
-      pendingAgentToolExecutorRegistry,
-      shouldRefreshContext: shouldRefreshContext
-    )
-  }
-
-  private func contextUsageSnapshot(toolPromptMode: ToolPromptMode = .disabled)
-    -> ContextUsageSnapshot
-  {
-    let turnID = activeTurnID
-    let contextBuildStartedAt = Date()
-    let transcript = modelContextBuilder.transcript(
-      from: chatSession,
-      includingTurnID: turnID,
-      supportsHistoricalReasoningPreservation:
-        conversationModelState.selectedModel.supportsHistoricalReasoningPreservation
-    )
-    traceTurnPhase(
-      .contextBuild,
-      startedAt: contextBuildStartedAt,
-      turnID: turnID,
-      generationID: nil,
-      messageCount: transcript.entries.count,
-      interactionMode: chatSession.interactionMode
-    )
-
-    let systemPromptStartedAt = Date()
-    let renderedSystemPrompt = systemPrompt(toolPromptMode: toolPromptMode)
-    traceTurnPhase(
-      .renderSystemPrompt,
-      startedAt: systemPromptStartedAt,
-      turnID: turnID,
-      generationID: nil,
-      promptBytes: renderedSystemPrompt.utf8.count,
-      messageCount: transcript.entries.count,
-      interactionMode: chatSession.interactionMode
-    )
-
-    let modelState = conversationModelState
-    return ContextUsageSnapshot(
-      modelState: modelState.loadState,
-      transcript: transcript,
-      attachments: pendingAttachments,
-      systemPrompt: renderedSystemPrompt,
-      contextTokenLimit: modelState.contextTokenLimit
-    )
+    applyAgentToolExecutorRegistry(pendingAgentToolExecutorRegistry)
   }
 
   func addAttachments(from urls: [URL]) {
@@ -893,7 +785,6 @@ extension ConversationEngine {
       return
     }
     pendingAttachments.removeAll { $0.id == id }
-    refreshContextUsage()
   }
 
   private func handleAttachmentEvent(_ event: ChatAttachmentEvent) {
@@ -905,7 +796,6 @@ extension ConversationEngine {
     case .appendAttachments(let attachments):
       pendingAttachments.append(contentsOf: attachments)
       errorMessage = nil
-      refreshContextUsage()
     case .error(let message):
       errorMessage = message
     }
@@ -913,43 +803,6 @@ extension ConversationEngine {
 
   func notifySessionDidChange() {
     publishSessionSnapshot()
-  }
-
-  private func traceTurnPhase(
-    _ phase: TurnTracePhase,
-    startedAt: Date,
-    turnID: ChatTurn.ID?,
-    generationID: UUID?,
-    promptBytes: Int? = nil,
-    promptTokens: Int? = nil,
-    messageCount: Int? = nil,
-    toolLoopIteration: Int? = nil,
-    toolName: String? = nil,
-    ttftMs: Double? = nil,
-    tokensPerSecond: Double? = nil,
-    cacheMode: String? = nil,
-    interactionMode: WorkspaceInteractionMode? = nil
-  ) {
-    let durationMs = Date().timeIntervalSince(startedAt) * 1000
-    Task {
-      await turnTracer.recordTurnTraceEvent(
-        TurnTraceEvent(
-          turnID: turnID,
-          generationID: generationID,
-          phase: phase,
-          durationMs: durationMs,
-          promptBytes: promptBytes,
-          promptTokens: promptTokens,
-          messageCount: messageCount,
-          toolLoopIteration: toolLoopIteration,
-          toolName: toolName,
-          ttftMs: ttftMs,
-          tokensPerSecond: tokensPerSecond,
-          cacheMode: cacheMode,
-          interactionMode: interactionMode
-        )
-      )
-    }
   }
 
   func approveToolCall(id toolCallID: ToolCallRecord.ID) {

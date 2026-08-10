@@ -5,7 +5,6 @@ import SumikaCore
 struct ChatComposerPresentation: Equatable {
   let session: ChatComposerSessionState
   let isGenerating: Bool
-  let contextUsage: ChatContextUsage?
   let errorMessage: String?
   let canChangeInteractionMode: Bool
   let canChangeMCPServerSelection: Bool
@@ -52,7 +51,6 @@ final class ChatFeatureState {
     return ChatComposerPresentation(
       session: sessionState,
       isGenerating: selectedActiveState?.isGenerating == true,
-      contextUsage: selectedActiveState?.contextUsage,
       errorMessage: intentErrorMessage
         ?? (anotherConversationIsBusy ? "Another chat operation is still active." : nil)
           ?? selectedActiveState?.errorMessage,
@@ -237,12 +235,6 @@ final class ChatFeatureState {
   }
 
   #if DEBUG
-    // Test-only; exercised through @testable import.
-    // swiftlint:disable:next unused_declaration
-    func refreshContextUsageForTesting() {
-      conversation.refreshContextUsageForTesting()
-    }
-
     // Test-only; exercised through @testable import.
     // swiftlint:disable:next unused_declaration
     var sessionSnapshotForTesting: ChatSession? {

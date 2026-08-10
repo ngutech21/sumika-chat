@@ -117,7 +117,6 @@ extension ConversationEngine {
           self.notifySessionDidChange()
         }
       }
-      self.refreshContextUsage(toolPromptMode: initialToolPromptMode)
       let generationResult = try await turnExecutionCoordinator.streamAssistantReply(
         to: assistantMessageID,
         runtime: runtime,
@@ -305,7 +304,7 @@ extension ConversationEngine {
     }
 
     applyWorkflowEvents(cancelledTurnEvents(turnID))
-    finishGeneratingTurn(contextRefreshMode: .disabled)
+    finishGeneratingTurn()
     return true
   }
 
@@ -351,7 +350,7 @@ extension ConversationEngine {
     ])
     turnToolOrchestrators[turnID] = nil
     finishTurn(turnID)
-    finishGeneratingTurn(contextRefreshMode: .disabled)
+    finishGeneratingTurn()
     notifySessionDidChange()
   }
 
@@ -371,7 +370,7 @@ extension ConversationEngine {
       )
     ])
     finishTurn(turnID)
-    finishGeneratingTurn(contextRefreshMode: .disabled)
+    finishGeneratingTurn()
     notifySessionDidChange()
   }
 
@@ -383,7 +382,7 @@ extension ConversationEngine {
     applyWorkflowEvents(cancelledTurnEvents(turnID))
     turnToolOrchestrators[turnID] = nil
     finishTurn(turnID)
-    finishGeneratingTurn(contextRefreshMode: .disabled)
+    finishGeneratingTurn()
     notifySessionDidChange()
   }
 
@@ -402,7 +401,7 @@ extension ConversationEngine {
     }
     turnToolOrchestrators[turnID] = nil
     finishTurn(turnID)
-    finishGeneratingTurn(contextRefreshMode: .disabled)
+    finishGeneratingTurn()
     notifySessionDidChange()
   }
 
@@ -659,7 +658,6 @@ extension ConversationEngine {
       maxToolLoopIterations: runtime.selectedModel.maxToolLoopIterations,
       conversation: self
     )
-    refreshContextUsage(toolPromptMode: promptMode)
     notifySessionDidChange()
 
     guard
@@ -813,7 +811,6 @@ extension ConversationEngine {
       maxToolLoopIterations: runtime.selectedModel.maxToolLoopIterations,
       conversation: self
     )
-    refreshContextUsage(toolPromptMode: promptMode)
     notifySessionDidChange()
 
     let turnToolOrchestrator = frozenToolOrchestrator(

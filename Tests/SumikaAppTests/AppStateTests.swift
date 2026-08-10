@@ -134,7 +134,7 @@ struct AppStateTests {
   }
 
   @Test
-  func updatingModeSettingsRefreshesAndPersistsActiveSession() async throws {
+  func updatingModeSettingsPersistsActiveSession() async throws {
     let workspaceID = UUID()
     let sessionID = UUID()
     let otherSessionID = UUID()
@@ -178,9 +178,6 @@ struct AppStateTests {
       !appState.workspaceState.isLoading
     }
     #expect(appState.chatFeatureState.activateSelectedConversation())
-    appState.modelManagementState.setModelLoadStateForTesting(.ready)
-    appState.chatFeatureState.refreshContextUsageForTesting()
-    let initialUsage = try #require(appState.chatFeatureState.composer.contextUsage)
 
     var updatedModeSettings = appState.modelManagementState.modeSettings
     updatedModeSettings.chat.systemPrompt += String(
@@ -189,9 +186,6 @@ struct AppStateTests {
     )
 
     appState.modelManagementState.updateModeSettings(updatedModeSettings)
-
-    let refreshedUsage = try #require(appState.chatFeatureState.composer.contextUsage)
-    #expect(refreshedUsage.usedTokens > initialUsage.usedTokens)
 
     let selectedModel = appState.modelManagementState.state.selectedModel
     try await waitUntil {

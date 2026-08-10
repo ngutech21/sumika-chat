@@ -93,9 +93,6 @@ flowchart TD
 - `ChatWorkflowEventApplier` applies typed workflow events to `ChatSession`
   using `ChatTranscriptMutator`. These events are not persisted; persistence
   stores only the resulting turns, turn items, and tool-call records.
-- `ContextUsageSnapshot` computes the byte-based token-usage estimate from the
-  same derived model-facing projection used for generation;
-  `ConversationEngine` builds and publishes it directly.
 
 ## Turn Lifecycle
 
@@ -189,8 +186,8 @@ state.
 ## Cancellation Rules
 
 - Cancel only affects the active turn. Older async callbacks must check the
-  active `turnID` before mutating transcript, context usage, persistence state,
-  or `isGenerating`.
+  active `turnID` before mutating transcript, persistence state, or
+  `isGenerating`.
 - Empty streaming assistant placeholders are marked cancelled and filtered from
   visible transcript projections. They remain in persisted turn items as audit
   state instead of being removed.
@@ -218,9 +215,6 @@ state.
 - Final no-tools follow-ups selected after denied tools or another force-final
   rule disable tools. If the model still emits a native tool attempt, the caller
   treats the follow-up as final and does not execute another tool.
-- Cancel should schedule a normal context-usage refresh with the latest filtered
-  projection. It must not block turn cancellation on synchronous token counting.
-
 ## Model Context Rules
 
 - Always build model input through `ChatModelContextBuilder`; do not pass the
@@ -284,7 +278,7 @@ state.
   cancelled, empty, and ambiguous groups are omitted rather than guessed.
   Completed turns are included by default.
 - Cancelled and failed turns with `modelContextPolicy == .excluded` are omitted
-  from future prompts and context-usage calculations.
+  from future prompts.
 - The UI/debug model-context pane and runtime start from the same transcript-
   derived `ModelPromptProjection`. Provider-only `reasoningContent` stays hidden
   from visible assistant text; the MLX cache signature and provider-facing debug
@@ -491,7 +485,7 @@ reasoning close marker until upstream exposes a structured reasoning field.
   model. It must not be deleted or folded into `ToolResultPayload`, because
   later MLX history rebuilds need the same `tool` message bytes for cache reuse.
 - `ModelPromptProjection` is never persisted on `ChatSession`; generation,
-  context usage, debug panels, and traces rebuild it from turns.
+  debug panels, and traces rebuild it from turns.
 - Clearing a chat transcript removes turns, derived tool-call projections, and
   attachments, but keeps session settings such as per-mode system prompts and
   generation settings.
@@ -509,6 +503,6 @@ reasoning close marker until upstream exposes a structured reasoning field.
    Internal implementation modules receive that owner directly instead of
    reconstructing session and lifecycle state through callback bundles.
 4. Gate async mutations with the active `turnID`.
-5. Use `ChatModelContextBuilder` for generation and context-usage projections.
+5. Use `ChatModelContextBuilder` for generation and model-debug projections.
 6. Add tests for cancelled turns, stale async results, persistence defaults, and
    model-context filtering when the behavior touches turn state.

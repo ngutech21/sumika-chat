@@ -11,7 +11,6 @@ struct ChatComposer: View {
   let interactionMode: WorkspaceInteractionMode
   let sessionOptionsConfiguration: ChatComposerOptions.Configuration
   let todoState: TodoState?
-  let contextUsage: ChatContextUsage?
   let canChangeModel: Bool
   let canChangeInteractionMode: Bool
   let canSend: Bool
@@ -103,8 +102,6 @@ struct ChatComposer: View {
           ChatComposerOptions(configuration: sessionOptionsConfiguration)
 
           Spacer(minLength: 8)
-
-          ComposerContextRing(usage: contextUsage)
 
           ComposerSpeechInputControl(
             controller: speechInputController,

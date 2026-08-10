@@ -288,7 +288,6 @@ struct ChatTurnExecutionCoordinator {
       assistantMessageID: assistantMessageID,
       conversation: conversation
     )
-    conversation.refreshContextUsage(toolPromptMode: toolPromptMode)
     return generationResult
   }
 
@@ -383,7 +382,7 @@ struct ChatTurnExecutionCoordinator {
       switch step.continuation {
       case .awaitingApproval, .awaitingUserAnswer:
         conversation.finishTurn(turnID)
-        conversation.finishGeneratingTurn(contextRefreshMode: .disabled)
+        conversation.finishGeneratingTurn()
         conversation.notifySessionDidChange()
         return .stop
       case .resumeAutomaticApproval(let batchAnchorID):

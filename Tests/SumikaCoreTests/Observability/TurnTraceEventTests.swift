@@ -7,7 +7,6 @@ struct TurnTraceEventTests {
   @Test
   func phaseRawValuesStayStableForJSONLAnalysis() {
     #expect(TurnTracePhase.contextBuild.rawValue == "context_build")
-    #expect(TurnTracePhase.tokenizeContextUsage.rawValue == "tokenize_context_usage")
     #expect(TurnTracePhase.renderSystemPrompt.rawValue == "render_system_prompt")
     #expect(TurnTracePhase.runtimeStreamStart.rawValue == "runtime_stream_start")
     #expect(TurnTracePhase.runtimeTTFT.rawValue == "runtime_ttft")
