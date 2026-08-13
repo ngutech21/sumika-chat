@@ -276,7 +276,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     }
     let runtimeCacheDiagnostics = self.runtimeCacheDiagnostics
     if let runtimeCacheDiagnostics {
-      let cacheCapabilities = await MLXRuntimeCacheDiagnostics.capabilities(
+      let cacheCapabilities = try await MLXRuntimeCacheDiagnostics.capabilities(
         of: modelContainer,
         parameters: generateParameters
       )
