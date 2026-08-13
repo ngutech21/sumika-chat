@@ -11,6 +11,88 @@ import Testing
 @Suite()
 struct MLXRuntimeConfigurationTests {
   @Test
+  func pilotCatalogEntryAloneEnablesQwenThinkingBudget() throws {
+    let pilot = try #require(ManagedModelCatalog.model(id: "Qwen3.6-27B-OptiQ-4bit"))
+    let otherQwen = try #require(ManagedModelCatalog.model(id: "qwen3.6-27B-4bit"))
+    let gemma = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
+
+    #expect(pilot.thinkingBudgetPolicy == .hardLimitImmediate)
+    #expect(otherQwen.thinkingBudgetPolicy == .unsupported)
+    #expect(gemma.thinkingBudgetPolicy == .unmanaged)
+  }
+
+  @Test
+  func qwenThinkingBudgetTraceUsesFixedPerInvocationModeLimits() {
+    let chat = MLXThinkingBudgetPlanner.trace(
+      policy: .hardLimitImmediate,
+      reasoningEnabled: true,
+      interactionMode: .chat
+    )
+    let agent = MLXThinkingBudgetPlanner.trace(
+      policy: .hardLimitImmediate,
+      reasoningEnabled: true,
+      interactionMode: .agent
+    )
+
+    #expect(chat.maximumTokenCount == 1_024)
+    #expect(chat.minimumAnswerTokenCount == 512)
+    #expect(chat.transitionMode == "immediate")
+    #expect(agent.maximumTokenCount == 2_048)
+    #expect(agent.minimumAnswerTokenCount == 1_024)
+    #expect(agent.transitionMode == "immediate")
+  }
+
+  @Test
+  func reasoningOffLeavesQwenUnbudgetedAndUnsupportedQwenFailsPreflight() async throws {
+    let tokenizer = ThinkingBudgetTestTokenizer()
+    let state = MLXThinkingBudgetEnforcementState()
+    let components = try MLXThinkingBudgetPlanner.makeComponents(
+      maximumTokenCount: 1_024,
+      minimumAnswerTokenCount: 512,
+      reasoning: QwenReasoningProtocol.tagged,
+      tokenizer: tokenizer,
+      generateParameters: GenerateParameters(maxTokens: 1_540),
+      enforcementState: state
+    )
+    try components.validate(parameters: GenerateParameters(maxTokens: 1_540))
+
+    let disabledTrace = MLXThinkingBudgetPlanner.trace(
+      policy: .unsupported,
+      reasoningEnabled: false,
+      interactionMode: .agent
+    )
+    let unsupportedTrace = MLXThinkingBudgetPlanner.trace(
+      policy: .unsupported,
+      reasoningEnabled: true,
+      interactionMode: .agent
+    )
+    #expect(disabledTrace.validationStatus == "not_applied")
+    #expect(unsupportedTrace.validationStatus == "unsupported_model")
+  }
+
+  @Test
+  func thinkingBudgetFailsBeforeGenerationWhenAnswerHeadroomIsInsufficient() throws {
+    let tokenizer = ThinkingBudgetTestTokenizer()
+    let state = MLXThinkingBudgetEnforcementState()
+
+    do {
+      _ = try MLXThinkingBudgetPlanner.makeComponents(
+        maximumTokenCount: 1_024,
+        minimumAnswerTokenCount: 512,
+        reasoning: QwenReasoningProtocol.tagged,
+        tokenizer: tokenizer,
+        generateParameters: GenerateParameters(maxTokens: 1_000),
+        enforcementState: state
+      )
+      Issue.record("Expected insufficient generation headroom to fail preflight.")
+    } catch {
+      #expect(
+        MLXThinkingBudgetPlanner.diagnosticCode(for: error)
+          == "insufficient_generation_token_limit")
+    }
+  }
+
+  @Test
   func neutralRepetitionPenaltyDoesNotEnableMLXProcessor() {
     #expect(MLXChatRuntime.mlxRepetitionPenalty(from: .agentDefault) == nil)
 
@@ -93,4 +175,40 @@ struct MLXRuntimeConfigurationTests {
     #expect(matches.isEmpty, "Model stop tokens must come from MLX/model config: \(matches)")
   }
 
+}
+
+private struct ThinkingBudgetTestTokenizer: Tokenizer {
+  func encode(text: String, addSpecialTokens: Bool) -> [Int] {
+    switch text {
+    case "<think>": [1]
+    case "</think>": [2]
+    case "<tool_call>": [3]
+    default: Array(text.utf8).map { 1_000 + Int($0) }
+    }
+  }
+
+  func decode(tokenIds: [Int], skipSpecialTokens: Bool) -> String {
+    tokenIds.map { id in
+      switch id {
+      case 1: "<think>"
+      case 2: "</think>"
+      case 3: "<tool_call>"
+      default: String(UnicodeScalar(id - 1_000) ?? "?")
+      }
+    }.joined()
+  }
+
+  func convertTokenToId(_ token: String) -> Int? { nil }
+  func convertIdToToken(_ id: Int) -> String? { nil }
+  var bosToken: String? { nil }
+  var eosToken: String? { nil }
+  var unknownToken: String? { nil }
+
+  func applyChatTemplate(
+    messages: [[String: any Sendable]],
+    tools: [[String: any Sendable]]?,
+    additionalContext: [String: any Sendable]?
+  ) throws -> [Int] {
+    []
+  }
 }

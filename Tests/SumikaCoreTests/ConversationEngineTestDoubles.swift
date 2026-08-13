@@ -216,7 +216,8 @@ actor NonCooperativeStreamingRuntime: ChatModelRuntime {
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
+    settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
@@ -276,7 +277,8 @@ actor CountingClearContextRuntime: ChatModelRuntime {
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
+    settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
@@ -308,7 +310,8 @@ actor InterruptedStreamingRuntime: ChatModelRuntime {
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
+    settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
@@ -360,7 +363,8 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
+    settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = attachments
     _ = settings
@@ -455,7 +459,8 @@ actor PartialFailingStreamingRuntime: ChatModelRuntime {
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
+    settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
@@ -504,7 +509,8 @@ actor DelayedClearContextRuntime: ChatModelRuntime {
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
+    settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
@@ -597,6 +603,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   private(set) var capturedGenerationSettings: [ChatGenerationSettings] = []
   private(set) var capturedToolContexts: [ChatRuntimeToolContext?] = []
   private(set) var capturedPromptPlans: [ChatRuntimePromptPlan] = []
+  private(set) var capturedInteractionModes: [WorkspaceInteractionMode?] = []
 
   init(
     chunks: [String] = [],
@@ -637,7 +644,8 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
+    settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     capturedPromptPlans.append(promptPlan)
     capturedToolContexts.append(promptPlan.toolContext)
@@ -646,6 +654,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
     capturedAttachments.append(attachments)
     capturedSystemPrompts.append(promptPlan.stableInstructions)
     capturedGenerationSettings.append(settings)
+    capturedInteractionModes.append(interactionMode)
     let callIndex = streamReplyCount
     let events = turns[min(callIndex, turns.count - 1)]
     streamReplyCount += 1

@@ -187,7 +187,8 @@ private actor AgentCompositionRuntime: ChatModelRuntime {
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
+    settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments

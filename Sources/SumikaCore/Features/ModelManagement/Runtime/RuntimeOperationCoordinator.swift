@@ -72,6 +72,7 @@ actor RuntimeOperationCoordinator {
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?,
     operationID: UUID
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     try checkCurrent(operationID)
@@ -79,7 +80,8 @@ actor RuntimeOperationCoordinator {
       for: transcript,
       attachments: attachments,
       promptPlan: promptPlan,
-      settings: settings
+      settings: settings,
+      interactionMode: interactionMode
     )
     try checkCurrent(operationID)
 

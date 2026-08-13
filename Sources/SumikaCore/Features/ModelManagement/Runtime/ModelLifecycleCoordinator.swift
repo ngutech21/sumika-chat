@@ -55,6 +55,7 @@ struct ModelLifecycleCoordinator: Sendable {
     supportsImageInput: Bool,
     reasoningTraceFormat: ReasoningTraceFormat,
     supportsHistoricalReasoningPreservation: Bool,
+    thinkingBudgetPolicy: ThinkingBudgetPolicy,
     operationID: UUID
   ) async throws {
     try validateModelDirectory(directoryURL)
@@ -68,7 +69,8 @@ struct ModelLifecycleCoordinator: Sendable {
       ),
       supportsImageInput: supportsImageInput,
       reasoningTraceFormat: reasoningTraceFormat,
-      supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation
+      supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation,
+      thinkingBudgetPolicy: thinkingBudgetPolicy
     )
     try await runtimeOperations.load(configuration: configuration, operationID: operationID)
   }

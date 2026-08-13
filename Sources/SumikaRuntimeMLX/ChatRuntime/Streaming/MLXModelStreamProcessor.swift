@@ -39,6 +39,9 @@ enum MLXModelStreamProcessor {
     var terminatedDownstream = false
   }
 
+  // This function owns the single streaming lifecycle; splitting it would duplicate
+  // cancellation, cache invalidation, and terminal trace coordination.
+  // swiftlint:disable:next function_body_length
   static func modelStreamPlan(
     from stream: AsyncThrowingStream<Generation, Error>,
     reasoningTraceFormat: ReasoningTraceFormat = .none,
@@ -48,6 +51,8 @@ enum MLXModelStreamProcessor {
     debugTraceStore: MLXDebugTraceStore,
     runtimeCacheDiagnostics: MLXRuntimeCacheDiagnostics? = nil,
     generationProgressTracer: MLXGenerationProgressTracer = .disabled,
+    thinkingBudgetTrace: MLXThinkingBudgetTrace? = nil,
+    thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState? = nil,
     markCompleted: @escaping @Sendable (MLXCompletedAssistantSnapshot) async -> Void,
     markNativeToolCallBoundary:
       @escaping @Sendable (
@@ -80,12 +85,17 @@ enum MLXModelStreamProcessor {
       var usedNativeToolCallIDs = Set<UUID>()
       var pendingChunk: String?
       var generationProgressTracer = generationProgressTracer
+      var reasoningReopenGuard = thinkingBudgetEnforcementState.map { _ in
+        MLXReasoningReopenGuard()
+      }
 
       do {
         generationLoop: for try await generation in stream {
           try Task.checkCancellation()
+          try thinkingBudgetEnforcementState?.checkAuthoritative()
 
           if let chunk = generation.chunk {
+            try reasoningReopenGuard?.observe(chunk)
             firstChunkAt = await recordRuntimeTTFTIfNeeded(
               firstChunkAt,
               traceID: traceID,
@@ -110,6 +120,7 @@ enum MLXModelStreamProcessor {
           }
 
           if let toolCall = generation.toolCall {
+            reasoningReopenGuard?.observeToolCall()
             if yieldToolCall(
               toolCall,
               usedIDs: &usedNativeToolCallIDs,
@@ -170,6 +181,8 @@ enum MLXModelStreamProcessor {
           }
         }
 
+        try thinkingBudgetEnforcementState?.checkAuthoritative()
+
         if !termination.terminatedDownstream,
           flushPendingChunk(
             &pendingChunk,
@@ -208,20 +221,24 @@ enum MLXModelStreamProcessor {
           cacheTrace: cacheTrace,
           debugTraceStore: debugTraceStore,
           runtimeCacheDiagnostics: runtimeCacheDiagnostics,
+          thinkingBudgetTrace: thinkingBudgetTrace,
+          thinkingBudgetEnforcementState: thinkingBudgetEnforcementState,
           markCompleted: markCompleted,
           markNativeToolCallBoundary: markNativeToolCallBoundary,
           markCancelled: markCancelled,
           memoryCacheClearer: memoryCacheClearer
         )
       } catch is CancellationError {
-        await markCancelled(.cancelled)
-        await debugTraceStore.traceResponse(
-          id: traceID,
+        await handleCancellation(
           output: output,
-          metrics: completedMetrics,
-          error: CancellationError().localizedDescription
+          completedMetrics: completedMetrics,
+          continuation: continuation,
+          traceID: traceID,
+          debugTraceStore: debugTraceStore,
+          thinkingBudgetTrace: thinkingBudgetTrace,
+          thinkingBudgetEnforcementState: thinkingBudgetEnforcementState,
+          markCancelled: markCancelled
         )
-        continuation.finish(throwing: CancellationError())
       } catch {
         await handleRuntimeFailure(
           error,
@@ -232,6 +249,8 @@ enum MLXModelStreamProcessor {
           traceMetadata: traceMetadata,
           cacheTrace: cacheTrace,
           debugTraceStore: debugTraceStore,
+          thinkingBudgetTrace: thinkingBudgetTrace,
+          thinkingBudgetEnforcementState: thinkingBudgetEnforcementState,
           markCancelled: markCancelled,
           memoryCacheClearer: memoryCacheClearer
         )
@@ -249,6 +268,29 @@ enum MLXModelStreamProcessor {
 }
 
 extension MLXModelStreamProcessor {
+  private static func handleCancellation(
+    output: String,
+    completedMetrics: ChatGenerationMetrics?,
+    continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
+    traceID: UUID,
+    debugTraceStore: MLXDebugTraceStore,
+    thinkingBudgetTrace: MLXThinkingBudgetTrace?,
+    thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState?,
+    markCancelled: @Sendable (MLXSessionInvalidationReason) async -> Void
+  ) async {
+    await markCancelled(.cancelled)
+    await debugTraceStore.traceResponse(
+      id: traceID,
+      output: output,
+      metrics: completedMetrics,
+      error: CancellationError().localizedDescription,
+      thinkingBudget: thinkingBudgetTrace,
+      thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
+        ? "not_applied" : "cancelled"
+    )
+    continuation.finish(throwing: CancellationError())
+  }
+
   private static func observeDownstreamCancellation(
     of continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
     task: Task<Void, Never>,
@@ -274,6 +316,8 @@ extension MLXModelStreamProcessor {
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
     debugTraceStore: MLXDebugTraceStore,
+    thinkingBudgetTrace: MLXThinkingBudgetTrace?,
+    thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState?,
     markCancelled: @Sendable (MLXSessionInvalidationReason) async -> Void,
     memoryCacheClearer: MLXMemoryCacheClearer
   ) async {
@@ -290,7 +334,12 @@ extension MLXModelStreamProcessor {
       id: traceID,
       output: output,
       metrics: completedMetrics,
-      error: error.localizedDescription
+      error: error.localizedDescription,
+      thinkingBudget: thinkingBudgetTrace,
+      thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
+        ? "not_applied" : "failed_closed",
+      thinkingBudgetDiagnostic: (error as? MLXThinkingBudgetFailure)?.diagnosticCode
+        ?? thinkingBudgetEnforcementState?.failure?.diagnosticCode
     )
     continuation.finish(throwing: error)
   }
@@ -563,6 +612,8 @@ extension MLXModelStreamProcessor {
     cacheTrace: MLXSessionCacheTrace,
     debugTraceStore: MLXDebugTraceStore,
     runtimeCacheDiagnostics: MLXRuntimeCacheDiagnostics?,
+    thinkingBudgetTrace: MLXThinkingBudgetTrace?,
+    thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState?,
     markCompleted: @Sendable (MLXCompletedAssistantSnapshot) async -> Void,
     markNativeToolCallBoundary:
       @Sendable (
@@ -592,7 +643,10 @@ extension MLXModelStreamProcessor {
         id: traceID,
         output: output,
         metrics: completedMetrics,
-        error: error.localizedDescription
+        error: error.localizedDescription,
+        thinkingBudget: thinkingBudgetTrace,
+        thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
+          ? "not_applied" : "output_limit"
       )
       _ = continuation.yield(
         .outputLimitReached(
@@ -621,7 +675,10 @@ extension MLXModelStreamProcessor {
         id: traceID,
         output: output,
         metrics: completedMetrics,
-        error: error.localizedDescription
+        error: error.localizedDescription,
+        thinkingBudget: thinkingBudgetTrace,
+        thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
+          ? "not_applied" : "interrupted"
       )
       continuation.finish(throwing: error)
       return
@@ -640,7 +697,10 @@ extension MLXModelStreamProcessor {
       await debugTraceStore.traceResponse(
         id: traceID,
         output: output,
-        metrics: completedMetrics
+        metrics: completedMetrics,
+        thinkingBudget: thinkingBudgetTrace,
+        thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
+          ? "not_applied" : "completed_authoritative"
       )
       continuation.finish()
       return
@@ -656,7 +716,10 @@ extension MLXModelStreamProcessor {
     await debugTraceStore.traceResponse(
       id: traceID,
       output: output,
-      metrics: completedMetrics
+      metrics: completedMetrics,
+      thinkingBudget: thinkingBudgetTrace,
+      thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
+        ? "not_applied" : "completed_authoritative"
     )
     continuation.finish()
   }

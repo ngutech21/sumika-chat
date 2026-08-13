@@ -33,7 +33,9 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     prompt: String,
     settings: ChatGenerationSettings,
     contextTokenLimit: Int?,
-    imageAttachments: [ChatAttachment] = []
+    imageAttachments: [ChatAttachment] = [],
+    thinkingBudget: MLXThinkingBudgetTrace? = nil,
+    interactionMode: WorkspaceInteractionMode? = nil
   ) async {
     guard Self.isEnabled else {
       return
@@ -65,6 +67,12 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     if let contextTokenLimit {
       request["contextTokenLimit"] = contextTokenLimit
     }
+    if let interactionMode {
+      request["interactionMode"] = interactionMode.rawValue
+    }
+    if let thinkingBudget {
+      request["thinkingBudget"] = thinkingBudgetObject(from: thinkingBudget)
+    }
     let imageMetadata = traceImageAttachments(from: imageAttachments)
     if !imageMetadata.isEmpty {
       request["imageInputs"] = imageMetadata
@@ -78,7 +86,10 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     id: UUID,
     output: String,
     metrics: ChatGenerationMetrics?,
-    error: String? = nil
+    error: String? = nil,
+    thinkingBudget: MLXThinkingBudgetTrace? = nil,
+    thinkingBudgetOutcome: String? = nil,
+    thinkingBudgetDiagnostic: String? = nil
   ) async {
     guard Self.isEnabled else {
       return
@@ -100,6 +111,15 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     }
     if let error {
       response["error"] = error
+    }
+    if let thinkingBudget {
+      response["thinkingBudget"] = thinkingBudgetObject(from: thinkingBudget)
+    }
+    if let thinkingBudgetOutcome {
+      response["thinkingBudgetOutcome"] = thinkingBudgetOutcome
+    }
+    if let thinkingBudgetDiagnostic {
+      response["thinkingBudgetDiagnostic"] = thinkingBudgetDiagnostic
     }
     append(response)
   }
@@ -223,6 +243,25 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
       "content": truncatedContent.value,
       "truncated": truncatedContent.truncated,
     ]
+  }
+
+  private func thinkingBudgetObject(
+    from trace: MLXThinkingBudgetTrace
+  ) -> [String: Any] {
+    var object: [String: Any] = [
+      "policy": trace.policy,
+      "validationStatus": trace.validationStatus,
+    ]
+    if let maximumTokenCount = trace.maximumTokenCount {
+      object["maximumTokenCount"] = maximumTokenCount
+    }
+    if let minimumAnswerTokenCount = trace.minimumAnswerTokenCount {
+      object["minimumAnswerTokenCount"] = minimumAnswerTokenCount
+    }
+    if let transitionMode = trace.transitionMode {
+      object["transitionMode"] = transitionMode
+    }
+    return object
   }
 
   private func traceToolArgument(from argument: ToolArgumentTrace) -> [String: Any] {

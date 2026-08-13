@@ -11,6 +11,85 @@ import Testing
 @Suite()
 struct MLXModelStreamProcessorTests {
   @Test
+  func enforcedQwenStreamFailsClosedWhenThinkingReopens() async throws {
+    let recorder = MLXStreamInvalidationRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("<think>plan</think>answer<think>again"))
+      continuation.finish()
+    }
+    let stream = MLXModelStreamProcessor.modelStreamPlan(
+      from: source,
+      reasoningTraceFormat: .qwenThinkTags,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
+      thinkingBudgetTrace: testThinkingBudgetTrace(),
+      thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState(),
+      markCompleted: { _ in },
+      markCancelled: { reason in
+        await recorder.record(reason)
+      },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
+    ).stream
+
+    do {
+      try await drainModelStream(stream)
+      Issue.record("Expected reopened thinking to fail closed.")
+    } catch MLXThinkingBudgetFailure.reopenedReasoning {
+      #expect(await recorder.firstReason == .runtimeError)
+    } catch {
+      Issue.record("Expected reopened reasoning failure, got \(error).")
+    }
+  }
+
+  @Test
+  func enforcedQwenStreamRejectsToolCallAfterBudgetDiagnostic() async throws {
+    let recorder = MLXStreamInvalidationRecorder()
+    let boundaryRecorder = MLXNativeBoundaryRecorder()
+    let state = MLXThinkingBudgetEnforcementState()
+    let toolCall = MLXLMCommon.ToolCall(
+      function: .init(name: "read_file", arguments: ["path": "README.md"])
+    )
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      state.record(.enforcementDisabled)
+      continuation.yield(.toolCall(toolCall))
+      continuation.finish()
+    }
+    let stream = MLXModelStreamProcessor.modelStreamPlan(
+      from: source,
+      reasoningTraceFormat: .qwenThinkTags,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
+      thinkingBudgetTrace: testThinkingBudgetTrace(),
+      thinkingBudgetEnforcementState: state,
+      markCompleted: { _ in },
+      markNativeToolCallBoundary: { assistant, toolCalls in
+        await boundaryRecorder.record(
+          output: assistant.visibleContent,
+          nativeToolCalls: toolCalls
+        )
+      },
+      markCancelled: { reason in
+        await recorder.record(reason)
+      },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
+    ).stream
+
+    do {
+      try await drainModelStream(stream)
+      Issue.record("Expected enforcement diagnostic to fail closed.")
+    } catch MLXThinkingBudgetFailure.enforcementDisabled {
+      #expect(await recorder.firstReason == .runtimeError)
+      #expect(await boundaryRecorder.firstBoundary == nil)
+    } catch {
+      Issue.record("Expected enforcement-disabled failure, got \(error).")
+    }
+  }
+
+  @Test
   func modelStreamMarksConsumerTerminationAsDownstreamTerminated() async throws {
     let recorder = MLXStreamInvalidationRecorder()
     try await consumeFirstModelStreamEvent(recorder: recorder)
@@ -1222,6 +1301,16 @@ struct MLXModelStreamProcessorTests {
       mismatchReason: nil,
       firstMismatchIndex: nil,
       systemPromptChanged: nil
+    )
+  }
+
+  private func testThinkingBudgetTrace() -> MLXThinkingBudgetTrace {
+    MLXThinkingBudgetTrace(
+      policy: "qwen36_immediate_v1",
+      maximumTokenCount: 1_024,
+      minimumAnswerTokenCount: 512,
+      transitionMode: "immediate",
+      validationStatus: "validated"
     )
   }
 

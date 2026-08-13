@@ -28,6 +28,7 @@ enum MLXSessionCacheReason: String, Equatable, Sendable {
   case additionalContextChanged = "additional_context_changed"
   case maxKVSizeChanged = "max_kv_size_changed"
   case reasoningChanged = "reasoning_changed"
+  case thinkingBudgetChanged = "thinking_budget_changed"
   case invalidatedGenCancelled = "invalidated_generation_cancelled"
   case invalidatedGenInterrupted = "invalidated_generation_interrupted"
   case invalidatedGenDownstreamTerminated = "invalidated_generation_downstream_terminated"
@@ -74,6 +75,7 @@ struct MLXSessionCacheIdentity: Equatable, Sendable {
   let projectionMode: ModelContextProjectionMode
   let maxKVSize: Int?
   let reasoningEnabled: Bool
+  let thinkingBudgetIdentity: MLXThinkingBudgetIdentity?
   let toolSpecs: MLXSessionCacheComponentIdentity
   let additionalContext: MLXSessionCacheComponentIdentity
 }

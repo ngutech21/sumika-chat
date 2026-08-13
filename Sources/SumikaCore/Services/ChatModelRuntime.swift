@@ -9,7 +9,8 @@ package protocol ChatModelRuntime: Sendable {
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
+    settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error>
 }
 
