@@ -15,6 +15,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
   private var loadedModelSupportsImageInput = false
   private var loadedReasoningTraceFormat: ReasoningTraceFormat = .none
   private var loadedModelPreservesHistoricalReasoning = false
+  private var loadedThinkingBudgetPolicy: ThinkingBudgetPolicy = .unmanaged
   private var cachedSession: CachedMLXSession?
   private var pendingCacheInvalidationReason: MLXSessionInvalidationReason?
   private var lastRuntimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
@@ -76,6 +77,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     loadedReasoningTraceFormat = configuration.reasoningTraceFormat
     loadedModelPreservesHistoricalReasoning =
       configuration.supportsHistoricalReasoningPreservation
+    loadedThinkingBudgetPolicy = configuration.thinkingBudgetPolicy
     contextTokenLimit = configuration.contextTokenLimit
     lastRuntimeCacheDebugSnapshot = nil
     invalidateCachedSession(reason: .modelChanged)
@@ -91,6 +93,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     loadedModelSupportsImageInput = false
     loadedReasoningTraceFormat = .none
     loadedModelPreservesHistoricalReasoning = false
+    loadedThinkingBudgetPolicy = .unmanaged
     contextTokenLimit = nil
     lastRuntimeCacheDebugSnapshot = nil
     await MLXModelStreamProcessor.clearMemoryCache(
@@ -130,6 +133,20 @@ final actor MLXChatRuntime: ChatModelRuntime {
     settings.repetitionPenalty == 1 ? nil : Float(settings.repetitionPenalty)
   }
 
+  static func generateParameters(from settings: ChatGenerationSettings) -> GenerateParameters {
+    GenerateParameters(
+      maxTokens: settings.maxTokens,
+      maxKVSize: settings.maxKVSize,
+      temperature: Float(settings.temperature),
+      topP: Float(settings.topP),
+      topK: settings.topK,
+      repetitionPenalty: mlxRepetitionPenalty(from: settings),
+      repetitionContextSize: settings.repetitionContextSize,
+      presencePenalty: Float(settings.presencePenalty),
+      presenceContextSize: settings.repetitionContextSize
+    )
+  }
+
   static func appendTransientInstructions(
     _ instructions: [String],
     toPromptSnapshot promptSnapshot: [ProviderPromptMessage]
@@ -162,7 +179,8 @@ final actor MLXChatRuntime: ChatModelRuntime {
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
+    settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     let setupInterval = ChatDiagnostics.beginInterval(
       "MLX stream reply setup",
@@ -192,17 +210,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
       supportsHistoricalReasoningPreservation:
         loadedModelPreservesHistoricalReasoning
     )
-    let generateParameters = GenerateParameters(
-      maxTokens: settings.maxTokens,
-      maxKVSize: settings.maxKVSize,
-      temperature: Float(settings.temperature),
-      topP: Float(settings.topP),
-      topK: settings.topK,
-      repetitionPenalty: Self.mlxRepetitionPenalty(from: settings),
-      repetitionContextSize: settings.repetitionContextSize,
-      presencePenalty: Float(settings.presencePenalty),
-      presenceContextSize: settings.repetitionContextSize
-    )
+    let generateParameters = Self.generateParameters(from: settings)
     let additionalContext = generationInput.additionalContext
     let systemPrompt = promptPlan.stableInstructions
     let toolSpecs = MLXToolMapper.toolSpecs(from: promptPlan.toolContext)
@@ -219,9 +227,20 @@ final actor MLXChatRuntime: ChatModelRuntime {
         loadedModelPreservesHistoricalReasoning
     )
     let finalPrompt = promptMessages.map(\.content).joined(separator: "\n\n")
-    await supersedeActiveGenerationBeforeStartingNew()
     let traceMetadata = TurnTraceContext.current
     let traceID = traceMetadata?.generationID ?? UUID()
+    let thinkingBudgetPlan = try await prepareThinkingBudgetPlan(
+      modelContainer: modelContainer,
+      generateParameters: generateParameters,
+      settings: settings,
+      interactionMode: interactionMode,
+      traceID: traceID,
+      systemPrompt: systemPrompt,
+      history: history,
+      finalPrompt: finalPrompt,
+      imageAttachments: imageAttachments
+    )
+    await supersedeActiveGenerationBeforeStartingNew()
     let generationID = generationOwnership.beginGeneration()
     let prepareSessionInterval = ChatDiagnostics.beginInterval(
       "MLX prepare session",
@@ -238,6 +257,8 @@ final actor MLXChatRuntime: ChatModelRuntime {
       generateParameters: generateParameters,
       additionalContext: additionalContext,
       projectionMode: projectionMode,
+      thinkingBudgetIdentity: thinkingBudgetPlan.identity,
+      components: thinkingBudgetPlan.components,
       generationID: generationID
     )
     ChatDiagnostics.endInterval(prepareSessionInterval)
@@ -252,7 +273,9 @@ final actor MLXChatRuntime: ChatModelRuntime {
       history: history,
       prompt: finalPrompt,
       settings: settings,
-      imageAttachments: imageAttachments
+      imageAttachments: imageAttachments,
+      thinkingBudget: thinkingBudgetPlan.trace,
+      interactionMode: interactionMode
     )
 
     let createStreamInterval = ChatDiagnostics.beginInterval(
@@ -276,7 +299,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     }
     let runtimeCacheDiagnostics = self.runtimeCacheDiagnostics
     if let runtimeCacheDiagnostics {
-      let cacheCapabilities = await MLXRuntimeCacheDiagnostics.capabilities(
+      let cacheCapabilities = try await MLXRuntimeCacheDiagnostics.capabilities(
         of: modelContainer,
         parameters: generateParameters
       )
@@ -309,6 +332,8 @@ final actor MLXChatRuntime: ChatModelRuntime {
       debugTraceStore: debugTraceStore,
       runtimeCacheDiagnostics: runtimeCacheDiagnostics,
       generationProgressTracer: generationProgressTracer,
+      thinkingBudgetTrace: thinkingBudgetPlan.trace,
+      thinkingBudgetEnforcementState: thinkingBudgetPlan.enforcementState,
       markCompleted: { [weak self] assistant in
         await self?.markSessionCompleted(
           generationID: generationID,
@@ -340,13 +365,64 @@ final actor MLXChatRuntime: ChatModelRuntime {
 }
 
 extension MLXChatRuntime {
+  private func prepareThinkingBudgetPlan(
+    modelContainer: ModelContainer,
+    generateParameters: GenerateParameters,
+    settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?,
+    traceID: UUID,
+    systemPrompt: String,
+    history: [Chat.Message],
+    finalPrompt: String,
+    imageAttachments: [ChatAttachment]
+  ) async throws -> MLXThinkingBudgetPlan {
+    let attemptedTrace = MLXThinkingBudgetPlanner.trace(
+      policy: loadedThinkingBudgetPolicy,
+      reasoningEnabled: settings.reasoningEnabled,
+      interactionMode: interactionMode
+    )
+    do {
+      return try await MLXThinkingBudgetPlanner.makePlan(
+        policy: loadedThinkingBudgetPolicy,
+        reasoningEnabled: settings.reasoningEnabled,
+        interactionMode: interactionMode,
+        modelContainer: modelContainer,
+        generateParameters: generateParameters
+      )
+    } catch {
+      try await traceDebugRequest(
+        id: traceID,
+        systemPrompt: systemPrompt,
+        history: history,
+        prompt: finalPrompt,
+        settings: settings,
+        imageAttachments: imageAttachments,
+        thinkingBudget: attemptedTrace,
+        interactionMode: interactionMode
+      )
+      await debugTraceStore.traceResponse(
+        id: traceID,
+        output: "",
+        metrics: nil,
+        error: error.localizedDescription,
+        thinkingBudget: attemptedTrace,
+        thinkingBudgetOutcome: .preflightFailed(
+          MLXThinkingBudgetPlanner.diagnostic(for: error)
+        )
+      )
+      throw error
+    }
+  }
+
   private func traceDebugRequest(
     id: UUID,
     systemPrompt: String,
     history: [Chat.Message],
     prompt: String,
     settings: ChatGenerationSettings,
-    imageAttachments: [ChatAttachment]
+    imageAttachments: [ChatAttachment],
+    thinkingBudget: MLXThinkingBudgetTrace,
+    interactionMode: WorkspaceInteractionMode?
   ) async throws {
     let traceMessages = try MLXHistoryRenderer.runtimeHistoryMessages(
       systemPrompt: systemPrompt,
@@ -368,7 +444,9 @@ extension MLXChatRuntime {
       prompt: prompt,
       settings: settings,
       contextTokenLimit: contextTokenLimit,
-      imageAttachments: imageAttachments
+      imageAttachments: imageAttachments,
+      thinkingBudget: thinkingBudget,
+      interactionMode: interactionMode
     )
   }
 
@@ -434,6 +512,8 @@ extension MLXChatRuntime {
     generateParameters: GenerateParameters,
     additionalContext: [String: any Sendable],
     projectionMode: ModelContextProjectionMode,
+    thinkingBudgetIdentity: MLXThinkingBudgetIdentity?,
+    components: GenerationComponents,
     generationID: MLXGenerationID
   ) -> MLXSessionCachePlan {
     let currentIdentity = MLXSessionCachePolicy.cacheIdentity(
@@ -441,7 +521,8 @@ extension MLXChatRuntime {
       settings: settings,
       projectionMode: projectionMode,
       toolSpecs: toolSpecs,
-      additionalContext: additionalContext
+      additionalContext: additionalContext,
+      thinkingBudgetIdentity: thinkingBudgetIdentity
     )
     let cached = cachedSession
     let appendOnly: Bool
@@ -529,6 +610,7 @@ extension MLXChatRuntime {
 
     if shouldReuse, let cached {
       cached.session.generateParameters = generateParameters
+      cached.session.components = components
       cachedSession = CachedMLXSession(
         session: cached.session,
         prefix: cached.prefix,
@@ -552,6 +634,7 @@ extension MLXChatRuntime {
       instructions: ModelFacingPromptRenderer.normalizedSystemPrompt(systemPrompt),
       history: history,
       generateParameters: generateParameters,
+      components: components,
       processing: Self.modelNativeMediaProcessing,
       additionalContext: additionalContext,
       tools: toolSpecs

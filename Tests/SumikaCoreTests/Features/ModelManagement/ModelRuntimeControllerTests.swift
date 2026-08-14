@@ -228,6 +228,22 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
+  func pilotModelLoadCarriesCatalogThinkingBudgetPolicyToRuntime() async throws {
+    let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
+    let runtime = RuntimeControllerRecordingRuntime()
+    let controller = await makeController(
+      initialModelID: "Qwen3.6-27B-OptiQ-4bit",
+      runtime: runtime,
+      modelPath: modelDirectory.path(percentEncoded: false)
+    )
+
+    controller.loadModel()
+    try await waitUntil { controller.modelState == .ready }
+
+    #expect(await runtime.loadedConfiguration?.thinkingBudgetPolicy == .hardLimitImmediate)
+  }
+
+  @Test
   func loadModelCapsContextLimitAtUserRequestedSetting() async throws {
     let modelDirectory = try makeModelDirectory(config: #"{"max_position_embeddings":131072}"#)
     let runtime = RuntimeControllerRecordingRuntime()
@@ -471,7 +487,8 @@ private actor RuntimeControllerRecordingRuntime: ChatModelRuntime {
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
+    settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
@@ -520,7 +537,8 @@ private actor RuntimeControllerRaceLoadingRuntime: ChatModelRuntime {
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
+    settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
@@ -569,7 +587,8 @@ private actor RuntimeControllerDelayedUnloadRuntime: ChatModelRuntime {
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
+    settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments

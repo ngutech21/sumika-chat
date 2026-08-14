@@ -92,9 +92,9 @@ actor MLXRuntimeCacheDiagnostics {
   static func capabilities(
     of modelContainer: ModelContainer,
     parameters: GenerateParameters
-  ) async -> MLXRuntimeCacheCapabilities {
-    await modelContainer.perform(values: parameters) { context, parameters in
-      let caches = context.model.newCache(parameters: parameters)
+  ) async throws -> MLXRuntimeCacheCapabilities {
+    try await modelContainer.perform(values: parameters) { context, parameters in
+      let caches = try context.model.newCache(parameters: parameters)
       var cacheTypes: [String] = []
       for cache in caches {
         let typeName = String(reflecting: type(of: cache))

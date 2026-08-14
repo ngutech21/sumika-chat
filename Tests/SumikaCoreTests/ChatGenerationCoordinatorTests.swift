@@ -7,6 +7,27 @@ import Testing
 @MainActor
 struct ChatGenerationCoordinatorTests {
   @Test
+  func interactionModeReachesRuntimeAsExplicitGenerationInput() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["done"])
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 0,
+      streamingFlushCharacterLimit: 1
+    )
+
+    _ = try await coordinator.streamAssistantReplyResult(
+      interactionMode: .chat,
+      transcript: ModelPromptProjection(),
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
+      settings: .agentDefault,
+      appendChunk: { _ in },
+      updateGenerationMetrics: { _ in }
+    )
+
+    #expect(await runtime.capturedInteractionModes == [.chat])
+  }
+
+  @Test
   func regularAssistantStreamingPreservesRuntimeMetrics() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello", " world"])
     let coordinator = ChatGenerationCoordinator(
@@ -440,7 +461,8 @@ private actor MetricsOmittingRuntime: ChatModelRuntime {
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
+    settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
@@ -477,7 +499,8 @@ private actor RuntimeCacheSnapshotRuntime: ChatModelRuntime {
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
+    settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
@@ -511,7 +534,8 @@ private actor OperationLaneControlledRuntime: ChatModelRuntime {
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
+    settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments

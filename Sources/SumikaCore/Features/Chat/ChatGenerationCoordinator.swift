@@ -151,6 +151,7 @@ struct ChatGenerationCoordinator {
       attachments: attachments,
       promptPlan: promptPlan,
       settings: settings,
+      interactionMode: interactionMode,
       operationID: operationID
     )
     try await refreshRuntimeCacheDebugSnapshot(
@@ -330,6 +331,7 @@ struct ChatGenerationCoordinator {
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?,
     operationID: UUID
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     let interval = ChatDiagnostics.beginInterval(
@@ -344,6 +346,7 @@ struct ChatGenerationCoordinator {
       attachments: attachments,
       promptPlan: promptPlan,
       settings: settings,
+      interactionMode: interactionMode,
       operationID: operationID
     )
   }

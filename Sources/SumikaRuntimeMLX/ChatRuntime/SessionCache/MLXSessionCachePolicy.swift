@@ -8,13 +8,15 @@ enum MLXSessionCachePolicy {
     settings: ChatGenerationSettings,
     projectionMode: ModelContextProjectionMode,
     toolSpecs: [ToolSpec]? = nil,
-    additionalContext: [String: any Sendable]? = nil
+    additionalContext: [String: any Sendable]? = nil,
+    thinkingBudgetIdentity: MLXThinkingBudgetIdentity? = nil
   ) -> MLXSessionCacheIdentity {
     MLXSessionCacheIdentity(
       systemPrompt: ModelFacingPromptRenderer.normalizedSystemPrompt(systemPrompt),
       projectionMode: projectionMode,
       maxKVSize: settings.maxKVSize,
       reasoningEnabled: settings.reasoningEnabled,
+      thinkingBudgetIdentity: thinkingBudgetIdentity,
       toolSpecs: componentIdentity(for: toolSpecs),
       additionalContext: componentIdentity(for: additionalContext)
     )
@@ -109,6 +111,9 @@ enum MLXSessionCachePolicy {
     if cached.reasoningEnabled != current.reasoningEnabled {
       return .reasoningChanged
     }
+    if cached.thinkingBudgetIdentity != current.thinkingBudgetIdentity {
+      return .thinkingBudgetChanged
+    }
     if cached.toolSpecs != current.toolSpecs {
       return .toolSchemasChanged
     }
@@ -156,11 +161,12 @@ enum MLXSessionCachePolicy {
     for identity: MLXSessionCacheIdentity
   ) -> String {
     hashSignature { updateString in
-      updateString("mlx_owned_cache_identity_v2")
+      updateString("mlx_owned_cache_identity_v3")
       updateString(identity.systemPrompt ?? "system:nil")
       updateString(identity.projectionMode.signatureComponent)
       updateString(identity.maxKVSize.map(String.init) ?? "max_kv:nil")
       updateString(identity.reasoningEnabled ? "reasoning:on" : "reasoning:off")
+      updateString(identity.thinkingBudgetIdentity?.signatureComponent ?? "thinking_budget:nil")
       updateString(identity.toolSpecs.signatureComponent)
       updateString(identity.additionalContext.signatureComponent)
     }

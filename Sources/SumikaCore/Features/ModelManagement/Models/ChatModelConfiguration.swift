@@ -6,19 +6,22 @@ package struct ChatModelConfiguration: Equatable, Sendable {
   package let supportsImageInput: Bool
   package let reasoningTraceFormat: ReasoningTraceFormat
   package let supportsHistoricalReasoningPreservation: Bool
+  package let thinkingBudgetPolicy: ThinkingBudgetPolicy
 
   package init(
     localModelDirectory: URL,
     contextTokenLimit: Int? = nil,
     supportsImageInput: Bool = false,
     reasoningTraceFormat: ReasoningTraceFormat = .none,
-    supportsHistoricalReasoningPreservation: Bool = false
+    supportsHistoricalReasoningPreservation: Bool = false,
+    thinkingBudgetPolicy: ThinkingBudgetPolicy = .unmanaged
   ) {
     self.localModelDirectory = localModelDirectory
     self.contextTokenLimit = contextTokenLimit
     self.supportsImageInput = supportsImageInput
     self.reasoningTraceFormat = reasoningTraceFormat
     self.supportsHistoricalReasoningPreservation = supportsHistoricalReasoningPreservation
+    self.thinkingBudgetPolicy = thinkingBudgetPolicy
   }
 }
 

@@ -33,7 +33,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ml-explore/mlx-swift-lm",
       "state" : {
-        "revision" : "5c1d95aae725db4cc34eaa60d5b820191940b685"
+        "revision" : "01472a78fca830689ff78246a82c6d31ab111a78"
       }
     },
     {
@@ -212,8 +212,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/migueldeicaza/SwiftTerm",
       "state" : {
-        "revision" : "3917686ea5f5527c5451aaf371bd90bf3618aa71",
-        "version" : "1.16.0"
+        "revision" : "139a0e853958a5a6a2da8e2962b489fff6eb3201",
+        "version" : "1.17.0"
       }
     },
     {

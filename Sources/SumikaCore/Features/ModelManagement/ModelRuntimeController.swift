@@ -282,6 +282,7 @@ final class ModelRuntimeController {
     let reasoningTraceFormat = selectedModel.reasoningTraceFormat
     let supportsHistoricalReasoningPreservation =
       selectedModel.supportsHistoricalReasoningPreservation
+    let thinkingBudgetPolicy = selectedModel.thinkingBudgetPolicy
 
     loadTask = Task {
       await runtimeOperations.setCurrentOperation(operationID)
@@ -294,6 +295,7 @@ final class ModelRuntimeController {
           supportsImageInput: supportsImageInput,
           reasoningTraceFormat: reasoningTraceFormat,
           supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation,
+          thinkingBudgetPolicy: thinkingBudgetPolicy,
           operationID: operationID
         )
         try Task.checkCancellation()

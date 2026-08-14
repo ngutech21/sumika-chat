@@ -1,6 +1,11 @@
+import MLXLMCommon
 import SumikaCore
 
 struct ReasoningTraceParser {
+  struct QwenValidation: Equatable, Sendable {
+    let responseStopStrings: Set<String>
+  }
+
   enum Segment: Equatable {
     case visible(String)
     case thinking(String)
@@ -15,19 +20,27 @@ struct ReasoningTraceParser {
 
   private var storage: Storage
 
-  init(format: ReasoningTraceFormat) {
-    storage =
-      switch format {
-      case .none:
-        .none(PassThroughReasoningTraceParser())
-      case .gemmaChannel:
-        .gemma(GemmaThoughtChannelParser())
-      case .qwenThinkTags:
-        .qwen(QwenThinkTagParser())
+  init(
+    format: ReasoningTraceFormat,
+    qwenValidation: QwenValidation? = nil
+  ) throws {
+    switch format {
+    case .none:
+      guard qwenValidation == nil else {
+        throw MLXThinkingBudgetFailure.incompatibleReasoningProtocol
       }
+      storage = .none(PassThroughReasoningTraceParser())
+    case .gemmaChannel:
+      guard qwenValidation == nil else {
+        throw MLXThinkingBudgetFailure.incompatibleReasoningProtocol
+      }
+      storage = .gemma(GemmaThoughtChannelParser())
+    case .qwenThinkTags:
+      storage = .qwen(QwenThinkTagParser(validation: qwenValidation))
+    }
   }
 
-  mutating func append(_ chunk: String) -> [Segment] {
+  mutating func append(_ chunk: String) throws -> [Segment] {
     switch storage {
     case .none(var parser):
       let segments = parser.append(chunk)
@@ -38,13 +51,30 @@ struct ReasoningTraceParser {
       storage = .gemma(parser)
       return segments
     case .qwen(var parser):
-      let segments = parser.append(chunk)
+      let segments = try parser.append(chunk)
       storage = .qwen(parser)
       return segments
     }
   }
 
-  mutating func finish() -> [Segment] {
+  mutating func prepareForToolCall() -> [Segment] {
+    switch storage {
+    case .none(var parser):
+      let segments = parser.prepareForToolCall()
+      storage = .none(parser)
+      return segments
+    case .gemma(var parser):
+      let segments = parser.prepareForToolCall()
+      storage = .gemma(parser)
+      return segments
+    case .qwen(var parser):
+      let segments = parser.prepareForToolCall()
+      storage = .qwen(parser)
+      return segments
+    }
+  }
+
+  mutating func finish(discardingProtocolTail: Bool = false) throws -> [Segment] {
     switch storage {
     case .none(var parser):
       let segments = parser.finish()
@@ -55,7 +85,7 @@ struct ReasoningTraceParser {
       storage = .gemma(parser)
       return segments
     case .qwen(var parser):
-      let segments = parser.finish()
+      let segments = try parser.finish(discardingProtocolTail: discardingProtocolTail)
       storage = .qwen(parser)
       return segments
     }
@@ -70,6 +100,10 @@ private struct PassThroughReasoningTraceParser {
   mutating func finish() -> [ReasoningTraceParser.Segment] {
     []
   }
+
+  mutating func prepareForToolCall() -> [ReasoningTraceParser.Segment] {
+    []
+  }
 }
 
 private struct GemmaThoughtChannelParser {
@@ -81,6 +115,7 @@ private struct GemmaThoughtChannelParser {
 
   private var pending = ""
   private var isReadingThought = false
+  private var hasEmittedThought = false
 
   mutating func append(_ chunk: String) -> [ReasoningTraceParser.Segment] {
     pending += chunk
@@ -98,6 +133,7 @@ private struct GemmaThoughtChannelParser {
         appendSegment(.thinking(String(pending[..<closeRange.lowerBound])), to: &segments)
         pending.removeSubrange(pending.startIndex..<closeRange.upperBound)
         isReadingThought = false
+        hasEmittedThought = false
         segments.append(.thinkingCompleted)
         continue
       }
@@ -106,6 +142,7 @@ private struct GemmaThoughtChannelParser {
         appendSegment(.visible(String(pending[..<thoughtRange.lowerBound])), to: &segments)
         pending.removeSubrange(pending.startIndex..<thoughtRange.upperBound)
         isReadingThought = true
+        hasEmittedThought = false
         continue
       }
 
@@ -120,17 +157,34 @@ private struct GemmaThoughtChannelParser {
   }
 
   mutating func finish() -> [ReasoningTraceParser.Segment] {
-    defer {
-      pending = ""
-      isReadingThought = false
-    }
     guard !pending.isEmpty else {
       return []
     }
-    return [isReadingThought ? .thinking(pending) : .visible(pending)]
+    let segment: ReasoningTraceParser.Segment =
+      if isReadingThought {
+        .thinking(pending)
+      } else {
+        .visible(pending)
+      }
+    pending = ""
+    return [segment]
   }
 
-  private func appendSegment(
+  mutating func prepareForToolCall() -> [ReasoningTraceParser.Segment] {
+    var segments: [ReasoningTraceParser.Segment] = []
+    if !pending.isEmpty {
+      appendSegment(isReadingThought ? .thinking(pending) : .visible(pending), to: &segments)
+      pending = ""
+    }
+    if isReadingThought, hasEmittedThought {
+      segments.append(.thinkingCompleted)
+    }
+    isReadingThought = false
+    hasEmittedThought = false
+    return segments
+  }
+
+  private mutating func appendSegment(
     _ segment: ReasoningTraceParser.Segment,
     to segments: inout [ReasoningTraceParser.Segment]
   ) {
@@ -140,6 +194,9 @@ private struct GemmaThoughtChannelParser {
         return
       }
       segments.append(segment)
+      if case .thinking = segment {
+        hasEmittedThought = true
+      }
     case .thinkingCompleted:
       segments.append(segment)
     }
@@ -161,66 +218,203 @@ private struct GemmaThoughtChannelParser {
 }
 
 private struct QwenThinkTagParser {
-  private static let openMarker = "<think>"
-  private static let closeMarker = "</think>"
+  private enum State {
+    case thinking
+    case response
+  }
 
+  private struct ForbiddenMarker: Sendable {
+    let value: String
+    let failure: MLXThinkingBudgetFailure
+  }
+
+  private static let unexpectedChatBoundary = "<|im_start|>"
+
+  private let configuration: ReasoningConfig
+  private let forbiddenResponseMarkers: [ForbiddenMarker]?
   private var pending = ""
-  private var isReadingThinking = true
+  private var state = State.thinking
   private var mayStartWithOpenMarker = true
+  private var hasEmittedThinking = false
 
-  mutating func append(_ chunk: String) -> [ReasoningTraceParser.Segment] {
+  init(validation: ReasoningTraceParser.QwenValidation?) {
+    let configuration = QwenReasoningProtocol.tagged
+    self.configuration = configuration
+    forbiddenResponseMarkers = validation.map { validation in
+      [
+        ForbiddenMarker(
+          value: configuration.startDelimiter,
+          failure: .reopenedReasoning
+        ),
+        ForbiddenMarker(
+          value: configuration.endDelimiter,
+          failure: .duplicateReasoningClose
+        ),
+        ForbiddenMarker(
+          value: Self.unexpectedChatBoundary,
+          failure: .unexpectedChatBoundary
+        ),
+      ]
+        + validation.responseStopStrings
+        .filter { !$0.isEmpty }
+        .sorted()
+        .map {
+          ForbiddenMarker(value: $0, failure: .unexpectedChatBoundary)
+        }
+    }
+  }
+
+  mutating func append(_ chunk: String) throws -> [ReasoningTraceParser.Segment] {
     pending += chunk
     var segments: [ReasoningTraceParser.Segment] = []
 
     while !pending.isEmpty {
-      if isReadingThinking {
+      switch state {
+      case .thinking:
         if mayStartWithOpenMarker {
-          if pending.hasPrefix(Self.openMarker) {
-            pending.removeFirst(Self.openMarker.count)
+          if pending.hasPrefix(configuration.startDelimiter) {
+            pending.removeFirst(configuration.startDelimiter.count)
             mayStartWithOpenMarker = false
             continue
           }
-          if pending.count < Self.openMarker.count, Self.openMarker.hasPrefix(pending) {
+          if pending.count < configuration.startDelimiter.count,
+            configuration.startDelimiter.hasPrefix(pending)
+          {
             return segments
           }
           mayStartWithOpenMarker = false
         }
 
-        guard let closeRange = pending.range(of: Self.closeMarker) else {
-          let retained = longestSuffixMatchingPrefix(in: pending, of: Self.closeMarker)
+        guard let endMarker = firstEndMarker(in: pending) else {
+          let retained = longestSuffixMatchingAnyPrefix(
+            in: pending,
+            of: reasoningEndMarkers
+          )
           let emitEnd = pending.index(pending.endIndex, offsetBy: -retained.count)
           appendSegment(.thinking(String(pending[..<emitEnd])), to: &segments)
           pending = retained
           return segments
         }
 
-        appendSegment(.thinking(String(pending[..<closeRange.lowerBound])), to: &segments)
-        pending.removeSubrange(pending.startIndex..<closeRange.upperBound)
-        isReadingThinking = false
+        appendSegment(
+          .thinking(String(pending[..<endMarker.range.lowerBound])),
+          to: &segments
+        )
+        if endMarker.value == configuration.endDelimiter {
+          pending.removeSubrange(pending.startIndex..<endMarker.range.upperBound)
+        } else {
+          pending = String(pending[endMarker.range.lowerBound...])
+        }
+        state = .response
+        mayStartWithOpenMarker = false
+        hasEmittedThinking = false
         segments.append(.thinkingCompleted)
         continue
+      case .response:
+        try consumeResponse(into: &segments)
+        return segments
       }
-
-      appendSegment(.visible(pending), to: &segments)
-      pending = ""
     }
 
     return segments
   }
 
-  mutating func finish() -> [ReasoningTraceParser.Segment] {
-    defer {
+  mutating func prepareForToolCall() -> [ReasoningTraceParser.Segment] {
+    var segments: [ReasoningTraceParser.Segment] = []
+    switch state {
+    case .thinking:
+      if !pending.isEmpty,
+        !reasoningEndMarkers.contains(where: { $0.hasPrefix(pending) })
+      {
+        appendSegment(.thinking(pending), to: &segments)
+      }
       pending = ""
-      isReadingThinking = true
+      if hasEmittedThinking {
+        segments.append(.thinkingCompleted)
+      }
+      state = .response
       mayStartWithOpenMarker = true
+      hasEmittedThinking = false
+    case .response:
+      pending = ""
     }
+    return segments
+  }
+
+  mutating func finish(
+    discardingProtocolTail: Bool
+  ) throws -> [ReasoningTraceParser.Segment] {
     guard !pending.isEmpty else {
       return []
     }
-    return [isReadingThinking ? .thinking(pending) : .visible(pending)]
+    defer { pending = "" }
+    if discardingProtocolTail {
+      return []
+    }
+    if state == .response,
+      let forbiddenResponseMarkers,
+      forbiddenResponseMarkers.contains(where: { $0.value.hasPrefix(pending) })
+    {
+      throw MLXThinkingBudgetFailure.truncatedProtocolMarker
+    }
+    return [state == .thinking ? .thinking(pending) : .visible(pending)]
   }
 
-  private func appendSegment(
+  private var reasoningEndMarkers: [String] {
+    [configuration.endDelimiter]
+      + configuration.implicitEndDelimiters.filter {
+        $0 != configuration.endDelimiter
+      }
+  }
+
+  private func firstEndMarker(
+    in value: String
+  ) -> (value: String, range: Range<String.Index>)? {
+    reasoningEndMarkers.compactMap { marker in
+      value.range(of: marker).map { (marker, $0) }
+    }.min { lhs, rhs in
+      if lhs.range.lowerBound == rhs.range.lowerBound {
+        return lhs.range.upperBound > rhs.range.upperBound
+      }
+      return lhs.range.lowerBound < rhs.range.lowerBound
+    }
+  }
+
+  private mutating func consumeResponse(
+    into segments: inout [ReasoningTraceParser.Segment]
+  ) throws {
+    guard let forbiddenResponseMarkers else {
+      appendSegment(.visible(pending), to: &segments)
+      pending = ""
+      return
+    }
+    if let failure = firstForbiddenMarker(
+      in: pending,
+      markers: forbiddenResponseMarkers
+    )?.failure {
+      throw failure
+    }
+    let retained = longestSuffixMatchingAnyPrefix(
+      in: pending,
+      of: forbiddenResponseMarkers.map(\.value)
+    )
+    let emitEnd = pending.index(pending.endIndex, offsetBy: -retained.count)
+    appendSegment(.visible(String(pending[..<emitEnd])), to: &segments)
+    pending = retained
+  }
+
+  private func firstForbiddenMarker(
+    in value: String,
+    markers: [ForbiddenMarker]
+  ) -> (range: Range<String.Index>, failure: MLXThinkingBudgetFailure)? {
+    markers.compactMap { marker in
+      value.range(of: marker.value).map { ($0, marker.failure) }
+    }.min { lhs, rhs in
+      lhs.range.lowerBound < rhs.range.lowerBound
+    }
+  }
+
+  private mutating func appendSegment(
     _ segment: ReasoningTraceParser.Segment,
     to segments: inout [ReasoningTraceParser.Segment]
   ) {
@@ -230,6 +424,9 @@ private struct QwenThinkTagParser {
         return
       }
       segments.append(segment)
+      if case .thinking = segment {
+        hasEmittedThinking = true
+      }
     case .thinkingCompleted:
       segments.append(segment)
     }

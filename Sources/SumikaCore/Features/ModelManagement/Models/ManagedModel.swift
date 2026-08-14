@@ -11,6 +11,14 @@ package enum ReasoningTraceFormat: Equatable, Sendable {
   case qwenThinkTags
 }
 
+/// Catalog-owned policy for hard thinking limits. This is runtime configuration,
+/// not a persisted user setting.
+package enum ThinkingBudgetPolicy: Equatable, Sendable {
+  case unmanaged
+  case unsupported
+  case hardLimitImmediate
+}
+
 package struct ToolCallingPolicy: Equatable, Sendable {
   package var isEnabled: Bool
   package var allowsMultipleToolCalls: Bool
@@ -43,6 +51,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
   package let supportsImageInput: Bool
   package let reasoningTraceFormat: ReasoningTraceFormat
   package let supportsHistoricalReasoningPreservation: Bool
+  package let thinkingBudgetPolicy: ThinkingBudgetPolicy
   package let defaultModeSettings: ChatModeSettingsSet
   package let defaultContextTokenLimit: Int
   package let maxToolLoopIterations: Int
@@ -61,6 +70,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     supportsImageInput: Bool,
     reasoningTraceFormat: ReasoningTraceFormat = .none,
     supportsHistoricalReasoningPreservation: Bool = false,
+    thinkingBudgetPolicy: ThinkingBudgetPolicy = .unmanaged,
     defaultModeSettings: ChatModeSettingsSet,
     defaultContextTokenLimit: Int,
     maxToolLoopIterations: Int = 8
@@ -78,6 +88,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     self.supportsImageInput = supportsImageInput
     self.reasoningTraceFormat = reasoningTraceFormat
     self.supportsHistoricalReasoningPreservation = supportsHistoricalReasoningPreservation
+    self.thinkingBudgetPolicy = thinkingBudgetPolicy
     self.defaultModeSettings = defaultModeSettings
     self.defaultContextTokenLimit = defaultContextTokenLimit
     self.maxToolLoopIterations = maxToolLoopIterations
@@ -195,6 +206,7 @@ package enum ManagedModelCatalog {
       supportsImageInput: true,
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
+      thinkingBudgetPolicy: .hardLimitImmediate,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
@@ -212,6 +224,7 @@ package enum ManagedModelCatalog {
       supportsImageInput: false,
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
+      thinkingBudgetPolicy: .hardLimitImmediate,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
@@ -229,6 +242,7 @@ package enum ManagedModelCatalog {
       supportsImageInput: true,
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
+      thinkingBudgetPolicy: .hardLimitImmediate,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
@@ -246,6 +260,7 @@ package enum ManagedModelCatalog {
       supportsImageInput: true,
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
+      thinkingBudgetPolicy: .hardLimitImmediate,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
@@ -263,6 +278,7 @@ package enum ManagedModelCatalog {
       supportsImageInput: false,
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
+      thinkingBudgetPolicy: .hardLimitImmediate,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
@@ -280,6 +296,7 @@ package enum ManagedModelCatalog {
       supportsImageInput: true,
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
+      thinkingBudgetPolicy: .hardLimitImmediate,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
@@ -298,6 +315,7 @@ package enum ManagedModelCatalog {
       supportsImageInput: false,
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
+      thinkingBudgetPolicy: .hardLimitImmediate,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18

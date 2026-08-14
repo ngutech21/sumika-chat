@@ -294,12 +294,12 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
   and the cached prefix is a prefix of the current model-facing history.
 - The prefill identity contains every prompt-affecting MLX input: normalized
   `ChatSession.instructions`, projection mode, `maxKVSize`, reasoning state, the
-  actual ordered `MLXToolMapper.toolSpecs`, and the actual
-  `additionalContext`. Dictionary keys are canonicalized in sorted order, while
-  array and tool order remain significant and `nil` remains distinct from a
-  present value. Inputs that cannot be canonicalized force a conservative
-  rebuild. Sampling settings and `maxTokens` remain decode-time inputs and do
-  not rebuild the session.
+  resolved thinking-budget policy and limits, the actual ordered
+  `MLXToolMapper.toolSpecs`, and the actual `additionalContext`. Dictionary keys
+  are canonicalized in sorted order, while array and tool order remain
+  significant and `nil` remains distinct from a present value. Inputs that
+  cannot be canonicalized force a conservative rebuild. Sampling settings and
+  `maxTokens` remain decode-time inputs and do not rebuild the session.
 - Each user turn freezes one stable `ChatRuntimePromptPlan.stableInstructions`
   value for `ChatSession.instructions`. Final/no-tools guidance and tool-loop
   nudges are rendered as tool-record follow-up notices instead of system
@@ -451,6 +451,30 @@ Qwen3.6 35B A3B MLX export, which reports the `qwen3_5_moe` architecture. Plain
 `qwen2` and `qwen3` currently infer `nil`, so broader Qwen text generation can
 be prepared separately, but native Qwen tool calling remains limited to the
 families MLX can infer or explicitly configure.
+
+## MLX Thinking Budgets
+
+Every catalog model that uses the Qwen thinking-tag protocol applies the
+`hardLimitImmediate` policy when reasoning is enabled. Chat mode permits at most
+1,024 reasoning tokens and reserves at least 512 tokens for the answer; Agent
+mode permits at most 2,048 reasoning tokens and reserves at least 1,024 answer
+tokens. Reaching the reasoning limit closes the validated thinking block
+immediately and continues visible output in the same generation. Disabling
+reasoning leaves the budget unapplied.
+
+Budget setup fails before generation when the interaction mode or validated
+Qwen protocol is unavailable, or when the generation token limit cannot provide
+the required answer headroom. Once generation starts, enforcement fails closed
+if its token processor becomes non-authoritative, cannot complete a Unicode
+boundary, or observes an invalid reasoning/chat boundary. Model stop strings
+come from the loaded MLX model configuration rather than product literals.
+
+The resolved policy, reasoning limit, answer reserve, and transition mode are
+part of the MLX cache identity, so changing modes rebuilds the session. Debug
+request and response rows record them under `thinkingBudget` with `policy`,
+`maximumTokenCount`, `minimumAnswerTokenCount`, `transitionMode`, and
+`validationStatus`; response rows additionally record `thinkingBudgetOutcome`
+and, for failures, `thinkingBudgetDiagnostic`.
 
 Thought streaming is model-capability driven through `ManagedModel`'s
 `reasoningTraceFormat`. The MLX stream processor maps Gemma thought-channel

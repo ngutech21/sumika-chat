@@ -11,6 +11,41 @@ import Testing
 @Suite()
 struct MLXSessionCachePolicyTests {
   @Test
+  func thinkingBudgetModeChangeForcesCacheIdentityRebuild() {
+    let chatBudget = MLXThinkingBudgetIdentity(
+      policy: .qwen36ImmediateV1,
+      maximumTokenCount: 1_024,
+      minimumAnswerTokenCount: 512,
+      transitionMode: .immediate
+    )
+    let agentBudget = MLXThinkingBudgetIdentity(
+      policy: .qwen36ImmediateV1,
+      maximumTokenCount: 2_048,
+      minimumAnswerTokenCount: 1_024,
+      transitionMode: .immediate
+    )
+    let chatIdentity = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Stable",
+      settings: .agentDefault,
+      projectionMode: .fullHistory,
+      thinkingBudgetIdentity: chatBudget
+    )
+    let agentIdentity = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Stable",
+      settings: .agentDefault,
+      projectionMode: .fullHistory,
+      thinkingBudgetIdentity: agentBudget
+    )
+
+    #expect(chatIdentity != agentIdentity)
+    #expect(
+      MLXSessionCachePolicy.identityMismatchReason(
+        cached: chatIdentity,
+        current: agentIdentity
+      ) == .thinkingBudgetChanged)
+  }
+
+  @Test
   func qwenHistoricalReasoningCapabilityAddsPreservationWithoutChangingReasoningSetting() throws {
     let transcript = ModelPromptProjection(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "Hello")
