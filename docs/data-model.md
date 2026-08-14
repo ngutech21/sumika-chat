@@ -16,6 +16,7 @@ flowchart TD
   ChatModeSettings --> ChatGenerationSettings
   ChatModeSettingsSet --> ChatModeSettings
   ChatModelConfiguration --> ReasoningTraceFormat
+  ChatModelConfiguration --> ThinkingBudgetPolicy
   ChatSession --> ChatModeSettingsSet
   ChatSession --> ChatTurn
   ChatSession --> FocusedFileState
@@ -46,6 +47,7 @@ flowchart TD
   ManagedModel --> ChatModeSettingsSet
   ManagedModel --> ManagedModelStability
   ManagedModel --> ReasoningTraceFormat
+  ManagedModel --> ThinkingBudgetPolicy
   ManagedModel --> ToolCallingPolicy
   ManagedModelCatalog --> ManagedModel
   MissingPathSuggestion --> WorkspaceRelativePath
@@ -69,6 +71,11 @@ flowchart TD
   RawToolCallRequest --> Workspace
   ReadKey --> WorkspaceRelativePath
   RecoveryHint --> WorkspaceRelativePath
+  RuntimeApplicationStateSnapshot --> ApplicationActivationState
+  RuntimeApplicationStateSnapshot --> ApplicationOcclusionState
+  RuntimeApplicationStateSnapshot --> ApplicationVisibilityState
+  RuntimeApplicationStateSnapshot --> MainWindowVisibilityState
+  RuntimeApplicationStateSnapshotProvider --> RuntimeApplicationStateSnapshot
   SearchFileMatch --> WorkspaceRelativePath
   TodoItem --> TodoStatus
   TodoState --> TodoItem
@@ -147,6 +154,12 @@ flowchart TD
   ToolResultProjection -. derives .-> ToolModelObservation
   ToolResultProjection -. derives .-> ToolResultModelMetadata
   TurnTraceContext --> TurnTraceMetadata
+  TurnTraceEvent --> ApplicationActivationState
+  TurnTraceEvent --> ApplicationOcclusionState
+  TurnTraceEvent --> ApplicationVisibilityState
+  TurnTraceEvent --> GenerationActivityRequest
+  TurnTraceEvent --> MainWindowVisibilityState
+  TurnTraceEvent --> RuntimeStreamOutcome
   TurnTraceEvent --> ToolArgumentTrace
   TurnTraceEvent --> TurnTracePhase
   TurnTraceEvent --> WorkspaceInteractionMode
@@ -170,6 +183,42 @@ flowchart TD
 ```
 
 ## Models
+
+### ApplicationActivationState
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
+
+Cases:
+
+- `active`
+- `inactive`
+- `unavailable`
+
+### ApplicationOcclusionState
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
+
+Cases:
+
+- `occluded`
+- `unavailable`
+- `visible`
+
+### ApplicationVisibilityState
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
+
+Cases:
+
+- `hidden`
+- `shown`
+- `unavailable`
 
 ### AssistantDeliveryStatus
 
@@ -313,7 +362,6 @@ Properties:
 
 Properties:
 
-- `maxKVSize: Int?`
 - `maxTokens: Int`
 - `presencePenalty: Double`
 - `reasoningEnabled: Bool`
@@ -366,10 +414,12 @@ Properties:
 - `reasoningTraceFormat: ReasoningTraceFormat`
 - `supportsHistoricalReasoningPreservation: Bool`
 - `supportsImageInput: Bool`
+- `thinkingBudgetPolicy: ThinkingBudgetPolicy`
 
 Relations:
 
 - `ReasoningTraceFormat`
+- `ThinkingBudgetPolicy`
 
 ### ChatSession
 
@@ -605,6 +655,17 @@ Relations:
 
 - `ModelContextRole`
 
+### GenerationActivityRequest
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
+
+Cases:
+
+- `none`
+- `userInitiatedAllowingIdleSystemSleep`
+
 ### HistoricalAssistantReasoning
 
 - Kind: `struct`
@@ -715,6 +776,20 @@ Cases:
 - `stdio(command: String, arguments: [String], environment: [String: String])`
 - `streamableHTTP(endpoint: URL)`
 
+### MainWindowVisibilityState
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
+
+Cases:
+
+- `minimized`
+- `notVisible`
+- `occluded`
+- `unavailable`
+- `visible`
+
 ### ManagedModel
 
 - Kind: `struct`
@@ -738,6 +813,7 @@ Properties:
 - `stability: ManagedModelStability`
 - `supportsHistoricalReasoningPreservation: Bool`
 - `supportsImageInput: Bool`
+- `thinkingBudgetPolicy: ThinkingBudgetPolicy`
 - `toolCallingPolicy: ToolCallingPolicy`
 
 Relations:
@@ -745,6 +821,7 @@ Relations:
 - `ChatModeSettingsSet`
 - `ManagedModelStability`
 - `ReasoningTraceFormat`
+- `ThinkingBudgetPolicy`
 - `ToolCallingPolicy`
 
 ### ManagedModelCatalog
@@ -1043,6 +1120,52 @@ Relations:
 
 - `WorkspaceRelativePath`
 
+### RuntimeApplicationStateSnapshot
+
+- Kind: `struct`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
+- Conforms to: `Equatable`, `Sendable`
+
+Properties:
+
+- `applicationActivation: ApplicationActivationState`
+- `applicationOcclusion: ApplicationOcclusionState`
+- `applicationVisibility: ApplicationVisibilityState`
+- `mainWindowVisibility: MainWindowVisibilityState`
+
+Relations:
+
+- `ApplicationActivationState`
+- `ApplicationOcclusionState`
+- `ApplicationVisibilityState`
+- `MainWindowVisibilityState`
+
+### RuntimeApplicationStateSnapshotProvider
+
+- Kind: `typealias`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
+- Aliased type: `@Sendable () -> RuntimeApplicationStateSnapshot`
+
+Relations:
+
+- `RuntimeApplicationStateSnapshot`
+
+### RuntimeStreamOutcome
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
+
+Cases:
+
+- `cancelled`
+- `completed`
+- `downstreamTerminated`
+- `failed`
+- `interrupted`
+- `outputLimit`
+- `toolCallBoundary`
+
 ### RuntimeToolCallID
 
 - Kind: `enum`
@@ -1063,6 +1186,19 @@ Properties:
 Relations:
 
 - `WorkspaceRelativePath`
+
+### ThinkingBudgetPolicy
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ManagedModel.swift`
+- Conforms to: `Equatable`, `Sendable`
+- Summary: Catalog-owned policy for hard thinking limits. This is runtime configuration, not a persisted user setting.
+
+Cases:
+
+- `hardLimitImmediate`
+- `unmanaged`
+- `unsupported`
 
 ### TodoItem
 
@@ -1918,6 +2054,9 @@ Properties:
 - `activeMCPToolCount: Int?`
 - `appendOnly: Bool?`
 - `appendedMessageCount: Int?`
+- `applicationActivation: ApplicationActivationState?`
+- `applicationOcclusion: ApplicationOcclusionState?`
+- `applicationVisibility: ApplicationVisibilityState?`
 - `cacheMode: String?`
 - `cacheReason: String?`
 - `contextSignature: String?`
@@ -1925,11 +2064,13 @@ Properties:
 - `firstMismatchIndex: Int?`
 - `generatedTokenCount: Int?`
 - `generatedTokenCountIsEstimate: Bool?`
+- `generationActivityRequest: GenerationActivityRequest?`
 - `generationID: UUID?`
 - `imageByteCount: Int?`
 - `imageCount: Int?`
 - `imageTypes: [String]?`
 - `interactionMode: WorkspaceInteractionMode?`
+- `mainWindowVisibility: MainWindowVisibilityState?`
 - `memoryClearReason: String?`
 - `messageCount: Int?`
 - `mismatchReason: String?`
@@ -1938,6 +2079,7 @@ Properties:
 - `promptBytes: Int?`
 - `promptTokens: Int?`
 - `reusedMessageCount: Int?`
+- `runtimeStreamOutcome: RuntimeStreamOutcome?`
 - `selectedMCPServerIDs: [UUID]?`
 - `systemPromptChanged: Bool?`
 - `tokensPerSecond: Double?`
@@ -1954,6 +2096,12 @@ Properties:
 
 Relations:
 
+- `ApplicationActivationState`
+- `ApplicationOcclusionState`
+- `ApplicationVisibilityState`
+- `GenerationActivityRequest`
+- `MainWindowVisibilityState`
+- `RuntimeStreamOutcome`
 - `ToolArgumentTrace`
 - `TurnTracePhase`
 - `WorkspaceInteractionMode`
@@ -1992,6 +2140,7 @@ Cases:
 - `runtimeDecode`
 - `runtimePartialDecode`
 - `runtimePrefill`
+- `runtimeStreamEnd`
 - `runtimeStreamStart`
 - `runtimeTTFT`
 - `toolExecute`

@@ -60,9 +60,15 @@ enum AppLaunchConfiguration {
   @MainActor
   static func bootstrap(
     environment: [String: String] = ProcessInfo.processInfo.environment,
-    runtime: (any ChatModelRuntime)? = nil
+    runtime: (any ChatModelRuntime)? = nil,
+    applicationStateSnapshotProvider: @escaping RuntimeApplicationStateSnapshotProvider = {
+      .unavailable
+    }
   ) async -> AppLaunchState {
-    let mlxEnvironment = MLXRuntimeComposition.makeChatEnvironment(overriding: runtime)
+    let mlxEnvironment = MLXRuntimeComposition.makeChatEnvironment(
+      overriding: runtime,
+      applicationStateSnapshotProvider: applicationStateSnapshotProvider
+    )
 
     if environment["SUMIKA_UI_TEST_MODE"] == "1" {
       let appState = makeUITestAppState(

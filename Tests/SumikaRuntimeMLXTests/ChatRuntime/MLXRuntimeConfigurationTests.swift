@@ -116,6 +116,25 @@ struct MLXRuntimeConfigurationTests {
   }
 
   @Test
+  func legacyMaxKVSizeDoesNotLimitMLXGeneration() throws {
+    let data = Data(
+      """
+      {
+        "temperature": 0.2,
+        "topP": 0.8,
+        "topK": 10,
+        "maxTokens": 256,
+        "maxKVSize": 4096
+      }
+      """.utf8)
+    let settings = try JSONDecoder().decode(ChatGenerationSettings.self, from: data)
+
+    let parameters = MLXChatRuntime.generateParameters(from: settings)
+
+    #expect(parameters.maxKVSize == nil)
+  }
+
+  @Test
   func chatSessionMediaProcessingDelegatesSizingToModelProcessor() {
     let processing = MLXChatRuntime.modelNativeMediaProcessing
 

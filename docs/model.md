@@ -81,7 +81,6 @@ classDiagram
     topP: Double
     topK: Int
     maxTokens: Int
-    maxKVSize: Int?
     repetitionPenalty: Double
     repetitionContextSize: Int
     presencePenalty: Double

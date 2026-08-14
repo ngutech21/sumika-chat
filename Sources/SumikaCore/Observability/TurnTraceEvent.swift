@@ -1,9 +1,80 @@
 import Foundation
 
+package enum ApplicationActivationState: String, Codable, Equatable, Sendable {
+  case active
+  case inactive
+  case unavailable
+}
+
+package enum ApplicationVisibilityState: String, Codable, Equatable, Sendable {
+  case shown
+  case hidden
+  case unavailable
+}
+
+package enum ApplicationOcclusionState: String, Codable, Equatable, Sendable {
+  case visible
+  case occluded
+  case unavailable
+}
+
+package enum MainWindowVisibilityState: String, Codable, Equatable, Sendable {
+  case visible
+  case occluded
+  case minimized
+  case notVisible = "not_visible"
+  case unavailable
+}
+
+package enum GenerationActivityRequest: String, Codable, Equatable, Sendable {
+  case none
+  case userInitiatedAllowingIdleSystemSleep = "user_initiated_allowing_idle_system_sleep"
+}
+
+package enum RuntimeStreamOutcome: String, Codable, Equatable, Sendable {
+  case completed
+  case cancelled
+  case failed
+  case outputLimit = "output_limit"
+  case interrupted
+  case toolCallBoundary = "tool_call_boundary"
+  case downstreamTerminated = "downstream_terminated"
+}
+
+package struct RuntimeApplicationStateSnapshot: Equatable, Sendable {
+  package let applicationActivation: ApplicationActivationState
+  package let applicationVisibility: ApplicationVisibilityState
+  package let applicationOcclusion: ApplicationOcclusionState
+  package let mainWindowVisibility: MainWindowVisibilityState
+
+  package static let unavailable = Self(
+    applicationActivation: .unavailable,
+    applicationVisibility: .unavailable,
+    applicationOcclusion: .unavailable,
+    mainWindowVisibility: .unavailable
+  )
+
+  package init(
+    applicationActivation: ApplicationActivationState,
+    applicationVisibility: ApplicationVisibilityState,
+    applicationOcclusion: ApplicationOcclusionState,
+    mainWindowVisibility: MainWindowVisibilityState
+  ) {
+    self.applicationActivation = applicationActivation
+    self.applicationVisibility = applicationVisibility
+    self.applicationOcclusion = applicationOcclusion
+    self.mainWindowVisibility = mainWindowVisibility
+  }
+}
+
+package typealias RuntimeApplicationStateSnapshotProvider =
+  @Sendable () -> RuntimeApplicationStateSnapshot
+
 package enum TurnTracePhase: String, Codable, CaseIterable, Equatable, Sendable {
   case contextBuild = "context_build"
   case renderSystemPrompt = "render_system_prompt"
   case runtimeStreamStart = "runtime_stream_start"
+  case runtimeStreamEnd = "runtime_stream_end"
   case runtimeTTFT = "runtime_ttft"
   case runtimePrefill = "runtime_prefill"
   case runtimeDecode = "runtime_decode"
@@ -52,6 +123,12 @@ package struct TurnTraceEvent: Codable, Equatable, Sendable {
   package let imageByteCount: Int?
   package let generatedTokenCount: Int?
   package let generatedTokenCountIsEstimate: Bool?
+  package let applicationActivation: ApplicationActivationState?
+  package let applicationVisibility: ApplicationVisibilityState?
+  package let applicationOcclusion: ApplicationOcclusionState?
+  package let mainWindowVisibility: MainWindowVisibilityState?
+  package let generationActivityRequest: GenerationActivityRequest?
+  package let runtimeStreamOutcome: RuntimeStreamOutcome?
 
   package init(
     turnID: UUID? = nil,
@@ -89,7 +166,13 @@ package struct TurnTraceEvent: Codable, Equatable, Sendable {
     imageTypes: [String]? = nil,
     imageByteCount: Int? = nil,
     generatedTokenCount: Int? = nil,
-    generatedTokenCountIsEstimate: Bool? = nil
+    generatedTokenCountIsEstimate: Bool? = nil,
+    applicationActivation: ApplicationActivationState? = nil,
+    applicationVisibility: ApplicationVisibilityState? = nil,
+    applicationOcclusion: ApplicationOcclusionState? = nil,
+    mainWindowVisibility: MainWindowVisibilityState? = nil,
+    generationActivityRequest: GenerationActivityRequest? = nil,
+    runtimeStreamOutcome: RuntimeStreamOutcome? = nil
   ) {
     self.turnID = turnID
     self.generationID = generationID
@@ -127,6 +210,12 @@ package struct TurnTraceEvent: Codable, Equatable, Sendable {
     self.imageByteCount = imageByteCount
     self.generatedTokenCount = generatedTokenCount
     self.generatedTokenCountIsEstimate = generatedTokenCountIsEstimate
+    self.applicationActivation = applicationActivation
+    self.applicationVisibility = applicationVisibility
+    self.applicationOcclusion = applicationOcclusion
+    self.mainWindowVisibility = mainWindowVisibility
+    self.generationActivityRequest = generationActivityRequest
+    self.runtimeStreamOutcome = runtimeStreamOutcome
   }
 }
 

@@ -1,6 +1,7 @@
 import Foundation
 import MLXLMCommon
 import SumikaCore
+import Synchronization
 
 struct MLXModelStreamPlan {
   let stream: AsyncThrowingStream<ChatModelStreamEvent, Error>
@@ -51,6 +52,11 @@ enum MLXModelStreamProcessor {
     debugTraceStore: MLXDebugTraceStore,
     runtimeCacheDiagnostics: MLXRuntimeCacheDiagnostics? = nil,
     generationProgressTracer: MLXGenerationProgressTracer = .disabled,
+    generationStartedAt: Date = Date(),
+    generationActivityLease: MLXGenerationActivityLease? = nil,
+    applicationStateSnapshotProvider: @escaping RuntimeApplicationStateSnapshotProvider = {
+      .unavailable
+    },
     thinkingBudgetTrace: MLXThinkingBudgetTrace? = nil,
     thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState? = nil,
     markCompleted: @escaping @Sendable (MLXCompletedAssistantSnapshot) async -> Void,
@@ -66,18 +72,20 @@ enum MLXModelStreamProcessor {
   ) -> MLXModelStreamPlan {
     let (outputStream, continuation) = AsyncThrowingStream<ChatModelStreamEvent, Error>
       .makeStream(bufferingPolicy: .unbounded)
+    let streamCancellationState = MLXStreamCancellationState()
     let task = Task {
       let streamInterval = ChatDiagnostics.beginInterval(
         "MLX process model stream",
         category: .generation
       )
       defer { ChatDiagnostics.endInterval(streamInterval) }
+      defer { generationActivityLease?.end() }
       var output = ""
       var visibleOutput = ""
       var reasoningOutput = ""
       var reasoningBoundaryState = ReasoningBoundaryState.absent
       var completedMetrics: ChatGenerationMetrics?
-      let iterationStartedAt = Date()
+      let iterationStartedAt = generationStartedAt
       var firstChunkAt: Date?
       var termination = StreamTerminationState()
       var nativeToolCalls: [ChatRuntimeToolCall] = []
@@ -85,6 +93,7 @@ enum MLXModelStreamProcessor {
       var pendingChunk: String?
       var generationProgressTracer = generationProgressTracer
 
+      let terminalOutcome: RuntimeStreamOutcome
       do {
         var reasoningParser = try ReasoningTraceParser(
           format: reasoningTraceFormat,
@@ -229,7 +238,7 @@ enum MLXModelStreamProcessor {
           category: .generation
         )
         defer { ChatDiagnostics.endInterval(finalizeInterval) }
-        await finalizeStream(
+        terminalOutcome = await finalizeStream(
           continuation: continuation,
           output: output,
           assistantSnapshot: completedAssistantSnapshot(
@@ -257,7 +266,7 @@ enum MLXModelStreamProcessor {
           memoryCacheClearer: memoryCacheClearer
         )
       } catch is CancellationError {
-        await handleCancellation(
+        terminalOutcome = await handleCancellation(
           output: output,
           completedMetrics: completedMetrics,
           continuation: continuation,
@@ -265,10 +274,11 @@ enum MLXModelStreamProcessor {
           debugTraceStore: debugTraceStore,
           thinkingBudgetTrace: thinkingBudgetTrace,
           thinkingBudgetEnforcementState: thinkingBudgetEnforcementState,
+          didTerminateDownstream: streamCancellationState.didTerminateDownstream,
           markCancelled: markCancelled
         )
       } catch {
-        await handleRuntimeFailure(
+        terminalOutcome = await handleRuntimeFailure(
           error,
           output: output,
           completedMetrics: completedMetrics,
@@ -283,11 +293,23 @@ enum MLXModelStreamProcessor {
           memoryCacheClearer: memoryCacheClearer
         )
       }
+      await recordRuntimeStreamEnd(
+        outcome: terminalOutcome,
+        metrics: completedMetrics,
+        traceID: traceID,
+        traceMetadata: traceMetadata,
+        cacheTrace: cacheTrace,
+        debugTraceStore: debugTraceStore,
+        generationStartedAt: generationStartedAt,
+        applicationState: applicationStateSnapshotProvider(),
+        generationActivityRequest: generationActivityLease?.request ?? .none
+      )
     }
 
     observeDownstreamCancellation(
       of: continuation,
       task: task,
+      cancellationState: streamCancellationState,
       markCancelled: markCancelled
     )
 
@@ -304,9 +326,10 @@ extension MLXModelStreamProcessor {
     debugTraceStore: MLXDebugTraceStore,
     thinkingBudgetTrace: MLXThinkingBudgetTrace?,
     thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState?,
+    didTerminateDownstream: Bool,
     markCancelled: @Sendable (MLXSessionInvalidationReason) async -> Void
-  ) async {
-    await markCancelled(.cancelled)
+  ) async -> RuntimeStreamOutcome {
+    await markCancelled(didTerminateDownstream ? .downstreamTerminated : .cancelled)
     await debugTraceStore.traceResponse(
       id: traceID,
       output: output,
@@ -317,17 +340,20 @@ extension MLXModelStreamProcessor {
         ? .notApplied : .cancelled
     )
     continuation.finish(throwing: CancellationError())
+    return didTerminateDownstream ? .downstreamTerminated : .cancelled
   }
 
   private static func observeDownstreamCancellation(
     of continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
     task: Task<Void, Never>,
+    cancellationState: MLXStreamCancellationState,
     markCancelled: @escaping @Sendable (MLXSessionInvalidationReason) async -> Void
   ) {
     continuation.onTermination = { termination in
       guard case .cancelled = termination else {
         return
       }
+      cancellationState.markDownstreamTerminated()
       Task {
         await markCancelled(.downstreamTerminated)
         task.cancel()
@@ -348,7 +374,7 @@ extension MLXModelStreamProcessor {
     thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState?,
     markCancelled: @Sendable (MLXSessionInvalidationReason) async -> Void,
     memoryCacheClearer: MLXMemoryCacheClearer
-  ) async {
+  ) async -> RuntimeStreamOutcome {
     await markCancelled(.runtimeError)
     await clearMemoryCache(
       reason: .runtimeError,
@@ -377,6 +403,7 @@ extension MLXModelStreamProcessor {
       thinkingBudgetOutcome: thinkingBudgetOutcome
     )
     continuation.finish(throwing: error)
+    return .failed
   }
 
   private static func recordRuntimeTTFTIfNeeded(
@@ -683,11 +710,11 @@ extension MLXModelStreamProcessor {
       ) async -> Void,
     markCancelled: @Sendable (MLXSessionInvalidationReason) async -> Void,
     memoryCacheClearer: MLXMemoryCacheClearer
-  ) async {
+  ) async -> RuntimeStreamOutcome {
     if didTerminateDownstream {
       await markCancelled(.downstreamTerminated)
       continuation.finish()
-      return
+      return .downstreamTerminated
     }
 
     if didReachTokenLimit {
@@ -716,7 +743,7 @@ extension MLXModelStreamProcessor {
             discardedToolProtocolTail: didDiscardToolProtocolTail
           )))
       continuation.finish()
-      return
+      return .outputLimit
     }
 
     let isInterrupted =
@@ -743,7 +770,7 @@ extension MLXModelStreamProcessor {
           ? .notApplied : .interrupted
       )
       continuation.finish(throwing: error)
-      return
+      return .interrupted
     }
 
     if !nativeToolCalls.isEmpty {
@@ -753,7 +780,7 @@ extension MLXModelStreamProcessor {
       if yieldCompletion(completedMetrics, to: continuation) {
         await markCancelled(.downstreamTerminated)
         continuation.finish()
-        return
+        return .downstreamTerminated
       }
       await markNativeToolCallBoundary(assistantSnapshot, nativeToolCalls)
       await debugTraceStore.traceResponse(
@@ -765,13 +792,13 @@ extension MLXModelStreamProcessor {
           ? .notApplied : .completedAuthoritative
       )
       continuation.finish()
-      return
+      return .toolCallBoundary
     }
 
     if yieldCompletion(completedMetrics, to: continuation) {
       await markCancelled(.downstreamTerminated)
       continuation.finish()
-      return
+      return .downstreamTerminated
     }
 
     await markCompleted(assistantSnapshot)
@@ -784,6 +811,7 @@ extension MLXModelStreamProcessor {
         ? .notApplied : .completedAuthoritative
     )
     continuation.finish()
+    return .completed
   }
 
   private static func completedAssistantSnapshot(
@@ -816,6 +844,51 @@ extension MLXModelStreamProcessor {
       return true
     }
     return false
+  }
+
+  private static func recordRuntimeStreamEnd(
+    outcome: RuntimeStreamOutcome,
+    metrics: ChatGenerationMetrics?,
+    traceID: UUID,
+    traceMetadata: TurnTraceMetadata?,
+    cacheTrace: MLXSessionCacheTrace,
+    debugTraceStore: MLXDebugTraceStore,
+    generationStartedAt: Date,
+    applicationState: RuntimeApplicationStateSnapshot,
+    generationActivityRequest: GenerationActivityRequest
+  ) async {
+    let event = TurnTraceEvent(
+      turnID: traceMetadata?.turnID,
+      generationID: traceID,
+      phase: .runtimeStreamEnd,
+      durationMs: Date().timeIntervalSince(generationStartedAt) * 1000,
+      toolLoopIteration: traceMetadata?.toolLoopIteration,
+      tokensPerSecond: metrics?.tokensPerSecond,
+      cacheMode: cacheTrace.cacheMode.rawValue,
+      cacheReason: cacheTrace.cacheReason.rawValue,
+      interactionMode: traceMetadata?.interactionMode,
+      contextSignature: cacheTrace.contextSignature,
+      previousContextSignature: cacheTrace.previousContextSignature,
+      appendOnly: cacheTrace.appendOnly,
+      reusedMessageCount: cacheTrace.reusedMessageCount,
+      appendedMessageCount: cacheTrace.appendedMessageCount,
+      mismatchReason: cacheTrace.mismatchReason,
+      firstMismatchIndex: cacheTrace.firstMismatchIndex,
+      systemPromptChanged: cacheTrace.systemPromptChanged,
+      generatedTokenCount: metrics?.generatedTokenCount,
+      generatedTokenCountIsEstimate: metrics == nil ? nil : false,
+      applicationActivation: applicationState.applicationActivation,
+      applicationVisibility: applicationState.applicationVisibility,
+      applicationOcclusion: applicationState.applicationOcclusion,
+      mainWindowVisibility: applicationState.mainWindowVisibility,
+      generationActivityRequest: generationActivityRequest,
+      runtimeStreamOutcome: outcome
+    )
+    if let traceMetadata {
+      await traceMetadata.tracer.recordTurnTraceEvent(event)
+    } else {
+      await debugTraceStore.recordTurnTraceEvent(event)
+    }
   }
 
   static func clearMemoryCache(
@@ -855,4 +928,16 @@ extension MLXModelStreamProcessor {
     }
   }
 
+}
+
+private final class MLXStreamCancellationState: Sendable {
+  private let storage = Mutex(false)
+
+  var didTerminateDownstream: Bool {
+    storage.withLock { $0 }
+  }
+
+  func markDownstreamTerminated() {
+    storage.withLock { $0 = true }
+  }
 }

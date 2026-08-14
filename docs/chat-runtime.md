@@ -293,13 +293,16 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
 - Reuse is safe when the cached session is clean, the prefill identity matches,
   and the cached prefix is a prefix of the current model-facing history.
 - The prefill identity contains every prompt-affecting MLX input: normalized
-  `ChatSession.instructions`, projection mode, `maxKVSize`, reasoning state, the
-  resolved thinking-budget policy and limits, the actual ordered
-  `MLXToolMapper.toolSpecs`, and the actual `additionalContext`. Dictionary keys
-  are canonicalized in sorted order, while array and tool order remain
-  significant and `nil` remains distinct from a present value. Inputs that
-  cannot be canonicalized force a conservative rebuild. Sampling settings and
-  `maxTokens` remain decode-time inputs and do not rebuild the session.
+  `ChatSession.instructions`, projection mode, reasoning state, the resolved
+  thinking-budget policy and limits, the actual ordered `MLXToolMapper.toolSpecs`,
+  and the actual `additionalContext`. Dictionary keys are canonicalized in sorted
+  order, while array and tool order remain significant and `nil` remains distinct
+  from a present value. Inputs that cannot be canonicalized force a conservative
+  rebuild. Sampling settings and `maxTokens` remain decode-time inputs and do not
+  rebuild the session.
+- Generation parameters always pass `maxKVSize: nil` to MLX. Sumika does not
+  expose a rotating KV-cache limit because capped long-context Qwen agent turns
+  can lose tool-schema fidelity after the prompt crosses the cap.
 - Each user turn freezes one stable `ChatRuntimePromptPlan.stableInstructions`
   value for `ChatSession.instructions`. Final/no-tools guidance and tool-loop
   nudges are rendered as tool-record follow-up notices instead of system
@@ -378,6 +381,13 @@ file. `SUMIKA_DEBUG_TRACE_FILE` and `SUMIKA_DEBUG_TRACE_BASENAME` remain availab
 for callers that require an explicit path. The performance-report script uses
 the most recently modified manual run trace or legacy `mlx-trace.jsonl` when no
 trace path is supplied.
+
+Active MLX generation holds a user-initiated process activity request from
+before upstream stream creation through its terminal runtime event. For a
+controlled same-binary comparison, launch the trace run with
+`SUMIKA_GENERATION_ACTIVITY=disabled ./script/build_and_run.sh --trace`; the
+trace then records `generationActivityRequest: none` instead of
+`user_initiated_allowing_idle_system_sleep`.
 
 Every terminal MLX completion-info event emits one `runtime_prefill` row before
 terminal stop handling. Its `durationMs` is `promptTime * 1000`, and

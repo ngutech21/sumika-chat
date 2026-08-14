@@ -69,8 +69,7 @@ struct LocalModelDirectoryTests {
       temperature: 0.1,
       topP: 0.5,
       topK: 20,
-      maxTokens: 512,
-      maxKVSize: 4096
+      maxTokens: 512
     )
 
     let updated = preset.applying(to: settings)
@@ -79,7 +78,6 @@ struct LocalModelDirectoryTests {
     #expect(updated.topP == 0.9)
     #expect(updated.topK == 20)
     #expect(updated.maxTokens == 512)
-    #expect(updated.maxKVSize == 4096)
     #expect(updated.repetitionPenalty == 1.2)
   }
 

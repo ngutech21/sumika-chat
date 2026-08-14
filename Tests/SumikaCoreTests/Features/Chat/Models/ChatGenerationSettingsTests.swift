@@ -28,7 +28,6 @@ struct ChatGenerationSettingsTests {
       topP: 0.8,
       topK: 10,
       maxTokens: 256,
-      maxKVSize: 4096,
       repetitionPenalty: 1.15,
       repetitionContextSize: 128,
       presencePenalty: 0.7
@@ -40,6 +39,27 @@ struct ChatGenerationSettingsTests {
     )
 
     #expect(decoded == settings)
+  }
+
+  @Test
+  func legacyMaxKVSizeIsNotPersistedAgain() throws {
+    let data = Data(
+      """
+      {
+        "temperature": 0.2,
+        "topP": 0.8,
+        "topK": 10,
+        "maxTokens": 256,
+        "maxKVSize": 4096
+      }
+      """.utf8)
+
+    let settings = try JSONDecoder().decode(ChatGenerationSettings.self, from: data)
+    let encoded = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any]
+    )
+
+    #expect(encoded["maxKVSize"] == nil)
   }
 
   @Test

@@ -3,7 +3,6 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
   package var topP: Double
   package var topK: Int
   package var maxTokens: Int
-  package var maxKVSize: Int?
   package var repetitionPenalty: Double
   /// How many recent tokens the repetition/presence penalties look back over.
   /// The MLX default of 20 is shorter than a single tool call, so it cannot see —
@@ -20,7 +19,6 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     topP: Double,
     topK: Int,
     maxTokens: Int,
-    maxKVSize: Int? = nil,
     repetitionPenalty: Double = 1,
     repetitionContextSize: Int = 20,
     presencePenalty: Double = 0,
@@ -30,7 +28,6 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     self.topP = topP
     self.topK = topK
     self.maxTokens = maxTokens
-    self.maxKVSize = maxKVSize
     self.repetitionPenalty = repetitionPenalty
     self.repetitionContextSize = repetitionContextSize
     self.presencePenalty = presencePenalty
@@ -42,7 +39,6 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     case topP
     case topK
     case maxTokens
-    case maxKVSize
     case repetitionPenalty
     case repetitionContextSize
     case presencePenalty
@@ -55,7 +51,6 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     topP = try container.decodeIfPresent(Double.self, forKey: .topP, default: 1)
     topK = try container.decodeIfPresent(Int.self, forKey: .topK, default: 0)
     maxTokens = try container.decodeIfPresent(Int.self, forKey: .maxTokens, default: 2048)
-    maxKVSize = try container.decodeIfPresent(Int.self, forKey: .maxKVSize)
     repetitionPenalty = try container.decodeIfPresent(
       Double.self,
       forKey: .repetitionPenalty,
@@ -84,7 +79,6 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     try container.encode(topP, forKey: .topP)
     try container.encode(topK, forKey: .topK)
     try container.encode(maxTokens, forKey: .maxTokens)
-    try container.encodeIfPresent(maxKVSize, forKey: .maxKVSize)
     try container.encode(repetitionPenalty, forKey: .repetitionPenalty)
     try container.encode(repetitionContextSize, forKey: .repetitionContextSize)
     try container.encode(presencePenalty, forKey: .presencePenalty)
@@ -95,8 +89,7 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     temperature: 1,
     topP: 1,
     topK: 0,
-    maxTokens: 2048,
-    maxKVSize: nil
+    maxTokens: 2048
   )
 
   /// Agent-mode sampling is tuned to resist the tool-call loops small local models
@@ -109,7 +102,6 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     topP: 0.95,
     topK: 64,
     maxTokens: 8192,
-    maxKVSize: nil,
     repetitionContextSize: 256,
     presencePenalty: 0.5
   )

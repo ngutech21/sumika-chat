@@ -2,6 +2,35 @@
 
 import Foundation
 
+struct TraceRuntimeState: Codable, Equatable {
+  var applicationActivation: String?
+  var applicationVisibility: String?
+  var applicationOcclusion: String?
+  var mainWindowVisibility: String?
+  var generationActivityRequest: String?
+}
+
+struct PartialDecodeSample: Codable {
+  var timestamp: String?
+  var durationMs: Double
+  var generatedTokenCount: Int
+  var generatedTokenCountIsEstimate: Bool
+  var runtimeState: TraceRuntimeState?
+}
+
+struct PartialDecodeInterval: Codable {
+  var startTimestamp: String?
+  var endTimestamp: String?
+  var startDurationMs: Double
+  var endDurationMs: Double
+  var deltaTokenCount: Int
+  var durationMs: Double
+  var tokensPerSecond: Double?
+  var startState: TraceRuntimeState?
+  var endState: TraceRuntimeState?
+  var hasMatchingEndpointState: Bool
+}
+
 struct GenerationReport: Codable {
   var generationID: String
   var turnID: String?
@@ -39,7 +68,12 @@ struct GenerationReport: Codable {
   var cacheTrimmable: Bool?
   var cacheTypes: [String]?
   var decodeMs: Double?
-  var partialDecodeMs: Double?
+  var streamStartState: TraceRuntimeState?
+  var streamEndMs: Double?
+  var streamEndState: TraceRuntimeState?
+  var streamOutcome: String?
+  var partialDecodeSamples: [PartialDecodeSample]
+  var partialDecodeIntervals: [PartialDecodeInterval]
   var memoryClearMs: Double?
   var memoryClearReason: String?
   var uiFlushCount: Int
@@ -208,6 +242,8 @@ func newGenerationReport(id: String, rowIndex: Int) -> GenerationReport {
     toolLoopIteration: nil,
     requestSeen: false,
     responseSeen: false,
+    partialDecodeSamples: [],
+    partialDecodeIntervals: [],
     uiFlushCount: 0,
     uiFlushMs: 0,
     firstRowIndex: rowIndex
@@ -245,6 +281,46 @@ func mergeTraceFields(_ object: [String: Any], into report: inout GenerationRepo
   report.messageCount = report.messageCount ?? intValue(object, "messageCount")
 }
 
+func traceRuntimeState(_ object: [String: Any]) -> TraceRuntimeState? {
+  let state = TraceRuntimeState(
+    applicationActivation: value(object, "applicationActivation", as: String.self),
+    applicationVisibility: value(object, "applicationVisibility", as: String.self),
+    applicationOcclusion: value(object, "applicationOcclusion", as: String.self),
+    mainWindowVisibility: value(object, "mainWindowVisibility", as: String.self),
+    generationActivityRequest: value(object, "generationActivityRequest", as: String.self)
+  )
+  guard state != TraceRuntimeState() else {
+    return nil
+  }
+  return state
+}
+
+func partialDecodeIntervals(
+  for samples: [PartialDecodeSample]
+) -> [PartialDecodeInterval] {
+  zip(samples, samples.dropFirst()).compactMap { start, end in
+    let durationMs = end.durationMs - start.durationMs
+    let deltaTokenCount = end.generatedTokenCount - start.generatedTokenCount
+    guard durationMs > 0, deltaTokenCount >= 0 else {
+      return nil
+    }
+    let hasMatchingEndpointState = start.runtimeState == end.runtimeState
+    return PartialDecodeInterval(
+      startTimestamp: start.timestamp,
+      endTimestamp: end.timestamp,
+      startDurationMs: start.durationMs,
+      endDurationMs: end.durationMs,
+      deltaTokenCount: deltaTokenCount,
+      durationMs: durationMs,
+      tokensPerSecond: hasMatchingEndpointState
+        ? Double(deltaTokenCount) / durationMs * 1000 : nil,
+      startState: start.runtimeState,
+      endState: end.runtimeState,
+      hasMatchingEndpointState: hasMatchingEndpointState
+    )
+  }
+}
+
 func markdown(_ report: PerformanceReport) -> String {
   var lines: [String] = [
     "# Sumika Performance Report",
@@ -258,8 +334,8 @@ func markdown(_ report: PerformanceReport) -> String {
     "- Rows: \(report.rowCount)",
     "- Generations: \(report.generationCount)",
     "",
-    "| # | Mode | Iter | Cache | Reason | MLX decision | MLX mismatch | Memory clear | TTFT ms | Prefill ms | Prompt tokens | Full tokens | Reused tokens | Decode ms | tok/s | Prompt bytes | Error |",
-    "|---:|---|---:|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+    "| # | Mode | Iter | Cache | Reason | MLX decision | MLX mismatch | Memory clear | TTFT ms | Prefill ms | Prompt tokens | Full tokens | Reused tokens | Decode ms | tok/s | Prompt bytes | Outcome | Error |",
+    "|---:|---|---:|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
   ]
 
   for (index, generation) in report.generations.enumerated() {
@@ -280,15 +356,87 @@ func markdown(_ report: PerformanceReport) -> String {
       formatted(generation.decodeMs),
       formatted(generation.tokensPerSecond),
       generation.promptBytes.map(String.init) ?? "-",
+      generation.streamOutcome ?? "-",
       generation.responseError ?? "-",
     ]
     lines.append(row.joined(separator: " | ").wrappedTableRow())
   }
 
   appendToolLoopTTFTComparison(to: &lines, generations: report.generations)
+  appendDecodeStateIntervals(to: &lines, generations: report.generations)
 
   lines.append("")
   return lines.joined(separator: "\n")
+}
+
+func appendDecodeStateIntervals(
+  to lines: inout [String],
+  generations: [GenerationReport]
+) {
+  let intervals = generations.flatMap { generation in
+    generation.partialDecodeIntervals.map { (generation.generationID, $0) }
+  }
+  guard !intervals.isEmpty else {
+    return
+  }
+
+  lines.append(contentsOf: [
+    "",
+    "## Decode State Intervals",
+    "",
+    "Rates use delta estimated tokens divided by delta elapsed time. Intervals with different endpoint states do not receive a rate.",
+    "",
+    "| Generation | End timestamp | Activation | App visibility | App occlusion | Main window | Activity request | Delta tokens | Delta ms | tok/s | State |",
+    "|---|---|---|---|---|---|---|---:|---:|---:|---|",
+  ])
+
+  for (generationID, interval) in intervals {
+    lines.append(
+      [
+        String(generationID.prefix(8)),
+        interval.endTimestamp ?? "-",
+        stateTransition(
+          from: interval.startState,
+          to: interval.endState,
+          keyPath: \.applicationActivation
+        ),
+        stateTransition(
+          from: interval.startState,
+          to: interval.endState,
+          keyPath: \.applicationVisibility
+        ),
+        stateTransition(
+          from: interval.startState,
+          to: interval.endState,
+          keyPath: \.applicationOcclusion
+        ),
+        stateTransition(
+          from: interval.startState,
+          to: interval.endState,
+          keyPath: \.mainWindowVisibility
+        ),
+        stateTransition(
+          from: interval.startState,
+          to: interval.endState,
+          keyPath: \.generationActivityRequest
+        ),
+        String(interval.deltaTokenCount),
+        formatted(interval.durationMs),
+        formatted(interval.tokensPerSecond),
+        interval.hasMatchingEndpointState ? "matching" : "mixed",
+      ].joined(separator: " | ").wrappedTableRow()
+    )
+  }
+}
+
+func stateTransition(
+  from start: TraceRuntimeState?,
+  to end: TraceRuntimeState?,
+  keyPath: KeyPath<TraceRuntimeState, String?>
+) -> String {
+  let startValue = start?[keyPath: keyPath] ?? "-"
+  let endValue = end?[keyPath: keyPath] ?? "-"
+  return startValue == endValue ? startValue : "\(startValue)->\(endValue)"
 }
 
 func appendToolLoopTTFTComparison(to lines: inout [String], generations: [GenerationReport]) {
@@ -462,6 +610,15 @@ for (rowIndex, row) in rows.enumerated() {
     switch value(object, "phase", as: String.self) {
     case "runtime_stream_start":
       report.streamStartMs = doubleValue(object, "durationMs")
+      report.streamStartState = traceRuntimeState(object)
+    case "runtime_stream_end":
+      report.streamEndMs = doubleValue(object, "durationMs")
+      report.streamEndState = traceRuntimeState(object)
+      report.streamOutcome = value(object, "runtimeStreamOutcome", as: String.self)
+      report.generatedTokenCount =
+        intValue(object, "generatedTokenCount") ?? report.generatedTokenCount
+      report.tokensPerSecond =
+        doubleValue(object, "tokensPerSecond") ?? report.tokensPerSecond
     case "runtime_ttft":
       report.ttftMs = doubleValue(object, "ttftMs") ?? doubleValue(object, "durationMs")
     case "runtime_prefill":
@@ -483,7 +640,20 @@ for (rowIndex, row) in rows.enumerated() {
       report.decodeMs = doubleValue(object, "durationMs")
       report.tokensPerSecond = doubleValue(object, "tokensPerSecond") ?? report.tokensPerSecond
     case "runtime_partial_decode":
-      report.partialDecodeMs = doubleValue(object, "durationMs")
+      if let durationMs = doubleValue(object, "durationMs"),
+        let generatedTokenCount = intValue(object, "generatedTokenCount")
+      {
+        report.partialDecodeSamples.append(
+          PartialDecodeSample(
+            timestamp: value(object, "timestamp", as: String.self),
+            durationMs: durationMs,
+            generatedTokenCount: generatedTokenCount,
+            generatedTokenCountIsEstimate:
+              boolValue(object, "generatedTokenCountIsEstimate") ?? true,
+            runtimeState: traceRuntimeState(object)
+          )
+        )
+      }
     case "memory_clear":
       report.memoryClearMs = doubleValue(object, "durationMs")
     case "ui_flush":
@@ -499,7 +669,13 @@ for (rowIndex, row) in rows.enumerated() {
   reportsByGenerationID[generationID] = report
 }
 
-var generations = generationOrder.compactMap { reportsByGenerationID[$0] }
+var generations = generationOrder.compactMap { generationID -> GenerationReport? in
+  guard var report = reportsByGenerationID[generationID] else {
+    return nil
+  }
+  report.partialDecodeIntervals = partialDecodeIntervals(for: report.partialDecodeSamples)
+  return report
+}
 if let limit, generations.count > limit {
   generations = Array(generations.suffix(limit))
 }

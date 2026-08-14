@@ -166,8 +166,7 @@ struct ModelRuntimeControllerTests {
       temperature: 0.3,
       topP: 0.85,
       topK: 40,
-      maxTokens: 768,
-      maxKVSize: 8192
+      maxTokens: 768
     )
     let sharedModeSettings = ChatModeSettings(
       systemPrompt: "Use concise code review notes.",

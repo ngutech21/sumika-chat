@@ -323,15 +323,6 @@ struct ModelAdvancedSettings: View {
         Text("Advanced")
           .font(.headline)
 
-        Toggle(isOn: maxKVSizeEnabled) {
-          SettingValueLabel(title: "Custom KV Cache", value: formattedMaxKVSize)
-        }
-
-        Stepper(value: maxKVSizeValue, in: 4096...131072, step: 4096) {
-          SettingValueLabel(title: "KV Cache Limit", value: formattedMaxKVSize)
-        }
-        .disabled(selectedGenerationSettings.wrappedValue.maxKVSize == nil)
-
         VStack(alignment: .leading, spacing: 6) {
           HStack {
             Label("Top P", systemImage: "chart.line.uptrend.xyaxis")
@@ -429,14 +420,6 @@ struct ModelAdvancedSettings: View {
     "\(contextTokenLimit / 1024)K"
   }
 
-  private var formattedMaxKVSize: String {
-    guard let maxKVSize = selectedGenerationSettings.wrappedValue.maxKVSize else {
-      return "Runtime"
-    }
-
-    return "\(maxKVSize / 1024)K"
-  }
-
   private var selectedSystemPrompt: Binding<String> {
     Binding(
       get: { modeSettings[selectedMode].systemPrompt },
@@ -490,23 +473,6 @@ struct ModelAdvancedSettings: View {
     Binding(
       get: { selectedGenerationSettings.wrappedValue.presencePenalty },
       set: { selectedGenerationSettings.wrappedValue.presencePenalty = $0 }
-    )
-  }
-
-  private var maxKVSizeEnabled: Binding<Bool> {
-    Binding(
-      get: { selectedGenerationSettings.wrappedValue.maxKVSize != nil },
-      set: { isEnabled in
-        selectedGenerationSettings.wrappedValue.maxKVSize =
-          isEnabled ? contextTokenLimit : nil
-      }
-    )
-  }
-
-  private var maxKVSizeValue: Binding<Int> {
-    Binding(
-      get: { selectedGenerationSettings.wrappedValue.maxKVSize ?? contextTokenLimit },
-      set: { selectedGenerationSettings.wrappedValue.maxKVSize = $0 }
     )
   }
 

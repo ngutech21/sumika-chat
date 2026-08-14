@@ -6,6 +6,8 @@ struct MLXGenerationProgressTracer: Sendable {
   private let traceMetadata: TurnTraceMetadata?
   private let debugTraceStore: MLXDebugTraceStore?
   private let startedAt: Date?
+  private let applicationStateSnapshotProvider: RuntimeApplicationStateSnapshotProvider?
+  private let generationActivityRequest: GenerationActivityRequest?
   private let estimateTokenCount: (@Sendable (String) -> Int)?
   private var streamedChunkCount = 0
 
@@ -16,12 +18,16 @@ struct MLXGenerationProgressTracer: Sendable {
     traceMetadata: TurnTraceMetadata?,
     debugTraceStore: MLXDebugTraceStore,
     startedAt: Date,
+    applicationStateSnapshotProvider: @escaping RuntimeApplicationStateSnapshotProvider,
+    generationActivityRequest: GenerationActivityRequest,
     estimateTokenCount: @escaping @Sendable (String) -> Int
   ) {
     self.traceID = traceID
     self.traceMetadata = traceMetadata
     self.debugTraceStore = debugTraceStore
     self.startedAt = startedAt
+    self.applicationStateSnapshotProvider = applicationStateSnapshotProvider
+    self.generationActivityRequest = generationActivityRequest
     self.estimateTokenCount = estimateTokenCount
   }
 
@@ -30,6 +36,8 @@ struct MLXGenerationProgressTracer: Sendable {
     traceMetadata = nil
     debugTraceStore = nil
     startedAt = nil
+    applicationStateSnapshotProvider = nil
+    generationActivityRequest = nil
     estimateTokenCount = nil
   }
 
@@ -42,6 +50,8 @@ struct MLXGenerationProgressTracer: Sendable {
       let traceID,
       let debugTraceStore,
       let startedAt,
+      let applicationStateSnapshotProvider,
+      let generationActivityRequest,
       let estimateTokenCount
     else {
       return
@@ -52,6 +62,8 @@ struct MLXGenerationProgressTracer: Sendable {
       traceMetadata: traceMetadata,
       durationMs: Date().timeIntervalSince(startedAt) * 1000,
       output: output,
+      applicationState: applicationStateSnapshotProvider(),
+      generationActivityRequest: generationActivityRequest,
       estimateTokenCount: estimateTokenCount
     )
   }

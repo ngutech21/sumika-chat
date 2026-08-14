@@ -27,18 +27,34 @@ final actor MLXChatRuntime: ChatModelRuntime {
   private var lifecycleTransitionInProgress = false
   private let memoryCacheClearer: MLXMemoryCacheClearer
   private let debugTraceStore: MLXDebugTraceStore
+  private let generationActivity: MLXGenerationActivity
+  private let applicationStateSnapshotProvider: RuntimeApplicationStateSnapshotProvider
 
-  init(debugTraceStore: MLXDebugTraceStore) {
+  init(
+    debugTraceStore: MLXDebugTraceStore,
+    applicationStateSnapshotProvider: @escaping RuntimeApplicationStateSnapshotProvider = {
+      .unavailable
+    },
+    generationActivity: MLXGenerationActivity = .live
+  ) {
     self.memoryCacheClearer = .live
     self.debugTraceStore = debugTraceStore
+    self.generationActivity = generationActivity
+    self.applicationStateSnapshotProvider = applicationStateSnapshotProvider
   }
 
   init(
     memoryCacheClearer: MLXMemoryCacheClearer = .live,
-    debugTraceStore: MLXDebugTraceStore
+    debugTraceStore: MLXDebugTraceStore,
+    applicationStateSnapshotProvider: @escaping RuntimeApplicationStateSnapshotProvider = {
+      .unavailable
+    },
+    generationActivity: MLXGenerationActivity = .live
   ) {
     self.memoryCacheClearer = memoryCacheClearer
     self.debugTraceStore = debugTraceStore
+    self.generationActivity = generationActivity
+    self.applicationStateSnapshotProvider = applicationStateSnapshotProvider
   }
 
   func load(configuration: ChatModelConfiguration) async throws {
@@ -136,7 +152,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
   static func generateParameters(from settings: ChatGenerationSettings) -> GenerateParameters {
     GenerateParameters(
       maxTokens: settings.maxTokens,
-      maxKVSize: settings.maxKVSize,
+      maxKVSize: nil,
       temperature: Float(settings.temperature),
       topP: Float(settings.topP),
       topK: settings.topK,
@@ -282,38 +298,31 @@ final actor MLXChatRuntime: ChatModelRuntime {
       "MLX create stream",
       category: .generation
     )
-    let generationProgressTracer: MLXGenerationProgressTracer
-    if MLXDebugTraceStore.isEnabled {
-      let tokenizer = await modelContainer.tokenizer
-      generationProgressTracer = MLXGenerationProgressTracer(
-        traceID: traceID,
-        traceMetadata: traceMetadata,
-        debugTraceStore: debugTraceStore,
-        startedAt: Date(),
-        estimateTokenCount: { output in
-          tokenizer.encode(text: output, addSpecialTokens: false).count
-        }
-      )
-    } else {
-      generationProgressTracer = .disabled
+    let estimateGeneratedTokenCount = await generationTokenEstimator(
+      modelContainer: modelContainer
+    )
+    let runtimeCacheDiagnostics = try await beginRuntimeCacheDiagnostics(
+      modelContainer: modelContainer,
+      generateParameters: generateParameters,
+      cachePlan: cachePlan,
+      traceID: traceID
+    )
+    let startedGeneration = generationActivity.start {
+      cachePlan.session.streamDetails(to: cachePlan.streamMessages)
     }
-    let runtimeCacheDiagnostics = self.runtimeCacheDiagnostics
-    if let runtimeCacheDiagnostics {
-      let cacheCapabilities = try await MLXRuntimeCacheDiagnostics.capabilities(
-        of: modelContainer,
-        parameters: generateParameters
-      )
-      await runtimeCacheDiagnostics.begin(
-        generationID: traceID,
-        expectsReuse: cachePlan.trace.cacheMode == .reusedSession
-          || cachePlan.trace.cacheMode == .appendDelta,
-        newMediaPresent: cachePlan.streamMessages.contains {
-          !$0.images.isEmpty || !$0.videos.isEmpty || !$0.audios.isEmpty
-        },
-        capabilities: cacheCapabilities
-      )
+    var activityLeaseHandedOff = false
+    defer {
+      if !activityLeaseHandedOff {
+        startedGeneration.activityLease.end()
+      }
     }
-    let stream = cachePlan.session.streamDetails(to: cachePlan.streamMessages)
+    let generationProgressTracer = makeGenerationProgressTracer(
+      traceID: traceID,
+      traceMetadata: traceMetadata,
+      startedAt: startedGeneration.startedAt,
+      generationActivityRequest: startedGeneration.activityLease.request,
+      estimateTokenCount: estimateGeneratedTokenCount
+    )
     ChatDiagnostics.endInterval(createStreamInterval)
     await recordRuntimeStreamStart(
       traceID: traceID,
@@ -321,10 +330,12 @@ final actor MLXChatRuntime: ChatModelRuntime {
       cachePlan: cachePlan,
       streamStartStartedAt: streamStartStartedAt,
       messageCount: transcript.entries.count,
-      imageAttachments: imageAttachments
+      imageAttachments: imageAttachments,
+      applicationState: applicationStateSnapshotProvider(),
+      generationActivityRequest: startedGeneration.activityLease.request
     )
     let streamPlan = MLXModelStreamProcessor.modelStreamPlan(
-      from: stream,
+      from: startedGeneration.stream,
       reasoningTraceFormat: settings.reasoningEnabled ? loadedReasoningTraceFormat : .none,
       traceID: traceID,
       traceMetadata: traceMetadata,
@@ -332,6 +343,9 @@ final actor MLXChatRuntime: ChatModelRuntime {
       debugTraceStore: debugTraceStore,
       runtimeCacheDiagnostics: runtimeCacheDiagnostics,
       generationProgressTracer: generationProgressTracer,
+      generationStartedAt: startedGeneration.startedAt,
+      generationActivityLease: startedGeneration.activityLease,
+      applicationStateSnapshotProvider: applicationStateSnapshotProvider,
       thinkingBudgetTrace: thinkingBudgetPlan.trace,
       thinkingBudgetEnforcementState: thinkingBudgetPlan.enforcementState,
       markCompleted: { [weak self] assistant in
@@ -356,6 +370,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
         await self?.markCachedSessionInvalid(generationID: generationID, reason: reason)
       }
     )
+    activityLeaseHandedOff = true
     activeGenerationRegistry.register(id: generationID, task: streamPlan.task)
     if generationOwnership.activeGenerationID != generationID {
       activeGenerationRegistry.clearIfCurrent(generationID)
@@ -365,6 +380,64 @@ final actor MLXChatRuntime: ChatModelRuntime {
 }
 
 extension MLXChatRuntime {
+  private func makeGenerationProgressTracer(
+    traceID: UUID,
+    traceMetadata: TurnTraceMetadata?,
+    startedAt: Date,
+    generationActivityRequest: GenerationActivityRequest,
+    estimateTokenCount: (@Sendable (String) -> Int)?
+  ) -> MLXGenerationProgressTracer {
+    guard let estimateTokenCount else {
+      return .disabled
+    }
+    return MLXGenerationProgressTracer(
+      traceID: traceID,
+      traceMetadata: traceMetadata,
+      debugTraceStore: debugTraceStore,
+      startedAt: startedAt,
+      applicationStateSnapshotProvider: applicationStateSnapshotProvider,
+      generationActivityRequest: generationActivityRequest,
+      estimateTokenCount: estimateTokenCount
+    )
+  }
+
+  private func generationTokenEstimator(
+    modelContainer: ModelContainer
+  ) async -> (@Sendable (String) -> Int)? {
+    guard MLXDebugTraceStore.isEnabled else {
+      return nil
+    }
+    let tokenizer = await modelContainer.tokenizer
+    return { output in
+      tokenizer.encode(text: output, addSpecialTokens: false).count
+    }
+  }
+
+  private func beginRuntimeCacheDiagnostics(
+    modelContainer: ModelContainer,
+    generateParameters: GenerateParameters,
+    cachePlan: MLXSessionCachePlan,
+    traceID: UUID
+  ) async throws -> MLXRuntimeCacheDiagnostics? {
+    guard let runtimeCacheDiagnostics else {
+      return nil
+    }
+    let cacheCapabilities = try await MLXRuntimeCacheDiagnostics.capabilities(
+      of: modelContainer,
+      parameters: generateParameters
+    )
+    await runtimeCacheDiagnostics.begin(
+      generationID: traceID,
+      expectsReuse: cachePlan.trace.cacheMode == .reusedSession
+        || cachePlan.trace.cacheMode == .appendDelta,
+      newMediaPresent: cachePlan.streamMessages.contains {
+        !$0.images.isEmpty || !$0.videos.isEmpty || !$0.audios.isEmpty
+      },
+      capabilities: cacheCapabilities
+    )
+    return runtimeCacheDiagnostics
+  }
+
   private func prepareThinkingBudgetPlan(
     modelContainer: ModelContainer,
     generateParameters: GenerateParameters,
@@ -456,36 +529,43 @@ extension MLXChatRuntime {
     cachePlan: MLXSessionCachePlan,
     streamStartStartedAt: Date,
     messageCount: Int,
-    imageAttachments: [ChatAttachment]
+    imageAttachments: [ChatAttachment],
+    applicationState: RuntimeApplicationStateSnapshot,
+    generationActivityRequest: GenerationActivityRequest
   ) async {
-    guard let traceMetadata else {
-      return
-    }
-    await traceMetadata.tracer.recordTurnTraceEvent(
-      TurnTraceEvent(
-        turnID: traceMetadata.turnID,
-        generationID: traceID,
-        phase: .runtimeStreamStart,
-        durationMs: Date().timeIntervalSince(streamStartStartedAt) * 1000,
-        promptBytes: MLXSessionCachePolicy.contentByteCount(for: cachePlan.streamMessages),
-        messageCount: messageCount,
-        toolLoopIteration: traceMetadata.toolLoopIteration,
-        cacheMode: cachePlan.trace.cacheMode.rawValue,
-        cacheReason: cachePlan.trace.cacheReason.rawValue,
-        interactionMode: traceMetadata.interactionMode,
-        contextSignature: cachePlan.trace.contextSignature,
-        previousContextSignature: cachePlan.trace.previousContextSignature,
-        appendOnly: cachePlan.trace.appendOnly,
-        reusedMessageCount: cachePlan.trace.reusedMessageCount,
-        appendedMessageCount: cachePlan.trace.appendedMessageCount,
-        mismatchReason: cachePlan.trace.mismatchReason,
-        firstMismatchIndex: cachePlan.trace.firstMismatchIndex,
-        systemPromptChanged: cachePlan.trace.systemPromptChanged,
-        imageCount: imageAttachments.isEmpty ? nil : imageAttachments.count,
-        imageTypes: MLXHistoryRenderer.imageTypes(from: imageAttachments),
-        imageByteCount: MLXHistoryRenderer.imageByteCount(from: imageAttachments)
-      )
+    let event = TurnTraceEvent(
+      turnID: traceMetadata?.turnID,
+      generationID: traceID,
+      phase: .runtimeStreamStart,
+      durationMs: Date().timeIntervalSince(streamStartStartedAt) * 1000,
+      promptBytes: MLXSessionCachePolicy.contentByteCount(for: cachePlan.streamMessages),
+      messageCount: messageCount,
+      toolLoopIteration: traceMetadata?.toolLoopIteration,
+      cacheMode: cachePlan.trace.cacheMode.rawValue,
+      cacheReason: cachePlan.trace.cacheReason.rawValue,
+      interactionMode: traceMetadata?.interactionMode,
+      contextSignature: cachePlan.trace.contextSignature,
+      previousContextSignature: cachePlan.trace.previousContextSignature,
+      appendOnly: cachePlan.trace.appendOnly,
+      reusedMessageCount: cachePlan.trace.reusedMessageCount,
+      appendedMessageCount: cachePlan.trace.appendedMessageCount,
+      mismatchReason: cachePlan.trace.mismatchReason,
+      firstMismatchIndex: cachePlan.trace.firstMismatchIndex,
+      systemPromptChanged: cachePlan.trace.systemPromptChanged,
+      imageCount: imageAttachments.isEmpty ? nil : imageAttachments.count,
+      imageTypes: MLXHistoryRenderer.imageTypes(from: imageAttachments),
+      imageByteCount: MLXHistoryRenderer.imageByteCount(from: imageAttachments),
+      applicationActivation: applicationState.applicationActivation,
+      applicationVisibility: applicationState.applicationVisibility,
+      applicationOcclusion: applicationState.applicationOcclusion,
+      mainWindowVisibility: applicationState.mainWindowVisibility,
+      generationActivityRequest: generationActivityRequest
     )
+    if let traceMetadata {
+      await traceMetadata.tracer.recordTurnTraceEvent(event)
+    } else {
+      await debugTraceStore.recordTurnTraceEvent(event)
+    }
   }
 
   private func supersedeActiveGenerationBeforeStartingNew() async {

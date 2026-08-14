@@ -66,7 +66,13 @@ struct MLXDebugTraceStoreTests {
             )
           ],
           generatedTokenCount: 128,
-          generatedTokenCountIsEstimate: true
+          generatedTokenCountIsEstimate: true,
+          applicationActivation: .inactive,
+          applicationVisibility: .shown,
+          applicationOcclusion: .occluded,
+          mainWindowVisibility: .notVisible,
+          generationActivityRequest: .userInitiatedAllowingIdleSystemSleep,
+          runtimeStreamOutcome: .completed
         ),
         cacheDiagnostics: MLXRuntimeCacheDiagnosticResult(
           decision: .fullPrefill,
@@ -132,6 +138,15 @@ struct MLXDebugTraceStoreTests {
     #expect(object["toolArgumentKeys"] as? [String] == ["id", "status"])
     #expect(object["generatedTokenCount"] as? Int == 128)
     #expect(object["generatedTokenCountIsEstimate"] as? Bool == true)
+    #expect(object["applicationActivation"] as? String == "inactive")
+    #expect(object["applicationVisibility"] as? String == "shown")
+    #expect(object["applicationOcclusion"] as? String == "occluded")
+    #expect(object["mainWindowVisibility"] as? String == "not_visible")
+    #expect(
+      object["generationActivityRequest"] as? String
+        == "user_initiated_allowing_idle_system_sleep"
+    )
+    #expect(object["runtimeStreamOutcome"] as? String == "completed")
 
     let toolArguments = try #require(object["toolArguments"] as? [[String: Any]])
     #expect(toolArguments.count == 1)
@@ -272,6 +287,15 @@ struct MLXDebugTraceStoreTests {
       traceMetadata: nil,
       debugTraceStore: store,
       startedAt: Date(),
+      applicationStateSnapshotProvider: {
+        RuntimeApplicationStateSnapshot(
+          applicationActivation: .inactive,
+          applicationVisibility: .shown,
+          applicationOcclusion: .occluded,
+          mainWindowVisibility: .notVisible
+        )
+      },
+      generationActivityRequest: .userInitiatedAllowingIdleSystemSleep,
       estimateTokenCount: { $0.split(separator: " ").count }
     )
 
@@ -295,6 +319,13 @@ struct MLXDebugTraceStoreTests {
       ])
     #expect(objects.map { $0["generatedTokenCount"] as? Int } == [1, 128])
     #expect(objects.allSatisfy { $0["generatedTokenCountIsEstimate"] as? Bool == true })
+    #expect(objects.allSatisfy { $0["applicationActivation"] as? String == "inactive" })
+    #expect(objects.allSatisfy { $0["mainWindowVisibility"] as? String == "not_visible" })
+    #expect(
+      objects.allSatisfy {
+        $0["generationActivityRequest"] as? String
+          == "user_initiated_allowing_idle_system_sleep"
+      })
   }
 
   @Test
@@ -332,7 +363,7 @@ struct MLXDebugTraceStoreTests {
       firstMismatchIndex: nil,
       systemPromptChanged: nil
     )
-    let stream = MLXModelStreamProcessor.modelStreamPlan(
+    let plan = MLXModelStreamProcessor.modelStreamPlan(
       from: source,
       traceID: UUID(),
       traceMetadata: nil,
@@ -342,9 +373,10 @@ struct MLXDebugTraceStoreTests {
       markCompleted: { _ in },
       markCancelled: { _ in },
       memoryCacheClearer: MLXMemoryCacheClearer { _ in }
-    ).stream
+    )
 
-    for try await _ in stream {}
+    for try await _ in plan.stream {}
+    await plan.task.value
 
     let data = try Data(contentsOf: fileURL)
     let lines = try #require(String(data: data, encoding: .utf8)?.split(separator: "\n"))
@@ -352,8 +384,9 @@ struct MLXDebugTraceStoreTests {
       try #require(JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any])
     }
 
-    #expect(objects.count == 1)
+    #expect(objects.count == 2)
     #expect(objects.first?["kind"] as? String == "mlx_response")
+    #expect(objects.last?["phase"] as? String == "runtime_stream_end")
     #expect(objects.allSatisfy { $0["phase"] as? String != "runtime_partial_decode" })
   }
 
@@ -380,6 +413,13 @@ struct MLXDebugTraceStoreTests {
       traceMetadata: metadata,
       durationMs: 1_250,
       output: "one two three",
+      applicationState: RuntimeApplicationStateSnapshot(
+        applicationActivation: .active,
+        applicationVisibility: .shown,
+        applicationOcclusion: .visible,
+        mainWindowVisibility: .visible
+      ),
+      generationActivityRequest: .userInitiatedAllowingIdleSystemSleep,
       estimateTokenCount: { $0.split(separator: " ").count }
     )
 
@@ -398,6 +438,14 @@ struct MLXDebugTraceStoreTests {
     #expect(object["durationMs"] as? Double == 1_250)
     #expect(object["generatedTokenCount"] as? Int == 3)
     #expect(object["generatedTokenCountIsEstimate"] as? Bool == true)
+    #expect(object["applicationActivation"] as? String == "active")
+    #expect(object["applicationVisibility"] as? String == "shown")
+    #expect(object["applicationOcclusion"] as? String == "visible")
+    #expect(object["mainWindowVisibility"] as? String == "visible")
+    #expect(
+      object["generationActivityRequest"] as? String
+        == "user_initiated_allowing_idle_system_sleep"
+    )
   }
 
   @Test

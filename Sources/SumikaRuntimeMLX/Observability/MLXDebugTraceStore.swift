@@ -43,7 +43,7 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     }
 
     let truncatedPrompt = truncated(prompt)
-    var settingsTrace: [String: Any] = [
+    let settingsTrace: [String: Any] = [
       "maxTokens": settings.maxTokens,
       "temperature": settings.temperature,
       "topP": settings.topP,
@@ -53,9 +53,6 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
       "presencePenalty": settings.presencePenalty,
       "reasoningEnabled": settings.reasoningEnabled,
     ]
-    if let maxKVSize = settings.maxKVSize {
-      settingsTrace["maxKVSize"] = maxKVSize
-    }
     var request: [String: Any] = [
       "id": id.uuidString,
       "timestamp": timestamp(),
@@ -127,6 +124,8 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     traceMetadata: TurnTraceMetadata?,
     durationMs: Double,
     output: String,
+    applicationState: RuntimeApplicationStateSnapshot,
+    generationActivityRequest: GenerationActivityRequest,
     estimateTokenCount: @Sendable (String) -> Int
   ) async {
     guard Self.isEnabled else {
@@ -142,7 +141,12 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
         toolLoopIteration: traceMetadata?.toolLoopIteration,
         interactionMode: traceMetadata?.interactionMode,
         generatedTokenCount: estimateTokenCount(output),
-        generatedTokenCountIsEstimate: true
+        generatedTokenCountIsEstimate: true,
+        applicationActivation: applicationState.applicationActivation,
+        applicationVisibility: applicationState.applicationVisibility,
+        applicationOcclusion: applicationState.applicationOcclusion,
+        mainWindowVisibility: applicationState.mainWindowVisibility,
+        generationActivityRequest: generationActivityRequest
       )
     )
   }
@@ -225,6 +229,12 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
       ("imageByteCount", event.imageByteCount),
       ("generatedTokenCount", event.generatedTokenCount),
       ("generatedTokenCountIsEstimate", event.generatedTokenCountIsEstimate),
+      ("applicationActivation", event.applicationActivation?.rawValue),
+      ("applicationVisibility", event.applicationVisibility?.rawValue),
+      ("applicationOcclusion", event.applicationOcclusion?.rawValue),
+      ("mainWindowVisibility", event.mainWindowVisibility?.rawValue),
+      ("generationActivityRequest", event.generationActivityRequest?.rawValue),
+      ("runtimeStreamOutcome", event.runtimeStreamOutcome?.rawValue),
     ]
     for (key, value) in optionalFields {
       if let value {

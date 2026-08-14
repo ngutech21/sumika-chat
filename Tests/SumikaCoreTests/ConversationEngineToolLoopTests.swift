@@ -873,7 +873,6 @@ struct ConversationEngineToolLoopTests {
       topP: 0.81,
       topK: 17,
       maxTokens: 3_210,
-      maxKVSize: 4_096,
       repetitionPenalty: 1.2,
       repetitionContextSize: 77,
       presencePenalty: 0.42,

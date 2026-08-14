@@ -78,7 +78,7 @@ struct ModelManagementTests {
         agent: ChatModeSettings(
           systemPrompt: "Use short coding steps.",
           generationSettings: ChatGenerationSettings(
-            temperature: 0.4, topP: 0.8, topK: 20, maxTokens: 512, maxKVSize: 16_384))
+            temperature: 0.4, topP: 0.8, topK: 20, maxTokens: 512))
       ),
       contextTokenLimit: 32_768
     )

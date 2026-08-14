@@ -9,6 +9,7 @@ struct TurnTraceEventTests {
     #expect(TurnTracePhase.contextBuild.rawValue == "context_build")
     #expect(TurnTracePhase.renderSystemPrompt.rawValue == "render_system_prompt")
     #expect(TurnTracePhase.runtimeStreamStart.rawValue == "runtime_stream_start")
+    #expect(TurnTracePhase.runtimeStreamEnd.rawValue == "runtime_stream_end")
     #expect(TurnTracePhase.runtimeTTFT.rawValue == "runtime_ttft")
     #expect(TurnTracePhase.runtimePrefill.rawValue == "runtime_prefill")
     #expect(TurnTracePhase.runtimeDecode.rawValue == "runtime_decode")
@@ -68,7 +69,13 @@ struct TurnTraceEventTests {
       imageTypes: ["image/png", "image/jpeg"],
       imageByteCount: 4096,
       generatedTokenCount: 128,
-      generatedTokenCountIsEstimate: true
+      generatedTokenCountIsEstimate: true,
+      applicationActivation: .inactive,
+      applicationVisibility: .shown,
+      applicationOcclusion: .occluded,
+      mainWindowVisibility: .minimized,
+      generationActivityRequest: .userInitiatedAllowingIdleSystemSleep,
+      runtimeStreamOutcome: .completed
     )
 
     let data = try JSONEncoder().encode(event)
@@ -111,6 +118,15 @@ struct TurnTraceEventTests {
     #expect(object["imageByteCount"] as? Int == 4096)
     #expect(object["generatedTokenCount"] as? Int == 128)
     #expect(object["generatedTokenCountIsEstimate"] as? Bool == true)
+    #expect(object["applicationActivation"] as? String == "inactive")
+    #expect(object["applicationVisibility"] as? String == "shown")
+    #expect(object["applicationOcclusion"] as? String == "occluded")
+    #expect(object["mainWindowVisibility"] as? String == "minimized")
+    #expect(
+      object["generationActivityRequest"] as? String
+        == "user_initiated_allowing_idle_system_sleep"
+    )
+    #expect(object["runtimeStreamOutcome"] as? String == "completed")
 
     let toolArguments = try #require(object["toolArguments"] as? [[String: Any]])
     #expect(toolArguments.count == 1)

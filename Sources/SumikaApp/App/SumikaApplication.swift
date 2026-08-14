@@ -12,10 +12,12 @@ public struct SumikaApplication: App {
   @NSApplicationDelegateAdaptor(SumikaAppDelegate.self) private var appDelegate
   @StateObject private var appUpdater: AppUpdater
   @State private var launchState = AppLaunchState.loading
+  private let runtimeApplicationStateMonitor: RuntimeApplicationStateMonitor
 
   @MainActor
   public init() {
     NSWindow.allowsAutomaticWindowTabbing = false
+    runtimeApplicationStateMonitor = RuntimeApplicationStateMonitor()
     _appUpdater = StateObject(
       wrappedValue: AppUpdater(
         startingUpdater: AppLaunchConfiguration.shouldStartUpdater()
@@ -49,7 +51,18 @@ public struct SumikaApplication: App {
         guard case .loading = launchState else {
           return
         }
-        launchState = await AppLaunchConfiguration.bootstrap()
+        launchState = await AppLaunchConfiguration.bootstrap(
+          applicationStateSnapshotProvider: runtimeApplicationStateMonitor.snapshot
+        )
+      }
+      .background {
+        RuntimeMainWindowObserver { previous, current in
+          runtimeApplicationStateMonitor.updateMainWindow(
+            previous: previous,
+            current: current
+          )
+        }
+        .frame(width: 0, height: 0)
       }
     }
     .commands {

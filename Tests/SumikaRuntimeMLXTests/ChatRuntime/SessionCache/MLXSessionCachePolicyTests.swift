@@ -366,9 +366,7 @@ struct MLXSessionCachePolicyTests {
   }
 
   @Test
-  func cacheIdentityChangesForPrefillSettings() {
-    var changedMaxKV = ChatGenerationSettings.agentDefault
-    changedMaxKV.maxKVSize = 16_384
+  func cacheIdentityChangesForReasoningSetting() {
     var changedReasoning = ChatGenerationSettings.agentDefault
     changedReasoning.reasoningEnabled = false
     let base = MLXSessionCachePolicy.cacheIdentity(
@@ -377,15 +375,6 @@ struct MLXSessionCachePolicyTests {
       projectionMode: .fullHistory
     )
 
-    #expect(
-      MLXSessionCachePolicy.identityMismatchReason(
-        cached: base,
-        current: MLXSessionCachePolicy.cacheIdentity(
-          systemPrompt: "Use concise coding steps.",
-          settings: changedMaxKV,
-          projectionMode: .fullHistory
-        )
-      ) == .maxKVSizeChanged)
     #expect(
       MLXSessionCachePolicy.identityMismatchReason(
         cached: base,
