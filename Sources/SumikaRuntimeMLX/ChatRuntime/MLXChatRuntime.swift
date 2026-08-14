@@ -406,8 +406,9 @@ extension MLXChatRuntime {
         metrics: nil,
         error: error.localizedDescription,
         thinkingBudget: attemptedTrace,
-        thinkingBudgetOutcome: "preflight_failed",
-        thinkingBudgetDiagnostic: MLXThinkingBudgetPlanner.diagnosticCode(for: error)
+        thinkingBudgetOutcome: .preflightFailed(
+          MLXThinkingBudgetPlanner.diagnostic(for: error)
+        )
       )
       throw error
     }

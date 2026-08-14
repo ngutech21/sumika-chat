@@ -35,7 +35,7 @@ struct MLXModelStreamProcessorTests {
         }
         Issue.record("Expected duplicate reasoning close to fail at \(splitOffset).")
       } catch let failure as MLXThinkingBudgetFailure {
-        #expect(failure.diagnosticCode == "duplicate_reasoning_close")
+        #expect(failure == .duplicateReasoningClose)
       } catch {
         Issue.record("Expected thinking-budget failure, got \(error).")
       }
@@ -71,7 +71,7 @@ struct MLXModelStreamProcessorTests {
         }
         Issue.record("Expected split assistant boundary to fail closed at \(splitOffset).")
       } catch let failure as MLXThinkingBudgetFailure {
-        #expect(failure.diagnosticCode == "unexpected_chat_boundary")
+        #expect(failure == .unexpectedChatBoundary)
       } catch {
         Issue.record("Expected thinking-budget failure, got \(error).")
       }
@@ -110,7 +110,7 @@ struct MLXModelStreamProcessorTests {
         }
         Issue.record("Expected configured stop string to fail at \(splitOffset).")
       } catch let failure as MLXThinkingBudgetFailure {
-        #expect(failure.diagnosticCode == "unexpected_chat_boundary")
+        #expect(failure == .unexpectedChatBoundary)
       } catch {
         Issue.record("Expected thinking-budget failure, got \(error).")
       }
@@ -173,7 +173,7 @@ struct MLXModelStreamProcessorTests {
       }
       Issue.record("Expected partial protocol marker to fail closed.")
     } catch let failure as MLXThinkingBudgetFailure {
-      #expect(failure.diagnosticCode == "truncated_protocol_marker")
+      #expect(failure == .truncatedProtocolMarker)
     } catch {
       Issue.record("Expected thinking-budget failure, got \(error).")
     }

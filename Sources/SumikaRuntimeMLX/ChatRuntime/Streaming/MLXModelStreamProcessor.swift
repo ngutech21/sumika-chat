@@ -334,7 +334,7 @@ extension MLXModelStreamProcessor {
       error: CancellationError().localizedDescription,
       thinkingBudget: thinkingBudgetTrace,
       thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
-        ? "not_applied" : "cancelled"
+        ? .notApplied : .cancelled
     )
     continuation.finish(throwing: CancellationError())
   }
@@ -378,16 +378,23 @@ extension MLXModelStreamProcessor {
       debugTraceStore: debugTraceStore,
       memoryCacheClearer: memoryCacheClearer
     )
+    let thinkingBudgetOutcome: MLXThinkingBudgetOutcome =
+      if let thinkingBudgetEnforcementState {
+        .failedClosed(
+          (error as? MLXThinkingBudgetFailure).map(MLXThinkingBudgetDiagnostic.budgetFailure)
+            ?? thinkingBudgetEnforcementState.failure.map(
+              MLXThinkingBudgetDiagnostic.budgetFailure)
+        )
+      } else {
+        .notApplied
+      }
     await debugTraceStore.traceResponse(
       id: traceID,
       output: output,
       metrics: completedMetrics,
       error: error.localizedDescription,
       thinkingBudget: thinkingBudgetTrace,
-      thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
-        ? "not_applied" : "failed_closed",
-      thinkingBudgetDiagnostic: (error as? MLXThinkingBudgetFailure)?.diagnosticCode
-        ?? thinkingBudgetEnforcementState?.failure?.diagnosticCode
+      thinkingBudgetOutcome: thinkingBudgetOutcome
     )
     continuation.finish(throwing: error)
   }
@@ -734,7 +741,7 @@ extension MLXModelStreamProcessor {
         error: error.localizedDescription,
         thinkingBudget: thinkingBudgetTrace,
         thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
-          ? "not_applied" : "output_limit"
+          ? .notApplied : .outputLimit
       )
       _ = continuation.yield(
         .outputLimitReached(
@@ -766,7 +773,7 @@ extension MLXModelStreamProcessor {
         error: error.localizedDescription,
         thinkingBudget: thinkingBudgetTrace,
         thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
-          ? "not_applied" : "interrupted"
+          ? .notApplied : .interrupted
       )
       continuation.finish(throwing: error)
       return
@@ -788,7 +795,7 @@ extension MLXModelStreamProcessor {
         metrics: completedMetrics,
         thinkingBudget: thinkingBudgetTrace,
         thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
-          ? "not_applied" : "completed_authoritative"
+          ? .notApplied : .completedAuthoritative
       )
       continuation.finish()
       return
@@ -807,7 +814,7 @@ extension MLXModelStreamProcessor {
       metrics: completedMetrics,
       thinkingBudget: thinkingBudgetTrace,
       thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
-        ? "not_applied" : "completed_authoritative"
+        ? .notApplied : .completedAuthoritative
     )
     continuation.finish()
   }

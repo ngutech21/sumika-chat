@@ -1,4 +1,5 @@
 import Foundation
+import MLXLMCommon
 import SumikaCore
 
 struct MLXRuntimePrefillTrace: Equatable, Sendable {
@@ -88,8 +89,7 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     metrics: ChatGenerationMetrics?,
     error: String? = nil,
     thinkingBudget: MLXThinkingBudgetTrace? = nil,
-    thinkingBudgetOutcome: String? = nil,
-    thinkingBudgetDiagnostic: String? = nil
+    thinkingBudgetOutcome: MLXThinkingBudgetOutcome
   ) async {
     guard Self.isEnabled else {
       return
@@ -115,11 +115,9 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     if let thinkingBudget {
       response["thinkingBudget"] = thinkingBudgetObject(from: thinkingBudget)
     }
-    if let thinkingBudgetOutcome {
-      response["thinkingBudgetOutcome"] = thinkingBudgetOutcome
-    }
-    if let thinkingBudgetDiagnostic {
-      response["thinkingBudgetDiagnostic"] = thinkingBudgetDiagnostic
+    response["thinkingBudgetOutcome"] = thinkingBudgetOutcomeValue(thinkingBudgetOutcome)
+    if let diagnostic = thinkingBudgetDiagnostic(from: thinkingBudgetOutcome) {
+      response["thinkingBudgetDiagnostic"] = thinkingBudgetDiagnosticValue(diagnostic)
     }
     append(response)
   }
@@ -250,7 +248,7 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
   ) -> [String: Any] {
     var object: [String: Any] = [
       "policy": trace.policy.rawValue,
-      "validationStatus": trace.validationStatus.traceValue,
+      "validationStatus": thinkingBudgetValidationStatusValue(trace.validationStatus),
     ]
     if let maximumTokenCount = trace.maximumTokenCount {
       object["maximumTokenCount"] = maximumTokenCount
@@ -262,6 +260,114 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
       object["transitionMode"] = transitionMode.rawValue
     }
     return object
+  }
+
+  private func thinkingBudgetOutcomeValue(_ outcome: MLXThinkingBudgetOutcome) -> String {
+    switch outcome {
+    case .notApplied:
+      "not_applied"
+    case .preflightFailed:
+      "preflight_failed"
+    case .cancelled:
+      "cancelled"
+    case .failedClosed:
+      "failed_closed"
+    case .outputLimit:
+      "output_limit"
+    case .interrupted:
+      "interrupted"
+    case .completedAuthoritative:
+      "completed_authoritative"
+    }
+  }
+
+  private func thinkingBudgetDiagnostic(
+    from outcome: MLXThinkingBudgetOutcome
+  ) -> MLXThinkingBudgetDiagnostic? {
+    switch outcome {
+    case .preflightFailed(let diagnostic):
+      diagnostic
+    case .failedClosed(let diagnostic):
+      diagnostic
+    case .notApplied, .cancelled, .outputLimit, .interrupted, .completedAuthoritative:
+      nil
+    }
+  }
+
+  private func thinkingBudgetDiagnosticValue(
+    _ diagnostic: MLXThinkingBudgetDiagnostic
+  ) -> String {
+    switch diagnostic {
+    case .budgetFailure(let failure):
+      thinkingBudgetFailureValue(failure)
+    case .configurationFailure(let failure):
+      thinkingBudgetConfigurationFailureValue(failure)
+    case .preflightValidationFailed:
+      "preflight_validation_failed"
+    }
+  }
+
+  private func thinkingBudgetValidationStatusValue(
+    _ status: MLXThinkingBudgetValidationStatus
+  ) -> String {
+    switch status {
+    case .notApplied:
+      "not_applied"
+    case .pending:
+      "pending"
+    case .validated:
+      "validated"
+    case .rejected(let failure):
+      thinkingBudgetFailureValue(failure)
+    case .failed:
+      "failed"
+    }
+  }
+
+  private func thinkingBudgetFailureValue(_ failure: MLXThinkingBudgetFailure) -> String {
+    switch failure {
+    case .unsupportedModel:
+      "unsupported_model"
+    case .missingInteractionMode:
+      "missing_interaction_mode"
+    case .incompatibleReasoningProtocol:
+      "incompatible_reasoning_protocol"
+    case .enforcementDisabled:
+      "enforcement_disabled"
+    case .unicodeBoundaryCompletionFailed:
+      "unicode_boundary_completion_failed"
+    case .reopenedReasoning:
+      "reopened_reasoning"
+    case .duplicateReasoningClose:
+      "duplicate_reasoning_close"
+    case .unexpectedChatBoundary:
+      "unexpected_chat_boundary"
+    case .truncatedProtocolMarker:
+      "truncated_protocol_marker"
+    }
+  }
+
+  private func thinkingBudgetConfigurationFailureValue(
+    _ failure: ThinkingBudgetError
+  ) -> String {
+    switch failure {
+    case .invalidMaximumTokenCount:
+      "invalid_maximum_token_count"
+    case .invalidMinimumAnswerTokenCount:
+      "invalid_minimum_answer_token_count"
+    case .unsupportedReasoningProtocol:
+      "unsupported_reasoning_protocol"
+    case .unencodableBoundary:
+      "unencodable_boundary"
+    case .unencodableTransition:
+      "unencodable_transition"
+    case .invalidTokenID:
+      "invalid_token_id"
+    case .insufficientGenerationTokenLimit:
+      "insufficient_generation_token_limit"
+    case .generationTokenRequirementOverflow:
+      "generation_token_requirement_overflow"
+    }
   }
 
   private func traceToolArgument(from argument: ToolArgumentTrace) -> [String: Any] {

@@ -95,9 +95,13 @@ struct MLXRuntimeConfigurationTests {
       )
       Issue.record("Expected insufficient generation headroom to fail preflight.")
     } catch {
-      #expect(
-        MLXThinkingBudgetPlanner.diagnosticCode(for: error)
-          == "insufficient_generation_token_limit")
+      guard
+        case .configurationFailure(.insufficientGenerationTokenLimit) =
+          MLXThinkingBudgetPlanner.diagnostic(for: error)
+      else {
+        Issue.record("Expected insufficient generation token limit diagnostic.")
+        return
+      }
     }
   }
 

@@ -32,6 +32,22 @@ struct MLXThinkingBudgetTrace: Equatable, Sendable {
   let validationStatus: MLXThinkingBudgetValidationStatus
 }
 
+enum MLXThinkingBudgetDiagnostic: Equatable, Sendable {
+  case budgetFailure(MLXThinkingBudgetFailure)
+  case configurationFailure(ThinkingBudgetError)
+  case preflightValidationFailed
+}
+
+enum MLXThinkingBudgetOutcome: Equatable, Sendable {
+  case notApplied
+  case preflightFailed(MLXThinkingBudgetDiagnostic)
+  case cancelled
+  case failedClosed(MLXThinkingBudgetDiagnostic?)
+  case outputLimit
+  case interrupted
+  case completedAuthoritative
+}
+
 enum MLXThinkingBudgetFailure: LocalizedError, Equatable, Sendable {
   case unsupportedModel
   case missingInteractionMode
@@ -66,28 +82,6 @@ enum MLXThinkingBudgetFailure: LocalizedError, Equatable, Sendable {
     }
   }
 
-  var diagnosticCode: String {
-    switch self {
-    case .unsupportedModel:
-      "unsupported_model"
-    case .missingInteractionMode:
-      "missing_interaction_mode"
-    case .incompatibleReasoningProtocol:
-      "incompatible_reasoning_protocol"
-    case .enforcementDisabled:
-      "enforcement_disabled"
-    case .unicodeBoundaryCompletionFailed:
-      "unicode_boundary_completion_failed"
-    case .reopenedReasoning:
-      "reopened_reasoning"
-    case .duplicateReasoningClose:
-      "duplicate_reasoning_close"
-    case .unexpectedChatBoundary:
-      "unexpected_chat_boundary"
-    case .truncatedProtocolMarker:
-      "truncated_protocol_marker"
-    }
-  }
 }
 
 enum MLXThinkingBudgetValidationStatus: Equatable, Sendable {
@@ -96,21 +90,6 @@ enum MLXThinkingBudgetValidationStatus: Equatable, Sendable {
   case validated
   case rejected(MLXThinkingBudgetFailure)
   case failed
-
-  var traceValue: String {
-    switch self {
-    case .notApplied:
-      "not_applied"
-    case .pending:
-      "pending"
-    case .validated:
-      "validated"
-    case .rejected(let failure):
-      failure.diagnosticCode
-    case .failed:
-      "failed"
-    }
-  }
 }
 
 final class MLXThinkingBudgetEnforcementState: Sendable {
@@ -280,31 +259,14 @@ enum MLXThinkingBudgetPlanner {
     )
   }
 
-  static func diagnosticCode(for error: Error) -> String {
+  static func diagnostic(for error: Error) -> MLXThinkingBudgetDiagnostic {
     if let failure = error as? MLXThinkingBudgetFailure {
-      return failure.diagnosticCode
+      return .budgetFailure(failure)
     }
     if let failure = error as? ThinkingBudgetError {
-      switch failure {
-      case .invalidMaximumTokenCount:
-        return "invalid_maximum_token_count"
-      case .invalidMinimumAnswerTokenCount:
-        return "invalid_minimum_answer_token_count"
-      case .unsupportedReasoningProtocol:
-        return "unsupported_reasoning_protocol"
-      case .unencodableBoundary:
-        return "unencodable_boundary"
-      case .unencodableTransition:
-        return "unencodable_transition"
-      case .invalidTokenID:
-        return "invalid_token_id"
-      case .insufficientGenerationTokenLimit:
-        return "insufficient_generation_token_limit"
-      case .generationTokenRequirementOverflow:
-        return "generation_token_requirement_overflow"
-      }
+      return .configurationFailure(failure)
     }
-    return "preflight_validation_failed"
+    return .preflightValidationFailed
   }
 
   static func makeComponents(

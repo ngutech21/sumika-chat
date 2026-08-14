@@ -214,8 +214,7 @@ struct MLXDebugTraceStoreTests {
         transitionMode: .immediate,
         validationStatus: .validated
       ),
-      thinkingBudgetOutcome: "failed_closed",
-      thinkingBudgetDiagnostic: "enforcement_disabled"
+      thinkingBudgetOutcome: .failedClosed(.budgetFailure(.enforcementDisabled))
     )
 
     let data = try Data(contentsOf: fileURL)
@@ -226,6 +225,37 @@ struct MLXDebugTraceStoreTests {
     #expect(object["kind"] as? String == "mlx_response")
     #expect(object["thinkingBudgetOutcome"] as? String == "failed_closed")
     #expect(object["thinkingBudgetDiagnostic"] as? String == "enforcement_disabled")
+  }
+
+  @Test
+  func responseTraceRecordsPreflightThinkingBudgetDiagnostic() async throws {
+    setenv("SUMIKA_DEBUG_TRACE", "1", 1)
+    defer { unsetenv("SUMIKA_DEBUG_TRACE") }
+    let fileURL = try temporaryTraceFileURL()
+    let store = MLXDebugTraceStore(fileURL: fileURL)
+
+    await store.traceResponse(
+      id: UUID(),
+      output: "",
+      metrics: nil,
+      error: "rejected",
+      thinkingBudgetOutcome: .preflightFailed(
+        .configurationFailure(
+          .insufficientGenerationTokenLimit(required: 1_540, actual: 1_000)
+        )
+      )
+    )
+
+    let data = try Data(contentsOf: fileURL)
+    let line = try #require(String(data: data, encoding: .utf8)?.split(separator: "\n").first)
+    let object = try #require(
+      JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+    )
+    #expect(object["thinkingBudgetOutcome"] as? String == "preflight_failed")
+    #expect(
+      object["thinkingBudgetDiagnostic"] as? String
+        == "insufficient_generation_token_limit"
+    )
   }
 
   @Test
