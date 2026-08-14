@@ -11,14 +11,23 @@ import Testing
 @Suite()
 struct MLXRuntimeConfigurationTests {
   @Test
-  func pilotCatalogEntryAloneEnablesQwenThinkingBudget() throws {
-    let pilot = try #require(ManagedModelCatalog.model(id: "Qwen3.6-27B-OptiQ-4bit"))
-    let otherQwen = try #require(ManagedModelCatalog.model(id: "qwen3.6-27B-4bit"))
+  func allQwenCatalogEntriesEnableThinkingBudget() throws {
+    let qwenModels = ManagedModelCatalog.models.filter {
+      $0.reasoningTraceFormat == .qwenThinkTags
+    }
     let gemma = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
 
-    #expect(pilot.thinkingBudgetPolicy == .hardLimitImmediate)
-    #expect(otherQwen.thinkingBudgetPolicy == .unsupported)
+    #expect(!qwenModels.isEmpty)
+    #expect(qwenModels.allSatisfy { $0.thinkingBudgetPolicy == .hardLimitImmediate })
     #expect(gemma.thinkingBudgetPolicy == .unmanaged)
+  }
+
+  @Test
+  func unsupportedThinkingBudgetMessageIsModelNeutral() {
+    #expect(
+      MLXThinkingBudgetFailure.unsupportedModel.errorDescription
+        == "Hard thinking limits are not enabled for this model. Disable reasoning or select a model that supports hard thinking limits."
+    )
   }
 
   @Test
@@ -36,10 +45,10 @@ struct MLXRuntimeConfigurationTests {
 
     #expect(chat.maximumTokenCount == 1_024)
     #expect(chat.minimumAnswerTokenCount == 512)
-    #expect(chat.transitionMode == "immediate")
+    #expect(chat.transitionMode == .immediate)
     #expect(agent.maximumTokenCount == 2_048)
     #expect(agent.minimumAnswerTokenCount == 1_024)
-    #expect(agent.transitionMode == "immediate")
+    #expect(agent.transitionMode == .immediate)
   }
 
   @Test
@@ -66,8 +75,8 @@ struct MLXRuntimeConfigurationTests {
       reasoningEnabled: true,
       interactionMode: .agent
     )
-    #expect(disabledTrace.validationStatus == "not_applied")
-    #expect(unsupportedTrace.validationStatus == "unsupported_model")
+    #expect(disabledTrace.validationStatus == .notApplied)
+    #expect(unsupportedTrace.validationStatus == .rejected(.unsupportedModel))
   }
 
   @Test

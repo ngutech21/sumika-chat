@@ -1623,11 +1623,11 @@ struct MLXModelStreamProcessorTests {
 
   private func testThinkingBudgetTrace() -> MLXThinkingBudgetTrace {
     MLXThinkingBudgetTrace(
-      policy: "qwen36_immediate_v1",
+      policy: .qwen36ImmediateV1,
       maximumTokenCount: 1_024,
       minimumAnswerTokenCount: 512,
-      transitionMode: "immediate",
-      validationStatus: "validated"
+      transitionMode: .immediate,
+      validationStatus: .validated
     )
   }
 

@@ -167,11 +167,11 @@ struct MLXDebugTraceStoreTests {
       settings: settings,
       contextTokenLimit: nil,
       thinkingBudget: MLXThinkingBudgetTrace(
-        policy: "qwen36_immediate_v1",
+        policy: .qwen36ImmediateV1,
         maximumTokenCount: 1_024,
         minimumAnswerTokenCount: 512,
-        transitionMode: "immediate",
-        validationStatus: "validated"
+        transitionMode: .immediate,
+        validationStatus: .validated
       ),
       interactionMode: .chat
     )
@@ -208,11 +208,11 @@ struct MLXDebugTraceStoreTests {
       metrics: nil,
       error: "rejected",
       thinkingBudget: MLXThinkingBudgetTrace(
-        policy: "qwen36_immediate_v1",
+        policy: .qwen36ImmediateV1,
         maximumTokenCount: 2_048,
         minimumAnswerTokenCount: 1_024,
-        transitionMode: "immediate",
-        validationStatus: "validated"
+        transitionMode: .immediate,
+        validationStatus: .validated
       ),
       thinkingBudgetOutcome: "failed_closed",
       thinkingBudgetDiagnostic: "enforcement_disabled"

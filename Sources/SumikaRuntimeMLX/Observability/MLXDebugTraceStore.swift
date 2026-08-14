@@ -249,8 +249,8 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     from trace: MLXThinkingBudgetTrace
   ) -> [String: Any] {
     var object: [String: Any] = [
-      "policy": trace.policy,
-      "validationStatus": trace.validationStatus,
+      "policy": trace.policy.rawValue,
+      "validationStatus": trace.validationStatus.traceValue,
     ]
     if let maximumTokenCount = trace.maximumTokenCount {
       object["maximumTokenCount"] = maximumTokenCount
@@ -259,7 +259,7 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
       object["minimumAnswerTokenCount"] = minimumAnswerTokenCount
     }
     if let transitionMode = trace.transitionMode {
-      object["transitionMode"] = transitionMode
+      object["transitionMode"] = transitionMode.rawValue
     }
     return object
   }

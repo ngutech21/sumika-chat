@@ -3,23 +3,33 @@ import MLXLMCommon
 import SumikaCore
 import Synchronization
 
+enum MLXThinkingBudgetPolicy: String, Equatable, Sendable {
+  case unmanaged
+  case unsupported
+  case qwen36ImmediateV1 = "qwen36_immediate_v1"
+}
+
+enum MLXThinkingBudgetTransitionMode: String, Equatable, Sendable {
+  case immediate
+}
+
 struct MLXThinkingBudgetIdentity: Equatable, Sendable {
-  let policy: String
+  let policy: MLXThinkingBudgetPolicy
   let maximumTokenCount: Int
   let minimumAnswerTokenCount: Int
-  let transitionMode: String
+  let transitionMode: MLXThinkingBudgetTransitionMode
 
   var signatureComponent: String {
-    "\(policy):\(maximumTokenCount):\(minimumAnswerTokenCount):\(transitionMode)"
+    "\(policy.rawValue):\(maximumTokenCount):\(minimumAnswerTokenCount):\(transitionMode.rawValue)"
   }
 }
 
 struct MLXThinkingBudgetTrace: Equatable, Sendable {
-  let policy: String
+  let policy: MLXThinkingBudgetPolicy
   let maximumTokenCount: Int?
   let minimumAnswerTokenCount: Int?
-  let transitionMode: String?
-  let validationStatus: String
+  let transitionMode: MLXThinkingBudgetTransitionMode?
+  let validationStatus: MLXThinkingBudgetValidationStatus
 }
 
 enum MLXThinkingBudgetFailure: LocalizedError, Equatable, Sendable {
@@ -36,7 +46,7 @@ enum MLXThinkingBudgetFailure: LocalizedError, Equatable, Sendable {
   var errorDescription: String? {
     switch self {
     case .unsupportedModel:
-      "Hard thinking limits are not enabled for this Qwen model. Disable reasoning or select the allowlisted Qwen 3.6 27B OptiQ 4-bit model."
+      "Hard thinking limits are not enabled for this model. Disable reasoning or select a model that supports hard thinking limits."
     case .missingInteractionMode:
       "A Chat or Agent interaction mode is required before applying the hard thinking limit."
     case .incompatibleReasoningProtocol:
@@ -76,6 +86,29 @@ enum MLXThinkingBudgetFailure: LocalizedError, Equatable, Sendable {
       "unexpected_chat_boundary"
     case .truncatedProtocolMarker:
       "truncated_protocol_marker"
+    }
+  }
+}
+
+enum MLXThinkingBudgetValidationStatus: Equatable, Sendable {
+  case notApplied
+  case pending
+  case validated
+  case rejected(MLXThinkingBudgetFailure)
+  case failed
+
+  var traceValue: String {
+    switch self {
+    case .notApplied:
+      "not_applied"
+    case .pending:
+      "pending"
+    case .validated:
+      "validated"
+    case .rejected(let failure):
+      failure.diagnosticCode
+    case .failed:
+      "failed"
     }
   }
 }
@@ -133,10 +166,10 @@ enum MLXThinkingBudgetPlanner {
 
     var identity: MLXThinkingBudgetIdentity {
       MLXThinkingBudgetIdentity(
-        policy: "qwen36_immediate_v1",
+        policy: .qwen36ImmediateV1,
         maximumTokenCount: maximumTokenCount,
         minimumAnswerTokenCount: minimumAnswerTokenCount,
-        transitionMode: "immediate"
+        transitionMode: .immediate
       )
     }
   }
@@ -159,7 +192,7 @@ enum MLXThinkingBudgetPlanner {
           maximumTokenCount: nil,
           minimumAnswerTokenCount: nil,
           transitionMode: nil,
-          validationStatus: "not_applied"
+          validationStatus: .notApplied
         )
       }
       return MLXThinkingBudgetTrace(
@@ -167,7 +200,7 @@ enum MLXThinkingBudgetPlanner {
         maximumTokenCount: specification.maximumTokenCount,
         minimumAnswerTokenCount: specification.minimumAnswerTokenCount,
         transitionMode: specification.identity.transitionMode,
-        validationStatus: "pending"
+        validationStatus: .pending
       )
     } catch let failure as MLXThinkingBudgetFailure {
       return MLXThinkingBudgetTrace(
@@ -175,7 +208,7 @@ enum MLXThinkingBudgetPlanner {
         maximumTokenCount: nil,
         minimumAnswerTokenCount: nil,
         transitionMode: nil,
-        validationStatus: failure.diagnosticCode
+        validationStatus: .rejected(failure)
       )
     } catch {
       return MLXThinkingBudgetTrace(
@@ -183,7 +216,7 @@ enum MLXThinkingBudgetPlanner {
         maximumTokenCount: nil,
         minimumAnswerTokenCount: nil,
         transitionMode: nil,
-        validationStatus: "failed"
+        validationStatus: .failed
       )
     }
   }
@@ -210,7 +243,7 @@ enum MLXThinkingBudgetPlanner {
           maximumTokenCount: nil,
           minimumAnswerTokenCount: nil,
           transitionMode: nil,
-          validationStatus: "not_applied"
+          validationStatus: .notApplied
         ),
         enforcementState: nil
       )
@@ -241,7 +274,7 @@ enum MLXThinkingBudgetPlanner {
         maximumTokenCount: specification.maximumTokenCount,
         minimumAnswerTokenCount: specification.minimumAnswerTokenCount,
         transitionMode: specification.identity.transitionMode,
-        validationStatus: "validated"
+        validationStatus: .validated
       ),
       enforcementState: enforcementState
     )
@@ -325,14 +358,14 @@ enum MLXThinkingBudgetPlanner {
     }
   }
 
-  private static func policyName(_ policy: ThinkingBudgetPolicy) -> String {
+  private static func policyName(_ policy: ThinkingBudgetPolicy) -> MLXThinkingBudgetPolicy {
     switch policy {
     case .unmanaged:
-      "unmanaged"
+      .unmanaged
     case .unsupported:
-      "unsupported"
+      .unsupported
     case .hardLimitImmediate:
-      "qwen36_immediate_v1"
+      .qwen36ImmediateV1
     }
   }
 }
