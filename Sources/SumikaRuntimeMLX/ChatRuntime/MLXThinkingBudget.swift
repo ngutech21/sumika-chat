@@ -29,6 +29,9 @@ enum MLXThinkingBudgetFailure: LocalizedError, Equatable, Sendable {
   case enforcementDisabled
   case unicodeBoundaryCompletionFailed
   case reopenedReasoning
+  case duplicateReasoningClose
+  case unexpectedChatBoundary
+  case truncatedProtocolMarker
 
   var errorDescription: String? {
     switch self {
@@ -44,6 +47,12 @@ enum MLXThinkingBudgetFailure: LocalizedError, Equatable, Sendable {
       "Hard thinking-limit enforcement could not complete a Unicode boundary, so the response was rejected."
     case .reopenedReasoning:
       "The model reopened a thinking span after reasoning had already ended, so the response was rejected."
+    case .duplicateReasoningClose:
+      "The model emitted a duplicate thinking close marker after reasoning had already ended, so the response was rejected."
+    case .unexpectedChatBoundary:
+      "The model emitted an unexpected chat-template boundary after reasoning had ended, so the response was rejected."
+    case .truncatedProtocolMarker:
+      "The model stopped after emitting a partial protocol marker, so the response was rejected."
     }
   }
 
@@ -61,6 +70,12 @@ enum MLXThinkingBudgetFailure: LocalizedError, Equatable, Sendable {
       "unicode_boundary_completion_failed"
     case .reopenedReasoning:
       "reopened_reasoning"
+    case .duplicateReasoningClose:
+      "duplicate_reasoning_close"
+    case .unexpectedChatBoundary:
+      "unexpected_chat_boundary"
+    case .truncatedProtocolMarker:
+      "truncated_protocol_marker"
     }
   }
 }
@@ -314,42 +329,115 @@ enum MLXThinkingBudgetPlanner {
   }
 }
 
-struct MLXReasoningReopenGuard: Sendable {
-  private static let openMarker = "<think>"
-  private static let closeMarkers = ["</think>", "<tool_call>"]
-  private static let retainedCharacterCount =
-    max(openMarker.count, closeMarkers.map(\.count).max() ?? 0) - 1
+struct MLXQwenThinkingBudgetGuard: Sendable {
+  private enum State {
+    case reasoning
+    case response
+  }
 
+  private struct ForbiddenMarker {
+    let value: String
+    let failure: MLXThinkingBudgetFailure
+  }
+
+  private static let reasoningEndMarkers = ["</think>", "<tool_call>"]
+  private static let forbiddenResponseMarkers = [
+    ForbiddenMarker(value: "<think>", failure: .reopenedReasoning),
+    ForbiddenMarker(value: "</think>", failure: .duplicateReasoningClose),
+    ForbiddenMarker(value: "<|im_start|>", failure: .unexpectedChatBoundary),
+    ForbiddenMarker(value: "<|im_end|>", failure: .unexpectedChatBoundary),
+  ]
+
+  private var state = State.reasoning
   private var pending = ""
-  private var reasoningEnded = false
 
-  mutating func observe(_ chunk: String) throws {
+  mutating func consume(_ chunk: String) throws -> String {
     pending += chunk
-    if !reasoningEnded {
-      let closeRange = Self.closeMarkers
-        .compactMap { pending.range(of: $0) }
-        .min { $0.lowerBound < $1.lowerBound }
-      guard let closeRange else {
-        retainBoundarySuffix()
-        return
+
+    switch state {
+    case .reasoning:
+      guard
+        let closeRange = Self.firstMarkerRange(
+          in: pending,
+          markers: Self.reasoningEndMarkers
+        )
+      else {
+        return releaseSafePrefix(watching: Self.reasoningEndMarkers)
       }
+
+      let reasoning = String(pending[..<closeRange.upperBound])
       pending = String(pending[closeRange.upperBound...])
-      reasoningEnded = true
+      state = .response
+      return reasoning + (try consumeResponse())
+    case .response:
+      return try consumeResponse()
     }
-    if pending.contains(Self.openMarker) {
-      throw MLXThinkingBudgetFailure.reopenedReasoning
+  }
+
+  mutating func finish() throws -> String {
+    defer { pending = "" }
+    guard state == .response, !pending.isEmpty else {
+      return pending
     }
-    retainBoundarySuffix()
+    if Self.forbiddenResponseMarkers.contains(where: { marker in
+      marker.value.hasPrefix(pending)
+    }) {
+      throw MLXThinkingBudgetFailure.truncatedProtocolMarker
+    }
+    return pending
   }
 
   mutating func observeToolCall() {
-    reasoningEnded = true
+    state = .response
     pending = ""
   }
 
-  private mutating func retainBoundarySuffix() {
-    if pending.count > Self.retainedCharacterCount {
-      pending = String(pending.suffix(Self.retainedCharacterCount))
+  private mutating func consumeResponse() throws -> String {
+    if let failure = Self.firstForbiddenMarker(in: pending)?.failure {
+      throw failure
     }
+    return releaseSafePrefix(
+      watching: Self.forbiddenResponseMarkers.map(\.value)
+    )
+  }
+
+  private mutating func releaseSafePrefix(watching markers: [String]) -> String {
+    let retainedCount = markers.reduce(0) { count, marker in
+      max(count, Self.matchingSuffixLength(in: pending, marker: marker))
+    }
+    let releaseEnd = pending.index(pending.endIndex, offsetBy: -retainedCount)
+    let released = String(pending[..<releaseEnd])
+    pending = String(pending[releaseEnd...])
+    return released
+  }
+
+  private static func firstForbiddenMarker(
+    in value: String
+  ) -> (range: Range<String.Index>, failure: MLXThinkingBudgetFailure)? {
+    forbiddenResponseMarkers.compactMap { marker in
+      value.range(of: marker.value).map { ($0, marker.failure) }
+    }.min { lhs, rhs in
+      lhs.0.lowerBound < rhs.0.lowerBound
+    }
+  }
+
+  private static func firstMarkerRange(
+    in value: String,
+    markers: [String]
+  ) -> Range<String.Index>? {
+    markers.compactMap { value.range(of: $0) }.min { lhs, rhs in
+      lhs.lowerBound < rhs.lowerBound
+    }
+  }
+
+  private static func matchingSuffixLength(in value: String, marker: String) -> Int {
+    var length = min(value.count, marker.count - 1)
+    while length > 0 {
+      if value.suffix(length) == marker.prefix(length) {
+        return length
+      }
+      length -= 1
+    }
+    return 0
   }
 }

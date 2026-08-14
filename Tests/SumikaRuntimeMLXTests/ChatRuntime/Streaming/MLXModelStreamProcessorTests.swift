@@ -11,6 +11,169 @@ import Testing
 @Suite()
 struct MLXModelStreamProcessorTests {
   @Test
+  func enforcedQwenStreamFailsClosedOnDuplicateReasoningClose() async throws {
+    let marker = "</think>"
+
+    for splitOffset in 0...marker.count {
+      let splitIndex = marker.index(marker.startIndex, offsetBy: splitOffset)
+      let source = AsyncThrowingStream<Generation, Error> { continuation in
+        continuation.yield(.chunk("<think>plan</think>\n"))
+        continuation.yield(.chunk(String(marker[..<splitIndex])))
+        continuation.yield(.chunk(String(marker[splitIndex...])))
+        continuation.yield(.chunk("\nanswer"))
+        continuation.yield(.info(completionInfo()))
+        continuation.finish()
+      }
+      let (stream, invalidationRecorder, memoryClearRecorder) = enforcedQwenStream(from: source)
+      var visibleOutput = ""
+
+      do {
+        for try await event in stream {
+          if case .chunk(let chunk) = event {
+            visibleOutput += chunk
+          }
+        }
+        Issue.record("Expected duplicate reasoning close to fail at \(splitOffset).")
+      } catch let failure as MLXThinkingBudgetFailure {
+        #expect(failure.diagnosticCode == "duplicate_reasoning_close")
+      } catch {
+        Issue.record("Expected thinking-budget failure, got \(error).")
+      }
+
+      #expect(visibleOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      #expect(await invalidationRecorder.firstReason == .runtimeError)
+      #expect(await memoryClearRecorder.reasons == [.runtimeError])
+    }
+  }
+
+  @Test
+  func enforcedQwenStreamFailsClosedOnSplitAssistantBoundary() async throws {
+    let marker = "<|im_start|>assistant"
+
+    for splitOffset in 0...marker.count {
+      let splitIndex = marker.index(marker.startIndex, offsetBy: splitOffset)
+      let source = AsyncThrowingStream<Generation, Error> { continuation in
+        continuation.yield(.chunk("<think>plan</think>\n"))
+        continuation.yield(.chunk(String(marker[..<splitIndex])))
+        continuation.yield(.chunk(String(marker[splitIndex...])))
+        continuation.yield(.chunk("\nanswer"))
+        continuation.yield(.info(completionInfo()))
+        continuation.finish()
+      }
+      let (stream, invalidationRecorder, memoryClearRecorder) = enforcedQwenStream(from: source)
+      var visibleOutput = ""
+
+      do {
+        for try await event in stream {
+          if case .chunk(let chunk) = event {
+            visibleOutput += chunk
+          }
+        }
+        Issue.record("Expected split assistant boundary to fail closed at \(splitOffset).")
+      } catch let failure as MLXThinkingBudgetFailure {
+        #expect(failure.diagnosticCode == "unexpected_chat_boundary")
+      } catch {
+        Issue.record("Expected thinking-budget failure, got \(error).")
+      }
+
+      #expect(visibleOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      #expect(await invalidationRecorder.firstReason == .runtimeError)
+      #expect(await memoryClearRecorder.reasons == [.runtimeError])
+    }
+  }
+
+  @Test
+  func enforcedQwenStreamPreservesValidResponseAcrossCloseMarkerSplits() async throws {
+    let response = "plan</think>answer"
+
+    for splitOffset in 0...response.count {
+      let splitIndex = response.index(response.startIndex, offsetBy: splitOffset)
+      let source = AsyncThrowingStream<Generation, Error> { continuation in
+        continuation.yield(.chunk(String(response[..<splitIndex])))
+        continuation.yield(.chunk(String(response[splitIndex...])))
+        continuation.yield(.info(completionInfo()))
+        continuation.finish()
+      }
+      let (stream, invalidationRecorder, memoryClearRecorder) = enforcedQwenStream(from: source)
+      var visibleOutput = ""
+      var reasoningOutput = ""
+
+      for try await event in stream {
+        switch event {
+        case .chunk(let chunk):
+          visibleOutput += chunk
+        case .thinkingChunk(let chunk):
+          reasoningOutput += chunk
+        case .thinkingCompleted, .toolCall, .completed, .outputLimitReached:
+          break
+        }
+      }
+
+      #expect(reasoningOutput == "plan")
+      #expect(visibleOutput == "answer")
+      #expect(await invalidationRecorder.firstReason == nil)
+      #expect(await memoryClearRecorder.reasons.isEmpty)
+    }
+  }
+
+  @Test
+  func enforcedQwenStreamFailsClosedOnTruncatedProtocolMarker() async throws {
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("plan</think>\n<|im_sta"))
+      continuation.yield(.info(completionInfo()))
+      continuation.finish()
+    }
+    let (stream, invalidationRecorder, memoryClearRecorder) = enforcedQwenStream(from: source)
+    var visibleOutput = ""
+
+    do {
+      for try await event in stream {
+        if case .chunk(let chunk) = event {
+          visibleOutput += chunk
+        }
+      }
+      Issue.record("Expected partial protocol marker to fail closed.")
+    } catch let failure as MLXThinkingBudgetFailure {
+      #expect(failure.diagnosticCode == "truncated_protocol_marker")
+    } catch {
+      Issue.record("Expected thinking-budget failure, got \(error).")
+    }
+
+    #expect(visibleOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    #expect(await invalidationRecorder.firstReason == .runtimeError)
+    #expect(await memoryClearRecorder.reasons == [.runtimeError])
+  }
+
+  @Test
+  func enforcedQwenOutputLimitTakesPrecedenceOverPartialProtocolMarker() async throws {
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("plan</think>\n<|im_sta"))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8,
+            generationTokenCount: 2_048,
+            promptTime: 0.1,
+            generationTime: 1,
+            stopReason: .length
+          )))
+      continuation.finish()
+    }
+    let (stream, invalidationRecorder, memoryClearRecorder) = enforcedQwenStream(from: source)
+    var reachedOutputLimit = false
+
+    for try await event in stream {
+      if case .outputLimitReached = event {
+        reachedOutputLimit = true
+      }
+    }
+
+    #expect(reachedOutputLimit)
+    #expect(await invalidationRecorder.firstReason == .interrupted)
+    #expect(await memoryClearRecorder.reasons == [.interruptedStream])
+  }
+
+  @Test
   func enforcedQwenStreamFailsClosedWhenThinkingReopens() async throws {
     let recorder = MLXStreamInvalidationRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
@@ -1279,6 +1442,44 @@ struct MLXModelStreamProcessorTests {
   ) async throws {
     var iterator = stream.makeAsyncIterator()
     while try await iterator.next() != nil {}
+  }
+
+  private func enforcedQwenStream(
+    from source: AsyncThrowingStream<Generation, Error>
+  ) -> (
+    stream: AsyncThrowingStream<ChatModelStreamEvent, Error>,
+    invalidationRecorder: MLXStreamInvalidationRecorder,
+    memoryClearRecorder: MLXMemoryClearRecorder
+  ) {
+    let invalidationRecorder = MLXStreamInvalidationRecorder()
+    let memoryClearRecorder = MLXMemoryClearRecorder()
+    let stream = MLXModelStreamProcessor.modelStreamPlan(
+      from: source,
+      reasoningTraceFormat: .qwenThinkTags,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
+      thinkingBudgetTrace: testThinkingBudgetTrace(),
+      thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState(),
+      markCompleted: { _ in },
+      markCancelled: { reason in
+        await invalidationRecorder.record(reason)
+      },
+      memoryCacheClearer: MLXMemoryCacheClearer { reason in
+        await memoryClearRecorder.record(reason)
+      }
+    ).stream
+    return (stream, invalidationRecorder, memoryClearRecorder)
+  }
+
+  private func completionInfo() -> GenerateCompletionInfo {
+    GenerateCompletionInfo(
+      promptTokenCount: 8,
+      generationTokenCount: 4,
+      promptTime: 0.1,
+      generationTime: 0.1
+    )
   }
 
   private func temporaryDebugTraceStore() -> MLXDebugTraceStore {

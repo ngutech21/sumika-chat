@@ -85,8 +85,8 @@ enum MLXModelStreamProcessor {
       var usedNativeToolCallIDs = Set<UUID>()
       var pendingChunk: String?
       var generationProgressTracer = generationProgressTracer
-      var reasoningReopenGuard = thinkingBudgetEnforcementState.map { _ in
-        MLXReasoningReopenGuard()
+      var thinkingBudgetGuard = thinkingBudgetEnforcementState.map { _ in
+        MLXQwenThinkingBudgetGuard()
       }
 
       do {
@@ -95,7 +95,6 @@ enum MLXModelStreamProcessor {
           try thinkingBudgetEnforcementState?.checkAuthoritative()
 
           if let chunk = generation.chunk {
-            try reasoningReopenGuard?.observe(chunk)
             firstChunkAt = await recordRuntimeTTFTIfNeeded(
               firstChunkAt,
               traceID: traceID,
@@ -105,8 +104,12 @@ enum MLXModelStreamProcessor {
             )
             output += chunk
             await generationProgressTracer.record(output: output)
+            let safeChunk = try thinkingBudgetGuard?.consume(chunk) ?? chunk
+            guard !safeChunk.isEmpty else {
+              continue
+            }
             if yieldModelChunk(
-              chunk,
+              safeChunk,
               pendingChunk: &pendingChunk,
               reasoningParser: &reasoningParser,
               to: continuation,
@@ -120,7 +123,7 @@ enum MLXModelStreamProcessor {
           }
 
           if let toolCall = generation.toolCall {
-            reasoningReopenGuard?.observeToolCall()
+            thinkingBudgetGuard?.observeToolCall()
             if yieldToolCall(
               toolCall,
               usedIDs: &usedNativeToolCallIDs,
@@ -142,6 +145,21 @@ enum MLXModelStreamProcessor {
             )
             switch info.stopReason {
             case .stop:
+              let finalGuardChunk = try thinkingBudgetGuard?.finish() ?? ""
+              if !finalGuardChunk.isEmpty,
+                yieldModelChunk(
+                  finalGuardChunk,
+                  pendingChunk: &pendingChunk,
+                  reasoningParser: &reasoningParser,
+                  to: continuation,
+                  visibleOutput: &visibleOutput,
+                  reasoningOutput: &reasoningOutput,
+                  reasoningBoundaryState: &reasoningBoundaryState
+                )
+              {
+                termination.terminatedDownstream = true
+                break generationLoop
+              }
               if flushPendingChunk(
                 &pendingChunk,
                 reasoningParser: &reasoningParser,
@@ -182,6 +200,26 @@ enum MLXModelStreamProcessor {
         }
 
         try thinkingBudgetEnforcementState?.checkAuthoritative()
+
+        let finalGuardChunk =
+          if termination.reachedTokenLimit {
+            ""
+          } else {
+            try thinkingBudgetGuard?.finish() ?? ""
+          }
+        if !termination.terminatedDownstream, !finalGuardChunk.isEmpty,
+          yieldModelChunk(
+            finalGuardChunk,
+            pendingChunk: &pendingChunk,
+            reasoningParser: &reasoningParser,
+            to: continuation,
+            visibleOutput: &visibleOutput,
+            reasoningOutput: &reasoningOutput,
+            reasoningBoundaryState: &reasoningBoundaryState
+          )
+        {
+          termination.terminatedDownstream = true
+        }
 
         if !termination.terminatedDownstream,
           flushPendingChunk(

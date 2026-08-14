@@ -224,7 +224,7 @@ package enum ManagedModelCatalog {
       supportsImageInput: false,
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
-      thinkingBudgetPolicy: .unsupported,
+      thinkingBudgetPolicy: .hardLimitImmediate,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
