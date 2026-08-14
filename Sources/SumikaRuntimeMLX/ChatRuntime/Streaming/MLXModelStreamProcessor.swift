@@ -85,8 +85,8 @@ enum MLXModelStreamProcessor {
       var usedNativeToolCallIDs = Set<UUID>()
       var pendingChunk: String?
       var generationProgressTracer = generationProgressTracer
-      var thinkingBudgetGuard = thinkingBudgetEnforcementState.map { _ in
-        MLXQwenThinkingBudgetGuard()
+      var thinkingBudgetGuard = thinkingBudgetEnforcementState.map { state in
+        MLXQwenThinkingBudgetGuard(responseStopStrings: state.responseStopStrings)
       }
 
       do {
@@ -124,12 +124,22 @@ enum MLXModelStreamProcessor {
 
           if let toolCall = generation.toolCall {
             thinkingBudgetGuard?.observeToolCall()
-            if yieldToolCall(
-              toolCall,
-              usedIDs: &usedNativeToolCallIDs,
-              nativeToolCalls: &nativeToolCalls,
-              to: continuation
-            ) {
+            let terminatedAtToolCallBoundary =
+              closeReasoningAtNativeToolCallBoundary(
+                pendingChunk: &pendingChunk,
+                reasoningParser: &reasoningParser,
+                to: continuation,
+                visibleOutput: &visibleOutput,
+                reasoningOutput: &reasoningOutput,
+                reasoningBoundaryState: &reasoningBoundaryState
+              )
+              || yieldToolCall(
+                toolCall,
+                usedIDs: &usedNativeToolCallIDs,
+                nativeToolCalls: &nativeToolCalls,
+                to: continuation
+              )
+            if terminatedAtToolCallBoundary {
               termination.terminatedDownstream = true
               break generationLoop
             }
@@ -615,6 +625,46 @@ extension MLXModelStreamProcessor {
     )
     nativeToolCalls.append(runtimeToolCall)
     if case .terminated = continuation.yield(.toolCall(runtimeToolCall)) {
+      return true
+    }
+    return false
+  }
+
+  private static func closeReasoningAtNativeToolCallBoundary(
+    pendingChunk: inout String?,
+    reasoningParser: inout ReasoningTraceParser,
+    to continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
+    visibleOutput: inout String,
+    reasoningOutput: inout String,
+    reasoningBoundaryState: inout ReasoningBoundaryState
+  ) -> Bool {
+    if flushPendingChunk(
+      &pendingChunk,
+      reasoningParser: &reasoningParser,
+      to: continuation,
+      visibleOutput: &visibleOutput,
+      reasoningOutput: &reasoningOutput,
+      reasoningBoundaryState: &reasoningBoundaryState
+    ) {
+      return true
+    }
+    guard !reasoningBoundaryState.isClosed else {
+      return false
+    }
+    if yieldSegments(
+      reasoningParser.finish(),
+      to: continuation,
+      visibleOutput: &visibleOutput,
+      reasoningOutput: &reasoningOutput,
+      reasoningBoundaryState: &reasoningBoundaryState
+    ) {
+      return true
+    }
+    guard reasoningBoundaryState.isOpen else {
+      return false
+    }
+    reasoningBoundaryState = .closed
+    if case .terminated = continuation.yield(.thinkingCompleted) {
       return true
     }
     return false

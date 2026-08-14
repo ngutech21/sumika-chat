@@ -81,7 +81,13 @@ enum MLXThinkingBudgetFailure: LocalizedError, Equatable, Sendable {
 }
 
 final class MLXThinkingBudgetEnforcementState: Sendable {
+  let responseStopStrings: Set<String>
+
   private let failureStorage = Mutex<MLXThinkingBudgetFailure?>(nil)
+
+  init(responseStopStrings: Set<String> = []) {
+    self.responseStopStrings = responseStopStrings
+  }
 
   var failure: MLXThinkingBudgetFailure? {
     failureStorage.withLock { $0 }
@@ -215,7 +221,9 @@ enum MLXThinkingBudgetPlanner {
       throw MLXThinkingBudgetFailure.incompatibleReasoningProtocol
     }
     let tokenizer = await modelContainer.tokenizer
-    let enforcementState = MLXThinkingBudgetEnforcementState()
+    let enforcementState = MLXThinkingBudgetEnforcementState(
+      responseStopStrings: modelConfiguration.effectiveStopStrings
+    )
     let components = try makeComponents(
       maximumTokenCount: specification.maximumTokenCount,
       minimumAnswerTokenCount: specification.minimumAnswerTokenCount,
@@ -335,21 +343,29 @@ struct MLXQwenThinkingBudgetGuard: Sendable {
     case response
   }
 
-  private struct ForbiddenMarker {
+  private struct ForbiddenMarker: Sendable {
     let value: String
     let failure: MLXThinkingBudgetFailure
   }
 
   private static let reasoningEndMarkers = ["</think>", "<tool_call>"]
-  private static let forbiddenResponseMarkers = [
+  private static let protocolResponseMarkers = [
     ForbiddenMarker(value: "<think>", failure: .reopenedReasoning),
     ForbiddenMarker(value: "</think>", failure: .duplicateReasoningClose),
     ForbiddenMarker(value: "<|im_start|>", failure: .unexpectedChatBoundary),
-    ForbiddenMarker(value: "<|im_end|>", failure: .unexpectedChatBoundary),
   ]
 
+  private let forbiddenResponseMarkers: [ForbiddenMarker]
   private var state = State.reasoning
   private var pending = ""
+
+  init(responseStopStrings: Set<String> = []) {
+    forbiddenResponseMarkers =
+      Self.protocolResponseMarkers
+      + responseStopStrings.filter { !$0.isEmpty }.map {
+        ForbiddenMarker(value: $0, failure: .unexpectedChatBoundary)
+      }
+  }
 
   mutating func consume(_ chunk: String) throws -> String {
     pending += chunk
@@ -379,7 +395,7 @@ struct MLXQwenThinkingBudgetGuard: Sendable {
     guard state == .response, !pending.isEmpty else {
       return pending
     }
-    if Self.forbiddenResponseMarkers.contains(where: { marker in
+    if forbiddenResponseMarkers.contains(where: { marker in
       marker.value.hasPrefix(pending)
     }) {
       throw MLXThinkingBudgetFailure.truncatedProtocolMarker
@@ -393,11 +409,11 @@ struct MLXQwenThinkingBudgetGuard: Sendable {
   }
 
   private mutating func consumeResponse() throws -> String {
-    if let failure = Self.firstForbiddenMarker(in: pending)?.failure {
+    if let failure = firstForbiddenMarker(in: pending)?.failure {
       throw failure
     }
     return releaseSafePrefix(
-      watching: Self.forbiddenResponseMarkers.map(\.value)
+      watching: forbiddenResponseMarkers.map(\.value)
     )
   }
 
@@ -411,7 +427,7 @@ struct MLXQwenThinkingBudgetGuard: Sendable {
     return released
   }
 
-  private static func firstForbiddenMarker(
+  private func firstForbiddenMarker(
     in value: String
   ) -> (range: Range<String.Index>, failure: MLXThinkingBudgetFailure)? {
     forbiddenResponseMarkers.compactMap { marker in

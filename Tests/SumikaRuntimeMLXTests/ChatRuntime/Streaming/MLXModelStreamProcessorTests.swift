@@ -83,6 +83,45 @@ struct MLXModelStreamProcessorTests {
   }
 
   @Test
+  func enforcedQwenStreamFailsClosedOnConfiguredStopString() async throws {
+    let marker = "<|im_end|>"
+
+    for splitOffset in 0...marker.count {
+      let splitIndex = marker.index(marker.startIndex, offsetBy: splitOffset)
+      let source = AsyncThrowingStream<Generation, Error> { continuation in
+        continuation.yield(.chunk("<think>plan</think>\n"))
+        continuation.yield(.chunk(String(marker[..<splitIndex])))
+        continuation.yield(.chunk(String(marker[splitIndex...])))
+        continuation.yield(.chunk("\nanswer"))
+        continuation.yield(.info(completionInfo()))
+        continuation.finish()
+      }
+      let (stream, invalidationRecorder, memoryClearRecorder) = enforcedQwenStream(
+        from: source,
+        responseStopStrings: [marker]
+      )
+      var visibleOutput = ""
+
+      do {
+        for try await event in stream {
+          if case .chunk(let chunk) = event {
+            visibleOutput += chunk
+          }
+        }
+        Issue.record("Expected configured stop string to fail at \(splitOffset).")
+      } catch let failure as MLXThinkingBudgetFailure {
+        #expect(failure.diagnosticCode == "unexpected_chat_boundary")
+      } catch {
+        Issue.record("Expected thinking-budget failure, got \(error).")
+      }
+
+      #expect(visibleOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      #expect(await invalidationRecorder.firstReason == .runtimeError)
+      #expect(await memoryClearRecorder.reasons == [.runtimeError])
+    }
+  }
+
+  @Test
   func enforcedQwenStreamPreservesValidResponseAcrossCloseMarkerSplits() async throws {
     let response = "plan</think>answer"
 
@@ -1171,6 +1210,80 @@ struct MLXModelStreamProcessorTests {
   }
 
   @Test
+  func modelStreamClosesQwenReasoningAtNativeToolCallBoundary() async throws {
+    let invalidationRecorder = MLXStreamInvalidationRecorder()
+    let boundaryRecorder = MLXNativeBoundaryRecorder()
+    let snapshotRecorder = MLXAssistantSnapshotRecorder()
+    let toolCall = MLXLMCommon.ToolCall(
+      function: .init(
+        name: "read_file",
+        arguments: ["path": "README.md"]
+      )
+    )
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("Inspect the request."))
+      continuation.yield(.toolCall(toolCall))
+      continuation.yield(.info(completionInfo()))
+      continuation.finish()
+    }
+    let stream = MLXModelStreamProcessor.modelStreamPlan(
+      from: source,
+      reasoningTraceFormat: .qwenThinkTags,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
+      thinkingBudgetTrace: testThinkingBudgetTrace(),
+      thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState(),
+      markCompleted: { _ in },
+      markNativeToolCallBoundary: { snapshot, nativeToolCalls in
+        await snapshotRecorder.record(snapshot)
+        await boundaryRecorder.record(
+          output: snapshot.visibleContent,
+          nativeToolCalls: nativeToolCalls
+        )
+      },
+      markCancelled: { reason in
+        await invalidationRecorder.record(reason)
+      },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
+    ).stream
+
+    var eventOrder: [String] = []
+    for try await event in stream {
+      switch event {
+      case .thinkingChunk(let chunk):
+        eventOrder.append("thinking:\(chunk)")
+      case .thinkingCompleted:
+        eventOrder.append("thinking_completed")
+      case .toolCall(let runtimeToolCall):
+        eventOrder.append("tool_call:\(runtimeToolCall.name)")
+      case .completed:
+        eventOrder.append("completed")
+      case .chunk, .outputLimitReached:
+        break
+      }
+    }
+
+    #expect(
+      eventOrder == [
+        "thinking:Inspect the request.",
+        "thinking_completed",
+        "tool_call:read_file",
+        "completed",
+      ])
+    #expect(await invalidationRecorder.firstReason == nil)
+    #expect(
+      await snapshotRecorder.firstSnapshot
+        == MLXCompletedAssistantSnapshot(
+          visibleContent: "",
+          completedReasoningContent: "Inspect the request."
+        ))
+    #expect(await boundaryRecorder.firstBoundary?.output == "")
+    #expect(await boundaryRecorder.firstBoundary?.nativeToolCalls.first?.name == "read_file")
+  }
+
+  @Test
   func modelStreamCompletesNativeToolCallWithoutInfoAsCleanBoundary() async throws {
     let recorder = MLXStreamInvalidationRecorder()
     let boundaryRecorder = MLXNativeBoundaryRecorder()
@@ -1445,7 +1558,8 @@ struct MLXModelStreamProcessorTests {
   }
 
   private func enforcedQwenStream(
-    from source: AsyncThrowingStream<Generation, Error>
+    from source: AsyncThrowingStream<Generation, Error>,
+    responseStopStrings: Set<String> = []
   ) -> (
     stream: AsyncThrowingStream<ChatModelStreamEvent, Error>,
     invalidationRecorder: MLXStreamInvalidationRecorder,
@@ -1461,7 +1575,9 @@ struct MLXModelStreamProcessorTests {
       cacheTrace: defaultCacheTrace(),
       debugTraceStore: temporaryDebugTraceStore(),
       thinkingBudgetTrace: testThinkingBudgetTrace(),
-      thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState(),
+      thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState(
+        responseStopStrings: responseStopStrings
+      ),
       markCompleted: { _ in },
       markCancelled: { reason in
         await invalidationRecorder.record(reason)
