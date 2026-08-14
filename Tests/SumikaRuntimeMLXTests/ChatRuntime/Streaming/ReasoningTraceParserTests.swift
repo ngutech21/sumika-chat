@@ -11,25 +11,25 @@ import Testing
 @Suite()
 struct ReasoningTraceParserTests {
   @Test
-  func passThroughParserEmitsOnlyVisibleText() {
-    var parser = ReasoningTraceParser(format: .none)
+  func passThroughParserEmitsOnlyVisibleText() throws {
+    var parser = try ReasoningTraceParser(format: .none)
 
-    #expect(parser.append("") == [])
-    #expect(parser.append("Visible") == [.visible("Visible")])
-    #expect(parser.finish() == [])
+    #expect(try parser.append("") == [])
+    #expect(try parser.append("Visible") == [.visible("Visible")])
+    #expect(try parser.finish() == [])
   }
 
   @Test
-  func thoughtChannelParserSplitsThoughtBlocksAcrossChunks() {
-    var parser = ReasoningTraceParser(format: .gemmaChannel)
+  func thoughtChannelParserSplitsThoughtBlocksAcrossChunks() throws {
+    var parser = try ReasoningTraceParser(format: .gemmaChannel)
 
     let segments = [
-      parser.append("<|chan"),
-      parser.append("nel|>thought The user said hey."),
-      parser.append(" I should greet them.<chan"),
-      parser.append("nel|>Hello"),
-      parser.append(" there."),
-      parser.finish(),
+      try parser.append("<|chan"),
+      try parser.append("nel|>thought The user said hey."),
+      try parser.append(" I should greet them.<chan"),
+      try parser.append("nel|>Hello"),
+      try parser.append(" there."),
+      try parser.finish(),
     ].flatMap { $0 }
 
     #expect(
@@ -43,14 +43,14 @@ struct ReasoningTraceParserTests {
   }
 
   @Test
-  func thoughtChannelParserSupportsAsymmetricThoughtMarker() {
-    var parser = ReasoningTraceParser(format: .gemmaChannel)
+  func thoughtChannelParserSupportsAsymmetricThoughtMarker() throws {
+    var parser = try ReasoningTraceParser(format: .gemmaChannel)
 
     let segments = [
-      parser.append("<|chan"),
-      parser.append("nel>thought I should answer."),
-      parser.append("<channel|>Done."),
-      parser.finish(),
+      try parser.append("<|chan"),
+      try parser.append("nel>thought I should answer."),
+      try parser.append("<channel|>Done."),
+      try parser.finish(),
     ].flatMap { $0 }
 
     #expect(
@@ -62,33 +62,14 @@ struct ReasoningTraceParserTests {
   }
 
   @Test
-  func qwenThinkTagParserStartsInThinkingMode() {
-    var parser = ReasoningTraceParser(format: .qwenThinkTags)
+  func thoughtChannelToolCallBoundaryKeepsSubsequentTextVisible() throws {
+    var parser = try ReasoningTraceParser(format: .gemmaChannel)
 
     let segments = [
-      parser.append("The user said hey."),
-      parser.append("</th"),
-      parser.append("ink>\n\nHello."),
-      parser.finish(),
-    ].flatMap { $0 }
-
-    #expect(
-      segments == [
-        .thinking("The user said hey."),
-        .thinkingCompleted,
-        .visible("\n\nHello."),
-      ])
-  }
-
-  @Test
-  func qwenThinkTagParserStripsOptionalOpeningTag() {
-    var parser = ReasoningTraceParser(format: .qwenThinkTags)
-
-    let segments = [
-      parser.append("<th"),
-      parser.append("ink>Reasoning"),
-      parser.append("</think>Answer"),
-      parser.finish(),
+      try parser.append("<|channel|>thoughtReasoning"),
+      parser.prepareForToolCall(),
+      try parser.append("Answer"),
+      try parser.finish(),
     ].flatMap { $0 }
 
     #expect(
@@ -100,13 +81,53 @@ struct ReasoningTraceParserTests {
   }
 
   @Test
-  func unfinishedReasoningDoesNotEmitCompletionAtEndOfStream() {
+  func qwenThinkTagParserStartsInThinkingMode() throws {
+    var parser = try ReasoningTraceParser(format: .qwenThinkTags)
+
+    let segments = [
+      try parser.append("The user said hey."),
+      try parser.append("</th"),
+      try parser.append("ink>\n\nHello."),
+      try parser.finish(),
+    ].flatMap { $0 }
+
+    #expect(
+      segments == [
+        .thinking("The user said hey."),
+        .thinkingCompleted,
+        .visible("\n\nHello."),
+      ])
+  }
+
+  @Test
+  func qwenThinkTagParserStripsOptionalOpeningTag() throws {
+    var parser = try ReasoningTraceParser(format: .qwenThinkTags)
+
+    let segments = [
+      try parser.append("<th"),
+      try parser.append("ink>Reasoning"),
+      try parser.append("</think>Answer"),
+      try parser.finish(),
+    ].flatMap { $0 }
+
+    #expect(
+      segments == [
+        .thinking("Reasoning"),
+        .thinkingCompleted,
+        .visible("Answer"),
+      ])
+  }
+
+  @Test
+  func unfinishedReasoningDoesNotEmitCompletionAtEndOfStream() throws {
     for format in [ReasoningTraceFormat.gemmaChannel, .qwenThinkTags] {
-      var parser = ReasoningTraceParser(format: format)
+      var parser = try ReasoningTraceParser(format: format)
 
       let segments = [
-        parser.append(format == .gemmaChannel ? "<|channel|>thoughtPartial" : "<think>Partial"),
-        parser.finish(),
+        try parser.append(
+          format == .gemmaChannel ? "<|channel|>thoughtPartial" : "<think>Partial"
+        ),
+        try parser.finish(),
       ].flatMap { $0 }
 
       #expect(segments == [.thinking("Partial")])
@@ -114,18 +135,18 @@ struct ReasoningTraceParserTests {
   }
 
   @Test
-  func consumedCloseMarkerEmitsExactlyOneCompletionBoundary() {
+  func consumedCloseMarkerEmitsExactlyOneCompletionBoundary() throws {
     for (format, input) in [
       (ReasoningTraceFormat.gemmaChannel, "<|channel|>thoughtReasoning<channel|>Answer"),
       (.qwenThinkTags, "<think>Reasoning</think>Answer"),
     ] {
       for splitOffset in 0...input.count {
         let splitIndex = input.index(input.startIndex, offsetBy: splitOffset)
-        var parser = ReasoningTraceParser(format: format)
+        var parser = try ReasoningTraceParser(format: format)
         let segments = [
-          parser.append(String(input[..<splitIndex])),
-          parser.append(String(input[splitIndex...])),
-          parser.finish(),
+          try parser.append(String(input[..<splitIndex])),
+          try parser.append(String(input[splitIndex...])),
+          try parser.finish(),
         ].flatMap { $0 }
 
         #expect(segments.filter { $0 == .thinkingCompleted }.count == 1)
@@ -134,16 +155,16 @@ struct ReasoningTraceParserTests {
   }
 
   @Test
-  func gemmaMarkersParseAcrossEveryChunkBoundary() {
+  func gemmaMarkersParseAcrossEveryChunkBoundary() throws {
     let input = "<|channel|>thoughtReasoning<channel|>Answer"
 
     for splitOffset in 0...input.count {
       let splitIndex = input.index(input.startIndex, offsetBy: splitOffset)
-      var parser = ReasoningTraceParser(format: .gemmaChannel)
+      var parser = try ReasoningTraceParser(format: .gemmaChannel)
       let segments = [
-        parser.append(String(input[..<splitIndex])),
-        parser.append(String(input[splitIndex...])),
-        parser.finish(),
+        try parser.append(String(input[..<splitIndex])),
+        try parser.append(String(input[splitIndex...])),
+        try parser.finish(),
       ].flatMap { $0 }
 
       #expect(text(for: .thinking, in: segments) == "Reasoning")
@@ -152,21 +173,60 @@ struct ReasoningTraceParserTests {
   }
 
   @Test
-  func qwenMarkersParseAcrossEveryChunkBoundary() {
+  func qwenMarkersParseAcrossEveryChunkBoundary() throws {
     let input = "<think>Reasoning</think>Answer"
 
     for splitOffset in 0...input.count {
       let splitIndex = input.index(input.startIndex, offsetBy: splitOffset)
-      var parser = ReasoningTraceParser(format: .qwenThinkTags)
+      var parser = try ReasoningTraceParser(format: .qwenThinkTags)
       let segments = [
-        parser.append(String(input[..<splitIndex])),
-        parser.append(String(input[splitIndex...])),
-        parser.finish(),
+        try parser.append(String(input[..<splitIndex])),
+        try parser.append(String(input[splitIndex...])),
+        try parser.finish(),
       ].flatMap { $0 }
 
       #expect(text(for: .thinking, in: segments) == "Reasoning")
       #expect(text(for: .visible, in: segments) == "Answer")
     }
+  }
+
+  @Test
+  func qwenImplicitEndDelimiterUsesTheCanonicalProtocolState() throws {
+    var parser = try ReasoningTraceParser(
+      format: .qwenThinkTags,
+      qwenValidation: .init(responseStopStrings: [])
+    )
+
+    let segments = try parser.append("Reasoning<tool_call>payload")
+
+    #expect(
+      segments == [
+        .thinking("Reasoning"),
+        .thinkingCompleted,
+        .visible("<tool_call>payload"),
+      ])
+  }
+
+  @Test
+  func qwenToolCallBoundaryKeepsSubsequentTextInResponseState() throws {
+    var parser = try ReasoningTraceParser(
+      format: .qwenThinkTags,
+      qwenValidation: .init(responseStopStrings: [])
+    )
+
+    let segments = [
+      try parser.append("Reasoning"),
+      parser.prepareForToolCall(),
+      try parser.append("Answer"),
+      try parser.finish(),
+    ].flatMap { $0 }
+
+    #expect(
+      segments == [
+        .thinking("Reasoning"),
+        .thinkingCompleted,
+        .visible("Answer"),
+      ])
   }
 
   private enum SegmentKind {

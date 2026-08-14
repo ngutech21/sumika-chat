@@ -1284,6 +1284,77 @@ struct MLXModelStreamProcessorTests {
   }
 
   @Test
+  func modelStreamKeepsTextAfterQwenToolCallInResponseState() async throws {
+    let invalidationRecorder = MLXStreamInvalidationRecorder()
+    let snapshotRecorder = MLXAssistantSnapshotRecorder()
+    let toolCall = MLXLMCommon.ToolCall(
+      function: .init(
+        name: "read_file",
+        arguments: ["path": "README.md"]
+      )
+    )
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("Inspect the request."))
+      continuation.yield(.toolCall(toolCall))
+      continuation.yield(.chunk("Done."))
+      continuation.yield(.info(completionInfo()))
+      continuation.finish()
+    }
+    let stream = MLXModelStreamProcessor.modelStreamPlan(
+      from: source,
+      reasoningTraceFormat: .qwenThinkTags,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
+      thinkingBudgetTrace: testThinkingBudgetTrace(),
+      thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState(),
+      markCompleted: { _ in },
+      markNativeToolCallBoundary: { snapshot, _ in
+        await snapshotRecorder.record(snapshot)
+      },
+      markCancelled: { reason in
+        await invalidationRecorder.record(reason)
+      },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
+    ).stream
+
+    var eventOrder: [String] = []
+    for try await event in stream {
+      switch event {
+      case .thinkingChunk(let chunk):
+        eventOrder.append("thinking:\(chunk)")
+      case .thinkingCompleted:
+        eventOrder.append("thinking_completed")
+      case .toolCall(let runtimeToolCall):
+        eventOrder.append("tool_call:\(runtimeToolCall.name)")
+      case .chunk(let chunk):
+        eventOrder.append("visible:\(chunk)")
+      case .completed:
+        eventOrder.append("completed")
+      case .outputLimitReached:
+        break
+      }
+    }
+
+    #expect(
+      eventOrder == [
+        "thinking:Inspect the request.",
+        "thinking_completed",
+        "tool_call:read_file",
+        "visible:Done.",
+        "completed",
+      ])
+    #expect(await invalidationRecorder.firstReason == nil)
+    #expect(
+      await snapshotRecorder.firstSnapshot
+        == MLXCompletedAssistantSnapshot(
+          visibleContent: "Done.",
+          completedReasoningContent: "Inspect the request."
+        ))
+  }
+
+  @Test
   func modelStreamCompletesNativeToolCallWithoutInfoAsCleanBoundary() async throws {
     let recorder = MLXStreamInvalidationRecorder()
     let boundaryRecorder = MLXNativeBoundaryRecorder()
