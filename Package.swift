@@ -46,8 +46,8 @@ let package = Package(
     .package(url: "https://github.com/tree-sitter/tree-sitter-typescript", exact: "0.23.2"),
     .package(url: "https://github.com/ml-explore/mlx-swift/", from: "0.31.6"),
     .package(
-      url: "https://github.com/ml-explore/mlx-swift-lm",
-      revision: "7eb77efa4e8fb56183b905904d122e66ebdb422e"),
+      url: "https://github.com/ngutech21/mlx-swift-lm",
+      revision: "c3dcb8d4b05906633c0b505fb555c5d7ea189a6b"),
     .package(url: "https://github.com/aleroot/swift-tokenizers", from: "1.0.0"),
     .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.10.0"),
     .package(url: "https://github.com/FluidInference/FluidAudio", from: "0.15.7"),

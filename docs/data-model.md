@@ -441,6 +441,7 @@ Properties:
 - `supportsHistoricalReasoningPreservation: Bool`
 - `supportsImageInput: Bool`
 - `thinkingBudgetPolicy: ThinkingBudgetPolicy`
+- `usesBundledMTPDrafter: Bool`
 
 Relations:
 
@@ -844,6 +845,7 @@ Properties:
 - `supportsImageInput: Bool`
 - `thinkingBudgetPolicy: ThinkingBudgetPolicy`
 - `toolCallingPolicy: ToolCallingPolicy`
+- `usesBundledMTPDrafter: Bool`
 
 Relations:
 
