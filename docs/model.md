@@ -72,6 +72,7 @@ classDiagram
     stability: ManagedModelStability
     toolCallingPolicy: ToolCallingPolicy
     supportsImageInput: Bool
+    usesBundledMTPDrafter: Bool
     supportsHistoricalReasoningPreservation: Bool
     reasoningCapability: ModelReasoningCapability
     defaultModeSettings: ChatModeSettingsSet
