@@ -9,6 +9,24 @@ enum MLXSessionCacheMode: String, Equatable, Sendable {
   case dirtyRebuild = "dirty_rebuild"
 }
 
+enum MLXSpeculativeDecodingMode: String, Equatable, Sendable {
+  case none
+  case mtp
+
+  static func resolve(
+    hasLoadedMTPDrafter: Bool,
+    temperature: Float
+  ) -> Self {
+    hasLoadedMTPDrafter && temperature == 0 ? .mtp : .none
+  }
+
+  func configuration(
+    from loadedConfiguration: SpeculativeDecodingConfig?
+  ) -> SpeculativeDecodingConfig? {
+    self == .mtp ? loadedConfiguration : nil
+  }
+}
+
 enum MLXSessionInvalidationReason: Equatable, Sendable {
   case signatureMismatch
   case cancelled
@@ -28,6 +46,7 @@ enum MLXSessionCacheReason: String, Equatable, Sendable {
   case additionalContextChanged = "additional_context_changed"
   case reasoningChanged = "reasoning_changed"
   case thinkingBudgetChanged = "thinking_budget_changed"
+  case speculativeDecodingChanged = "speculative_decoding_changed"
   case invalidatedGenCancelled = "invalidated_generation_cancelled"
   case invalidatedGenInterrupted = "invalidated_generation_interrupted"
   case invalidatedGenDownstreamTerminated = "invalidated_generation_downstream_terminated"
@@ -74,6 +93,7 @@ struct MLXSessionCacheIdentity: Equatable, Sendable {
   let projectionMode: ModelContextProjectionMode
   let reasoningEnabled: Bool
   let thinkingBudgetIdentity: MLXThinkingBudgetIdentity?
+  let speculativeDecodingMode: MLXSpeculativeDecodingMode
   let toolSpecs: MLXSessionCacheComponentIdentity
   let additionalContext: MLXSessionCacheComponentIdentity
 }
