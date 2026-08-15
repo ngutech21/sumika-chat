@@ -9,13 +9,15 @@ enum MLXSessionCachePolicy {
     projectionMode: ModelContextProjectionMode,
     toolSpecs: [ToolSpec]? = nil,
     additionalContext: [String: any Sendable]? = nil,
-    thinkingBudgetIdentity: MLXThinkingBudgetIdentity? = nil
+    thinkingBudgetIdentity: MLXThinkingBudgetIdentity? = nil,
+    speculativeDecodingMode: MLXSpeculativeDecodingMode = .none
   ) -> MLXSessionCacheIdentity {
     MLXSessionCacheIdentity(
       systemPrompt: ModelFacingPromptRenderer.normalizedSystemPrompt(systemPrompt),
       projectionMode: projectionMode,
       reasoningEnabled: settings.reasoningEnabled,
       thinkingBudgetIdentity: thinkingBudgetIdentity,
+      speculativeDecodingMode: speculativeDecodingMode,
       toolSpecs: componentIdentity(for: toolSpecs),
       additionalContext: componentIdentity(for: additionalContext)
     )
@@ -110,6 +112,9 @@ enum MLXSessionCachePolicy {
     if cached.thinkingBudgetIdentity != current.thinkingBudgetIdentity {
       return .thinkingBudgetChanged
     }
+    if cached.speculativeDecodingMode != current.speculativeDecodingMode {
+      return .speculativeDecodingChanged
+    }
     if cached.toolSpecs != current.toolSpecs {
       return .toolSchemasChanged
     }
@@ -157,11 +162,12 @@ enum MLXSessionCachePolicy {
     for identity: MLXSessionCacheIdentity
   ) -> String {
     hashSignature { updateString in
-      updateString("mlx_owned_cache_identity_v4")
+      updateString("mlx_owned_cache_identity_v5")
       updateString(identity.systemPrompt ?? "system:nil")
       updateString(identity.projectionMode.signatureComponent)
       updateString(identity.reasoningEnabled ? "reasoning:on" : "reasoning:off")
       updateString(identity.thinkingBudgetIdentity?.signatureComponent ?? "thinking_budget:nil")
+      updateString("speculative_decoding:\(identity.speculativeDecodingMode.rawValue)")
       updateString(identity.toolSpecs.signatureComponent)
       updateString(identity.additionalContext.signatureComponent)
     }
