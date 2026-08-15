@@ -266,6 +266,7 @@ final class AppState {
   func updateAppBehaviorSettings(_ settings: AppBehaviorSettings) {
     settingsState.updateAppBehaviorSettings(settings)
     applyAppBehaviorSettings(settings)
+    refreshDefaultSessionFactory()
   }
 
   func updateMCPServers(_ servers: [MCPServerConfig]) {
@@ -485,24 +486,28 @@ final class AppState {
     {
       return Self.defaultSessionFactory(
         selectedModelID: selectedModelID,
-        modeSettings: modelManagementState.modeSettings
+        modeSettings: modelManagementState.modeSettings,
+        toolApprovalPolicy: settingsState.appBehaviorSettings.defaultToolApprovalPolicy
       )
     }
 
     return Self.defaultSessionFactory(
       selectedModelID: defaultSessionModelID,
-      modeSettings: defaultSessionModeSettings
+      modeSettings: defaultSessionModeSettings,
+      toolApprovalPolicy: settingsState.appBehaviorSettings.defaultToolApprovalPolicy
     )
   }
 
   private static func defaultSessionFactory(
     selectedModelID: ManagedModel.ID,
-    modeSettings: ChatModeSettingsSet
+    modeSettings: ChatModeSettingsSet,
+    toolApprovalPolicy: ToolApprovalPolicy = .manual
   ) -> DefaultChatSessionFactory {
     DefaultChatSessionFactory(
       selectedModelID: selectedModelID,
       modeSettings: modeSettings,
-      interactionMode: .chat
+      interactionMode: .chat,
+      toolApprovalPolicy: toolApprovalPolicy
     )
   }
 

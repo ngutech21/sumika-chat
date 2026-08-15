@@ -4,22 +4,26 @@ package struct DefaultChatSessionFactory: Equatable, Sendable {
   package var selectedModelID: ManagedModel.ID
   package var modeSettings: ChatModeSettingsSet
   package var interactionMode: WorkspaceInteractionMode
+  package var toolApprovalPolicy: ToolApprovalPolicy
 
   package init(
     selectedModelID: ManagedModel.ID,
     modeSettings: ChatModeSettingsSet,
-    interactionMode: WorkspaceInteractionMode = .chat
+    interactionMode: WorkspaceInteractionMode = .chat,
+    toolApprovalPolicy: ToolApprovalPolicy = .manual
   ) {
     self.selectedModelID = selectedModelID
     self.modeSettings = modeSettings
     self.interactionMode = interactionMode
+    self.toolApprovalPolicy = toolApprovalPolicy
   }
 
   package init(
     selectedModelID: ManagedModel.ID,
     systemPrompt: String,
     generationSettings: ChatGenerationSettings,
-    interactionMode: WorkspaceInteractionMode = .chat
+    interactionMode: WorkspaceInteractionMode = .chat,
+    toolApprovalPolicy: ToolApprovalPolicy = .manual
   ) {
     let settings = ChatModeSettings(
       systemPrompt: systemPrompt,
@@ -28,7 +32,8 @@ package struct DefaultChatSessionFactory: Equatable, Sendable {
     self.init(
       selectedModelID: selectedModelID,
       modeSettings: ChatModeSettingsSet(chat: settings, agent: settings),
-      interactionMode: interactionMode
+      interactionMode: interactionMode,
+      toolApprovalPolicy: toolApprovalPolicy
     )
   }
 
@@ -42,6 +47,7 @@ package struct DefaultChatSessionFactory: Equatable, Sendable {
       selectedModelID: selectedModelID,
       modeSettings: modeSettings,
       interactionMode: interactionMode,
+      toolApprovalPolicy: toolApprovalPolicy,
       createdAt: createdAt,
       updatedAt: updatedAt
     )

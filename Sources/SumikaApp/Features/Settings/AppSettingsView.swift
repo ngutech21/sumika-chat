@@ -9,6 +9,7 @@ struct AppSettingsView: View {
   var canTestMCPServers = false
   var onTestMCPServer: (UUID) -> Void = { _ in }
   @State private var selectedTab = SettingsTab.general
+  @State private var showDefaultAutoApproveConfirmation = false
 
   var body: some View {
     VStack(spacing: 0) {
@@ -68,6 +69,16 @@ struct AppSettingsView: View {
         Text(settingsState.mcpServerTestFeedback?.message ?? "")
       }
     )
+    .alert("Use Auto-approve by default?", isPresented: $showDefaultAutoApproveConfirmation) {
+      Button("Cancel", role: .cancel) {}
+      Button("Use Auto-approve", role: .destructive) {
+        updateDefaultToolApprovalPolicy(.automatic)
+      }
+    } message: {
+      Text(
+        "New Agent sessions will run allowed tools without approval prompts. Existing sessions keep their current approval mode."
+      )
+    }
   }
 
   private var mcpServerTestFeedbackPresentedBinding: Binding<Bool> {
@@ -93,11 +104,16 @@ struct AppSettingsView: View {
 
       Section {
         Toggle("Enable todo_write planning tool", isOn: todoWriteToolEnabledBinding)
+
+        Picker("Approval mode", selection: defaultToolApprovalPolicyBinding) {
+          Text("Manual").tag(ToolApprovalPolicy.manual)
+          Text("Auto-approve").tag(ToolApprovalPolicy.automatic)
+        }
       } header: {
-        Text("Agent Tools")
+        Text("Agent")
       } footer: {
         Text(
-          "Small local models often struggle with this tool; enable it when you want the Agent to maintain an explicit plan."
+          "Small local models may struggle with todo_write. Approval mode is used for new sessions; existing sessions keep their current mode."
         )
       }
     }
@@ -242,6 +258,25 @@ struct AppSettingsView: View {
         onUpdateAppBehaviorSettings(updatedSettings)
       }
     )
+  }
+
+  private var defaultToolApprovalPolicyBinding: Binding<ToolApprovalPolicy> {
+    Binding(
+      get: { settingsState.appBehaviorSettings.defaultToolApprovalPolicy },
+      set: { policy in
+        if policy == .automatic {
+          showDefaultAutoApproveConfirmation = true
+        } else {
+          updateDefaultToolApprovalPolicy(policy)
+        }
+      }
+    )
+  }
+
+  private func updateDefaultToolApprovalPolicy(_ policy: ToolApprovalPolicy) {
+    var updatedSettings = settingsState.appBehaviorSettings
+    updatedSettings.defaultToolApprovalPolicy = policy
+    onUpdateAppBehaviorSettings(updatedSettings)
   }
 
   private var assistantSpeechEnabledBinding: Binding<Bool> {

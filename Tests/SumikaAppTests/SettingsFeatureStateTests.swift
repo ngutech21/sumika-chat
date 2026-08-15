@@ -16,6 +16,7 @@ struct SettingsFeatureStateTests {
     let appBehaviorSettings = AppBehaviorSettings(
       autoloadLastModel: true,
       todoWriteToolEnabled: true,
+      defaultToolApprovalPolicy: .automatic,
       assistantSpeechEnabled: true,
       assistantSpeechLanguageCode: "de-DE",
       assistantSpeechVoiceIdentifier: "voice.de",
@@ -67,6 +68,7 @@ struct SettingsFeatureStateTests {
     let updated = AppBehaviorSettings(
       autoloadLastModel: true,
       todoWriteToolEnabled: true,
+      defaultToolApprovalPolicy: .automatic,
       assistantSpeechEnabled: true,
       assistantSpeechLanguageCode: "en-US",
       assistantSpeechVoiceIdentifier: "voice.en",
@@ -80,6 +82,26 @@ struct SettingsFeatureStateTests {
     }
     #expect(state.appBehaviorSettings == updated)
     #expect(state.errorMessage == nil)
+  }
+
+  @Test
+  func legacyAppBehaviorSettingsDefaultNewSessionApprovalToManual() throws {
+    let legacyData = Data(#"{"autoloadLastModel":true}"#.utf8)
+
+    let settings = try JSONDecoder().decode(AppBehaviorSettings.self, from: legacyData)
+
+    #expect(settings.autoloadLastModel)
+    #expect(settings.defaultToolApprovalPolicy == .manual)
+  }
+
+  @Test
+  func appBehaviorSettingsRoundTripAutomaticNewSessionApproval() throws {
+    let settings = AppBehaviorSettings(defaultToolApprovalPolicy: .automatic)
+
+    let encoded = try JSONEncoder().encode(settings)
+    let decoded = try JSONDecoder().decode(AppBehaviorSettings.self, from: encoded)
+
+    #expect(decoded == settings)
   }
 
   @Test

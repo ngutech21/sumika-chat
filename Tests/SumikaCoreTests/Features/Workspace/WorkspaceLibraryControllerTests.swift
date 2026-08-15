@@ -129,6 +129,32 @@ struct WorkspaceLibraryControllerTests {
   }
 
   @Test
+  func createSessionCopiesApprovalPolicyFromDefaultFactory() throws {
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory)
+    )
+    var controller = WorkspaceLibraryController(
+      library: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspace.id
+      ),
+      defaultSessionFactory: DefaultChatSessionFactory(
+        selectedModelID: "gemma4-12b-qat-4bit",
+        systemPrompt: "Default system",
+        generationSettings: .agentDefault,
+        toolApprovalPolicy: .automatic
+      )
+    )
+
+    let createdSessionID = controller.createSession(in: workspace.id)
+    let sessionID = try #require(createdSessionID)
+
+    #expect(controller.activeSessionID == sessionID)
+    #expect(controller.activeSession?.toolApprovalPolicy == .automatic)
+  }
+
+  @Test
   func selectWorkspaceClearsActiveSessionAndAllowsEmptyWorkspace() throws {
     let firstWorkspaceID = fixedUUID("00000000-0000-0000-0000-000000000701")
     let firstSessionID = fixedUUID("00000000-0000-0000-0000-000000000702")

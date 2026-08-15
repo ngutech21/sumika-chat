@@ -4,6 +4,7 @@ import SumikaCore
 nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
   var autoloadLastModel: Bool
   var todoWriteToolEnabled: Bool
+  var defaultToolApprovalPolicy: ToolApprovalPolicy
   var assistantSpeechEnabled: Bool
   var assistantSpeechLanguageCode: String?
   var assistantSpeechVoiceIdentifier: String?
@@ -13,6 +14,7 @@ nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
   init(
     autoloadLastModel: Bool = false,
     todoWriteToolEnabled: Bool = false,
+    defaultToolApprovalPolicy: ToolApprovalPolicy = .manual,
     assistantSpeechEnabled: Bool = false,
     assistantSpeechLanguageCode: String? = nil,
     assistantSpeechVoiceIdentifier: String? = nil,
@@ -21,6 +23,7 @@ nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
   ) {
     self.autoloadLastModel = autoloadLastModel
     self.todoWriteToolEnabled = todoWriteToolEnabled
+    self.defaultToolApprovalPolicy = defaultToolApprovalPolicy
     self.assistantSpeechEnabled = assistantSpeechEnabled
     self.assistantSpeechLanguageCode = assistantSpeechLanguageCode
     self.assistantSpeechVoiceIdentifier = assistantSpeechVoiceIdentifier
@@ -31,6 +34,7 @@ nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
   private enum CodingKeys: String, CodingKey {
     case autoloadLastModel
     case todoWriteToolEnabled
+    case defaultToolApprovalPolicy
     case assistantSpeechEnabled
     case assistantSpeechLanguageCode
     case assistantSpeechVoiceIdentifier
@@ -50,6 +54,11 @@ nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
         Bool.self,
         forKey: .todoWriteToolEnabled
       ) ?? false
+    defaultToolApprovalPolicy =
+      try container.decodeIfPresent(
+        ToolApprovalPolicy.self,
+        forKey: .defaultToolApprovalPolicy
+      ) ?? .manual
     assistantSpeechEnabled =
       try container.decodeIfPresent(
         Bool.self,
@@ -72,6 +81,7 @@ nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(autoloadLastModel, forKey: .autoloadLastModel)
     try container.encode(todoWriteToolEnabled, forKey: .todoWriteToolEnabled)
+    try container.encode(defaultToolApprovalPolicy, forKey: .defaultToolApprovalPolicy)
     try container.encode(assistantSpeechEnabled, forKey: .assistantSpeechEnabled)
     try container.encodeIfPresent(assistantSpeechLanguageCode, forKey: .assistantSpeechLanguageCode)
     try container.encodeIfPresent(

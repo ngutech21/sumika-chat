@@ -1040,6 +1040,59 @@ struct AppStateTests {
   }
 
   @Test
+  func defaultApprovalModeAppliesOnlyToNewSessions() async throws {
+    let workspaceID = UUID()
+    let existingSession = ChatSession(toolApprovalPolicy: .manual)
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [existingSession]
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspaceID,
+        activeSessionID: existingSession.id
+      )
+    )
+    let appBehaviorSettingsStore = InMemoryAppBehaviorSettingsStore()
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      appBehaviorSettingsStore: appBehaviorSettingsStore,
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    let updatedSettings = AppBehaviorSettings(defaultToolApprovalPolicy: .automatic)
+    appState.updateAppBehaviorSettings(updatedSettings)
+    let newSessionID = try #require(appState.createSession(in: workspaceID))
+
+    let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
+      guard let sessions = library.workspaces.first?.sessions else {
+        return false
+      }
+      return sessions.first { $0.id == newSessionID }?.toolApprovalPolicy == .automatic
+    }
+    let sessions = try #require(savedLibrary.workspaces.first?.sessions)
+    #expect(
+      sessions.first { $0.id == existingSession.id }?.toolApprovalPolicy == .manual
+    )
+    #expect(
+      sessions.first { $0.id == newSessionID }?.toolApprovalPolicy == .automatic
+    )
+    try await waitUntil {
+      await appBehaviorSettingsStore.settings() == updatedSettings
+    }
+  }
+
+  @Test
   func addWorkspaceRoutesToWorkspaceWithoutCreatingSession() async throws {
     let workspaceURL = try scopedTemporaryDirectory().appending(
       path: "workspace",

@@ -72,10 +72,12 @@ flowchart TD
   shared Tool Loop does not select between Chat Web and Agent orchestrators. It
   applies `ChatWorkflowStep` continuations through workflow events, pauses on
   approval or `ask_user`, and resumes approved, denied, or answered tool flows.
-- `ChatSession.toolApprovalPolicy` is persisted per session and defaults to
-  `manual`. It is effective only while that same session is in Agent mode;
-  switching to Chat preserves the preference without enabling workspace tools,
-  and new or other sessions do not inherit it.
+- `ChatSession.toolApprovalPolicy` is persisted per session. New sessions copy
+  the app's approval-mode preference, which defaults to `manual` for existing
+  installations. Changing that preference does not mutate existing sessions,
+  and changing a session does not update the app preference. The policy is
+  effective only while that same session is in Agent mode; switching to Chat
+  preserves it without enabling workspace tools.
 - With the `automatic` session policy, a `.requiresApproval` result enters the
   same approved execution path without showing Approve/Deny. The complete batch
   is first emitted into canonical `ChatTurn.items` with `awaitingApproval`
