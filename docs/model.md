@@ -51,6 +51,7 @@ classDiagram
     stability: ManagedModelStability
     toolCallingPolicy: ToolCallingPolicy
     supportsImageInput: Bool
+    usesBundledMTPDrafter: Bool
     reasoningTraceFormat: ReasoningTraceFormat
     supportsHistoricalReasoningPreservation: Bool
     reasoningCapability: ModelReasoningCapability

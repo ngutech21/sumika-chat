@@ -410,6 +410,34 @@ struct ModelManagementTests {
   }
 
   @Test
+  func bundledMTPDrafterIsEnabledOnlyForTheApprovedCatalogModel() {
+    let enabledModelIDs = ManagedModelCatalog.models
+      .filter(\.usesBundledMTPDrafter)
+      .map(\.id)
+
+    #expect(enabledModelIDs == ["Qwen3.6-27B-OptiQ-4bit"])
+  }
+
+  @Test
+  func managedModelDefaultsBundledMTPDrafterToDisabled() {
+    let fixture = ManagedModel(
+      id: "test-model",
+      displayName: "Test model",
+      detail: "Fixture model",
+      huggingFaceRepoID: "example/test-model",
+      localDirectoryName: "test-model",
+      estimatedDownloadSize: "1 MB",
+      group: .specialized,
+      requiresLargeMemory: false,
+      stability: .experimental,
+      supportsImageInput: false,
+      defaultModeSettings: .defaultSettings,
+      defaultContextTokenLimit: 1024
+    )
+    #expect(!fixture.usesBundledMTPDrafter)
+  }
+
+  @Test
   func supportsWorkspaceToolsTracksToolCallingPolicyEnabledFlag() {
     #expect(ManagedModelCatalog.defaultModel.supportsWorkspaceTools)
 

@@ -63,6 +63,10 @@ struct MLXGenerationActivity: Sendable {
     self.beginOperation = begin
   }
 
+  func beginLease() -> MLXGenerationActivityLease {
+    beginOperation()
+  }
+
   func start<Stream>(
     _ makeStream: () -> Stream
   ) -> MLXStartedGeneration<Stream> {
