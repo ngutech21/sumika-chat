@@ -489,7 +489,8 @@ struct MCPClientTests {
       read -r line
       id=$(request_id "$line")
       printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"echo","description":"Echo text back.","inputSchema":{"type":"object"}}]}}\\n' "$id"
-      echo "fatal: crashed after listing tools" >&2
+      read -r line
+      echo "fatal: crashed during tool call" >&2
       exit 9
       """
     )
