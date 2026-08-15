@@ -11,6 +11,40 @@ import Testing
 @Suite()
 struct MLXRuntimeConfigurationTests {
   @Test
+  func mtpRequiresLoadedDrafterAndGreedyTemperature() {
+    #expect(
+      MLXSpeculativeDecodingMode.resolve(
+        hasLoadedMTPDrafter: true,
+        temperature: 0
+      ) == .mtp)
+    #expect(
+      MLXSpeculativeDecodingMode.resolve(
+        hasLoadedMTPDrafter: true,
+        temperature: 0.6
+      ) == .none)
+    #expect(
+      MLXSpeculativeDecodingMode.resolve(
+        hasLoadedMTPDrafter: false,
+        temperature: 0
+      ) == .none)
+  }
+
+  @Test
+  func onlyMTPModeAttachesTheLoadedSpeculativeConfiguration() {
+    let loadedConfiguration = SpeculativeDecodingConfig(
+      draftModelBytes: 0,
+      numDraftTokens: 1,
+      loadDraftModel: { throw CancellationError() }
+    )
+
+    #expect(
+      MLXSpeculativeDecodingMode.mtp.configuration(from: loadedConfiguration)?
+        .numDraftTokens == 1)
+    #expect(
+      MLXSpeculativeDecodingMode.none.configuration(from: loadedConfiguration) == nil)
+  }
+
+  @Test
   func allQwenCatalogEntriesEnableThinkingBudget() throws {
     let qwenModels = ManagedModelCatalog.models.filter {
       $0.reasoningTraceFormat == .qwenThinkTags

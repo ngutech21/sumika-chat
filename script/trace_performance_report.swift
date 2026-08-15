@@ -1,5 +1,4 @@
 #!/usr/bin/env swift
-
 import Foundation
 
 struct TraceRuntimeState: Codable, Equatable {
@@ -49,6 +48,8 @@ struct GenerationReport: Codable {
   var promptBytes: Int?
   var messageCount: Int?
   var contextTokenLimit: Int?
+  var mtpDrafterLoaded: Bool?
+  var speculativeDecodingMode: String?
   var requestSeen: Bool
   var responseSeen: Bool
   var responseError: String?
@@ -81,6 +82,15 @@ struct GenerationReport: Codable {
   var uiFlushMs: Double
   var generatedTokenCount: Int?
   var tokensPerSecond: Double?
+  var mtpProposedDraftTokens: Int?
+  var mtpAcceptedDraftTokens: Int?
+  var mtpAcceptanceRate: Double?
+  var mtpRoundCount: Int?
+  var mtpTargetModelCallCount: Int?
+  var mtpDraftModelCallCount: Int?
+  var mtpTargetVerifiedTokenCount: Int?
+  var mtpEmittedTokenCount: Int?
+  var mtpPassthroughReason: String?
   var firstRowIndex: Int
 }
 
@@ -365,10 +375,58 @@ func markdown(_ report: PerformanceReport) -> String {
   }
 
   appendToolLoopTTFTComparison(to: &lines, generations: report.generations)
+  appendMTPSummaries(to: &lines, generations: report.generations)
   appendDecodeStateIntervals(to: &lines, generations: report.generations)
 
   lines.append("")
   return lines.joined(separator: "\n")
+}
+
+func appendMTPSummaries(to lines: inout [String], generations: [GenerationReport]) {
+  let mtpGenerations = generations.filter {
+    $0.mtpDrafterLoaded != nil
+      || $0.speculativeDecodingMode != nil
+      || $0.mtpProposedDraftTokens != nil
+      || $0.mtpAcceptedDraftTokens != nil
+      || $0.mtpPassthroughReason != nil
+  }
+  guard !mtpGenerations.isEmpty else {
+    return
+  }
+
+  lines.append(contentsOf: [
+    "",
+    "## MTP Decoding",
+    "",
+    "| Generation | Loaded | Mode | Accepted/proposed | Rate | Rounds | Target calls | Drafter calls | Verified | Emitted | Passthrough |",
+    "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|",
+  ])
+
+  for generation in mtpGenerations {
+    let acceptedProposed =
+      if let accepted = generation.mtpAcceptedDraftTokens,
+        let proposed = generation.mtpProposedDraftTokens
+      {
+        "\(accepted)/\(proposed)"
+      } else {
+        "-"
+      }
+    let loaded = generation.mtpDrafterLoaded.map { $0 ? "yes" : "no" } ?? "-"
+    let row: [String] = [
+      String(generation.generationID.prefix(8)),
+      loaded,
+      generation.speculativeDecodingMode ?? "-",
+      acceptedProposed,
+      formattedPercentage(generation.mtpAcceptanceRate),
+      generation.mtpRoundCount.map(String.init) ?? "-",
+      generation.mtpTargetModelCallCount.map(String.init) ?? "-",
+      generation.mtpDraftModelCallCount.map(String.init) ?? "-",
+      generation.mtpTargetVerifiedTokenCount.map(String.init) ?? "-",
+      generation.mtpEmittedTokenCount.map(String.init) ?? "-",
+      generation.mtpPassthroughReason ?? "-",
+    ]
+    lines.append(row.joined(separator: " | ").wrappedTableRow())
+  }
 }
 
 func appendDecodeStateIntervals(
@@ -504,6 +562,13 @@ func formatted(_ value: Double?) -> String {
   return String(format: "%.1f", value)
 }
 
+func formattedPercentage(_ value: Double?) -> String {
+  guard let value else {
+    return "-"
+  }
+  return String(format: "%.1f%%", value * 100)
+}
+
 var traceURL = defaultTraceURL()
 var outputDirectory = URL(filePath: ".perf/ui-tests", directoryHint: .isDirectory)
 var scenario = "ui-trace"
@@ -599,6 +664,11 @@ for (rowIndex, row) in rows.enumerated() {
   case "mlx_request":
     report.requestSeen = true
     report.contextTokenLimit = report.contextTokenLimit ?? intValue(object, "contextTokenLimit")
+    report.mtpDrafterLoaded =
+      report.mtpDrafterLoaded ?? boolValue(object, "mtpDrafterLoaded")
+    report.speculativeDecodingMode =
+      report.speculativeDecodingMode
+      ?? value(object, "speculativeDecodingMode", as: String.self)
   case "mlx_response":
     report.responseSeen = true
     report.responseError = value(object, "error", as: String.self)
@@ -642,6 +712,24 @@ for (rowIndex, row) in rows.enumerated() {
     case "runtime_decode":
       report.decodeMs = doubleValue(object, "durationMs")
       report.tokensPerSecond = doubleValue(object, "tokensPerSecond") ?? report.tokensPerSecond
+      report.mtpProposedDraftTokens =
+        intValue(object, "mtpProposedDraftTokens") ?? report.mtpProposedDraftTokens
+      report.mtpAcceptedDraftTokens =
+        intValue(object, "mtpAcceptedDraftTokens") ?? report.mtpAcceptedDraftTokens
+      report.mtpAcceptanceRate =
+        doubleValue(object, "mtpAcceptanceRate") ?? report.mtpAcceptanceRate
+      report.mtpRoundCount = intValue(object, "mtpRoundCount") ?? report.mtpRoundCount
+      report.mtpTargetModelCallCount =
+        intValue(object, "mtpTargetModelCallCount") ?? report.mtpTargetModelCallCount
+      report.mtpDraftModelCallCount =
+        intValue(object, "mtpDraftModelCallCount") ?? report.mtpDraftModelCallCount
+      report.mtpTargetVerifiedTokenCount =
+        intValue(object, "mtpTargetVerifiedTokenCount") ?? report.mtpTargetVerifiedTokenCount
+      report.mtpEmittedTokenCount =
+        intValue(object, "mtpEmittedTokenCount") ?? report.mtpEmittedTokenCount
+      report.mtpPassthroughReason =
+        value(object, "mtpPassthroughReason", as: String.self)
+        ?? report.mtpPassthroughReason
     case "runtime_partial_decode":
       if let durationMs = doubleValue(object, "durationMs"),
         let generatedTokenCount = intValue(object, "generatedTokenCount")

@@ -440,6 +440,110 @@ struct MLXModelStreamProcessorTests {
   }
 
   @Test
+  func completedMTPModelStreamRecordsRuntimeOnlyDecodeTelemetry() async throws {
+    let traceID = UUID()
+    let tracer = MLXStreamTurnTraceRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("done"))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8,
+            generationTokenCount: 5,
+            promptTime: 0.1,
+            generationTime: 0.25,
+            speculativeDecodingTelemetry: SpeculativeDecodingTelemetry(
+              roundCount: 8,
+              draftTokenCount: 12,
+              acceptedDraftTokenCount: 7,
+              targetModelCallCount: 9,
+              draftModelCallCount: 16,
+              targetVerifiedTokenCount: 20,
+              emittedTokenCount: 13
+            )
+          )
+        ))
+      continuation.finish()
+    }
+    let stream = modelStream(
+      from: source,
+      traceID: traceID,
+      traceMetadata: TurnTraceMetadata(
+        turnID: nil,
+        generationID: traceID,
+        tracer: tracer
+      ),
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
+      markCompleted: { _ in },
+      markCancelled: { _ in },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
+    )
+
+    try await drainModelStream(stream)
+
+    let trace = try #require(await tracer.firstRuntimeDecodeTrace())
+    #expect(trace.event.phase == .runtimeDecode)
+    #expect(trace.event.generatedTokenCount == 5)
+    #expect(trace.event.tokensPerSecond == 20)
+    let mtp = try #require(trace.mtp)
+    #expect(mtp.proposedDraftTokens == 12)
+    #expect(mtp.acceptedDraftTokens == 7)
+    #expect(mtp.acceptanceRate == 7.0 / 12.0)
+    #expect(mtp.roundCount == 8)
+    #expect(mtp.targetModelCallCount == 9)
+    #expect(mtp.draftModelCallCount == 16)
+    #expect(mtp.targetVerifiedTokenCount == 20)
+    #expect(mtp.emittedTokenCount == 13)
+    #expect(mtp.passthroughReason == nil)
+  }
+
+  @Test
+  func completedMTPPassthroughPreservesZeroAcceptanceTelemetry() async throws {
+    let traceID = UUID()
+    let tracer = MLXStreamTurnTraceRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("done"))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8,
+            generationTokenCount: 1,
+            promptTime: 0.1,
+            generationTime: 0.1,
+            proposedDraftTokens: 0,
+            acceptedDraftTokens: 0,
+            passthroughReason: "main model did not emit drafter state"
+          )
+        ))
+      continuation.finish()
+    }
+    let stream = modelStream(
+      from: source,
+      traceID: traceID,
+      traceMetadata: TurnTraceMetadata(
+        turnID: nil,
+        generationID: traceID,
+        tracer: tracer
+      ),
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
+      markCompleted: { _ in },
+      markCancelled: { _ in },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
+    )
+
+    try await drainModelStream(stream)
+
+    let trace = try #require(await tracer.firstRuntimeDecodeTrace())
+    let mtp = try #require(trace.mtp)
+    #expect(mtp.proposedDraftTokens == 0)
+    #expect(mtp.acceptedDraftTokens == 0)
+    #expect(mtp.acceptanceRate == 0)
+    #expect(mtp.passthroughReason == "main model did not emit drafter state")
+  }
+
+  @Test
   func reusedModelStreamRecordsAuthoritativeCacheMetrics() async throws {
     let diagnostics = MLXRuntimeCacheDiagnostics(
       cacheTypes: [
@@ -1891,6 +1995,7 @@ struct MLXModelStreamProcessorTests {
   private actor MLXStreamTurnTraceRecorder: MLXRuntimeTracing {
     private var events: [TurnTraceEvent] = []
     private var runtimePrefillTraces: [MLXRuntimePrefillTrace] = []
+    private var runtimeDecodeTraces: [MLXRuntimeDecodeTrace] = []
 
     func recordTurnTraceEvent(_ event: TurnTraceEvent) {
       events.append(event)
@@ -1901,8 +2006,17 @@ struct MLXModelStreamProcessorTests {
       runtimePrefillTraces.append(trace)
     }
 
+    func recordRuntimeDecodeTrace(_ trace: MLXRuntimeDecodeTrace) {
+      events.append(trace.event)
+      runtimeDecodeTraces.append(trace)
+    }
+
     func firstRuntimePrefillTrace() -> MLXRuntimePrefillTrace? {
       runtimePrefillTraces.first
+    }
+
+    func firstRuntimeDecodeTrace() -> MLXRuntimeDecodeTrace? {
+      runtimeDecodeTraces.first
     }
 
     func firstEvent(for phase: TurnTracePhase) -> TurnTraceEvent? {

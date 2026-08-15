@@ -70,7 +70,42 @@ struct MLXGenerationLifecycleTests {
   }
 
   @Test
-  func activeGenerationRegistrySupersedesAndCancelsPreviousTask() async throws {
+  func overlappingGenerationSetupsJoinTheDrainAndOnlyTheNewestRemainsCurrent() async throws {
+    var setupOwnership = MLXGenerationSetupOwnership()
+    var registry = MLXActiveGenerationRegistry()
+    let generationID = MLXGenerationID(rawValue: 1)
+    let task = Task<Void, Never> {
+      do {
+        try await Task.sleep(for: .seconds(5))
+      } catch {}
+    }
+    registry.register(id: generationID, task: task)
+
+    let firstSetup = setupOwnership.beginSetup()
+    let firstDrainCandidate = registry.beginOrJoinDrain()
+    let firstDrain = try #require(firstDrainCandidate)
+    let secondSetup = setupOwnership.beginSetup()
+    let joinedDrainCandidate = registry.beginOrJoinDrain()
+    let joinedDrain = try #require(joinedDrainCandidate)
+
+    #expect(firstSetup.rawValue == 1)
+    #expect(secondSetup.rawValue == 2)
+    #expect(firstDrain.id == generationID)
+    #expect(joinedDrain.id == generationID)
+    #expect(!setupOwnership.isCurrent(firstSetup))
+    #expect(setupOwnership.isCurrent(secondSetup))
+
+    try await withTestTimeout(.seconds(5)) {
+      await task.value
+    }
+    let firstFinishAccepted = registry.finishDrainIfCurrent(generationID)
+    let repeatedFinishAccepted = registry.finishDrainIfCurrent(generationID)
+    #expect(firstFinishAccepted)
+    #expect(!repeatedFinishAccepted)
+  }
+
+  @Test
+  func activeGenerationRegistryBeginsAndFinishesDrain() async throws {
     var registry = MLXActiveGenerationRegistry()
     let generationID = MLXGenerationID(rawValue: 1)
     let task = Task<Void, Never> {
@@ -81,15 +116,18 @@ struct MLXGenerationLifecycleTests {
 
     registry.register(id: generationID, task: task)
 
-    let supersededGeneration = registry.supersedeActiveGeneration()
+    let supersededGeneration = registry.beginOrJoinDrain()
     let superseded = try #require(supersededGeneration)
     #expect(superseded.id == generationID)
     #expect(superseded.task.isCancelled)
-    #expect(registry.supersedeActiveGeneration() == nil)
 
     try await withTestTimeout(.seconds(5)) {
       await superseded.task.value
     }
+    let finishAccepted = registry.finishDrainIfCurrent(generationID)
+    let remainingDrain = registry.beginOrJoinDrain()
+    #expect(finishAccepted)
+    #expect(remainingDrain == nil)
   }
 
   @Test

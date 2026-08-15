@@ -7,8 +7,26 @@ struct MLXRuntimePrefillTrace: Equatable, Sendable {
   let cacheDiagnostics: MLXRuntimeCacheDiagnosticResult?
 }
 
+struct MLXMTPDecodeTrace: Equatable, Sendable {
+  let proposedDraftTokens: Int?
+  let acceptedDraftTokens: Int?
+  let acceptanceRate: Double?
+  let roundCount: Int?
+  let targetModelCallCount: Int?
+  let draftModelCallCount: Int?
+  let targetVerifiedTokenCount: Int?
+  let emittedTokenCount: Int?
+  let passthroughReason: String?
+}
+
+struct MLXRuntimeDecodeTrace: Equatable, Sendable {
+  let event: TurnTraceEvent
+  let mtp: MLXMTPDecodeTrace?
+}
+
 protocol MLXRuntimeTracing: TurnTracing {
   func recordRuntimePrefillTrace(_ trace: MLXRuntimePrefillTrace) async
+  func recordRuntimeDecodeTrace(_ trace: MLXRuntimeDecodeTrace) async
 }
 
 actor MLXDebugTraceStore: MLXRuntimeTracing {
@@ -36,6 +54,8 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     contextTokenLimit: Int?,
     imageAttachments: [ChatAttachment] = [],
     thinkingBudget: MLXThinkingBudgetTrace? = nil,
+    mtpDrafterLoaded: Bool = false,
+    speculativeDecodingMode: String = "none",
     interactionMode: WorkspaceInteractionMode? = nil
   ) async {
     guard Self.isEnabled else {
@@ -61,6 +81,8 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
       "history": history.map(traceMessage(from:)),
       "prompt": truncatedPrompt.value,
       "promptTruncated": truncatedPrompt.truncated,
+      "mtpDrafterLoaded": mtpDrafterLoaded,
+      "speculativeDecodingMode": speculativeDecodingMode,
     ]
     if let contextTokenLimit {
       request["contextTokenLimit"] = contextTokenLimit
@@ -184,6 +206,33 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
       trace["newMediaPresent"] = diagnostics.newMediaPresent
       trace["cacheTrimmable"] = diagnostics.cacheTrimmable
       trace["cacheTypes"] = diagnostics.cacheTypes
+    }
+    append(trace)
+  }
+
+  func recordRuntimeDecodeTrace(_ runtimeTrace: MLXRuntimeDecodeTrace) async {
+    guard Self.isEnabled else {
+      return
+    }
+
+    var trace = turnTraceObject(from: runtimeTrace.event)
+    if let mtp = runtimeTrace.mtp {
+      let optionalFields: [(String, Any?)] = [
+        ("mtpProposedDraftTokens", mtp.proposedDraftTokens),
+        ("mtpAcceptedDraftTokens", mtp.acceptedDraftTokens),
+        ("mtpAcceptanceRate", mtp.acceptanceRate),
+        ("mtpRoundCount", mtp.roundCount),
+        ("mtpTargetModelCallCount", mtp.targetModelCallCount),
+        ("mtpDraftModelCallCount", mtp.draftModelCallCount),
+        ("mtpTargetVerifiedTokenCount", mtp.targetVerifiedTokenCount),
+        ("mtpEmittedTokenCount", mtp.emittedTokenCount),
+        ("mtpPassthroughReason", mtp.passthroughReason),
+      ]
+      for (key, value) in optionalFields {
+        if let value {
+          trace[key] = value
+        }
+      }
     }
     append(trace)
   }
