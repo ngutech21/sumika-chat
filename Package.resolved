@@ -40,9 +40,9 @@
     {
       "identity" : "mlx-swift-lm",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ml-explore/mlx-swift-lm",
+      "location" : "https://github.com/ngutech21/mlx-swift-lm",
       "state" : {
-        "revision" : "ee673d6a71d76e67b532dc7eaf91d92edc3bb8bb"
+        "revision" : "c3dcb8d4b05906633c0b505fb555c5d7ea189a6b"
       }
     },
     {
