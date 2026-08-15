@@ -302,6 +302,24 @@ package enum ManagedModelCatalog {
       maxToolLoopIterations: 18
     ),
     ManagedModel(
+      id: "qwen3.8-27B-OptiQ-4bit",
+      displayName: "Qwen 3.8 27B Optiq 4-bit",
+      detail: "Qwen3.8 model with local vision support.",
+      huggingFaceRepoID: "mlx-community/Qwen3.8-27B-OptiQ-4bit",
+      localDirectoryName: "Qwen3.8-27B-OptiQ-4bit",
+      estimatedDownloadSize: "20.0 GB",
+      isRecommended: false,
+      requiresLargeMemory: true,
+      stability: .stable,
+      supportsImageInput: true,
+      reasoningTraceFormat: .qwenThinkTags,
+      supportsHistoricalReasoningPreservation: true,
+      thinkingBudgetPolicy: .hardLimitImmediate,
+      defaultModeSettings: qwen36DefaultModeSettings,
+      defaultContextTokenLimit: defaultContextTokenLimit,
+      maxToolLoopIterations: 18
+    ),
+    ManagedModel(
       id: "qwen3.6-40B-8bit-heretic",
       displayName: "Qwen 3.6 40B uncensored 8-bit",
       detail: "Uncensored Qwen3.6 model with local vision support.",
