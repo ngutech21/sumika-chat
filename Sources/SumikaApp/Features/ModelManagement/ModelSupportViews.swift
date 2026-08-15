@@ -28,85 +28,109 @@ struct ManagedModelRow: View {
   let isDownloaded: Bool
   let downloadState: ModelDownloadState
   let canSelect: Bool
+  let canDelete: Bool
+  let isDeleting: Bool
   let onSelect: () -> Void
+  let onDelete: () -> Void
 
   var body: some View {
-    Button(action: onSelect) {
-      HStack(spacing: 12) {
-        RoundedRectangle(cornerRadius: 7, style: .continuous)
-          .fill(tileTint.opacity(0.16))
-          .frame(width: 30, height: 30)
-          .overlay {
-            Image(systemName: tileSymbol)
-              .font(.system(size: 15, weight: .medium))
-              .foregroundStyle(tileTint)
+    HStack(spacing: 8) {
+      Button(action: onSelect) {
+        HStack(spacing: 12) {
+          RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(tileTint.opacity(0.16))
+            .frame(width: 30, height: 30)
+            .overlay {
+              Image(systemName: tileSymbol)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(tileTint)
+            }
+
+          VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+              Text(model.displayName)
+                .font(.body.weight(.medium))
+
+              if model.isRecommended {
+                Text("Recommended")
+                  .font(.caption.weight(.medium))
+                  .foregroundStyle(Color.accentColor)
+                  .padding(.horizontal, 7)
+                  .padding(.vertical, 2)
+                  .background(Color.accentColor.opacity(0.14), in: Capsule())
+              }
+
+              if model.stability == .experimental {
+                Label("Experimental", systemImage: "testtube.2")
+                  .font(.caption.weight(.medium))
+                  .foregroundStyle(.orange)
+                  .accessibilityIdentifier("model-experimental-badge-\(model.id)")
+              }
+
+              if model.requiresLargeMemory {
+                Label("High memory", systemImage: "memorychip")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+            }
+
+            Text(model.detail)
+              .font(.callout)
+              .foregroundStyle(.secondary)
+              .lineLimit(2)
           }
 
-        VStack(alignment: .leading, spacing: 3) {
-          HStack(spacing: 8) {
-            Text(model.displayName)
-              .font(.body.weight(.medium))
+          Spacer(minLength: 12)
 
-            if model.isRecommended {
-              Text("Recommended")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(Color.accentColor)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .background(Color.accentColor.opacity(0.14), in: Capsule())
-            }
-
-            if model.stability == .experimental {
-              Label("Experimental", systemImage: "testtube.2")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.orange)
-                .accessibilityIdentifier("model-experimental-badge-\(model.id)")
-            }
-
-            if model.requiresLargeMemory {
-              Label("High memory", systemImage: "memorychip")
+          VStack(alignment: .trailing, spacing: 3) {
+            Text(model.estimatedDownloadSize)
+              .font(.callout)
+              .foregroundStyle(.secondary)
+              .monospacedDigit()
+            HStack(spacing: 4) {
+              if isActive || isDownloaded {
+                Circle()
+                  .fill(statusTint)
+                  .frame(width: 6, height: 6)
+              }
+              Text(statusText)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(statusTint)
             }
           }
 
-          Text(model.detail)
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .lineLimit(2)
+          Image(systemName: "checkmark")
+            .font(.body.weight(.semibold))
+            .foregroundStyle(Color.accentColor)
+            .opacity(isSelected ? 1 : 0)
+            .frame(width: 16)
         }
-
-        Spacer(minLength: 12)
-
-        VStack(alignment: .trailing, spacing: 3) {
-          Text(model.estimatedDownloadSize)
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .monospacedDigit()
-          HStack(spacing: 4) {
-            if isActive || isDownloaded {
-              Circle()
-                .fill(statusTint)
-                .frame(width: 6, height: 6)
-            }
-            Text(statusText)
-              .font(.caption)
-              .foregroundStyle(statusTint)
-          }
-        }
-
-        Image(systemName: "checkmark")
-          .font(.body.weight(.semibold))
-          .foregroundStyle(Color.accentColor)
-          .opacity(isSelected ? 1 : 0)
-          .frame(width: 16)
+        .contentShape(Rectangle())
       }
-      .contentShape(Rectangle())
+      .buttonStyle(.plain)
+      .disabled(!canSelect && !isSelected)
+      .accessibilityIdentifier("model-row-\(model.id)")
+
+      if isDownloaded {
+        Button(action: onDelete) {
+          ZStack {
+            if isDeleting {
+              ProgressView()
+                .controlSize(.small)
+            } else {
+              Image(systemName: "trash")
+            }
+          }
+          .frame(width: 20, height: 20)
+        }
+        .buttonStyle(.borderless)
+        .disabled(!canDelete)
+        .help("Delete downloaded files for \(model.displayName)")
+        .accessibilityLabel("Delete \(model.displayName)")
+        .accessibilityIdentifier("delete-model-\(model.id)")
+      }
     }
-    .buttonStyle(.plain)
-    .disabled(!canSelect && !isSelected)
     .listRowBackground(isSelected ? Color.accentColor.opacity(0.10) : nil)
-    .accessibilityIdentifier("model-row-\(model.id)")
   }
 
   private var tileSymbol: String { "cpu" }

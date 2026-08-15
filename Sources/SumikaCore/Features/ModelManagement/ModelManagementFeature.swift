@@ -26,11 +26,13 @@ package final class ModelManagementFeature {
   }
 
   package var canChangeModel: Bool {
-    !conversationEngine.activity.isBusy && state.canChangeModel
+    !conversationEngine.activity.isBusy && modelController.canPerformSelectedModelAction
   }
 
   package var canSend: Bool {
-    state.modelState == .ready && !conversationEngine.activity.isBusy
+    state.modelState == .ready
+      && state.deletingModelID == nil
+      && !conversationEngine.activity.isBusy
   }
 
   package func initialize() async {
@@ -60,6 +62,18 @@ package final class ModelManagementFeature {
     modelController.unloadModel()
   }
 
+  package func canDeleteModel(_ model: ManagedModel) -> Bool {
+    !conversationEngine.activity.isBusy && modelController.canDeleteModel(model)
+  }
+
+  package func deleteModel(_ model: ManagedModel) {
+    guard canDeleteModel(model) else {
+      return
+    }
+    prepareForModelOperation(cancelGeneration: false)
+    modelController.deleteModel(model)
+  }
+
   package func loadAvailableModelForConversation() -> Bool {
     errorMessage = nil
     guard let availableModel = preferredDownloadedModel else {
@@ -87,10 +101,6 @@ package final class ModelManagementFeature {
     }
     modelController.setContextTokenLimit(limit)
     modelController.saveSelectedModelSettings(modeSettings: modeSettings)
-  }
-
-  package func isSelectedModelDownloaded() -> Bool {
-    modelController.isSelectedModelDownloaded()
   }
 
   func handleModelRuntimeError(_ message: String) {

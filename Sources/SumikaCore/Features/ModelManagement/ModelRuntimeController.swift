@@ -13,12 +13,20 @@ final class ModelRuntimeController {
   var selectedModeSettings = ManagedModelCatalog.defaultModel.defaultModeSettings
   var modelGenerationConfigPreset: ChatGenerationConfigPreset?
   var modelAvailabilitySnapshot: [ManagedModel.ID: Bool] = [:]
+  var deletingModelID: ManagedModel.ID?
+  private var isRuntimeOperationInProgress = false
 
   @ObservationIgnored private let runtimeOperations: RuntimeOperationCoordinator
   @ObservationIgnored private let modelLifecycleCoordinator: ModelLifecycleCoordinator
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
   @ObservationIgnored private var loadTask: Task<Void, Never>?
   @ObservationIgnored private var downloadTask: Task<Void, Never>?
+  @ObservationIgnored private var deleteTask: Task<Void, Never>?
+  @ObservationIgnored private var availabilityRefreshTask: Task<Void, Never>?
+  @ObservationIgnored private var generationConfigRefreshTask: Task<Void, Never>?
+  @ObservationIgnored private var availabilityRefreshRevision = 0
+  @ObservationIgnored private var availabilityMutationRevisions: [ManagedModel.ID: Int] = [:]
+  @ObservationIgnored private var generationConfigRevision = 0
   @ObservationIgnored private var modelOperationID: UUID
 
   @ObservationIgnored var onModelDidChange: (@MainActor (StoredModelSettings) -> Void)?
@@ -29,8 +37,11 @@ final class ModelRuntimeController {
     availableModels.first { $0.id == selectedModelID } ?? ManagedModelCatalog.defaultModel
   }
 
-  var canChangeModel: Bool {
-    modelState != .loading && !downloadState.isDownloading
+  var canPerformSelectedModelAction: Bool {
+    modelState != .loading
+      && !downloadState.isDownloading
+      && deletingModelID == nil
+      && !isRuntimeOperationInProgress
   }
 
   var state: ModelManagementState {
@@ -46,14 +57,17 @@ final class ModelRuntimeController {
       modelState: modelState,
       modelContextTokenLimit: modelContextTokenLimit,
       modelGenerationConfigPreset: modelGenerationConfigPreset,
-      canChangeModel: canChangeModel
+      deletingModelID: deletingModelID,
+      canPerformSelectedModelAction: canPerformSelectedModelAction
     )
   }
 
   var conversationState: ConversationModelState {
-    ConversationModelState(
+    let effectiveModelState =
+      deletingModelID == selectedModelID ? ModelLoadState.notLoaded : modelState
+    return ConversationModelState(
       selectedModel: selectedModel,
-      loadState: modelState,
+      loadState: effectiveModelState,
       contextTokenLimit: modelContextTokenLimit,
       operationID: modelOperationID
     )
@@ -79,7 +93,6 @@ final class ModelRuntimeController {
     self.modelLifecycleCoordinator = modelLifecycleCoordinator
     self.modelOperationID = initialOperationID
     refreshModelGenerationConfigPreset()
-    refreshModelAvailability()
   }
 
   func setEventHandlers(_ handlers: ModelManagementEventHandlers) {
@@ -91,6 +104,9 @@ final class ModelRuntimeController {
   deinit {
     loadTask?.cancel()
     downloadTask?.cancel()
+    deleteTask?.cancel()
+    availabilityRefreshTask?.cancel()
+    generationConfigRefreshTask?.cancel()
   }
 
   #if DEBUG
@@ -111,7 +127,7 @@ final class ModelRuntimeController {
         modelPath = selectedModel.localPath
       }
       refreshModelGenerationConfigPreset()
-      refreshModelAvailability()
+      await refreshModelAvailability()
     } catch {
       onError?(error.localizedDescription)
     }
@@ -122,7 +138,7 @@ final class ModelRuntimeController {
   }
 
   func selectModel(_ model: ManagedModel) {
-    guard canChangeModel, selectedModelID != model.id else {
+    guard canPerformSelectedModelAction, selectedModelID != model.id else {
       return
     }
 
@@ -132,7 +148,10 @@ final class ModelRuntimeController {
     downloadState = .idle
     modelContextTokenLimit = model.defaultContextTokenLimit
     modelGenerationConfigPreset = nil
-    modelAvailabilitySnapshot[model.id] = modelLifecycleCoordinator.isModelDownloaded(model)
+    updateModelAvailability(
+      modelLifecycleCoordinator.isModelDownloaded(model),
+      for: model.id
+    )
 
     Task { [modelSettingsStore] in
       await modelSettingsStore.setSelectedModelID(model.id)
@@ -180,22 +199,36 @@ final class ModelRuntimeController {
     return shouldUnloadRuntime
   }
 
-  func isSelectedModelDownloaded() -> Bool {
-    let model = selectedModel
-    let isDownloaded = modelLifecycleCoordinator.isModelDownloaded(model)
-    modelAvailabilitySnapshot[model.id] = isDownloaded
-    return isDownloaded
-  }
-
-  func refreshModelAvailability() {
+  func refreshModelAvailability() async {
+    availabilityRefreshRevision &+= 1
+    let refreshRevision = availabilityRefreshRevision
+    let mutationRevisions = availabilityMutationRevisions
     let models = availableModels
     let lifecycleCoordinator = modelLifecycleCoordinator
-    Task {
+    availabilityRefreshTask?.cancel()
+    let refreshTask = Task {
       let snapshot = await Task.detached {
         lifecycleCoordinator.modelAvailabilitySnapshot(for: models)
       }.value
-      modelAvailabilitySnapshot = snapshot
+      guard
+        !Task.isCancelled,
+        refreshRevision == availabilityRefreshRevision
+      else {
+        return
+      }
+
+      var mergedSnapshot = snapshot
+      for model in models
+      where mutationRevisions[model.id, default: 0]
+        != availabilityMutationRevisions[model.id, default: 0]
+      {
+        mergedSnapshot[model.id] = modelAvailabilitySnapshot[model.id]
+      }
+      modelAvailabilitySnapshot = mergedSnapshot
+      availabilityRefreshTask = nil
     }
+    availabilityRefreshTask = refreshTask
+    await refreshTask.value
   }
 
   func downloadSelectedModel() {
@@ -217,7 +250,7 @@ final class ModelRuntimeController {
         try Task.checkCancellation()
         downloadState = .downloaded
         modelPath = result.localPath
-        modelAvailabilitySnapshot[model.id] = true
+        updateModelAvailability(true, for: model.id)
         refreshModelGenerationConfigPreset()
       } catch is CancellationError {
         downloadState = .idle
@@ -248,20 +281,28 @@ final class ModelRuntimeController {
   }
 
   private func refreshModelGenerationConfigPreset() {
+    generationConfigRevision &+= 1
+    let revision = generationConfigRevision
     let modelDirectory = URL(fileURLWithPath: modelPath, isDirectory: true)
-    Task {
+    generationConfigRefreshTask?.cancel()
+    generationConfigRefreshTask = Task {
       let preset = await Task.detached {
         LocalModelDirectory.readGenerationConfigPreset(from: modelDirectory)
       }.value
-      guard modelPath == modelDirectory.path(percentEncoded: false) else {
+      guard
+        !Task.isCancelled,
+        revision == generationConfigRevision,
+        modelPath == modelDirectory.path(percentEncoded: false)
+      else {
         return
       }
       modelGenerationConfigPreset = preset
+      generationConfigRefreshTask = nil
     }
   }
 
   func loadModel() {
-    guard !downloadState.isDownloading else {
+    guard !downloadState.isDownloading, deletingModelID == nil else {
       return
     }
 
@@ -283,10 +324,11 @@ final class ModelRuntimeController {
     let supportsHistoricalReasoningPreservation =
       selectedModel.supportsHistoricalReasoningPreservation
     let thinkingBudgetPolicy = selectedModel.thinkingBudgetPolicy
+    modelState = .loading
+    isRuntimeOperationInProgress = true
 
     loadTask = Task {
       await runtimeOperations.setCurrentOperation(operationID)
-      modelState = .loading
 
       do {
         try await lifecycleCoordinator.loadModel(
@@ -317,16 +359,21 @@ final class ModelRuntimeController {
       }
 
       if operationID == modelOperationID {
+        isRuntimeOperationInProgress = false
         loadTask = nil
       }
     }
   }
 
   func unloadModel() {
+    guard deletingModelID == nil else {
+      return
+    }
     let operationID = UUID()
     modelOperationID = operationID
     loadTask?.cancel()
     modelState = .notLoaded
+    isRuntimeOperationInProgress = true
     onRuntimeDidReset?()
     let lifecycleCoordinator = modelLifecycleCoordinator
     let runtimeOperations = runtimeOperations
@@ -343,7 +390,82 @@ final class ModelRuntimeController {
         onError?(error.localizedDescription)
       }
       if await runtimeOperations.isCurrent(operationID), operationID == modelOperationID {
+        isRuntimeOperationInProgress = false
         loadTask = nil
+      }
+    }
+  }
+
+  func canDeleteModel(_ model: ManagedModel) -> Bool {
+    guard
+      deletingModelID == nil,
+      let managedModel = availableModels.first(where: { $0.id == model.id }),
+      modelAvailabilitySnapshot[managedModel.id] == true
+    else {
+      return false
+    }
+
+    guard managedModel.id == selectedModelID else {
+      return true
+    }
+
+    return canPerformSelectedModelAction
+  }
+
+  func deleteModel(_ model: ManagedModel) {
+    guard
+      canDeleteModel(model),
+      let managedModel = availableModels.first(where: { $0.id == model.id })
+    else {
+      return
+    }
+
+    let shouldUnloadRuntime =
+      managedModel.id == selectedModelID && modelState != .notLoaded
+    let operationID = shouldUnloadRuntime ? UUID() : nil
+    if let operationID {
+      modelOperationID = operationID
+      loadTask?.cancel()
+      loadTask = nil
+    }
+
+    deletingModelID = managedModel.id
+    let lifecycleCoordinator = modelLifecycleCoordinator
+    let runtimeOperations = runtimeOperations
+    deleteTask = Task {
+      if let operationID {
+        await runtimeOperations.setCurrentOperation(operationID)
+      }
+
+      do {
+        try await lifecycleCoordinator.deleteDownloadedModel(
+          managedModel,
+          unloadOperationID: operationID
+        ) {
+          self.modelState = .notLoaded
+          self.isRuntimeOperationInProgress = true
+          self.onRuntimeDidReset?()
+        }
+        updateModelAvailability(false, for: managedModel.id)
+        if managedModel.id == selectedModelID {
+          downloadState = .idle
+          invalidateGenerationConfigRefresh()
+          modelGenerationConfigPreset = nil
+        }
+      } catch is CancellationError {
+      } catch {
+        onError?(error.localizedDescription)
+      }
+
+      if let operationID,
+        await runtimeOperations.isCurrent(operationID),
+        operationID == modelOperationID
+      {
+        isRuntimeOperationInProgress = false
+      }
+      if deletingModelID == managedModel.id {
+        deletingModelID = nil
+        deleteTask = nil
       }
     }
   }
@@ -352,6 +474,7 @@ final class ModelRuntimeController {
     let operationID = UUID()
     modelOperationID = operationID
     modelState = .notLoaded
+    isRuntimeOperationInProgress = true
     onRuntimeDidReset?()
     let lifecycleCoordinator = modelLifecycleCoordinator
     let runtimeOperations = runtimeOperations
@@ -367,7 +490,22 @@ final class ModelRuntimeController {
         }
         onError?(error.localizedDescription)
       }
+      if await runtimeOperations.isCurrent(operationID), operationID == modelOperationID {
+        isRuntimeOperationInProgress = false
+        loadTask = nil
+      }
     }
+  }
+
+  private func updateModelAvailability(_ isDownloaded: Bool, for modelID: ManagedModel.ID) {
+    availabilityMutationRevisions[modelID, default: 0] &+= 1
+    modelAvailabilitySnapshot[modelID] = isDownloaded
+  }
+
+  private func invalidateGenerationConfigRefresh() {
+    generationConfigRevision &+= 1
+    generationConfigRefreshTask?.cancel()
+    generationConfigRefreshTask = nil
   }
 
   private static func normalizedDownloadProgress(_ progress: Progress) -> Double? {

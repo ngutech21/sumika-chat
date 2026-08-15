@@ -7,6 +7,7 @@ enum ModelsTab: String, CaseIterable, Hashable {
 }
 
 struct ModelsView: View {
+  @State private var modelPendingDeletion: ManagedModel?
   let modelManagementState: ModelManagementFeatureState
   @Bindable var audioModelController: ComposerAudioModelController
   @Binding var selectedTab: ModelsTab
@@ -36,6 +37,24 @@ struct ModelsView: View {
     .onAppear {
       audioModelController.refreshAvailability()
     }
+    .alert(
+      "Delete downloaded model?",
+      isPresented: modelDeletionAlertBinding,
+      presenting: modelPendingDeletion
+    ) { model in
+      Button("Cancel", role: .cancel) {
+        modelPendingDeletion = nil
+      }
+
+      Button("Delete", role: .destructive) {
+        modelManagementState.deleteModel(model)
+        modelPendingDeletion = nil
+      }
+    } message: { model in
+      Text(
+        "This permanently deletes the downloaded files for “\(model.displayName)”. Chats, model selection, and generation settings are preserved."
+      )
+    }
   }
 
   private var textModelsForm: some View {
@@ -53,8 +72,13 @@ struct ModelsView: View {
             downloadState: state.selectedModel.id == model.id
               ? state.downloadState : .idle,
             canSelect: modelManagementState.canChangeModel,
+            canDelete: modelManagementState.canDeleteModel(model),
+            isDeleting: state.deletingModelID == model.id,
             onSelect: {
               modelManagementState.selectModel(model)
+            },
+            onDelete: {
+              modelPendingDeletion = model
             }
           )
         }
@@ -157,6 +181,17 @@ struct ModelsView: View {
       }
     }
     .formStyle(.grouped)
+  }
+
+  private var modelDeletionAlertBinding: Binding<Bool> {
+    Binding(
+      get: { modelPendingDeletion != nil },
+      set: { isPresented in
+        if !isPresented {
+          modelPendingDeletion = nil
+        }
+      }
+    )
   }
 
 }

@@ -560,10 +560,11 @@ final class AppState {
   }
 
   private func attemptAutoloadLastModelIfReady() {
+    let modelState = modelManagementState.state
     guard settingsState.appBehaviorSettings.autoloadLastModel,
       !didAttemptAutoloadLastModel,
-      modelManagementState.state.modelState == .notLoaded,
-      modelManagementState.isSelectedModelDownloaded()
+      modelState.modelState == .notLoaded,
+      modelState.isModelDownloaded(modelState.selectedModel)
     else {
       return
     }

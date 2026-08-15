@@ -6,7 +6,8 @@ package struct ModelManagementState: Equatable, Sendable {
   package let modelState: ModelLoadState
   package let modelContextTokenLimit: Int
   package let modelGenerationConfigPreset: ChatGenerationConfigPreset?
-  package let canChangeModel: Bool
+  package let deletingModelID: ManagedModel.ID?
+  package let canPerformSelectedModelAction: Bool
 
   package func isModelDownloaded(_ model: ManagedModel) -> Bool {
     downloadedModelIDs.contains(model.id)

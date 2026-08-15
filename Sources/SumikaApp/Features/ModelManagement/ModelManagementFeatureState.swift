@@ -57,7 +57,7 @@ final class ModelManagementFeatureState {
     case .download:
       return !canChangeModel || state.downloadState.isDownloading
     case .load, .unload:
-      return state.modelState == .loading || state.downloadState.isDownloading
+      return !state.canPerformSelectedModelAction
     }
   }
 
@@ -71,6 +71,14 @@ final class ModelManagementFeatureState {
 
   func selectConversationModel(_ model: ManagedModel) {
     models.selectConversationModel(model)
+  }
+
+  func canDeleteModel(_ model: ManagedModel) -> Bool {
+    models.canDeleteModel(model)
+  }
+
+  func deleteModel(_ model: ManagedModel) {
+    models.deleteModel(model)
   }
 
   func performPrimaryAction() {
@@ -94,10 +102,6 @@ final class ModelManagementFeatureState {
 
   func updateContextTokenLimit(_ limit: Int) {
     models.updateContextTokenLimit(limit)
-  }
-
-  func isSelectedModelDownloaded() -> Bool {
-    models.isSelectedModelDownloaded()
   }
 
   func loadSelectedModelForStartup() {

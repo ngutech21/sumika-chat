@@ -40,18 +40,13 @@ struct ModelRuntimeControllerTests {
       initialOperationID: initialOperationID,
       modelAvailability: { $0.id == downloadedModel.id }
     )
-    controller.refreshModelAvailability()
-
-    try await waitUntil {
-      controller.state.isModelDownloaded(downloadedModel)
-    }
 
     let state = controller.state
     #expect(state.availableModels == ManagedModelCatalog.models)
     #expect(state.selectedModel == downloadedModel)
     #expect(state.modelState == .notLoaded)
     #expect(state.modelContextTokenLimit == downloadedModel.defaultContextTokenLimit)
-    #expect(state.canChangeModel)
+    #expect(state.canPerformSelectedModelAction)
 
     let conversationState = controller.conversationState
     #expect(conversationState.selectedModel == state.selectedModel)
@@ -303,6 +298,8 @@ struct ModelRuntimeControllerTests {
 
     controller.unloadModel()
     try await waitUntilAsync { await runtime.didStartUnload }
+    #expect(controller.modelState == .notLoaded)
+    #expect(!controller.state.canPerformSelectedModelAction)
 
     controller.loadModel()
     await Task.yield()
@@ -313,6 +310,7 @@ struct ModelRuntimeControllerTests {
     try await waitUntil { controller.modelState == .ready }
 
     #expect(await runtime.isLoaded)
+    #expect(controller.state.canPerformSelectedModelAction)
   }
 
   @Test
@@ -329,6 +327,221 @@ struct ModelRuntimeControllerTests {
     #expect(await runtime.didUnload)
   }
 
+  @Test
+  func deletingInactiveModelPreservesSelectionAndSettingsAndClearsDownloadedState() async throws {
+    let model = ManagedModelCatalog.defaultModel
+    let baseURL = try scopedTemporaryDirectory().appending(
+      path: "inactive-delete-models",
+      directoryHint: .isDirectory
+    )
+    let modelDirectory = baseURL.appending(
+      path: model.localDirectoryName,
+      directoryHint: .isDirectory
+    )
+    let nestedDirectory = modelDirectory.appending(path: "nested", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: nestedDirectory, withIntermediateDirectories: true)
+    try #"{"model_type":"test"}"#.write(
+      to: modelDirectory.appending(path: "config.json", directoryHint: .notDirectory),
+      atomically: true,
+      encoding: .utf8
+    )
+    try "weights".write(
+      to: nestedDirectory.appending(path: "weights.bin", directoryHint: .notDirectory),
+      atomically: true,
+      encoding: .utf8
+    )
+    let store = RuntimeFakeModelSettingsStore()
+    let customSettings = StoredModelSettings(
+      modeSettings: model.defaultModeSettings,
+      contextTokenLimit: 12_288
+    )
+    store.settingsByModelID[model.id] = customSettings
+    let runtime = RuntimeControllerRecordingRuntime()
+    let controller = await makeController(
+      initialSettings: customSettings,
+      modelSettingsStore: store,
+      runtime: runtime,
+      modelAvailability: { candidate in
+        let directory = baseURL.appending(
+          path: candidate.localDirectoryName,
+          directoryHint: .isDirectory
+        )
+        return FileManager.default.fileExists(
+          atPath: directory.appending(path: "config.json").path(percentEncoded: false)
+        )
+      },
+      modelDirectoryBaseURL: baseURL
+    )
+    try await waitUntil { controller.state.isModelDownloaded(model) }
+    let selectedModelID = controller.selectedModelID
+    let selectedModelPath = controller.modelPath
+    let selectedModeSettings = controller.selectedModeSettings
+    controller.downloadState = .downloaded
+    controller.modelGenerationConfigPreset = ChatGenerationConfigPreset(temperature: 0.7)
+
+    controller.deleteModel(model)
+
+    try await waitUntil {
+      controller.deletingModelID == nil && !controller.state.isModelDownloaded(model)
+    }
+    #expect(!FileManager.default.fileExists(atPath: modelDirectory.path(percentEncoded: false)))
+    #expect(!(await runtime.didUnload))
+    #expect(controller.selectedModelID == selectedModelID)
+    #expect(controller.modelPath == selectedModelPath)
+    #expect(controller.selectedModeSettings == selectedModeSettings)
+    #expect(store.settingsByModelID[model.id] == customSettings)
+    #expect(controller.downloadState == .idle)
+    #expect(controller.modelGenerationConfigPreset == nil)
+  }
+
+  @Test
+  func activeModelDeletionFailureKeepsDownloadedStateAndReportsError() async throws {
+    let model = ManagedModelCatalog.defaultModel
+    let baseURL = try scopedTemporaryDirectory().appending(
+      path: "failed-delete-models",
+      directoryHint: .isDirectory
+    )
+    let modelDirectory = baseURL.appending(
+      path: model.localDirectoryName,
+      directoryHint: .isDirectory
+    )
+    try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
+    let runtime = RuntimeControllerRecordingRuntime()
+    let controller = await makeController(
+      runtime: runtime,
+      modelAvailability: { $0.id == model.id },
+      modelDirectoryBaseURL: baseURL,
+      modelDirectoryRemover: { _ in
+        throw RuntimeControllerModelDeletionError.removalFailed
+      }
+    )
+    try await waitUntil { controller.state.isModelDownloaded(model) }
+    controller.modelState = .ready
+    controller.downloadState = .downloaded
+    var errorMessage: String?
+    controller.onError = { errorMessage = $0 }
+
+    controller.deleteModel(model)
+
+    try await waitUntil { errorMessage != nil && controller.deletingModelID == nil }
+    #expect(errorMessage == RuntimeControllerModelDeletionError.removalFailed.localizedDescription)
+    #expect(controller.state.isModelDownloaded(model))
+    #expect(controller.downloadState == .downloaded)
+    #expect(controller.modelState == .notLoaded)
+    #expect(await runtime.didUnload)
+    #expect(FileManager.default.fileExists(atPath: modelDirectory.path(percentEncoded: false)))
+  }
+
+  @Test
+  func staleAvailabilityRefreshCannotOverrideDownloadSuccess() async throws {
+    let selectedModel = ManagedModelCatalog.defaultModel
+    let otherDownloadedModel = try #require(
+      ManagedModelCatalog.models.first { $0.id != selectedModel.id }
+    )
+    let availability = RuntimeControllerBlockingAvailability(
+      modelID: selectedModel.id,
+      resultsByModelID: [otherDownloadedModel.id: true]
+    )
+    let controller = await makeController(
+      modelAvailability: { availability.value(for: $0) }
+    )
+    controller.modelAvailabilitySnapshot[otherDownloadedModel.id] = false
+    availability.blockNext(result: false)
+    defer { availability.release() }
+
+    let refreshTask = Task {
+      await controller.refreshModelAvailability()
+    }
+    try await waitUntil { availability.didStartBlockedCall }
+    controller.downloadSelectedModel()
+    try await waitUntil { controller.downloadState == .downloaded }
+
+    availability.release()
+    await refreshTask.value
+
+    #expect(controller.state.isModelDownloaded(selectedModel))
+    #expect(controller.state.isModelDownloaded(otherDownloadedModel))
+  }
+
+  @Test
+  func staleAvailabilityRefreshCannotRestoreDeletedModel() async throws {
+    let model = ManagedModelCatalog.defaultModel
+    let availability = RuntimeControllerBlockingAvailability(
+      modelID: model.id,
+      defaultResult: true
+    )
+    let baseURL = try scopedTemporaryDirectory().appending(
+      path: "stale-delete-models",
+      directoryHint: .isDirectory
+    )
+    let controller = await makeController(
+      modelAvailability: { availability.value(for: $0) },
+      modelDirectoryBaseURL: baseURL,
+      modelDirectoryRemover: { _ in }
+    )
+    try await waitUntil { controller.state.isModelDownloaded(model) }
+    availability.blockNext(result: true)
+    defer { availability.release() }
+
+    let refreshTask = Task {
+      await controller.refreshModelAvailability()
+    }
+    try await waitUntil { availability.didStartBlockedCall }
+    controller.deleteModel(model)
+    try await waitUntil {
+      controller.deletingModelID == nil && !controller.state.isModelDownloaded(model)
+    }
+
+    availability.release()
+    await refreshTask.value
+
+    #expect(!controller.state.isModelDownloaded(model))
+  }
+
+  @Test
+  func preparingDefaultModelDirectoryWaitsForCompleteAvailabilitySnapshot() async throws {
+    let selectedModel = ManagedModelCatalog.defaultModel
+    let availability = RuntimeControllerBlockingAvailability(modelID: selectedModel.id)
+    availability.blockNext(result: true)
+    defer { availability.release() }
+    let controller = await makeController(
+      modelAvailability: { availability.value(for: $0) },
+      refreshAvailabilityBeforeReturning: false
+    )
+    var didFinishPreparation = false
+
+    let preparationTask = Task {
+      await controller.prepareDefaultModelDirectory()
+      didFinishPreparation = true
+    }
+    try await waitUntil { availability.didStartBlockedCall }
+
+    #expect(!didFinishPreparation)
+
+    availability.release()
+    await preparationTask.value
+
+    #expect(didFinishPreparation)
+    #expect(controller.modelAvailabilitySnapshot.count == ManagedModelCatalog.models.count)
+    #expect(controller.state.isModelDownloaded(selectedModel))
+  }
+
+  @Test
+  func selectedModelCannotBeDeletedWhileDownloadingOrLoading() async throws {
+    let model = ManagedModelCatalog.defaultModel
+    let controller = await makeController(modelAvailability: { $0.id == model.id })
+    try await waitUntil { controller.state.isModelDownloaded(model) }
+
+    controller.downloadState = .downloading(progress: nil)
+    #expect(!controller.canDeleteModel(model))
+    #expect(!controller.state.canPerformSelectedModelAction)
+
+    controller.downloadState = .idle
+    controller.modelState = .loading
+    #expect(!controller.canDeleteModel(model))
+    #expect(!controller.state.canPerformSelectedModelAction)
+  }
+
   private func makeController(
     initialModelID: ManagedModel.ID = ManagedModelCatalog.defaultModelID,
     initialSettings: StoredModelSettings? = nil,
@@ -338,7 +551,11 @@ struct ModelRuntimeControllerTests {
     runtime: any ChatModelRuntime = RuntimeControllerRecordingRuntime(),
     modelPath: String? = nil,
     initialOperationID: UUID = UUID(),
-    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool = { _ in false }
+    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool = { _ in false },
+    modelDirectoryBaseURL: URL = LocalModelDirectory.defaultBaseURL,
+    modelDirectoryRemover: @escaping @Sendable (URL) throws -> Void =
+      ModelLifecycleCoordinator.defaultModelDirectoryRemover,
+    refreshAvailabilityBeforeReturning: Bool = true
   ) async -> ModelRuntimeController {
     let selectedModel =
       ManagedModelCatalog.model(id: initialModelID) ?? ManagedModelCatalog.defaultModel
@@ -352,9 +569,11 @@ struct ModelRuntimeControllerTests {
     let lifecycleCoordinator = ModelLifecycleCoordinator(
       modelDownloader: modelDownloader,
       runtimeOperations: runtimeOperations,
-      modelAvailability: modelAvailability
+      modelAvailability: modelAvailability,
+      modelDirectoryBaseURL: modelDirectoryBaseURL,
+      modelDirectoryRemover: modelDirectoryRemover
     )
-    return ModelRuntimeController(
+    let controller = ModelRuntimeController(
       selectedModelID: selectedModel.id,
       modelPath: modelPath ?? selectedModel.localPath,
       modelContextTokenLimit: settings.contextTokenLimit,
@@ -363,6 +582,10 @@ struct ModelRuntimeControllerTests {
       modelLifecycleCoordinator: lifecycleCoordinator,
       initialOperationID: initialOperationID
     )
+    if refreshAvailabilityBeforeReturning {
+      await controller.refreshModelAvailability()
+    }
+    return controller
   }
 
   private func waitUntil(
@@ -464,6 +687,71 @@ private enum RuntimeControllerFakeDownloadError: LocalizedError {
 
   var errorDescription: String? {
     "download failed"
+  }
+}
+
+private enum RuntimeControllerModelDeletionError: LocalizedError {
+  case removalFailed
+
+  var errorDescription: String? {
+    "model removal failed"
+  }
+}
+
+private final class RuntimeControllerBlockingAvailability: @unchecked Sendable {
+  private let condition = NSCondition()
+  private let modelID: ManagedModel.ID
+  private let defaultResult: Bool
+  private let resultsByModelID: [ManagedModel.ID: Bool]
+  private var shouldBlockNextCall = false
+  private var blockedResult = false
+  private var isReleased = false
+  private var startedBlockedCall = false
+
+  init(
+    modelID: ManagedModel.ID,
+    defaultResult: Bool = false,
+    resultsByModelID: [ManagedModel.ID: Bool] = [:]
+  ) {
+    self.modelID = modelID
+    self.defaultResult = defaultResult
+    self.resultsByModelID = resultsByModelID
+  }
+
+  var didStartBlockedCall: Bool {
+    condition.withLock { startedBlockedCall }
+  }
+
+  func blockNext(result: Bool) {
+    condition.withLock {
+      shouldBlockNextCall = true
+      blockedResult = result
+      isReleased = false
+      startedBlockedCall = false
+    }
+  }
+
+  func release() {
+    condition.withLock {
+      isReleased = true
+      condition.broadcast()
+    }
+  }
+
+  func value(for model: ManagedModel) -> Bool {
+    condition.lock()
+    defer { condition.unlock() }
+    guard model.id == modelID, shouldBlockNextCall else {
+      return model.id == modelID ? defaultResult : resultsByModelID[model.id, default: false]
+    }
+
+    shouldBlockNextCall = false
+    startedBlockedCall = true
+    condition.broadcast()
+    while !isReleased {
+      condition.wait()
+    }
+    return blockedResult
   }
 }
 
