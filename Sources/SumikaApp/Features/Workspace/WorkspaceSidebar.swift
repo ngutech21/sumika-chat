@@ -14,6 +14,7 @@ struct WorkspaceSidebar: View {
   @State private var sessionBeingRenamed: WorkspaceSidebarSession?
   @State private var sessionPendingDeletion: WorkspaceSidebarSession?
   @State private var workspacePendingRemoval: WorkspaceSidebarWorkspace?
+  @State private var sessionPagination = WorkspaceSidebarPagination()
   @State private var renameTitle = ""
   @AppStorage("sidebar.collapsedWorkspaceIDs") private var collapsedWorkspaceIDsRaw = ""
 
@@ -41,6 +42,15 @@ struct WorkspaceSidebar: View {
         processUsage: processUsage,
         onAddWorkspace: onAddWorkspace
       )
+    }
+    .onAppear {
+      syncSessionPagination()
+    }
+    .onChange(of: selection) {
+      revealSelectedSessionIfNeeded()
+    }
+    .onChange(of: sidebarState) {
+      sessionPagination.retainWorkspaces(sidebarState.workspaces)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .alert("Rename Chat", isPresented: renameAlertBinding) {
@@ -108,8 +118,13 @@ struct WorkspaceSidebar: View {
   @ViewBuilder
   private func workspaceSection(_ workspace: WorkspaceSidebarWorkspace) -> some View {
     DisclosureGroup(isExpanded: expansionBinding(for: workspace.id)) {
-      ForEach(workspace.sessions) { session in
+      ForEach(workspace.sessions.prefix(sessionPagination.visibleSessionCount(in: workspace))) {
+        session in
         sessionRow(session, in: workspace.id)
+      }
+
+      if sessionPagination.hasMoreSessions(in: workspace) {
+        showMoreSessionsButton(for: workspace)
       }
     } label: {
       Label {
@@ -132,11 +147,36 @@ struct WorkspaceSidebar: View {
           workspacePendingRemoval = workspace
         }
       }
+      .accessibilityIdentifier("sidebar.workspaceDisclosure")
+      .accessibilityValue(
+        workspaceAccessibilityValue(
+          workspace.id,
+          isSelected: selection == .workspace(workspace.id)
+        )
+      )
     }
     .tag(AppRoute.workspace(workspace.id))
-    .accessibilityIdentifier("sidebar.workspaceDisclosure")
+  }
+
+  private func showMoreSessionsButton(for workspace: WorkspaceSidebarWorkspace) -> some View {
+    let remainingSessionCount = sessionPagination.remainingSessionCount(in: workspace)
+
+    return Button {
+      withAnimation(.snappy(duration: 0.18)) {
+        sessionPagination.showMoreSessions(in: workspace)
+      }
+    } label: {
+      Text("Show more")
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .foregroundStyle(Color.accentColor)
+    .accessibilityIdentifier("sidebar.showMoreSessions")
+    .accessibilityLabel("Show more chats")
     .accessibilityValue(
-      workspaceAccessibilityValue(workspace.id, isSelected: selection == .workspace(workspace.id))
+      remainingSessionCount == 1
+        ? "1 chat remaining" : "\(remainingSessionCount) chats remaining"
     )
   }
 
@@ -211,6 +251,21 @@ struct WorkspaceSidebar: View {
     }
   }
 
+  private func syncSessionPagination() {
+    sessionPagination.retainWorkspaces(sidebarState.workspaces)
+    revealSelectedSessionIfNeeded()
+  }
+
+  private func revealSelectedSessionIfNeeded() {
+    guard case .chat(let workspaceID, let sessionID) = selection,
+      let workspace = sidebarState.workspaces.first(where: { $0.id == workspaceID })
+    else {
+      return
+    }
+
+    sessionPagination.revealSession(sessionID, in: workspace)
+  }
+
   private var renameAlertBinding: Binding<Bool> {
     Binding(
       get: { sessionBeingRenamed != nil },
@@ -243,6 +298,61 @@ struct WorkspaceSidebar: View {
         }
       }
     )
+  }
+}
+
+struct WorkspaceSidebarPagination: Equatable {
+  static let pageSize = 5
+
+  private var requestedVisibleSessionCounts: [Workspace.ID: Int] = [:]
+
+  func visibleSessionCount(in workspace: WorkspaceSidebarWorkspace) -> Int {
+    min(
+      requestedVisibleSessionCounts[workspace.id, default: Self.pageSize],
+      workspace.sessions.count
+    )
+  }
+
+  func remainingSessionCount(in workspace: WorkspaceSidebarWorkspace) -> Int {
+    workspace.sessions.count - visibleSessionCount(in: workspace)
+  }
+
+  func hasMoreSessions(in workspace: WorkspaceSidebarWorkspace) -> Bool {
+    remainingSessionCount(in: workspace) > 0
+  }
+
+  mutating func showMoreSessions(in workspace: WorkspaceSidebarWorkspace) {
+    requestedVisibleSessionCounts[workspace.id] = min(
+      visibleSessionCount(in: workspace) + Self.pageSize,
+      workspace.sessions.count
+    )
+  }
+
+  mutating func revealSession(
+    _ sessionID: ChatSession.ID,
+    in workspace: WorkspaceSidebarWorkspace
+  ) {
+    guard let sessionIndex = workspace.sessions.firstIndex(where: { $0.id == sessionID }) else {
+      return
+    }
+
+    let requiredVisibleSessionCount = ((sessionIndex / Self.pageSize) + 1) * Self.pageSize
+    let requestedVisibleSessionCount = requestedVisibleSessionCounts[
+      workspace.id,
+      default: Self.pageSize
+    ]
+    guard requiredVisibleSessionCount > requestedVisibleSessionCount else {
+      return
+    }
+
+    requestedVisibleSessionCounts[workspace.id] = requiredVisibleSessionCount
+  }
+
+  mutating func retainWorkspaces(_ workspaces: [WorkspaceSidebarWorkspace]) {
+    let workspaceIDs = Set(workspaces.map(\.id))
+    requestedVisibleSessionCounts = requestedVisibleSessionCounts.filter {
+      workspaceIDs.contains($0.key)
+    }
   }
 }
 

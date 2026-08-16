@@ -9,6 +9,76 @@ final class SumikaUITests: XCTestCase {
     "\(traceTimestamp())-\(UUID().uuidString)-gemma4-12b-qat-4bit-ui-test.jsonl"
 
   @MainActor
+  func testWorkspaceSidebarShowsFiveSessionsAtATime() throws {
+    let fixture = try launchFixture()
+    let application = try launchApp(fixture: fixture)
+    defer { application.terminate() }
+
+    let workspaceList = application.descendants(matching: .any)["sidebar.workspaceList"]
+    if !workspaceList.exists {
+      let showSidebarButton = application.buttons["Show Sidebar"]
+      XCTAssertTrue(showSidebarButton.waitForExistence(timeout: 5))
+      showSidebarButton.click()
+    }
+    XCTAssertTrue(workspaceList.waitForExistence(timeout: 5))
+
+    let workspaceDisclosure = application.descendants(matching: .any).matching(
+      identifier: "sidebar.workspaceDisclosure"
+    ).firstMatch
+    XCTAssertTrue(workspaceDisclosure.waitForExistence(timeout: 5))
+    if (workspaceDisclosure.value as? String)?.contains("Collapsed") == true {
+      let disclosureTriangle = application.disclosureTriangles.firstMatch
+      XCTAssertTrue(disclosureTriangle.waitForExistence(timeout: 5))
+      disclosureTriangle.click()
+    }
+    let initialChatLabel = application.staticTexts.matching(
+      NSPredicate(format: "label == %@", "UI Performance")
+    ).firstMatch
+    let showsInitialChat = initialChatLabel.waitForExistence(timeout: 5)
+    XCTAssertTrue(
+      showsInitialChat,
+      "The test workspace should expose its initial chat before creating more."
+    )
+    guard showsInitialChat else {
+      return
+    }
+
+    let newChatButton = application.buttons["workspace.newChatButton"]
+    XCTAssertTrue(newChatButton.waitForExistence(timeout: 10))
+    for _ in 0..<5 {
+      newChatButton.click()
+    }
+
+    let untitledChatLabels = application.staticTexts.matching(
+      NSPredicate(format: "label == %@", "Untitled")
+    )
+    let showMoreButton = application.buttons["Show more chats"]
+    let showsInitialPage = waitUntil(timeout: 10) {
+      untitledChatLabels.count == 5 && !initialChatLabel.exists && showMoreButton.exists
+    }
+    XCTAssertTrue(
+      showsInitialPage,
+      "The workspace sidebar should initially show only the five newest chats; "
+        + "found \(untitledChatLabels.count) new chat labels, old-chat existence "
+        + "\(initialChatLabel.exists), and show-more existence "
+        + "\(showMoreButton.exists)."
+    )
+    guard showMoreButton.exists else {
+      return
+    }
+    XCTAssertEqual(showMoreButton.value as? String, "1 chat remaining")
+
+    showMoreButton.click()
+
+    XCTAssertTrue(
+      waitUntil(timeout: 10) {
+        untitledChatLabels.count == 5 && initialChatLabel.exists && !showMoreButton.exists
+      },
+      "Show more should reveal the next page and disappear when every chat is visible."
+    )
+  }
+
+  @MainActor
   func testPreviewSlashCommandShowsAndHidesHTMLPreviewWithoutChatTurn() throws {
     let fixture = try launchFixture(
       files: [
