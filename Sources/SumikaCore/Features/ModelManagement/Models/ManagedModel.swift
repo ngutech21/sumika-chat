@@ -311,7 +311,7 @@ package enum ManagedModelCatalog {
       isRecommended: false,
       requiresLargeMemory: true,
       stability: .stable,
-      supportsImageInput: true,
+      supportsImageInput: false,
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,
