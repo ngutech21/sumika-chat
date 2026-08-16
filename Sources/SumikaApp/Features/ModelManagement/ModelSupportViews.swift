@@ -51,8 +51,8 @@ struct ManagedModelRow: View {
               Text(model.displayName)
                 .font(.body.weight(.medium))
 
-              if model.isRecommended {
-                Text("Recommended")
+              if model.recommendation == .bestForGroup {
+                Text(model.group.bestRecommendationTitle)
                   .font(.caption.weight(.medium))
                   .foregroundStyle(Color.accentColor)
                   .padding(.horizontal, 7)
@@ -60,17 +60,18 @@ struct ManagedModelRow: View {
                   .background(Color.accentColor.opacity(0.14), in: Capsule())
               }
 
+              Text(model.supportsImageInput ? "Images" : "Text only")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(Color.secondary.opacity(0.10), in: Capsule())
+
               if model.stability == .experimental {
                 Label("Experimental", systemImage: "testtube.2")
                   .font(.caption.weight(.medium))
                   .foregroundStyle(.orange)
                   .accessibilityIdentifier("model-experimental-badge-\(model.id)")
-              }
-
-              if model.requiresLargeMemory {
-                Label("High memory", systemImage: "memorychip")
-                  .font(.caption)
-                  .foregroundStyle(.secondary)
               }
             }
 

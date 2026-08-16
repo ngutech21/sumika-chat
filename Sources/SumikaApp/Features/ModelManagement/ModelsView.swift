@@ -8,6 +8,7 @@ enum ModelsTab: String, CaseIterable, Hashable {
 
 struct ModelsView: View {
   @State private var modelPendingDeletion: ManagedModel?
+  @State private var isMoreCodingModelsExpanded = false
   let modelManagementState: ModelManagementFeatureState
   @Bindable var audioModelController: ComposerAudioModelController
   @Binding var selectedTab: ModelsTab
@@ -36,6 +37,10 @@ struct ModelsView: View {
     }
     .onAppear {
       audioModelController.refreshAvailability()
+      revealSelectedCodingModelIfNeeded()
+    }
+    .onChange(of: modelManagementState.state.selectedModel.id) {
+      revealSelectedCodingModelIfNeeded()
     }
     .alert(
       "Delete downloaded model?",
@@ -62,28 +67,23 @@ struct ModelsView: View {
 
     return Form {
       Section {
-        ForEach(state.availableModels) { model in
-          ManagedModelRow(
-            model: model,
-            isSelected: state.selectedModel.id == model.id,
-            isActive: state.selectedModel.id == model.id
-              && state.modelState == .ready,
-            isDownloaded: state.isModelDownloaded(model),
-            downloadState: state.selectedModel.id == model.id
-              ? state.downloadState : .idle,
-            canSelect: modelManagementState.canChangeModel,
-            canDelete: modelManagementState.canDeleteModel(model),
-            isDeleting: state.deletingModelID == model.id,
-            onSelect: {
-              modelManagementState.selectModel(model)
-            },
-            onDelete: {
-              modelPendingDeletion = model
-            }
-          )
-        }
+        Text(
+          "QAT and OptiQ models are recommended for most uses. Standard Qwen models support images."
+        )
+        .font(.callout)
+        .foregroundStyle(.secondary)
       } header: {
         Text("Choose a model")
+          .textCase(nil)
+      }
+
+      ForEach(ManagedModelGroup.allCases, id: \.self) { group in
+        Section {
+          modelRows(in: group)
+        } header: {
+          Text(group.title)
+            .textCase(nil)
+        }
       }
 
       Section {
@@ -152,6 +152,82 @@ struct ModelsView: View {
     .formStyle(.grouped)
   }
 
+  @ViewBuilder
+  private func modelRows(in group: ManagedModelGroup) -> some View {
+    let models = modelManagementState.state.availableModels.filter { $0.group == group }
+
+    if group == .coding {
+      let recommendedModels =
+        models
+        .filter(\.isRecommended)
+        .sorted { $0.recommendation.listOrder < $1.recommendation.listOrder }
+
+      let additionalModels = models.filter { !$0.isRecommended }
+
+      ForEach(recommendedModels) { model in
+        managedModelRow(model)
+      }
+
+      if !additionalModels.isEmpty {
+        DisclosureGroup(isExpanded: $isMoreCodingModelsExpanded) {
+          ForEach(additionalModels) { model in
+            managedModelRow(model)
+          }
+        } label: {
+          HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+              Text("More coding models")
+                .font(.body.weight(.medium))
+              Text("Larger Gemma and standard Qwen variants")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Text("\(additionalModels.count) models")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+        }
+      }
+    } else {
+      ForEach(models) { model in
+        managedModelRow(model)
+      }
+    }
+  }
+
+  private func managedModelRow(_ model: ManagedModel) -> some View {
+    let state = modelManagementState.state
+
+    return ManagedModelRow(
+      model: model,
+      isSelected: state.selectedModel.id == model.id,
+      isActive: state.selectedModel.id == model.id
+        && state.modelState == .ready,
+      isDownloaded: state.isModelDownloaded(model),
+      downloadState: state.selectedModel.id == model.id
+        ? state.downloadState : .idle,
+      canSelect: modelManagementState.canChangeModel,
+      canDelete: modelManagementState.canDeleteModel(model),
+      isDeleting: state.deletingModelID == model.id,
+      onSelect: {
+        modelManagementState.selectModel(model)
+      },
+      onDelete: {
+        modelPendingDeletion = model
+      }
+    )
+  }
+
+  private func revealSelectedCodingModelIfNeeded() {
+    let selectedModel = modelManagementState.state.selectedModel
+    if selectedModel.group == .coding, !selectedModel.isRecommended {
+      isMoreCodingModelsExpanded = true
+    }
+  }
+
   private var audioModelsForm: some View {
     Form {
       Section {
@@ -194,6 +270,43 @@ struct ModelsView: View {
     )
   }
 
+}
+
+extension ManagedModelGroup {
+  var title: String {
+    switch self {
+    case .everydayChat:
+      "Everyday chat and images"
+    case .coding:
+      "Coding and agent tasks"
+    case .specialized:
+      "Specialized models"
+    }
+  }
+
+  var bestRecommendationTitle: String {
+    switch self {
+    case .everydayChat:
+      "Best everyday"
+    case .coding:
+      "Best for coding"
+    case .specialized:
+      "Recommended"
+    }
+  }
+}
+
+extension ManagedModelRecommendation {
+  fileprivate var listOrder: Int {
+    switch self {
+    case .bestForGroup:
+      0
+    case .recommended:
+      1
+    case .standard:
+      2
+    }
+  }
 }
 
 private struct AudioModelRow: View {

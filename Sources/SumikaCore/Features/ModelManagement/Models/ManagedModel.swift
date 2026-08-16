@@ -5,6 +5,18 @@ package enum ManagedModelStability: Equatable, Sendable {
   case experimental
 }
 
+package enum ManagedModelGroup: CaseIterable, Equatable, Hashable, Sendable {
+  case everydayChat
+  case coding
+  case specialized
+}
+
+package enum ManagedModelRecommendation: Equatable, Sendable {
+  case standard
+  case recommended
+  case bestForGroup
+}
+
 package enum ReasoningTraceFormat: Equatable, Sendable {
   case none
   case gemmaChannel
@@ -44,7 +56,8 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
   package let huggingFaceRepoID: String
   package let localDirectoryName: String
   package let estimatedDownloadSize: String
-  package let isRecommended: Bool
+  package let group: ManagedModelGroup
+  package let recommendation: ManagedModelRecommendation
   package let requiresLargeMemory: Bool
   package let stability: ManagedModelStability
   package let toolCallingPolicy: ToolCallingPolicy
@@ -63,7 +76,8 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     huggingFaceRepoID: String,
     localDirectoryName: String,
     estimatedDownloadSize: String,
-    isRecommended: Bool,
+    group: ManagedModelGroup,
+    recommendation: ManagedModelRecommendation = .standard,
     requiresLargeMemory: Bool,
     stability: ManagedModelStability,
     toolCallingPolicy: ToolCallingPolicy = .nativeMLX,
@@ -81,7 +95,8 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     self.huggingFaceRepoID = huggingFaceRepoID
     self.localDirectoryName = localDirectoryName
     self.estimatedDownloadSize = estimatedDownloadSize
-    self.isRecommended = isRecommended
+    self.group = group
+    self.recommendation = recommendation
     self.requiresLargeMemory = requiresLargeMemory
     self.stability = stability
     self.toolCallingPolicy = toolCallingPolicy
@@ -96,6 +111,10 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
 
   package var supportsWorkspaceTools: Bool {
     toolCallingPolicy.isEnabled
+  }
+
+  package var isRecommended: Bool {
+    recommendation != .standard
   }
 
   package var localDirectoryURL: URL {
@@ -134,11 +153,11 @@ package enum ManagedModelCatalog {
     ManagedModel(
       id: "gemma4-e4b-qat-4bit",
       displayName: "Gemma 4 E4B QAT 4-bit",
-      detail: "Gemma 4 small model",
+      detail: "Lightweight for everyday chat and images.",
       huggingFaceRepoID: "mlx-community/gemma-4-e4b-it-qat-4bit",
       localDirectoryName: "gemma-4-e4b-it-qat-4bit",
       estimatedDownloadSize: "6.8 GB",
-      isRecommended: false,
+      group: .everydayChat,
       requiresLargeMemory: false,
       stability: .stable,
       supportsImageInput: true,
@@ -149,11 +168,12 @@ package enum ManagedModelCatalog {
     ManagedModel(
       id: "gemma4-12b-qat-4bit",
       displayName: "Gemma 4 12B QAT 4-bit",
-      detail: "Larger Gemma 4 model with local vision support.",
+      detail: "Balanced for everyday chat, writing, and images.",
       huggingFaceRepoID: "mlx-community/gemma-4-12B-it-qat-4bit",
       localDirectoryName: "gemma-4-12B-it-qat-4bit",
       estimatedDownloadSize: "11.0 GB",
-      isRecommended: true,
+      group: .everydayChat,
+      recommendation: .bestForGroup,
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
@@ -164,11 +184,12 @@ package enum ManagedModelCatalog {
     ManagedModel(
       id: "gemma4-26b-qat-4bit",
       displayName: "Gemma 4 26B A4B QAT 4-bit",
-      detail: "Larger Gemma 4 model with local vision support.",
+      detail: "Strong for coding, complex tasks, and images.",
       huggingFaceRepoID: "mlx-community/gemma-4-26B-A4B-it-qat-4bit",
       localDirectoryName: "gemma-4-26B-A4B-it-qat-4bit",
       estimatedDownloadSize: "15.6 GB",
-      isRecommended: false,
+      group: .coding,
+      recommendation: .recommended,
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
@@ -179,11 +200,11 @@ package enum ManagedModelCatalog {
     ManagedModel(
       id: "gemma4-31b-qat-4bit",
       displayName: "Gemma 4 31B QAT 4-bit",
-      detail: "Large Gemma 4 model with local vision support.",
+      detail: "Largest Gemma for demanding coding and image tasks.",
       huggingFaceRepoID: "mlx-community/gemma-4-31B-it-qat-4bit",
       localDirectoryName: "gemma-4-31b-qat-4bit",
       estimatedDownloadSize: "28.8 GB",
-      isRecommended: false,
+      group: .coding,
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
@@ -196,11 +217,11 @@ package enum ManagedModelCatalog {
     ManagedModel(
       id: "qwen3.6-35b-a3b-4bit",
       displayName: "Qwen 3.6 35B A3B 4-bit",
-      detail: "Qwen3.6 MoE model with local vision support.",
+      detail: "For coding and images. Prefer OptiQ for text-only work.",
       huggingFaceRepoID: "mlx-community/Qwen3.6-35B-A3B-4bit",
       localDirectoryName: "Qwen3.6-35B-A3B-4bit",
       estimatedDownloadSize: "20.4 GB",
-      isRecommended: false,
+      group: .coding,
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
@@ -213,12 +234,13 @@ package enum ManagedModelCatalog {
     ),
     ManagedModel(
       id: "qwen3.6-35b-a3b-optiq-4bit",
-      displayName: "Qwen 3.6 35B A3B Optiq 4-bit",
-      detail: "Qwen3.6 MoE model",
+      displayName: "Qwen 3.6 35B A3B OptiQ 4-bit",
+      detail: "Strong for coding and complex agent workflows.",
       huggingFaceRepoID: "mlx-community/Qwen3.6-35B-A3B-OptiQ-4bit",
       localDirectoryName: "Qwen3.6-35B-A3B-OptiQ-4bit",
       estimatedDownloadSize: "24.7 GB",
-      isRecommended: false,
+      group: .coding,
+      recommendation: .recommended,
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: false,
@@ -232,11 +254,11 @@ package enum ManagedModelCatalog {
     ManagedModel(
       id: "qwen3.6-35b-a3b-8bit",
       displayName: "Qwen 3.6 35B A3B 8-bit",
-      detail: "Qwen3.6 MoE model with local vision support.",
+      detail: "Higher precision for coding and images. Uses more storage.",
       huggingFaceRepoID: "mlx-community/Qwen3.6-35B-A3B-8bit",
       localDirectoryName: "Qwen3.6-35B-A3B-8bit",
       estimatedDownloadSize: "37.7 GB",
-      isRecommended: false,
+      group: .coding,
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
@@ -250,11 +272,11 @@ package enum ManagedModelCatalog {
     ManagedModel(
       id: "qwen3.6-27B-4bit",
       displayName: "Qwen 3.6 27B 4-bit",
-      detail: "Qwen3.6 model with local vision support.",
+      detail: "For coding and images. Prefer OptiQ for text-only work.",
       huggingFaceRepoID: "mlx-community/Qwen3.6-27B-4bit",
       localDirectoryName: "Qwen3.6-27B-4bit",
       estimatedDownloadSize: "16.1 GB",
-      isRecommended: false,
+      group: .coding,
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
@@ -267,12 +289,13 @@ package enum ManagedModelCatalog {
     ),
     ManagedModel(
       id: "Qwen3.6-27B-OptiQ-4bit",
-      displayName: "Qwen 3.6 27B Optiq 4-bit",
-      detail: "Qwen3.6 model",
+      displayName: "Qwen 3.6 27B OptiQ 4-bit",
+      detail: "Excellent for coding and demanding agent tasks.",
       huggingFaceRepoID: "mlx-community/Qwen3.6-27B-OptiQ-4bit",
       localDirectoryName: "Qwen3.6-27B-OptiQ-4bit",
       estimatedDownloadSize: "20.0 GB",
-      isRecommended: false,
+      group: .coding,
+      recommendation: .recommended,
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: false,
@@ -286,11 +309,11 @@ package enum ManagedModelCatalog {
     ManagedModel(
       id: "qwen3.6-27B-8bit",
       displayName: "Qwen 3.6 27B 8-bit",
-      detail: "Qwen3.6 model with local vision support.",
+      detail: "Higher precision for coding and images. Uses more storage.",
       huggingFaceRepoID: "mlx-community/Qwen3.6-27B-8bit",
       localDirectoryName: "Qwen3.6-27B-8bit",
       estimatedDownloadSize: "29.5 GB",
-      isRecommended: false,
+      group: .coding,
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
@@ -303,12 +326,13 @@ package enum ManagedModelCatalog {
     ),
     ManagedModel(
       id: "qwen3.8-27B-OptiQ-4bit",
-      displayName: "Qwen 3.8 27B Optiq 4-bit",
-      detail: "Qwen3.8 model with local vision support.",
+      displayName: "Qwen 3.8 27B OptiQ 4-bit",
+      detail: "Best for coding and demanding agent tasks.",
       huggingFaceRepoID: "mlx-community/Qwen3.8-27B-OptiQ-4bit",
       localDirectoryName: "Qwen3.8-27B-OptiQ-4bit",
       estimatedDownloadSize: "20.0 GB",
-      isRecommended: false,
+      group: .coding,
+      recommendation: .bestForGroup,
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: false,
@@ -322,12 +346,12 @@ package enum ManagedModelCatalog {
     ManagedModel(
       id: "qwen3.6-40B-8bit-heretic",
       displayName: "Qwen 3.6 40B uncensored 8-bit",
-      detail: "Uncensored Qwen3.6 model with local vision support.",
+      detail: "Uncensored specialist model with fewer safeguards.",
       huggingFaceRepoID:
         "mlx-community/Qwen3.6-40B-Claude-4.6-Opus-Deckard-Heretic-Uncensored-Thinking-8bit",
       localDirectoryName: "Qwen3.6-40B-Claude-4.6-Opus-Deckard-Heretic-Uncensored-Thinking-8bit",
       estimatedDownloadSize: "41.5 GB",
-      isRecommended: false,
+      group: .specialized,
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: false,

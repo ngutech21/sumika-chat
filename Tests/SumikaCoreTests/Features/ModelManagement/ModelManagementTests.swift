@@ -7,6 +7,42 @@ import Testing
 @Suite(TemporaryDirectoryTrait(named: "sumika-model-management-tests"))
 struct ModelManagementTests {
   @Test
+  func catalogGroupsModelsByPrimaryUserGoal() {
+    let modelsByGroup = Dictionary(grouping: ManagedModelCatalog.models, by: \.group)
+
+    #expect(
+      Set(modelsByGroup[.everydayChat, default: []].map(\.id)) == [
+        "gemma4-e4b-qat-4bit",
+        "gemma4-12b-qat-4bit",
+      ])
+    #expect(
+      Set(modelsByGroup[.coding, default: []].map(\.id)) == [
+        "gemma4-26b-qat-4bit",
+        "gemma4-31b-qat-4bit",
+        "qwen3.6-35b-a3b-4bit",
+        "qwen3.6-35b-a3b-optiq-4bit",
+        "qwen3.6-35b-a3b-8bit",
+        "qwen3.6-27B-4bit",
+        "Qwen3.6-27B-OptiQ-4bit",
+        "qwen3.6-27B-8bit",
+        "qwen3.8-27B-OptiQ-4bit",
+      ])
+    #expect(
+      Set(modelsByGroup[.specialized, default: []].map(\.id)) == [
+        "qwen3.6-40B-8bit-heretic"
+      ])
+  }
+
+  @Test
+  func catalogMarksOneBestModelForEverydayChatAndCoding() {
+    let bestModels = ManagedModelCatalog.models.filter {
+      $0.recommendation == .bestForGroup
+    }
+
+    #expect(bestModels.map(\.id) == ["gemma4-12b-qat-4bit", "qwen3.8-27B-OptiQ-4bit"])
+  }
+
+  @Test
   func supportsWorkspaceToolsTracksToolCallingPolicyEnabledFlag() {
     #expect(ManagedModelCatalog.defaultModel.supportsWorkspaceTools)
 
@@ -17,7 +53,7 @@ struct ModelManagementTests {
       huggingFaceRepoID: "example/test-model",
       localDirectoryName: "test-model",
       estimatedDownloadSize: "1 MB",
-      isRecommended: false,
+      group: .specialized,
       requiresLargeMemory: false,
       stability: .experimental,
       toolCallingPolicy: ToolCallingPolicy(

@@ -170,7 +170,7 @@ struct ModelLifecycleCoordinatorTests {
       huggingFaceRepoID: "example/model",
       localDirectoryName: localDirectoryName,
       estimatedDownloadSize: "1 MB",
-      isRecommended: false,
+      group: .specialized,
       requiresLargeMemory: false,
       stability: .stable,
       supportsImageInput: false,
