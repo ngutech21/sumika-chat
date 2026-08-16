@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.7.0](https://github.com/ngutech21/sumika-chat/compare/v1.6.0...v1.7.0) (2026-08-16)
+
+
+### Features
+
+* add global tool approval mode in settings ([fe45dbf](https://github.com/ngutech21/sumika-chat/commit/fe45dbfb4a83a8768383424b29d9f89c285dcfce))
+* add Qwen 3.8 27B Optiq 4-bit model ([7809241](https://github.com/ngutech21/sumika-chat/commit/780924103eae26a17ea4f35315093574a6ac28da))
+* add thinking budget  ([#211](https://github.com/ngutech21/sumika-chat/issues/211)) ([4b4721b](https://github.com/ngutech21/sumika-chat/commit/4b4721b5e292af6198efec38ce612269c6465a28))
+* Implement model deletion functionality with confirmation alert ([73b4ccb](https://github.com/ngutech21/sumika-chat/commit/73b4ccbe42dfa9dee1dfc4ab9882dca4bc83a96e))
+* implement session pagination in WorkspaceSidebar ([24aae43](https://github.com/ngutech21/sumika-chat/commit/24aae43c01c10403140f09c07425a39ec72c3c6e))
+* refactor model management to include group and recommendation attributes ([906343c](https://github.com/ngutech21/sumika-chat/commit/906343c794f653d1d65d7179ea6e01d521280718))
+* update app icons with new designs ([e9707fd](https://github.com/ngutech21/sumika-chat/commit/e9707fdf4dc12bc47771981db91d12ef6ada02e3))
+
+
+### Bug Fixes
+
+* **runtime:** stabilize long MLX generations ([aa482b9](https://github.com/ngutech21/sumika-chat/commit/aa482b99c0d5bdc4cc540751e777adf7ef713163))
+* **tests:** update error message for tool call crash in MCPClientTests ([94e8ee6](https://github.com/ngutech21/sumika-chat/commit/94e8ee68d55d69596bf3c77f8baa314fb3992658))
+* update supportsImageInput to false in ManagedModelCatalog ([3d8e74b](https://github.com/ngutech21/sumika-chat/commit/3d8e74b2113c9bac2f981ded16c1db0f9a4b89ff))
+
 ## [1.6.0](https://github.com/ngutech21/sumika-chat/compare/v1.5.0...v1.6.0) (2026-08-08)
 
 
