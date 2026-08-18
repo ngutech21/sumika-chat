@@ -341,4 +341,40 @@ struct MLXToolMapperTests {
     #expect(runtimeToolCall.arguments["include_hidden"] == .bool(false))
   }
 
+  @Test
+  func mlxToolCallPreservesZeroOneNestedArgumentsAndPunctuation() {
+    let mlxToolCall = MLXLMCommon.ToolCall(
+      function: .init(
+        name: "mcp__example__inspect",
+        arguments: [
+          "zero": .int(0),
+          "one": .int(1),
+          "nested": .object([
+            "items": .array([
+              .object(["label": .string("alpha: beta, gamma!")]),
+              .int(1),
+            ])
+          ]),
+        ]
+      )
+    )
+
+    var usedIDs = Set<UUID>()
+    let runtimeToolCall = MLXToolMapper.chatRuntimeToolCall(
+      from: mlxToolCall,
+      usedIDs: &usedIDs
+    )
+
+    #expect(runtimeToolCall.arguments["zero"] == .number(0))
+    #expect(runtimeToolCall.arguments["one"] == .number(1))
+    #expect(
+      runtimeToolCall.arguments["nested"]
+        == .object([
+          "items": .array([
+            .object(["label": .string("alpha: beta, gamma!")]),
+            .number(1),
+          ])
+        ]))
+  }
+
 }

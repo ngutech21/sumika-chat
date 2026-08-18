@@ -1118,6 +1118,75 @@ struct MLXModelStreamProcessorTests {
   }
 
   @Test
+  func rejectedToolCallFailsClosedWithoutCommittingSiblingToolCalls() async throws {
+    let invalidationRecorder = MLXStreamInvalidationRecorder()
+    let completionRecorder = MLXStreamCompletionRecorder()
+    let boundaryRecorder = MLXNativeBoundaryRecorder()
+    let memoryClearRecorder = MLXMemoryClearRecorder()
+    let sensitiveArgument = "private-token-123"
+    let acceptedToolCall = MLXLMCommon.ToolCall(
+      function: .init(
+        name: "read_file",
+        arguments: ["path": "README.md"]
+      )
+    )
+    let rejection = RejectedToolCall(
+      reason: .invalidArguments,
+      format: .json,
+      toolName: "write_file",
+      callID: "rejected-call",
+      rawText: "{\"token\":\"\(sensitiveArgument)\"}",
+      detail: "The function arguments were not a JSON object."
+    )
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.toolCall(acceptedToolCall))
+      continuation.yield(.rejectedToolCall(rejection))
+      continuation.yield(.info(completionInfo()))
+      continuation.finish()
+    }
+    let stream = modelStream(
+      from: source,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
+      markCompleted: { output in
+        await completionRecorder.record(output)
+      },
+      markNativeToolCallBoundary: { output, nativeToolCalls in
+        await boundaryRecorder.record(output: output, nativeToolCalls: nativeToolCalls)
+      },
+      markCancelled: { reason in
+        await invalidationRecorder.record(reason)
+      },
+      memoryCacheClearer: MLXMemoryCacheClearer { reason in
+        await memoryClearRecorder.record(reason)
+      }
+    )
+
+    var didComplete = false
+    do {
+      for try await event in stream {
+        if case .completed = event {
+          didComplete = true
+        }
+      }
+      Issue.record("Expected rejected tool call to fail the stream.")
+    } catch let error as RejectedToolCallError {
+      #expect(error.rejection == rejection)
+      #expect(!error.localizedDescription.contains(sensitiveArgument))
+    } catch {
+      Issue.record("Expected RejectedToolCallError, got \(error).")
+    }
+
+    #expect(!didComplete)
+    #expect(await completionRecorder.firstOutput == nil)
+    #expect(await boundaryRecorder.firstBoundary == nil)
+    #expect(await invalidationRecorder.firstReason == .runtimeError)
+    #expect(await memoryClearRecorder.reasons == [.runtimeError])
+  }
+
+  @Test
   func interruptedModelStreamClearsMemoryCache() async throws {
     let memoryClearRecorder = MLXMemoryClearRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in

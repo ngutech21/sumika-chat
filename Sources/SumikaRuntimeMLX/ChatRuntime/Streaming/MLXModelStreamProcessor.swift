@@ -107,6 +107,10 @@ enum MLXModelStreamProcessor {
           try Task.checkCancellation()
           try thinkingBudgetEnforcementState?.checkAuthoritative()
 
+          if let rejection = generation.rejectedToolCall {
+            throw RejectedToolCallError(rejection)
+          }
+
           if let chunk = generation.chunk {
             firstChunkAt = await recordRuntimeTTFTIfNeeded(
               firstChunkAt,
