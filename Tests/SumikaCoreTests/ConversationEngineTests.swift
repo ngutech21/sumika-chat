@@ -95,7 +95,7 @@ struct ConversationEngineTests {
 
     #expect(engine.chatSession.selectedMCPServerIDs.isEmpty)
     engine.denyToolCall(id: approvalRecord.id)
-    try await waitUntil { !engine.hasPendingApproval }
+    try await waitUntil { engine.activity == .idle }
     #expect(
       engine.sendMessage(
         prompt: "continue with the updated tools",
