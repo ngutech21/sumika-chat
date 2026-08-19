@@ -71,6 +71,57 @@ struct ToolResultPayloadTests {
           stdout: ToolTextOutput(text: ""),
           stderr: ToolTextOutput(text: "failed")
         )),
+      .workspaceDiagnostics(
+        .read(
+          outputRef: "cmd_read",
+          result: .page(
+            CommandOutputReadPage(
+              stream: .combined,
+              startLine: 2,
+              endLine: 3,
+              lines: [
+                CommandOutputReadLine(
+                  line: 2,
+                  origin: .stdout,
+                  streamLine: 2,
+                  content: "building"
+                ),
+                CommandOutputReadLine(
+                  line: 3,
+                  origin: .stderr,
+                  streamLine: 1,
+                  content: "failed"
+                ),
+              ],
+              continuation: .next(offset: 4, reason: .byteLimit)
+            )
+          )
+        )
+      ),
+      .workspaceDiagnostics(
+        .search(
+          outputRef: "cmd_search",
+          result: .page(
+            CommandOutputSearchPage(
+              stream: .stderr,
+              pattern: "FAIL:",
+              startLine: 1,
+              scannedThrough: 12,
+              lineCount: 20,
+              matches: [
+                CommandOutputSearchMatch(
+                  origin: .stderr,
+                  streamLine: 7,
+                  combinedLine: nil,
+                  snippet: "FAIL: expected true",
+                  snippetTruncated: false
+                )
+              ],
+              continuation: .next(offset: 13, reason: .matchLimit)
+            )
+          )
+        )
+      ),
       .todoWrite(.success),
       .duplicateToolCall(
         DuplicateToolCallResult(
@@ -84,7 +135,21 @@ struct ToolResultPayloadTests {
               .fileContent(
                 path: WorkspaceRelativePath(rawValue: "README.md"),
                 content: ToolTextOutput(text: "1: hello", truncated: true)
-              )
+              ),
+              .diagnostics(
+                .legacyDiagnostics(
+                  outputRef: "cmd_legacy",
+                  diagnostics: [
+                    WorkspaceDiagnostic(
+                      path: WorkspaceRelativePath(rawValue: "Sources/App.swift"),
+                      line: 9,
+                      column: 3,
+                      severity: .error,
+                      message: "legacy failure"
+                    )
+                  ]
+                )
+              ),
             ]
           )
         )),

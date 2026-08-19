@@ -45,6 +45,8 @@ flowchart TD
   InvalidToolResult --> InvalidToolCallReason
   MCPServerConfig --> MCPServerTransportConfiguration
   ManagedModel --> ChatModeSettingsSet
+  ManagedModel --> ManagedModelGroup
+  ManagedModel --> ManagedModelRecommendation
   ManagedModel --> ManagedModelStability
   ManagedModel --> ReasoningTraceFormat
   ManagedModel --> ThinkingBudgetPolicy
@@ -803,12 +805,13 @@ Properties:
 - `detail: String`
 - `displayName: String`
 - `estimatedDownloadSize: String`
+- `group: ManagedModelGroup`
 - `huggingFaceRepoID: String`
 - `id: String`
-- `isRecommended: Bool`
 - `localDirectoryName: String`
 - `maxToolLoopIterations: Int`
 - `reasoningTraceFormat: ReasoningTraceFormat`
+- `recommendation: ManagedModelRecommendation`
 - `requiresLargeMemory: Bool`
 - `stability: ManagedModelStability`
 - `supportsHistoricalReasoningPreservation: Bool`
@@ -819,6 +822,8 @@ Properties:
 Relations:
 
 - `ChatModeSettingsSet`
+- `ManagedModelGroup`
+- `ManagedModelRecommendation`
 - `ManagedModelStability`
 - `ReasoningTraceFormat`
 - `ThinkingBudgetPolicy`
@@ -836,6 +841,30 @@ Properties:
 Relations:
 
 - `ManagedModel`
+
+### ManagedModelGroup
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ManagedModel.swift`
+- Conforms to: `CaseIterable`, `Equatable`, `Hashable`, `Sendable`
+
+Cases:
+
+- `coding`
+- `everydayChat`
+- `specialized`
+
+### ManagedModelRecommendation
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ManagedModel.swift`
+- Conforms to: `Equatable`, `Sendable`
+
+Cases:
+
+- `bestForGroup`
+- `recommended`
+- `standard`
 
 ### ManagedModelStability
 
@@ -974,7 +1003,8 @@ Cases:
 Properties:
 
 - `availableModels: [ManagedModel]`
-- `canChangeModel: Bool`
+- `canPerformSelectedModelAction: Bool`
+- `deletingModelID: ManagedModel.ID?`
 - `downloadState: ModelDownloadState`
 - `downloadedModelIDs: Set<ManagedModel.ID>`
 - `modelContextTokenLimit: Int`
@@ -1686,6 +1716,7 @@ Properties:
 Cases:
 
 - `appliedEditReceipt(AppliedEditReceipt)`
+- `commandOutput(WorkspaceDiagnosticsResult)`
 - `commandResult(RunCommandResult)`
 - `diagnostics(WorkspaceDiagnosticsResult)`
 - `editReceipt(path: WorkspaceRelativePath, diffSummary: String?, matchStrategy: EditMatchStrategy?)`

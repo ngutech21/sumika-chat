@@ -325,6 +325,56 @@ struct ToolFollowUpNoticePolicyTests {
   }
 
   @Test
+  func partialWorkspaceDiagnosticsSearchNoticeDoesNotClaimTotalMatches() throws {
+    let record = completedWorkspaceDiagnosticsSearchRecord(
+      startLine: 1,
+      scannedThrough: 450,
+      lineCount: 903,
+      matchLines: [450],
+      continuation: .next(offset: 451, reason: .matchLimit)
+    )
+
+    let update = try #require(
+      ToolFollowUpNoticePolicy().update(
+        session: session(with: [record]),
+        turnID: defaultTurnID,
+        promptMode: .afterToolResultCanContinue
+      )
+    )
+    let notice = try #require(update.record.modelFollowUpNotice)
+
+    #expect(notice.contains("This workspace_diagnostics search is incomplete."))
+    #expect(notice.contains("Returned matches: 1. Scanned lines: 1-450."))
+    #expect(notice.contains("This is not a total match count"))
+    #expect(notice.contains("does not establish uniqueness or absence"))
+    #expect(notice.contains("using offset 451"))
+    #expect(notice.contains("finish_task if done"))
+  }
+
+  @Test
+  func completedWorkspaceDiagnosticsSearchUsesGenericFollowUp() throws {
+    let record = completedWorkspaceDiagnosticsSearchRecord(
+      startLine: 1,
+      scannedThrough: 903,
+      lineCount: 903,
+      matchLines: [450],
+      continuation: .endOfOutput
+    )
+
+    let update = try #require(
+      ToolFollowUpNoticePolicy().update(
+        session: session(with: [record]),
+        turnID: defaultTurnID,
+        promptMode: .afterToolResultCanContinue
+      )
+    )
+    let notice = try #require(update.record.modelFollowUpNotice)
+
+    #expect(notice == "Use this tool result. Call another necessary tool, or finish_task if done.")
+    #expect(!notice.contains("search is incomplete"))
+  }
+
+  @Test
   func noNoticeWithoutMatchingToolRecord() {
     let session = ChatSession(
       turns: [
@@ -475,6 +525,54 @@ private func completedListRecord(id: UUID, entries: [String]) -> ToolCallRecord 
           )
         }
       ))
+  )
+}
+
+private func completedWorkspaceDiagnosticsSearchRecord(
+  startLine: Int,
+  scannedThrough: Int?,
+  lineCount: Int,
+  matchLines: [Int],
+  continuation: WorkspaceDiagnosticsContinuation
+) -> ToolCallRecord {
+  let outputRef = "cmd_search"
+  return toolRecord(
+    id: UUID(),
+    toolName: .workspaceDiagnostics,
+    payload: .workspaceDiagnostics(
+      WorkspaceDiagnosticsInput(
+        outputRef: outputRef,
+        operation: .search,
+        stream: .combined,
+        offset: startLine,
+        limit: 1,
+        pattern: "^FAIL:"
+      )
+    ),
+    result: .workspaceDiagnostics(
+      .search(
+        outputRef: outputRef,
+        result: .page(
+          CommandOutputSearchPage(
+            stream: .combined,
+            pattern: "^FAIL:",
+            startLine: startLine,
+            scannedThrough: scannedThrough,
+            lineCount: lineCount,
+            matches: matchLines.map { line in
+              CommandOutputSearchMatch(
+                origin: .stdout,
+                streamLine: line,
+                combinedLine: line,
+                snippet: "FAIL: hidden-marker-\(line)",
+                snippetTruncated: false
+              )
+            },
+            continuation: continuation
+          )
+        )
+      )
+    )
   )
 }
 

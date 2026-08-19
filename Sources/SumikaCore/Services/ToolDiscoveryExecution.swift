@@ -666,6 +666,22 @@ internal struct SearchPattern {
     literal = pattern
   }
 
+  func firstMatchRange(in line: String) -> Range<String.Index>? {
+    if let regex {
+      guard
+        let match = regex.firstMatch(
+          in: line,
+          range: NSRange(line.startIndex..<line.endIndex, in: line)
+        )
+      else {
+        return nil
+      }
+      return Range(match.range, in: line)
+    }
+
+    return line.range(of: literal)
+  }
+
   package func matches(_ line: String) -> Bool {
     if let regex {
       return regex.firstMatch(in: line, range: NSRange(line.startIndex..<line.endIndex, in: line))

@@ -842,7 +842,7 @@ extension ToolLoopCoordinator {
       }
       arguments = .workspaceDiff(path: path)
     case .workspaceDiagnostics(let input):
-      arguments = .workspaceDiagnostics(outputRef: input.outputRef)
+      arguments = .workspaceDiagnostics(input.repeatSignature)
     case .webSearch(let input):
       arguments = .webSearch(query: input.query, maxResults: input.maxResults)
     case .webFetch(let input):
@@ -954,7 +954,7 @@ private struct ToolCallSignature: Hashable, Sendable {
     case globFiles(pattern: String, path: WorkspaceRelativePath)
     case searchFiles(pattern: String, path: WorkspaceRelativePath, include: String?)
     case workspaceDiff(path: WorkspaceRelativePath)
-    case workspaceDiagnostics(outputRef: String)
+    case workspaceDiagnostics(WorkspaceDiagnosticsRepeatSignature)
     case webSearch(query: String, maxResults: Int?)
     case webFetch(url: String, maxBytes: Int?)
   }

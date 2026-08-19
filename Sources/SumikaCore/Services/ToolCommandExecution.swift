@@ -39,19 +39,26 @@ internal actor LatestCommandResultStore {
     results[Key(workspaceID: workspaceID, sessionID: sessionID)] = result
   }
 
+  @discardableResult
   package func record(
     _ result: RunCommandResult,
     output: CommandOutputRecord,
     workspaceID: Workspace.ID,
     sessionID: ChatSession.ID
-  ) {
+  ) -> Bool {
     let key = Key(workspaceID: workspaceID, sessionID: sessionID)
-    results[key] = result
     outputs[key, default: [:]][output.outputRef] = output
     var order = outputOrder[key, default: []].filter { $0 != output.outputRef }
     order.append(output.outputRef)
     outputOrder[key] = order
     pruneOutputs(for: key)
+    let retained = outputs[key]?[output.outputRef] != nil
+    var storedResult = result
+    if !retained {
+      storedResult.outputRef = nil
+    }
+    results[key] = storedResult
+    return retained
   }
 
   package func output(

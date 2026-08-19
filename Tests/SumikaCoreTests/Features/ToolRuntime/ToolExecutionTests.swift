@@ -1753,114 +1753,532 @@ struct ToolExecutionTests {
   }
 
   @Test
-  func workspaceDiagnosticsParsesGenericDiagnosticsFromStoredCommandOutput() async throws {
+  func runCommandDoesNotAdvertiseOutputRefWhenOutputCannotBeRetained() async throws {
     let workspace = try makeWorkspace()
     let sessionID = UUID()
-    let store = LatestCommandResultStore()
-    let sourceURL = workspace.rootURL.appending(path: "Sources/App.code")
-    try FileManager.default.createDirectory(
-      at: sourceURL.deletingLastPathComponent(),
-      withIntermediateDirectories: true
+    let store = LatestCommandResultStore(
+      maxOutputRefsPerSession: 4,
+      maxOutputBytesPerSession: 16
     )
-    try "".write(to: sourceURL, atomically: true, encoding: .utf8)
-    let outsideURL = try makeTemporaryDirectory().appending(path: "Other.code")
-    let stdout = """
-      Sources/App.code:12:4: error: broken value
-      noise line
-      Sources/App.code:13: warning: unused value
-      \(outsideURL.path(percentEncoded: false)):1:1: error: outside
-      """
-    let stderr = "Sources/App.code:14:2: note: declared here\n"
-    await store.record(
-      RunCommandResult(
-        command: "build",
-        timeoutSeconds: 10,
+    let runner = SpyCommandProcessRunner(
+      result: CommandProcessResult(
         exitCode: 1,
         durationMs: 10,
-        stdout: ToolTextOutput(text: "preview", truncated: true),
-        stderr: ToolTextOutput(text: ""),
-        outputRef: "cmd_diag"
-      ),
-      output: CommandOutputRecord(outputRef: "cmd_diag", stdout: stdout, stderr: stderr),
-      workspaceID: workspace.id,
-      sessionID: sessionID
+        stdout: String(repeating: "failure", count: 20),
+        stderr: ""
+      )
+    )
+    let executor = RunCommandToolExecutor(
+      maxOutputBytes: 8,
+      outputRefGenerator: { "cmd_pruned" },
+      processRunner: runner
     )
 
-    let result = await ToolOrchestrator(
-      executorRegistry: ToolExecutorRegistry([
-        AnyToolExecutor(WorkspaceDiagnosticsToolExecutor())
-      ]),
+    let record = await ToolOrchestrator(
+      executorRegistry: ToolExecutorRegistry([AnyToolExecutor(executor)]),
       latestCommandResultStore: store
-    ).execute(
+    ).executeApproved(
       request: request(
-        .workspaceDiagnostics,
+        .runCommand,
         workspace: workspace,
         sessionID: sessionID,
-        arguments: ["outputRef": .string("cmd_diag")]
+        arguments: ["command": .string("make test")]
       ),
       workspace: workspace
     )
 
-    guard case .workspaceDiagnostics(let payload) = result.resultPayload else {
-      Issue.record("Expected workspace_diagnostics result payload.")
+    guard case .runCommand(let payload) = record.resultPayload else {
+      Issue.record("Expected run_command result payload.")
       return
     }
-    #expect(payload.diagnostics.count == 3)
+    #expect(payload.outputRef == nil)
+    #expect(payload.stdout.truncated)
+    #expect(!payload.previewText.contains("Output ref:"))
+    #expect(!payload.previewText.contains("workspace_diagnostics"))
     #expect(
-      payload.diagnostics[0]
-        == WorkspaceDiagnostic(
-          path: WorkspaceRelativePath(rawValue: "Sources/App.code"),
-          line: 12,
-          column: 4,
-          severity: .error,
-          message: "broken value"
-        ))
-    #expect(payload.diagnostics[1].column == nil)
-    #expect(payload.diagnostics[1].severity == .warning)
-    #expect(payload.diagnostics[2].severity == .note)
+      await store.output(
+        outputRef: "cmd_pruned",
+        workspaceID: workspace.id,
+        sessionID: sessionID
+      ) == nil
+    )
+    #expect(
+      await store.result(workspaceID: workspace.id, sessionID: sessionID)?.outputRef == nil
+    )
   }
 
   @Test
-  func workspaceDiagnosticsReturnsEmptyResultForNoMatches() async throws {
+  func workspaceDiagnosticsReadsNumberedOutputAndPreservesBlankLinesAndCRLF() async throws {
     let workspace = try makeWorkspace()
     let sessionID = UUID()
     let store = LatestCommandResultStore()
-    await store.record(
-      RunCommandResult(
-        command: "build",
-        timeoutSeconds: 10,
-        exitCode: 0,
-        durationMs: 10,
-        stdout: ToolTextOutput(text: "ok"),
-        stderr: ToolTextOutput(text: ""),
-        outputRef: "cmd_empty"
-      ),
-      output: CommandOutputRecord(outputRef: "cmd_empty", stdout: "ok", stderr: ""),
-      workspaceID: workspace.id,
+    await recordCommandOutput(
+      outputRef: "cmd_read",
+      stdout: "first\r\n\r\nthird\n",
+      stderr: "",
+      store: store,
+      workspace: workspace,
       sessionID: sessionID
     )
 
-    let result = await ToolOrchestrator(
-      executorRegistry: ToolExecutorRegistry([
-        AnyToolExecutor(WorkspaceDiagnosticsToolExecutor())
-      ]),
-      latestCommandResultStore: store
-    ).execute(
-      request: request(
-        .workspaceDiagnostics,
-        workspace: workspace,
-        sessionID: sessionID,
-        arguments: ["outputRef": .string("cmd_empty")]
-      ),
-      workspace: workspace
+    let record = await executeWorkspaceDiagnostics(
+      arguments: [
+        "outputRef": .string("cmd_read"),
+        "operation": .string("read"),
+        "stream": .string("stdout"),
+      ],
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
     )
 
-    guard case .workspaceDiagnostics(let payload) = result.resultPayload else {
-      Issue.record("Expected workspace_diagnostics result payload.")
+    guard
+      case .workspaceDiagnostics(.read(let outputRef, .page(let page))) =
+        record.resultPayload
+    else {
+      Issue.record("Expected workspace_diagnostics read page.")
       return
     }
-    #expect(payload.diagnostics.isEmpty)
-    #expect(result.state.preview?.text == "No diagnostics found for cmd_empty.")
+    #expect(outputRef == "cmd_read")
+    #expect(page.startLine == 1)
+    #expect(page.endLine == 3)
+    #expect(page.lines.map(\.content) == ["first", "", "third"])
+    #expect(page.continuation == .endOfOutput)
+    #expect(record.state.preview?.text.contains("1: first\n2: \n3: third") == true)
+    #expect(record.state.preview?.text.contains("4: ") == false)
+  }
+
+  @Test
+  func workspaceDiagnosticsCombinedReadUsesStdoutThenStderrWithOriginLines() async throws {
+    let workspace = try makeWorkspace()
+    let sessionID = UUID()
+    let store = LatestCommandResultStore()
+    await recordCommandOutput(
+      outputRef: "cmd_combined",
+      stdout: "out-1\nout-2\n",
+      stderr: "err-1\n",
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+
+    let record = await executeWorkspaceDiagnostics(
+      arguments: [
+        "outputRef": .string("cmd_combined"),
+        "operation": .string("read"),
+        "stream": .string("combined"),
+        "offset": .number(2),
+        "limit": .number(2),
+      ],
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+
+    guard case .workspaceDiagnostics(.read(_, .page(let page))) = record.resultPayload else {
+      Issue.record("Expected combined workspace_diagnostics read page.")
+      return
+    }
+    #expect(page.lines.map(\.line) == [2, 3])
+    #expect(page.lines.map(\.origin) == [.stdout, .stderr])
+    #expect(page.lines.map(\.streamLine) == [2, 1])
+    #expect(page.lines.map(\.content) == ["out-2", "err-1"])
+    #expect(page.continuation == .endOfOutput)
+    #expect(record.state.preview?.text.contains("2: [stdout:2] out-2") == true)
+    #expect(record.state.preview?.text.contains("3: [stderr:1] err-1") == true)
+  }
+
+  @Test
+  func workspaceDiagnosticsSearchesNodeFailuresWithMatchContinuation() async throws {
+    let workspace = try makeWorkspace()
+    let sessionID = UUID()
+    let store = LatestCommandResultStore()
+    await recordCommandOutput(
+      outputRef: "cmd_failures",
+      stdout: "36/39 passed, 3 failed\n",
+      stderr: [
+        "FAIL: countNeighbors: single neighbor, no wrap",
+        "FAIL: stepGeneration: birth",
+        "FAIL: stepGeneration: still life",
+      ].joined(separator: "\n") + "\n",
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+
+    let firstRecord = await executeWorkspaceDiagnostics(
+      arguments: [
+        "outputRef": .string("cmd_failures"),
+        "operation": .string("search"),
+        "stream": .string("combined"),
+        "pattern": .string("^FAIL:"),
+        "limit": .number(2),
+      ],
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+
+    guard
+      case .workspaceDiagnostics(.search(_, .page(let firstPage))) =
+        firstRecord.resultPayload
+    else {
+      Issue.record("Expected workspace_diagnostics search page.")
+      return
+    }
+    #expect(firstPage.matches.count == 2)
+    #expect(firstPage.matches.map(\.origin) == [.stderr, .stderr])
+    #expect(firstPage.matches.map(\.streamLine) == [1, 2])
+    #expect(firstPage.matches.map(\.combinedLine) == [2, 3])
+    #expect(firstPage.continuation == .next(offset: 4, reason: .matchLimit))
+    let firstPreview = try #require(firstRecord.state.preview?.text)
+    #expect(firstPreview.contains("Returned matches: 2"))
+    #expect(firstPreview.contains("Search complete: false"))
+    #expect(firstPreview.contains("Unscanned lines: 4-4"))
+
+    let secondRecord = await executeWorkspaceDiagnostics(
+      arguments: [
+        "outputRef": .string("cmd_failures"),
+        "operation": .string("search"),
+        "stream": .string("combined"),
+        "pattern": .string("^FAIL:"),
+        "offset": .number(4),
+        "limit": .number(2),
+      ],
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+    guard
+      case .workspaceDiagnostics(.search(_, .page(let secondPage))) =
+        secondRecord.resultPayload
+    else {
+      Issue.record("Expected continued workspace_diagnostics search page.")
+      return
+    }
+    #expect(secondPage.matches.map(\.combinedLine) == [4])
+    #expect(secondPage.continuation == .endOfOutput)
+    let secondPreview = try #require(secondRecord.state.preview?.text)
+    #expect(secondPreview.contains("Returned matches: 1"))
+    #expect(secondPreview.contains("Search complete: true"))
+    #expect(!secondPreview.contains("Unscanned lines:"))
+  }
+
+  @Test
+  func workspaceDiagnosticsSearchFallsBackToLiteralForInvalidRegex() async throws {
+    let workspace = try makeWorkspace()
+    let sessionID = UUID()
+    let store = LatestCommandResultStore()
+    await recordCommandOutput(
+      outputRef: "cmd_literal",
+      stdout: "prefix [ broken\nother\n",
+      stderr: "",
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+
+    let record = await executeWorkspaceDiagnostics(
+      arguments: [
+        "outputRef": .string("cmd_literal"),
+        "operation": .string("search"),
+        "stream": .string("stdout"),
+        "pattern": .string("["),
+      ],
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+    guard case .workspaceDiagnostics(.search(_, .page(let page))) = record.resultPayload else {
+      Issue.record("Expected literal-fallback workspace_diagnostics search page.")
+      return
+    }
+    #expect(page.matches.map(\.snippet) == ["prefix [ broken"])
+    #expect(page.continuation == .endOfOutput)
+  }
+
+  @Test
+  func workspaceDiagnosticsSearchCentersSnippetOnMatchInOverlongLine() async throws {
+    let workspace = try makeWorkspace()
+    let sessionID = UUID()
+    let store = LatestCommandResultStore()
+    let line =
+      String(repeating: "x", count: 9_000)
+      + " NEEDLE failure context "
+      + String(repeating: "y", count: 9_000)
+    await recordCommandOutput(
+      outputRef: "cmd_late_match",
+      stdout: line,
+      stderr: "",
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+
+    let readRecord = await executeWorkspaceDiagnostics(
+      arguments: [
+        "outputRef": .string("cmd_late_match"),
+        "operation": .string("read"),
+        "stream": .string("stdout"),
+      ],
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+    guard case .workspaceDiagnostics(.read(_, .lineTooLong)) = readRecord.resultPayload else {
+      Issue.record("Expected the overlong line to require search recovery.")
+      return
+    }
+
+    let searchRecord = await executeWorkspaceDiagnostics(
+      arguments: [
+        "outputRef": .string("cmd_late_match"),
+        "operation": .string("search"),
+        "stream": .string("stdout"),
+        "pattern": .string("NEEDLE"),
+      ],
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+    guard
+      case .workspaceDiagnostics(.search(_, .page(let page))) = searchRecord.resultPayload,
+      let match = page.matches.first
+    else {
+      Issue.record("Expected a workspace_diagnostics search match.")
+      return
+    }
+    #expect(match.snippet.contains("NEEDLE failure context"))
+    #expect(match.snippet.hasPrefix("…"))
+    #expect(match.snippet.hasSuffix("…"))
+    #expect(match.snippet.count <= WorkspaceDiagnosticsLimits.maximumSnippetCharacters)
+    #expect(match.snippetTruncated)
+  }
+
+  @Test
+  func workspaceDiagnosticsDistinguishesEmptyOffsetAndUniformUnavailableOutput() async throws {
+    let workspace = try makeWorkspace()
+    let sessionID = UUID()
+    let store = LatestCommandResultStore()
+    await recordCommandOutput(
+      outputRef: "cmd_empty",
+      stdout: "",
+      stderr: "",
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+    let baseArguments: ToolCallArguments = [
+      "outputRef": .string("cmd_empty"),
+      "operation": .string("read"),
+      "stream": .string("stdout"),
+    ]
+
+    let empty = await executeWorkspaceDiagnostics(
+      arguments: baseArguments,
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+    guard case .workspaceDiagnostics(.read(_, .empty(let stream))) = empty.resultPayload else {
+      Issue.record("Expected empty command output.")
+      return
+    }
+    #expect(stream == .stdout)
+
+    var pastEndArguments = baseArguments
+    pastEndArguments["offset"] = .number(2)
+    let pastEnd = await executeWorkspaceDiagnostics(
+      arguments: pastEndArguments,
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+    guard
+      case .workspaceDiagnostics(.read(_, .offsetOutOfRange(_, let offset, let count))) =
+        pastEnd.resultPayload
+    else {
+      Issue.record("Expected command output offset-out-of-range result.")
+      return
+    }
+    #expect(offset == 2)
+    #expect(count == 0)
+    #expect(pastEnd.state.preview?.status == .failed)
+
+    let wrongSession = await executeWorkspaceDiagnostics(
+      arguments: baseArguments,
+      store: store,
+      workspace: workspace,
+      sessionID: UUID()
+    )
+    let missing = await executeWorkspaceDiagnostics(
+      arguments: baseArguments,
+      store: LatestCommandResultStore(),
+      workspace: workspace,
+      sessionID: sessionID
+    )
+    #expect(wrongSession.state.preview?.text == missing.state.preview?.text)
+    #expect(wrongSession.state.preview?.text.contains("unknown, expired, pruned") == true)
+  }
+
+  @Test
+  func workspaceDiagnosticsBlocksOverlongReadLinesWithoutReturningPartialContent() async throws {
+    let workspace = try makeWorkspace()
+    let sessionID = UUID()
+    let store = LatestCommandResultStore()
+    await recordCommandOutput(
+      outputRef: "cmd_long",
+      stdout: "ok\n" + String(repeating: "x", count: 50),
+      stderr: "",
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+    let executor = WorkspaceDiagnosticsToolExecutor(renderedContentBytes: 10)
+
+    let first = await executeWorkspaceDiagnostics(
+      arguments: [
+        "outputRef": .string("cmd_long"),
+        "operation": .string("read"),
+        "stream": .string("stdout"),
+      ],
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID,
+      executor: executor
+    )
+    guard case .workspaceDiagnostics(.read(_, .page(let page))) = first.resultPayload else {
+      Issue.record("Expected read page before overlong line.")
+      return
+    }
+    #expect(page.lines.map(\.content) == ["ok"])
+    #expect(page.continuation == .blocked(line: 2, byteCount: 50))
+
+    let blocked = await executeWorkspaceDiagnostics(
+      arguments: [
+        "outputRef": .string("cmd_long"),
+        "operation": .string("read"),
+        "stream": .string("stdout"),
+        "offset": .number(2),
+      ],
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID,
+      executor: executor
+    )
+    guard
+      case .workspaceDiagnostics(.read(_, .lineTooLong(_, let line, let byteCount))) =
+        blocked.resultPayload
+    else {
+      Issue.record("Expected overlong-line result.")
+      return
+    }
+    #expect(line == 2)
+    #expect(byteCount == 50)
+    #expect(blocked.state.preview?.text.contains(String(repeating: "x", count: 10)) == false)
+  }
+
+  @Test
+  func workspaceDiagnosticsEnforcesDefaultReadSearchAndSnippetBounds() async throws {
+    let workspace = try makeWorkspace()
+    let sessionID = UUID()
+    let store = LatestCommandResultStore()
+    let shortLines = (1...600).map { String(format: "output%04d", $0) }.joined(separator: "\n")
+    await recordCommandOutput(
+      outputRef: "cmd_line_limit",
+      stdout: shortLines,
+      stderr: "",
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+
+    let lineLimited = await executeWorkspaceDiagnostics(
+      arguments: [
+        "outputRef": .string("cmd_line_limit"),
+        "operation": .string("read"),
+        "stream": .string("stdout"),
+      ],
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+    guard
+      case .workspaceDiagnostics(.read(_, .page(let linePage))) =
+        lineLimited.resultPayload
+    else {
+      Issue.record("Expected default line-limited read page.")
+      return
+    }
+    #expect(linePage.lines.count == 500)
+    #expect(linePage.continuation == .next(offset: 501, reason: .lineLimit))
+
+    let wideLines = (1...200).map { _ in String(repeating: "x", count: 100) }
+      .joined(separator: "\n")
+    await recordCommandOutput(
+      outputRef: "cmd_byte_limit",
+      stdout: wideLines,
+      stderr: "",
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+    let byteLimited = await executeWorkspaceDiagnostics(
+      arguments: [
+        "outputRef": .string("cmd_byte_limit"),
+        "operation": .string("read"),
+        "stream": .string("stdout"),
+      ],
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+    guard case .workspaceDiagnostics(.read(_, .page(let bytePage))) = byteLimited.resultPayload,
+      case .next(let nextOffset, .byteLimit) = bytePage.continuation
+    else {
+      Issue.record("Expected default byte-limited read page.")
+      return
+    }
+    let renderedBody = bytePage.lines
+      .map { "\($0.line): \($0.content)" }
+      .joined(separator: "\n")
+    let nextRenderedLine = "\(nextOffset): " + String(repeating: "x", count: 100)
+    #expect(renderedBody.utf8.count <= 8 * 1_024)
+    #expect(renderedBody.utf8.count + 1 + nextRenderedLine.utf8.count > 8 * 1_024)
+
+    let searchLines =
+      ["needle " + String(repeating: "z", count: 500)]
+      + (2...100).map { "needle match \($0)" }
+    await recordCommandOutput(
+      outputRef: "cmd_search_limits",
+      stdout: "",
+      stderr: searchLines.joined(separator: "\n"),
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+    let searchLimited = await executeWorkspaceDiagnostics(
+      arguments: [
+        "outputRef": .string("cmd_search_limits"),
+        "operation": .string("search"),
+        "stream": .string("stderr"),
+        "pattern": .string("needle"),
+      ],
+      store: store,
+      workspace: workspace,
+      sessionID: sessionID
+    )
+    guard
+      case .workspaceDiagnostics(.search(_, .page(let searchPage))) =
+        searchLimited.resultPayload
+    else {
+      Issue.record("Expected default match-limited search page.")
+      return
+    }
+    #expect(searchPage.matches.count == 50)
+    #expect(searchPage.matches[0].snippet.count == 240)
+    #expect(searchPage.matches[0].snippetTruncated)
+    #expect(searchPage.continuation == .next(offset: 51, reason: .matchLimit))
   }
 
   @Test
@@ -1946,17 +2364,15 @@ struct ToolExecutionTests {
   @Test
   func workspaceDiagnosticsFailsForMissingOutputRefWithoutRunningCommands() async throws {
     let workspace = try makeWorkspace()
-    let result = await ToolOrchestrator(
-      executorRegistry: ToolExecutorRegistry([
-        AnyToolExecutor(WorkspaceDiagnosticsToolExecutor())
-      ])
-    ).execute(
-      request: request(
-        .workspaceDiagnostics,
-        workspace: workspace,
-        arguments: ["outputRef": .string("cmd_missing")]
-      ),
-      workspace: workspace
+    let result = await executeWorkspaceDiagnostics(
+      arguments: [
+        "outputRef": .string("cmd_missing"),
+        "operation": .string("read"),
+        "stream": .string("combined"),
+      ],
+      store: LatestCommandResultStore(),
+      workspace: workspace,
+      sessionID: UUID()
     )
 
     guard case .failure(let failure) = result.resultPayload else {
@@ -1964,7 +2380,11 @@ struct ToolExecutionTests {
       return
     }
     #expect(result.evaluation.decision == .allowed)
-    #expect(failure.message.contains("Command output not found: cmd_missing."))
+    #expect(
+      failure.message.contains(
+        "Command output is unavailable for this workspace and session: cmd_missing."
+      )
+    )
   }
 
   @Test
@@ -2225,6 +2645,51 @@ struct ToolExecutionTests {
         .webSearch,
         .webFetch,
       ])
+  }
+
+  private func recordCommandOutput(
+    outputRef: String,
+    stdout: String,
+    stderr: String,
+    store: LatestCommandResultStore,
+    workspace: Workspace,
+    sessionID: ChatSession.ID
+  ) async {
+    await store.record(
+      RunCommandResult(
+        command: "test command",
+        timeoutSeconds: 10,
+        exitCode: 1,
+        durationMs: 10,
+        stdout: ToolTextOutput(text: "preview", truncated: true),
+        stderr: ToolTextOutput(text: ""),
+        outputRef: outputRef
+      ),
+      output: CommandOutputRecord(outputRef: outputRef, stdout: stdout, stderr: stderr),
+      workspaceID: workspace.id,
+      sessionID: sessionID
+    )
+  }
+
+  private func executeWorkspaceDiagnostics(
+    arguments: ToolCallArguments,
+    store: LatestCommandResultStore,
+    workspace: Workspace,
+    sessionID: ChatSession.ID,
+    executor: WorkspaceDiagnosticsToolExecutor = WorkspaceDiagnosticsToolExecutor()
+  ) async -> ToolCallRecord {
+    await ToolOrchestrator(
+      executorRegistry: ToolExecutorRegistry([AnyToolExecutor(executor)]),
+      latestCommandResultStore: store
+    ).execute(
+      request: request(
+        .workspaceDiagnostics,
+        workspace: workspace,
+        sessionID: sessionID,
+        arguments: arguments
+      ),
+      workspace: workspace
+    )
   }
 
   private func request(

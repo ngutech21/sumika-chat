@@ -111,6 +111,28 @@ struct ToolDefinitionSchemaTests {
   }
 
   @Test
+  func workspaceDiagnosticsDefinitionRequiresExplicitOperationAndStream() {
+    let definition = ToolDefinition.workspaceDiagnostics
+    let schema = definition.functionSchema
+
+    #expect(definition.capabilities == [.readWorkspace])
+    #expect(definition.riskLevel == .low)
+    #expect(schema.parameters.required == ["outputRef", "operation", "stream"])
+    #expect(schema.parameters.properties["outputRef"]?.type == .string)
+    #expect(schema.parameters.properties["operation"]?.enumValues == ["read", "search"])
+    #expect(
+      schema.parameters.properties["stream"]?.enumValues == ["stdout", "stderr", "combined"]
+    )
+    #expect(schema.parameters.properties["offset"]?.type == .integer)
+    #expect(schema.parameters.properties["offset"]?.defaultValue == .number(1))
+    #expect(schema.parameters.properties["offset"]?.minimum == 1)
+    #expect(schema.parameters.properties["limit"]?.type == .integer)
+    #expect(schema.parameters.properties["limit"]?.minimum == 1)
+    #expect(schema.parameters.properties["limit"]?.maximum == 500)
+    #expect(schema.parameters.properties["pattern"]?.type == .string)
+  }
+
+  @Test
   func todoWriteDefinitionExposesNumberedItemsAndDoneFlags() {
     let definition = ToolDefinition.todoWrite
     let schema = definition.functionSchema

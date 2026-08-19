@@ -313,7 +313,7 @@ private struct PromptCostScenario {
     userPrompt: "Run the tests and diagnose the compile failure.",
     steps: [
       .failedTest(ordinal: 20),
-      .diagnostics(ordinal: 21),
+      .maximalDiagnosticsSearch(ordinal: 21),
     ]
   )
 
@@ -327,7 +327,7 @@ private struct PromptCostScenario {
       .readAppFile(ordinal: 32),
       .editGreeting(ordinal: 33),
       .failedTest(ordinal: 34),
-      .diagnostics(ordinal: 35),
+      .maximalDiagnosticsRead(ordinal: 35),
       .readGreetingTest(ordinal: 36),
       .editGreetingTest(ordinal: 37),
       .successfulTest(ordinal: 38),
@@ -538,25 +538,103 @@ private struct PromptCostToolStep {
     )
   }
 
-  static func diagnostics(ordinal: Int) -> PromptCostToolStep {
+  static func maximalDiagnosticsSearch(ordinal: Int) -> PromptCostToolStep {
     let outputRef = "cmd_failure1"
+    let pattern = "error:"
+    let firstPrefix = "Sources/File1.swift:1:1: error: "
+    let firstSnippet =
+      firstPrefix
+      + String(repeating: "x", count: 239 - firstPrefix.count)
+      + "…"
+    let matches = (1...50).map { line in
+      CommandOutputSearchMatch(
+        origin: .stderr,
+        streamLine: line * 3,
+        combinedLine: nil,
+        snippet: line == 1
+          ? firstSnippet
+          : "Sources/File\(line).swift:\(line):1: error: fixture failure \(line)",
+        snippetTruncated: line == 1
+      )
+    }
     return make(
       ordinal: ordinal,
-      payload: .workspaceDiagnostics(WorkspaceDiagnosticsInput(outputRef: outputRef)),
-      arguments: ["outputRef": .string(outputRef)],
-      result: .workspaceDiagnostics(
-        WorkspaceDiagnosticsResult(
+      payload: .workspaceDiagnostics(
+        WorkspaceDiagnosticsInput(
           outputRef: outputRef,
-          diagnostics: [
-            WorkspaceDiagnostic(
-              path: WorkspaceRelativePath(rawValue: "Sources/App.swift"),
-              line: 4,
-              column: 18,
-              severity: .error,
-              message: "cannot find 'message' in scope"
-            )
-          ]
+          operation: .search,
+          stream: .stderr,
+          offset: 1,
+          limit: 50,
+          pattern: pattern
+        )),
+      arguments: [
+        "outputRef": .string(outputRef),
+        "operation": .string("search"),
+        "stream": .string("stderr"),
+        "offset": .number(1),
+        "limit": .number(50),
+        "pattern": .string(pattern),
+      ],
+      result: .workspaceDiagnostics(
+        .search(
+          outputRef: outputRef,
+          result: .page(
+            CommandOutputSearchPage(
+              stream: .stderr,
+              pattern: pattern,
+              startLine: 1,
+              scannedThrough: 150,
+              lineCount: 200,
+              matches: matches,
+              continuation: .next(offset: 151, reason: .matchLimit)
+            ))
         ))
+    )
+  }
+
+  static func maximalDiagnosticsRead(ordinal: Int) -> PromptCostToolStep {
+    let outputRef = "cmd_failure1"
+    let lines = (1...500).map { line in
+      CommandOutputReadLine(
+        line: line,
+        origin: .stderr,
+        streamLine: line,
+        content: String(format: "output%04d", line)
+      )
+    }
+    return make(
+      ordinal: ordinal,
+      payload: .workspaceDiagnostics(
+        WorkspaceDiagnosticsInput(
+          outputRef: outputRef,
+          operation: .read,
+          stream: .stderr,
+          offset: 1,
+          limit: 500
+        )
+      ),
+      arguments: [
+        "outputRef": .string(outputRef),
+        "operation": .string("read"),
+        "stream": .string("stderr"),
+        "offset": .number(1),
+        "limit": .number(500),
+      ],
+      result: .workspaceDiagnostics(
+        .read(
+          outputRef: outputRef,
+          result: .page(
+            CommandOutputReadPage(
+              stream: .stderr,
+              startLine: 1,
+              endLine: 500,
+              lines: lines,
+              continuation: .next(offset: 501, reason: .lineLimit)
+            )
+          )
+        )
+      )
     )
   }
 
@@ -791,50 +869,50 @@ private enum PromptCostBaseline {
     PromptCostSnapshot(
       name: "list_files_read_file",
       toolCount: 2,
-      systemPromptBytes: 2_927,
-      toolSchemaBytes: 8_683,
+      systemPromptBytes: 3_004,
+      toolSchemaBytes: 9_425,
       conversationBytes: 798,
       toolCallBytes: 197,
       toolResultBytes: 745,
-      totalBytes: 12_605,
-      estimatedTokens: 3_152,
-      checkpointEstimatedTokens: [3_034, 3_152]
+      totalBytes: 13_424,
+      estimatedTokens: 3_356,
+      checkpointEstimatedTokens: [3_239, 3_356]
     ),
     PromptCostSnapshot(
       name: "read_file_edit_file_test",
       toolCount: 3,
-      systemPromptBytes: 2_927,
-      toolSchemaBytes: 8_683,
+      systemPromptBytes: 3_004,
+      toolSchemaBytes: 9_425,
       conversationBytes: 1_429,
       toolCallBytes: 480,
       toolResultBytes: 1_354,
-      totalBytes: 13_519,
-      estimatedTokens: 3_380,
-      checkpointEstimatedTokens: [3_039, 3_220, 3_380]
+      totalBytes: 14_338,
+      estimatedTokens: 3_585,
+      checkpointEstimatedTokens: [3_244, 3_425, 3_585]
     ),
     PromptCostSnapshot(
       name: "failed_command_diagnostics",
       toolCount: 2,
-      systemPromptBytes: 2_927,
-      toolSchemaBytes: 8_683,
-      conversationBytes: 1_484,
-      toolCallBytes: 279,
-      toolResultBytes: 1_437,
-      totalBytes: 13_373,
-      estimatedTokens: 3_344,
-      checkpointEstimatedTokens: [3_217, 3_344]
+      systemPromptBytes: 3_004,
+      toolSchemaBytes: 9_425,
+      conversationBytes: 4_898,
+      toolCallBytes: 359,
+      toolResultBytes: 4_851,
+      totalBytes: 17_686,
+      estimatedTokens: 4_422,
+      checkpointEstimatedTokens: [3_446, 4_422]
     ),
     PromptCostSnapshot(
       name: "long_tool_loop",
       toolCount: 9,
-      systemPromptBytes: 2_927,
-      toolSchemaBytes: 8_683,
-      conversationBytes: 4_716,
-      toolCallBytes: 1_326,
-      toolResultBytes: 4_626,
-      totalBytes: 17_652,
-      estimatedTokens: 4_413,
-      checkpointEstimatedTokens: [3_043, 3_187, 3_305, 3_486, 3_788, 3_915, 4_050, 4_253, 4_413]
+      systemPromptBytes: 3_004,
+      toolSchemaBytes: 9_425,
+      conversationBytes: 12_875,
+      toolCallBytes: 1_386,
+      toolResultBytes: 12_785,
+      totalBytes: 26_690,
+      estimatedTokens: 6_673,
+      checkpointEstimatedTokens: [3_248, 3_392, 3_510, 3_690, 4_017, 6_174, 6_310, 6_513, 6_673]
     ),
   ]
 }

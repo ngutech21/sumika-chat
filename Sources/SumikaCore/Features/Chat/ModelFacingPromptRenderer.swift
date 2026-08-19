@@ -165,6 +165,20 @@ package enum ModelFacingPromptRenderer {
       )
       return content
     }
+    if request.toolName == .workspaceDiagnostics,
+      case .workspaceDiagnostics(let result) = toolResult.payload
+    {
+      switch result {
+      case .read, .search:
+        precondition(
+          content.count <= ProjectionLimit.workspaceDiagnosticsObservation.maxCharacters,
+          "workspace_diagnostics observation exceeded the model observation limit."
+        )
+        return content
+      case .legacyDiagnostics:
+        break
+      }
+    }
     return ProjectionLimiter.limit(content, limit: policy.modelObservationLimit).text
   }
 
@@ -424,18 +438,14 @@ enum ToolModelObservationRenderer {
       ].compactMap(\.self)
       if let outputRef = result.outputRef {
         lines.append(
-          "Hint: Run workspace_diagnostics(outputRef: \(outputRef)) for structured errors.")
+          "Hint: Run workspace_diagnostics(outputRef: \(outputRef), operation: \"read\", stream: \"combined\") to inspect retained output."
+        )
       }
       return lines.joined(separator: "\n")
+    case .commandOutput(let result):
+      return result.renderedText
     case .diagnostics(let result):
-      guard !result.diagnostics.isEmpty else {
-        return "No diagnostics found for \(result.outputRef)."
-      }
-      return result.diagnostics.map { diagnostic in
-        let column = diagnostic.column.map { ":\($0)" } ?? ""
-        return
-          "\(diagnostic.path.rawValue):\(diagnostic.line)\(column): \(diagnostic.severity.rawValue): \(diagnostic.message)"
-      }.joined(separator: "\n")
+      return result.renderedText
     case .webSearch(let query, let provider, let results, let truncated):
       let body =
         results.isEmpty

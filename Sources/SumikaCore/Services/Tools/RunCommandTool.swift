@@ -166,7 +166,8 @@ nonisolated extension RunCommandResult {
     }
     if let outputRef {
       lines.append(
-        "Hint: Run workspace_diagnostics(outputRef: \(outputRef)) for structured errors.")
+        "Hint: Run workspace_diagnostics(outputRef: \(outputRef), operation: \"read\", stream: \"combined\") to inspect retained output."
+      )
     }
     return lines.joined(separator: "\n")
   }
@@ -322,7 +323,6 @@ struct RunCommandToolExecutor: TypedToolExecutor {
           timeoutSeconds: timeoutSeconds
         )
         let processResult = try await processRunner.run(request)
-        let outputRef = outputRefGenerator()
         let limits = previewLimits(exitCode: processResult.exitCode)
         let stdoutPreview = previewOutput(
           processResult.stdout,
@@ -332,22 +332,27 @@ struct RunCommandToolExecutor: TypedToolExecutor {
           processResult.stderr,
           maxBytes: min(limits.stderrBytes, maxOutputBytes)
         )
-        let result = RunCommandResult(
+        var result = RunCommandResult(
           command: input.command,
           timeoutSeconds: timeoutSeconds,
           exitCode: processResult.exitCode,
           durationMs: processResult.durationMs,
           stdout: stdoutPreview.output,
           stderr: stderrPreview.output,
-          outputRef: outputRef,
+          outputRef: nil,
           stdoutOmittedChars: stdoutPreview.omittedChars,
           stderrOmittedChars: stderrPreview.omittedChars,
           timedOut: processResult.timedOut,
           cancelled: processResult.cancelled
         )
-        if let sessionID = context.sessionID {
-          await context.latestCommandResultStore?.record(
-            result,
+        if let sessionID = context.sessionID,
+          let latestCommandResultStore = context.latestCommandResultStore
+        {
+          let outputRef = outputRefGenerator()
+          var retainedResult = result
+          retainedResult.outputRef = outputRef
+          let retained = await latestCommandResultStore.record(
+            retainedResult,
             output: CommandOutputRecord(
               outputRef: outputRef,
               stdout: processResult.stdout,
@@ -356,6 +361,9 @@ struct RunCommandToolExecutor: TypedToolExecutor {
             workspaceID: context.workspace.id,
             sessionID: sessionID
           )
+          if retained {
+            result = retainedResult
+          }
         }
         return .runCommand(result)
       }

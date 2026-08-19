@@ -59,6 +59,155 @@ struct ToolCallTests {
   }
 
   @Test
+  func workspaceDiagnosticsLegacyInputAndResultDecodeWithoutInventingNewFields() throws {
+    let inputJSON = #"{"outputRef":"cmd_legacy"}"#
+    let resultJSON = """
+      {
+        "outputRef": "cmd_legacy",
+        "diagnostics": [
+          {
+            "path": "Sources/App.swift",
+            "line": 7,
+            "column": 2,
+            "severity": "error",
+            "message": "broken",
+            "source": "lastCommandOutput"
+          }
+        ]
+      }
+      """
+    let decoder = JSONDecoder()
+    let input = try decoder.decode(WorkspaceDiagnosticsInput.self, from: Data(inputJSON.utf8))
+    let result = try decoder.decode(
+      WorkspaceDiagnosticsResult.self,
+      from: Data(resultJSON.utf8)
+    )
+
+    #expect(input.operation == .legacyDiagnostics)
+    #expect(input.stream == .combined)
+    #expect(input.offset == nil)
+    #expect(input.limit == nil)
+    #expect(input.pattern == nil)
+    guard case .legacyDiagnostics(let outputRef, let diagnostics) = result else {
+      Issue.record("Expected legacy workspace_diagnostics result.")
+      return
+    }
+    #expect(outputRef == "cmd_legacy")
+    #expect(diagnostics.count == 1)
+
+    let originalInput = try #require(
+      JSONSerialization.jsonObject(with: Data(inputJSON.utf8)) as? NSDictionary
+    )
+    let reencodedInput = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(input)) as? NSDictionary
+    )
+    let originalResult = try #require(
+      JSONSerialization.jsonObject(with: Data(resultJSON.utf8)) as? NSDictionary
+    )
+    let reencodedResult = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(result)) as? NSDictionary
+    )
+    #expect(reencodedInput == originalInput)
+    #expect(reencodedResult == originalResult)
+  }
+
+  @Test
+  func workspaceDiagnosticsToolCallRecordsRoundTripForNewAndLegacyPayloads() throws {
+    let workspaceID = UUID()
+    let sessionID = UUID()
+    let evaluation = ToolPermissionEvaluation(
+      decision: .allowed,
+      reason: "Reading retained command output is allowed.",
+      riskLevel: .low
+    )
+    let newInput = WorkspaceDiagnosticsInput(
+      outputRef: "cmd_read",
+      operation: .read,
+      stream: .combined,
+      offset: 2,
+      limit: 10
+    )
+    let newRecord = ToolCallRecord(
+      request: .validated(
+        raw: RawToolCallRequest(
+          workspaceID: workspaceID,
+          sessionID: sessionID,
+          toolName: .workspaceDiagnostics,
+          arguments: [
+            "outputRef": .string("cmd_read"),
+            "operation": .string("read"),
+            "stream": .string("combined"),
+            "offset": .number(2),
+            "limit": .number(10),
+          ]
+        ),
+        payload: .workspaceDiagnostics(newInput)
+      ),
+      evaluation: evaluation,
+      state: .completed(
+        .workspaceDiagnostics(
+          .read(
+            outputRef: "cmd_read",
+            result: .page(
+              CommandOutputReadPage(
+                stream: .combined,
+                startLine: 2,
+                endLine: 2,
+                lines: [
+                  CommandOutputReadLine(
+                    line: 2,
+                    origin: .stderr,
+                    streamLine: 1,
+                    content: "FAIL: broken"
+                  )
+                ],
+                continuation: .endOfOutput
+              )
+            )
+          )
+        )
+      )
+    )
+    let legacyInput = try JSONDecoder().decode(
+      WorkspaceDiagnosticsInput.self,
+      from: Data(#"{"outputRef":"cmd_legacy"}"#.utf8)
+    )
+    let legacyResult = WorkspaceDiagnosticsResult.legacyDiagnostics(
+      outputRef: "cmd_legacy",
+      diagnostics: [
+        WorkspaceDiagnostic(
+          path: WorkspaceRelativePath(rawValue: "Sources/App.swift"),
+          line: 7,
+          column: nil,
+          severity: .error,
+          message: "broken"
+        )
+      ]
+    )
+    let legacyRecord = ToolCallRecord(
+      request: .validated(
+        raw: RawToolCallRequest(
+          workspaceID: workspaceID,
+          sessionID: sessionID,
+          toolName: .workspaceDiagnostics,
+          arguments: ["outputRef": .string("cmd_legacy")]
+        ),
+        payload: .workspaceDiagnostics(legacyInput)
+      ),
+      evaluation: evaluation,
+      state: .completed(.workspaceDiagnostics(legacyResult))
+    )
+
+    for record in [newRecord, legacyRecord] {
+      let decoded = try JSONDecoder().decode(
+        ToolCallRecord.self,
+        from: JSONEncoder().encode(record)
+      )
+      #expect(decoded == record)
+    }
+  }
+
+  @Test
   func toolArgumentValueDecodesJSONScalarsCollectionsAndNull() throws {
     let data = Data(
       """

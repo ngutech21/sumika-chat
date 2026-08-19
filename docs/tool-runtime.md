@@ -740,12 +740,44 @@ declarations.
   recorded in ephemeral latest-command state keyed by workspace, session, and
   `outputRef`. The model-facing `RunCommandResult` contains only command
   metadata plus head/tail stdout/stderr previews. Awaiting-approval or denied
-  command requests must not overwrite this state.
-- `workspace_diagnostics` is a read-only tool available in Inspect and Agent
-  registries. It takes `outputRef`, reads the stored full command output, and
-  returns generic `path:line[:column]: error|warning|note: message`
-  diagnostics for paths inside the workspace. It does not run commands or
-  return raw stdout/stderr.
+  command requests must not overwrite this state. An `outputRef` is returned
+  only when the new output survives the count and byte retention budgets; an
+  output that is pruned immediately is not advertised in the result or hint.
+  Retained output is process-local and does not survive an app restart.
+- `workspace_diagnostics` is a read-only Agent tool for bounded,
+  format-agnostic access to retained command output. New model calls must
+  provide `outputRef`, an explicit `operation` (`read` or `search`), and an
+  explicit `stream` (`stdout`, `stderr`, or `combined`). It never runs or
+  repeats a command and does not interpret toolchain-specific diagnostic
+  grammars.
+- `read` uses a 1-based `offset` naming the first line to return and a `limit`
+  naming the maximum number of returned lines. It returns at most 500 complete
+  lines and at most 8 KiB of rendered line content. Lines use `N: content`.
+  A continuation reports either end-of-output, a blocked overlong line, or
+  `nextOffset`, which is the first line not yet returned.
+- `search` requires `pattern`, starts scanning at the 1-based `offset`, and
+  treats `limit` as the maximum number of returned matches. It uses the shared
+  regex matcher and falls back to literal matching for an invalid regex. A
+  page contains at most 50 matches, at most 8 KiB of rendered match content,
+  and at most 240 characters per snippet. `nextOffset` is the first line not
+  consumed by the page, so a continuation can resume without skipping a
+  match. Search results call the page-local count `returned_matches` and expose
+  `search_complete` explicitly. Only a complete search establishes the total
+  match count or the absence or uniqueness of a match; partial pages must be
+  continued when one of those facts matters.
+- `combined` is deterministic concatenation: all stdout lines followed by all
+  stderr lines. Each rendered combined line includes its origin stream and
+  stream-local line number in addition to the combined `N: ` gutter; it does
+  not claim temporal interleaving. CRLF is normalized, internal blank lines
+  are preserved, and a trailing newline does not create an artificial empty
+  line.
+- Unknown, pruned, wrong-session, wrong-workspace, and previous-process refs
+  share one unavailable-output failure so the result does not reveal whether
+  another scope contains the ref. Persisted pre-migration requests that lack
+  both `operation` and `stream`, their structured diagnostic results, and
+  replayed diagnostic observations remain Codable-compatible as internal
+  legacy variants. The legacy request variant can be loaded and rendered but
+  cannot be executed by a new model call.
 - `web_search` and `web_fetch` are web tools available to Chat and Agent
   through explicit tool profiles. Chat uses a web-only registry containing only
   these two tools; Agent uses the coding-agent registry. They are provider

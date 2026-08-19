@@ -83,6 +83,12 @@ struct ToolFollowUpNoticePolicy: Sendable {
     if let runCommandNotice = runCommandResultNotice(state) {
       return runCommandNotice
     }
+    if let workspaceDiagnosticsNotice = workspaceDiagnosticsSearchContinuationNotice(
+      state,
+      finishTaskEnabled: finishTaskEnabled
+    ) {
+      return workspaceDiagnosticsNotice
+    }
     if let listingWanderingNotice = listingWanderingNotice(state) {
       return listingWanderingNotice
     }
@@ -189,6 +195,9 @@ struct ToolFollowUpNoticePolicy: Sendable {
     ]
     if let outputRef = result.outputRef {
       lines.append("Output ref: \(outputRef)")
+      lines.append(
+        "Inspect retained output with workspace_diagnostics using an explicit read/search operation and stdout/stderr/combined stream."
+      )
     }
     return lines.joined(separator: "\n")
   }
@@ -273,6 +282,27 @@ struct ToolFollowUpNoticePolicy: Sendable {
       return "Use this tool result. Call another necessary tool, or finish_task if done."
     }
     return "Use this tool result. Call another necessary web tool, or answer if done."
+  }
+
+  private func workspaceDiagnosticsSearchContinuationNotice(
+    _ state: AgentTurnState,
+    finishTaskEnabled: Bool
+  ) -> String? {
+    guard let record = state.latestCompletedToolRecord,
+      record.request.toolName == .workspaceDiagnostics,
+      case .workspaceDiagnostics(.search(_, .page(let page))) = record.resultPayload,
+      case .next(let offset, _) = page.continuation
+    else {
+      return nil
+    }
+
+    let scannedLines = page.scannedThrough.map { "\(page.startLine)-\($0)" } ?? "none"
+    let finalAction = finishTaskEnabled ? "finish_task if done" : "answer if done"
+    return """
+      This workspace_diagnostics search is incomplete.
+      Returned matches: \(page.matches.count). Scanned lines: \(scannedLines). This is not a total match count and does not establish uniqueness or absence in unscanned lines.
+      Continue workspace_diagnostics with the same outputRef, operation, stream, and pattern using offset \(offset) only if a total count, uniqueness, or absence matters. Otherwise use the returned matches or \(finalAction).
+      """
   }
 
   private func readFileContinuationNotice(_ state: AgentTurnState) -> String? {
@@ -437,10 +467,13 @@ struct ToolFollowUpNoticePolicy: Sendable {
     if case .invalid = record.request.payload {
       return nil
     }
-    return RepeatedToolCallSignature(
-      toolName: record.request.toolName,
-      value: .payload(record.request.payload)
-    )
+    let value: RepeatedToolCallSignatureValue
+    if case .workspaceDiagnostics(let input) = record.request.payload {
+      value = .workspaceDiagnostics(input.repeatSignature)
+    } else {
+      value = .payload(record.request.payload)
+    }
+    return RepeatedToolCallSignature(toolName: record.request.toolName, value: value)
   }
 
   private func isReplayableReadLikeTool(_ toolName: ToolName) -> Bool {
@@ -509,10 +542,15 @@ struct ToolFollowUpNoticePolicy: Sendable {
 private struct RepeatedToolCallSignature: Equatable {
   var toolName: ToolName
   var value: RepeatedToolCallSignatureValue
+
+  static func == (lhs: RepeatedToolCallSignature, rhs: RepeatedToolCallSignature) -> Bool {
+    lhs.toolName == rhs.toolName && lhs.value == rhs.value
+  }
 }
 
 private enum RepeatedToolCallSignatureValue: Equatable {
   case payload(ToolCallPayload)
+  case workspaceDiagnostics(WorkspaceDiagnosticsRepeatSignature)
 }
 
 private struct ListingWanderingState {

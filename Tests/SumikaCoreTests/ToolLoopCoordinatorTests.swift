@@ -680,6 +680,113 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func workspaceDiagnosticsRepeatSignatureNormalizesDefaultPagination() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let orchestrator = CountingToolOrchestrator(tools: [.workspaceDiagnostics])
+    let result = try await runToolLoop(
+      using: orchestrator,
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "workspace_diagnostics",
+            arguments: [
+              "outputRef": .string("cmd_test"),
+              "operation": .string("read"),
+              "stream": .string("combined"),
+            ]
+          ),
+          ChatRuntimeToolCall(
+            name: "workspace_diagnostics",
+            arguments: [
+              "outputRef": .string("cmd_test"),
+              "operation": .string("read"),
+              "stream": .string("combined"),
+              "offset": .number(1),
+              "limit": .number(500),
+            ]
+          ),
+        ]
+      )
+    )
+
+    #expect(await orchestrator.executionCount == 1)
+    #expect(isDuplicate(toolCallRecords(from: result).last))
+  }
+
+  @Test
+  func workspaceDiagnosticsRepeatSignaturePreservesEverySemanticArgument() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let orchestrator = CountingToolOrchestrator(tools: [.workspaceDiagnostics])
+    let result = try await runToolLoop(
+      using: orchestrator,
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          workspaceDiagnosticsCall(
+            outputRef: "cmd_base",
+            operation: "read",
+            stream: "combined",
+            offset: 1,
+            limit: 10
+          ),
+          workspaceDiagnosticsCall(
+            outputRef: "cmd_other",
+            operation: "read",
+            stream: "combined",
+            offset: 1,
+            limit: 10
+          ),
+          workspaceDiagnosticsCall(
+            outputRef: "cmd_base",
+            operation: "read",
+            stream: "stderr",
+            offset: 1,
+            limit: 10
+          ),
+          workspaceDiagnosticsCall(
+            outputRef: "cmd_base",
+            operation: "read",
+            stream: "combined",
+            offset: 2,
+            limit: 10
+          ),
+          workspaceDiagnosticsCall(
+            outputRef: "cmd_base",
+            operation: "read",
+            stream: "combined",
+            offset: 1,
+            limit: 11
+          ),
+          workspaceDiagnosticsCall(
+            outputRef: "cmd_base",
+            operation: "search",
+            stream: "combined",
+            offset: 1,
+            limit: 10,
+            pattern: "FAIL"
+          ),
+          workspaceDiagnosticsCall(
+            outputRef: "cmd_base",
+            operation: "search",
+            stream: "combined",
+            offset: 1,
+            limit: 10,
+            pattern: "error"
+          ),
+        ]
+      )
+    )
+
+    #expect(await orchestrator.executionCount == 7)
+    #expect(toolCallRecords(from: result).allSatisfy { !isDuplicate($0) })
+  }
+
+  @Test
   func rejectedParentPathsAreNotReusedAsDuplicates() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -1801,6 +1908,27 @@ struct ToolLoopCoordinatorTests {
     )
   }
 
+  private func workspaceDiagnosticsCall(
+    outputRef: String,
+    operation: String,
+    stream: String,
+    offset: Int,
+    limit: Int,
+    pattern: String? = nil
+  ) -> ChatRuntimeToolCall {
+    var arguments: ToolCallArguments = [
+      "outputRef": .string(outputRef),
+      "operation": .string(operation),
+      "stream": .string(stream),
+      "offset": .number(Double(offset)),
+      "limit": .number(Double(limit)),
+    ]
+    if let pattern {
+      arguments["pattern"] = .string(pattern)
+    }
+    return ChatRuntimeToolCall(name: "workspace_diagnostics", arguments: arguments)
+  }
+
   private func makeWorkspace(sessionID: ChatSession.ID) throws -> Workspace {
     let rootURL = try scopedTemporaryDirectory().appending(
       path: UUID().uuidString,
@@ -1988,6 +2116,38 @@ private actor CountingToolOrchestrator: ToolOrchestrating {
           path: input.path.map { Self.canonicalPath($0, workspace: workspace) },
           content: ToolTextOutput(text: "clean")
         ))
+    case .workspaceDiagnostics(let input):
+      switch input.operation {
+      case .read:
+        payload = .workspaceDiagnostics(
+          .read(outputRef: input.outputRef, result: .empty(stream: input.stream))
+        )
+      case .search:
+        payload = .workspaceDiagnostics(
+          .search(
+            outputRef: input.outputRef,
+            result: .page(
+              CommandOutputSearchPage(
+                stream: input.stream,
+                pattern: input.pattern ?? "",
+                startLine: input.normalizedOffset,
+                scannedThrough: nil,
+                lineCount: 0,
+                matches: [],
+                continuation: .endOfOutput
+              )
+            )
+          )
+        )
+      case .legacyDiagnostics:
+        payload = .failure(
+          ToolFailure(
+            toolName: .workspaceDiagnostics,
+            path: nil,
+            reason: .executionError("Unsupported legacy diagnostics request.")
+          )
+        )
+      }
     case .runCommand(let input):
       payload = .runCommand(
         RunCommandResult(

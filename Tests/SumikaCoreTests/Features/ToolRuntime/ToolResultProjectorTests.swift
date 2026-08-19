@@ -807,11 +807,16 @@ struct ToolResultProjectorTests {
     )
     let diagnosticsProjection = ToolResultProjector.project(
       payload: .workspaceDiagnostics(
-        WorkspaceDiagnosticsResult(outputRef: "cmd-output", diagnostics: [])
+        .read(outputRef: "cmd-output", result: .empty(stream: .stdout))
       ),
       request: request(
         toolName: .workspaceDiagnostics,
-        payload: .workspaceDiagnostics(WorkspaceDiagnosticsInput(outputRef: "cmd-output"))
+        payload: .workspaceDiagnostics(
+          WorkspaceDiagnosticsInput(
+            outputRef: "cmd-output",
+            operation: .read,
+            stream: .stdout
+          ))
       )
     )
     let webSearchProjection = ToolResultProjector.project(
@@ -834,7 +839,7 @@ struct ToolResultProjectorTests {
     #expect(readProjection.metadata.nextAllowedActions == ["edit_file"])
     #expect(listProjection.metadata.nextAllowedActions == ["read_file"])
     #expect(commandProjection.metadata.nextAllowedActions == ["workspace_diagnostics"])
-    #expect(diagnosticsProjection.metadata.nextAllowedActions == ["read_file", "edit_file"])
+    #expect(diagnosticsProjection.metadata.nextAllowedActions == ["workspace_diagnostics"])
     #expect(webSearchProjection.metadata.nextAllowedActions == ["web_fetch"])
     #expect(finishProjection.metadata.nextAllowedActions.isEmpty)
     let projections = [
@@ -916,7 +921,7 @@ struct ToolResultProjectorTests {
 
   @Test
   func workspaceDiagnosticsObservationStaysStructuredAndCompact() {
-    let result = WorkspaceDiagnosticsResult(
+    let result = WorkspaceDiagnosticsResult.legacyDiagnostics(
       outputRef: "cmd_diag",
       diagnostics: [
         WorkspaceDiagnostic(
@@ -932,7 +937,12 @@ struct ToolResultProjectorTests {
       payload: .workspaceDiagnostics(result),
       request: request(
         toolName: .workspaceDiagnostics,
-        payload: .workspaceDiagnostics(WorkspaceDiagnosticsInput(outputRef: "cmd_diag"))
+        payload: .workspaceDiagnostics(
+          WorkspaceDiagnosticsInput(
+            outputRef: "cmd_diag",
+            operation: .read,
+            stream: .combined
+          ))
       )
     )
 
@@ -940,6 +950,157 @@ struct ToolResultProjectorTests {
     #expect(rendered.contains("Sources/App.code:7:2: error: broken"))
     #expect(!rendered.contains("stdout"))
     #expect(!rendered.contains("stderr"))
+  }
+
+  @Test
+  func workspaceDiagnosticsReadAndSearchExposeStructuredContinuationMetadata() throws {
+    let readResult = WorkspaceDiagnosticsResult.read(
+      outputRef: "cmd_read",
+      result: .page(
+        CommandOutputReadPage(
+          stream: .combined,
+          startLine: 1,
+          endLine: 2,
+          lines: [
+            CommandOutputReadLine(
+              line: 1,
+              origin: .stdout,
+              streamLine: 1,
+              content: "building"
+            ),
+            CommandOutputReadLine(
+              line: 2,
+              origin: .stderr,
+              streamLine: 1,
+              content: "failed"
+            ),
+          ],
+          continuation: .next(offset: 3, reason: .lineLimit)
+        )
+      )
+    )
+    let readProjection = ToolResultProjector.project(
+      payload: .workspaceDiagnostics(readResult),
+      request: request(
+        toolName: .workspaceDiagnostics,
+        payload: .workspaceDiagnostics(
+          WorkspaceDiagnosticsInput(
+            outputRef: "cmd_read",
+            operation: .read,
+            stream: .combined,
+            limit: 2
+          )
+        )
+      )
+    )
+    let read = try hybridToolResult(
+      ToolModelObservationRenderer.render(readProjection, callID: UUID())
+    )
+
+    #expect(readProjection.observation.affectedPaths.isEmpty)
+    #expect(read.json["kind"] as? String == "command_output")
+    #expect(read.json["operation"] as? String == "read")
+    #expect(read.json["stream"] as? String == "combined")
+    #expect(read.json["line_format"] as? String == "N: content")
+    #expect(read.json["next_offset"] as? Int == 3)
+    #expect(read.json["truncation_reason"] as? String == "line_limit")
+    #expect(read.content.contains("1: [stdout:1] building"))
+    #expect(read.content.contains("2: [stderr:1] failed"))
+
+    let searchResult = WorkspaceDiagnosticsResult.search(
+      outputRef: "cmd_search",
+      result: .page(
+        CommandOutputSearchPage(
+          stream: .stderr,
+          pattern: "FAIL:",
+          startLine: 2,
+          scannedThrough: 12,
+          lineCount: 30,
+          matches: [
+            CommandOutputSearchMatch(
+              origin: .stderr,
+              streamLine: 4,
+              combinedLine: nil,
+              snippet: "FAIL: expected true",
+              snippetTruncated: false
+            )
+          ],
+          continuation: .next(offset: 13, reason: .matchLimit)
+        )
+      )
+    )
+    let searchProjection = ToolResultProjector.project(
+      payload: .workspaceDiagnostics(searchResult),
+      request: request(
+        toolName: .workspaceDiagnostics,
+        payload: .workspaceDiagnostics(
+          WorkspaceDiagnosticsInput(
+            outputRef: "cmd_search",
+            operation: .search,
+            stream: .stderr,
+            offset: 2,
+            pattern: "FAIL:"
+          )
+        )
+      )
+    )
+    let search = try hybridToolResult(
+      ToolModelObservationRenderer.render(searchProjection, callID: UUID())
+    )
+
+    #expect(searchProjection.observation.affectedPaths.isEmpty)
+    #expect(search.json["kind"] as? String == "command_output")
+    #expect(search.json["operation"] as? String == "search")
+    #expect(search.json["stream"] as? String == "stderr")
+    #expect(search.json["returned_matches"] as? Int == 1)
+    #expect(search.json["match_count"] == nil)
+    #expect(search.json["search_complete"] as? Bool == false)
+    #expect(search.json["scanned_through"] as? Int == 12)
+    #expect(search.json["next_offset"] as? Int == 13)
+    #expect(search.content.contains("Returned matches: 1"))
+    #expect(search.content.contains("Search complete: false"))
+    #expect(search.content.contains("Unscanned lines: 13-30"))
+    #expect(search.content.contains("4: FAIL: expected true"))
+
+    let completeResult = WorkspaceDiagnosticsResult.search(
+      outputRef: "cmd_complete",
+      result: .page(
+        CommandOutputSearchPage(
+          stream: .stdout,
+          pattern: "FAIL:",
+          startLine: 1,
+          scannedThrough: 12,
+          lineCount: 12,
+          matches: [],
+          continuation: .endOfOutput
+        )
+      )
+    )
+    let completeProjection = ToolResultProjector.project(
+      payload: .workspaceDiagnostics(completeResult),
+      request: request(
+        toolName: .workspaceDiagnostics,
+        payload: .workspaceDiagnostics(
+          WorkspaceDiagnosticsInput(
+            outputRef: "cmd_complete",
+            operation: .search,
+            stream: .stdout,
+            pattern: "FAIL:"
+          )
+        )
+      )
+    )
+    let complete = try hybridToolResult(
+      ToolModelObservationRenderer.render(completeProjection, callID: UUID())
+    )
+
+    #expect(complete.json["returned_matches"] as? Int == 0)
+    #expect(complete.json["search_complete"] as? Bool == true)
+    #expect(complete.json["next_offset"] == nil)
+    #expect(complete.content.contains("Returned matches: 0"))
+    #expect(complete.content.contains("Search complete: true"))
+    #expect(complete.content.contains("No matches returned from the scanned lines."))
+    #expect(!complete.content.contains("Unscanned lines:"))
   }
 
   @Test
@@ -1306,6 +1467,63 @@ struct ToolResultProjectorTests {
     #expect(context.content.count > 8_000)
     #expect(context.content.count <= 20_000)
     #expect(context.content.contains(fullContent))
+    #expect(!context.content.contains("tool observation truncated"))
+  }
+
+  @Test
+  func workspaceDiagnosticsUsesItsDedicatedBoundedObservationLimit() throws {
+    let lines = (1...80).map { line in
+      CommandOutputReadLine(
+        line: line,
+        origin: .stdout,
+        streamLine: line,
+        content: "line-\(line)-" + String(repeating: "x", count: 80)
+      )
+    }
+    let result = WorkspaceDiagnosticsResult.read(
+      outputRef: "cmd_large",
+      result: .page(
+        CommandOutputReadPage(
+          stream: .stdout,
+          startLine: 1,
+          endLine: 80,
+          lines: lines,
+          continuation: .next(offset: 81, reason: .byteLimit)
+        )
+      )
+    )
+    let payload = ToolResultPayload.workspaceDiagnostics(result)
+    let request = request(
+      toolName: .workspaceDiagnostics,
+      payload: .workspaceDiagnostics(
+        WorkspaceDiagnosticsInput(
+          outputRef: "cmd_large",
+          operation: .read,
+          stream: .stdout
+        )
+      )
+    )
+
+    let entry = try ModelFacingPromptRenderer.toolResultEntry(
+      toolResult: ToolResultModelMessage(
+        callID: UUID(),
+        toolName: .workspaceDiagnostics,
+        payload: payload
+      ),
+      request: request,
+      originalUserRequest: nil,
+      policy: ToolResultProjectionPolicy(
+        modelObservationLimit: ProjectionLimit(maxCharacters: 160, strategy: .headTail)
+      )
+    )
+
+    guard case .toolObservation(let context) = entry.body else {
+      Issue.record("Expected model-facing workspace_diagnostics observation.")
+      return
+    }
+    #expect(context.content.count > 6_000)
+    #expect(context.content.count <= ProjectionLimit.workspaceDiagnosticsObservation.maxCharacters)
+    #expect(context.content.contains("80: line-80-"))
     #expect(!context.content.contains("tool observation truncated"))
   }
 

@@ -427,10 +427,12 @@ metrics are synthesized.
 
 `just prompt-cost` runs four model-free Core tool-loop fixtures that cover
 `list_files -> read_file`, `read_file -> edit_file -> run_command`, a failed
-command followed by `workspace_diagnostics`, and a longer nine-tool loop. The
-fixtures use the production prompt projection, agent system prompt, default
-coding-agent tool schemas with optional `todo_write` disabled, native tool-call
-arguments, and frozen tool-result observations.
+command followed by a bounded 50-match `workspace_diagnostics` search, and a
+longer nine-tool loop containing a 500-line `workspace_diagnostics` read page.
+The search fixture also pins a 240-character truncated snippet. The fixtures
+use the production prompt projection, agent system prompt, default coding-agent
+tool schemas with optional `todo_write` disabled, native tool-call arguments,
+and frozen tool-result observations.
 
 The same command also runs a paired focused-file fixture with four turns and a
 complete 4,000-character `read_file` snapshot. It compares disabled and

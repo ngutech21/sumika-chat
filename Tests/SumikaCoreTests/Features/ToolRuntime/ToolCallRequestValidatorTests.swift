@@ -162,6 +162,153 @@ struct ToolCallRequestValidatorTests {
   }
 
   @Test
+  func workspaceDiagnosticsRequiresExplicitOperationAndStreamForNewCalls() {
+    let registry = ToolExecutorRegistry.readOnly.toolRegistry
+    let missingOperation = validator.validate(
+      raw(
+        .workspaceDiagnostics,
+        arguments: [
+          "outputRef": .string("cmd_test"),
+          "stream": .string("stdout"),
+        ]
+      ),
+      registry: registry
+    )
+    let missingStream = validator.validate(
+      raw(
+        .workspaceDiagnostics,
+        arguments: [
+          "outputRef": .string("cmd_test"),
+          "operation": .string("read"),
+        ]
+      ),
+      registry: registry
+    )
+
+    #expect(invalidReason(missingOperation) == .missingRequiredArgument("operation"))
+    #expect(invalidReason(missingStream) == .missingRequiredArgument("stream"))
+  }
+
+  @Test
+  func workspaceDiagnosticsValidatesOperationSpecificArguments() {
+    let registry = ToolExecutorRegistry.readOnly.toolRegistry
+    let missingPattern = validator.validate(
+      raw(
+        .workspaceDiagnostics,
+        arguments: [
+          "outputRef": .string("cmd_test"),
+          "operation": .string("search"),
+          "stream": .string("stderr"),
+        ]
+      ),
+      registry: registry
+    )
+    let readPattern = validator.validate(
+      raw(
+        .workspaceDiagnostics,
+        arguments: [
+          "outputRef": .string("cmd_test"),
+          "operation": .string("read"),
+          "stream": .string("stdout"),
+          "pattern": .string("FAIL"),
+        ]
+      ),
+      registry: registry
+    )
+    let invalidOffset = validator.validate(
+      raw(
+        .workspaceDiagnostics,
+        arguments: [
+          "outputRef": .string("cmd_test"),
+          "operation": .string("read"),
+          "stream": .string("stdout"),
+          "offset": .number(0),
+        ]
+      ),
+      registry: registry
+    )
+    let invalidLimit = validator.validate(
+      raw(
+        .workspaceDiagnostics,
+        arguments: [
+          "outputRef": .string("cmd_test"),
+          "operation": .string("search"),
+          "stream": .string("combined"),
+          "pattern": .string("FAIL"),
+          "limit": .number(0),
+        ]
+      ),
+      registry: registry
+    )
+
+    #expect(invalidReason(missingPattern) == .missingRequiredArgument("pattern"))
+    #expect(
+      invalidReason(readPattern)?.message
+        == "workspace_diagnostics pattern must be omitted for read."
+    )
+    #expect(invalidReason(invalidOffset) == .invalidPagination("offset"))
+    #expect(invalidReason(invalidLimit) == .invalidPagination("limit"))
+  }
+
+  @Test
+  func workspaceDiagnosticsBuildsTypedReadAndSearchPayloads() {
+    let registry = ToolExecutorRegistry.readOnly.toolRegistry
+    let read = validator.validate(
+      raw(
+        .workspaceDiagnostics,
+        arguments: [
+          "outputRef": .string("cmd_read"),
+          "operation": .string("read"),
+          "stream": .string("combined"),
+          "offset": .string("2"),
+          "limit": .number(20),
+        ]
+      ),
+      registry: registry
+    )
+    let search = validator.validate(
+      raw(
+        .workspaceDiagnostics,
+        arguments: [
+          "outputRef": .string("cmd_search"),
+          "operation": .string("search"),
+          "stream": .string("stderr"),
+          "offset": .number(3),
+          "limit": .string("5"),
+          "pattern": .string("FAIL:"),
+        ]
+      ),
+      registry: registry
+    )
+
+    #expect(
+      read.payload
+        == .workspaceDiagnostics(
+          WorkspaceDiagnosticsInput(
+            outputRef: "cmd_read",
+            operation: .read,
+            stream: .combined,
+            offset: 2,
+            limit: 20
+          )
+        )
+    )
+    #expect(
+      search.payload
+        == .workspaceDiagnostics(
+          WorkspaceDiagnosticsInput(
+            outputRef: "cmd_search",
+            operation: .search,
+            stream: .stderr,
+            offset: 3,
+            limit: 5,
+            pattern: "FAIL:"
+          )
+        )
+    )
+  }
+
+  @Test
   func builtInCodecCatalogCoversCodingAgentDefinitions() {
     let definitionsByName = Dictionary(
       uniqueKeysWithValues: ToolCodecCatalog.builtIn.map { codec in

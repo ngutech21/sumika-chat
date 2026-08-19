@@ -312,10 +312,10 @@ package struct ReadFilePage: Codable, Equatable, Sendable {
 }
 
 nonisolated extension ReadFilePage {
-  static let lineFormat = "N: content"
+  static let lineFormat = ToolLineRendering.lineFormat
 
   static func lineNumberPrefix(for lineNumber: Int) -> String {
-    "\(lineNumber): "
+    ToolLineRendering.prefix(for: lineNumber)
   }
 
   var returnedLineCount: Int {

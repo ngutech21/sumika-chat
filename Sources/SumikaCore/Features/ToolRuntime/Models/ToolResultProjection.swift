@@ -85,6 +85,11 @@ internal struct ProjectionLimit: Equatable, Sendable {
     maxCharacters: 20_000,
     strategy: .headTail
   )
+
+  package static let workspaceDiagnosticsObservation = ProjectionLimit(
+    maxCharacters: 12_000,
+    strategy: .head
+  )
 }
 
 internal struct ProjectionLimitResult: Equatable, Sendable {
@@ -282,6 +287,7 @@ package enum ToolObservationBlock: Codable, Equatable, Sendable {
   )
   case appliedEditReceipt(AppliedEditReceipt)
   case commandResult(RunCommandResult)
+  case commandOutput(WorkspaceDiagnosticsResult)
   case diagnostics(WorkspaceDiagnosticsResult)
   case webSearch(
     query: String, provider: WebSearchProvider, results: [WebSearchResult], truncated: Bool)
@@ -464,6 +470,8 @@ private func resultKind(for block: ToolObservationBlock) -> String {
     return "edit_receipt"
   case .commandResult:
     return "command_result"
+  case .commandOutput:
+    return "command_output"
   case .diagnostics:
     return "diagnostics"
   case .webSearch:
@@ -593,10 +601,18 @@ private func metadataFields(for block: ToolObservationBlock) -> [ToolResultModel
       fields.append(.init(name: "output_ref", value: .string(outputRef)))
     }
     return fields
+  case .commandOutput(let result):
+    return workspaceDiagnosticsMetadataFields(result)
   case .diagnostics(let result):
+    let diagnosticCount: Int
+    if case .legacyDiagnostics(_, let diagnostics) = result {
+      diagnosticCount = diagnostics.count
+    } else {
+      diagnosticCount = 0
+    }
     return [
       .init(name: "output_ref", value: .string(result.outputRef)),
-      .init(name: "diagnostic_count", value: .int(result.diagnostics.count)),
+      .init(name: "diagnostic_count", value: .int(diagnosticCount)),
     ]
   case .webSearch(let query, let provider, let results, let truncated):
     return [
@@ -623,6 +639,89 @@ private func metadataFields(for block: ToolObservationBlock) -> [ToolResultModel
     ]
   case .failure:
     return []
+  }
+}
+
+private func workspaceDiagnosticsMetadataFields(
+  _ result: WorkspaceDiagnosticsResult
+) -> [ToolResultModelMetadataField] {
+  var fields: [ToolResultModelMetadataField] = [
+    .init(name: "output_ref", value: .string(result.outputRef)),
+    .init(name: "truncated", value: .bool(result.isTruncated)),
+  ]
+  switch result {
+  case .read(_, let readResult):
+    fields.append(.init(name: "operation", value: .string("read")))
+    fields.append(.init(name: "line_format", value: .string(ToolLineRendering.lineFormat)))
+    switch readResult {
+    case .page(let page):
+      fields.append(.init(name: "stream", value: .string(page.stream.rawValue)))
+      fields.append(.init(name: "start_line", value: .int(page.startLine)))
+      fields.append(.init(name: "end_line", value: .int(page.endLine)))
+      fields.append(.init(name: "returned_lines", value: .int(page.lines.count)))
+      appendWorkspaceDiagnosticsContinuation(page.continuation, to: &fields)
+    case .empty(let stream):
+      fields.append(.init(name: "stream", value: .string(stream.rawValue)))
+      fields.append(.init(name: "returned_lines", value: .int(0), includeDefault: true))
+    case .offsetOutOfRange(let stream, let requestedOffset, let lineCount):
+      fields.append(.init(name: "stream", value: .string(stream.rawValue)))
+      fields.append(.init(name: "requested_offset", value: .int(requestedOffset)))
+      fields.append(.init(name: "line_count", value: .int(lineCount), includeDefault: true))
+    case .lineTooLong(let stream, let line, let byteCount):
+      fields.append(.init(name: "stream", value: .string(stream.rawValue)))
+      fields.append(.init(name: "blocked_line", value: .int(line)))
+      fields.append(.init(name: "blocked_line_byte_count", value: .int(byteCount)))
+    }
+  case .search(_, let searchResult):
+    fields.append(.init(name: "operation", value: .string("search")))
+    switch searchResult {
+    case .page(let page):
+      fields.append(.init(name: "stream", value: .string(page.stream.rawValue)))
+      fields.append(.init(name: "start_line", value: .int(page.startLine)))
+      fields.append(.init(name: "line_count", value: .int(page.lineCount), includeDefault: true))
+      fields.append(
+        .init(
+          name: "returned_matches",
+          value: .int(page.matches.count),
+          includeDefault: true
+        )
+      )
+      fields.append(
+        .init(
+          name: "search_complete",
+          value: .bool(page.continuation == .endOfOutput),
+          includeDefault: true
+        )
+      )
+      if let scannedThrough = page.scannedThrough {
+        fields.append(.init(name: "scanned_through", value: .int(scannedThrough)))
+      }
+      appendWorkspaceDiagnosticsContinuation(page.continuation, to: &fields)
+    case .offsetOutOfRange(let stream, let requestedOffset, let lineCount):
+      fields.append(.init(name: "stream", value: .string(stream.rawValue)))
+      fields.append(.init(name: "requested_offset", value: .int(requestedOffset)))
+      fields.append(.init(name: "line_count", value: .int(lineCount), includeDefault: true))
+    }
+  case .legacyDiagnostics(_, let diagnostics):
+    fields.append(.init(name: "operation", value: .string("legacy_diagnostics")))
+    fields.append(.init(name: "diagnostic_count", value: .int(diagnostics.count)))
+  }
+  return fields
+}
+
+private func appendWorkspaceDiagnosticsContinuation(
+  _ continuation: WorkspaceDiagnosticsContinuation,
+  to fields: inout [ToolResultModelMetadataField]
+) {
+  switch continuation {
+  case .endOfOutput:
+    break
+  case .next(let offset, let reason):
+    fields.append(.init(name: "next_offset", value: .int(offset)))
+    fields.append(.init(name: "truncation_reason", value: .string(reason.rawValue)))
+  case .blocked(let line, let byteCount):
+    fields.append(.init(name: "blocked_line", value: .int(line)))
+    fields.append(.init(name: "blocked_line_byte_count", value: .int(byteCount)))
   }
 }
 
@@ -1049,19 +1148,31 @@ private func projectWorkspaceDiagnostics(
   _ result: WorkspaceDiagnosticsResult,
   request: ToolCallRequest
 ) -> ToolResultProjection {
-  let affectedPaths = result.diagnostics.map(\.path)
-  let text = renderedDiagnosticsText(result)
+  let affectedPaths: [WorkspaceRelativePath]
+  let block: ToolObservationBlock
+  switch result {
+  case .legacyDiagnostics(_, let diagnostics):
+    affectedPaths = diagnostics.map(\.path)
+    block = .diagnostics(result)
+  case .read, .search:
+    affectedPaths = []
+    block = .commandOutput(result)
+  }
+  let text = result.renderedText
   return toolResultProjection(
     display: .summary(
-      status: .success,
+      status: result.resultStatus,
       text: text,
       affectedPaths: affectedPaths
     ),
-    observation: ToolModelObservation.success(
+    observation: ToolModelObservation.structured(
       toolName: request.toolName,
+      status: result.resultStatus,
       affectedPaths: affectedPaths,
-      blocks: [.diagnostics(result)]
-    )
+      blocks: [block]
+    ),
+    nextAllowedActions: workspaceDiagnosticsNextAllowedActions(result),
+    nextStep: workspaceDiagnosticsNextStep(result)
   )
 }
 
@@ -1212,7 +1323,7 @@ private func runCommandFailureGuidance(for result: RunCommandResult) -> String {
     "Do not infer workspace state from this failure alone; verify with tools when state matters."
   )
   lines.append(
-    "Next step: inspect the output, run workspace_diagnostics with the outputRef if useful, rerun a corrected command, or tell the user the command failed."
+    "Next step: inspect the preview, call workspace_diagnostics with the outputRef plus an explicit read/search operation and stream if needed, rerun a corrected command, or tell the user the command failed."
   )
   return lines.joined(separator: "\n")
 }
@@ -1503,16 +1614,55 @@ private func projectMCP(
   )
 }
 
-private func renderedDiagnosticsText(_ result: WorkspaceDiagnosticsResult) -> String {
-  guard !result.diagnostics.isEmpty else {
-    return "No diagnostics found for \(result.outputRef)."
+private func workspaceDiagnosticsNextAllowedActions(
+  _ result: WorkspaceDiagnosticsResult
+) -> [String] {
+  switch result {
+  case .read(_, .page(let page)) where page.continuation == .endOfOutput:
+    return ["read_file", "edit_file", "run_command"]
+  case .search(_, .page(let page))
+  where page.continuation == .endOfOutput && !page.matches.isEmpty:
+    return ["read_file", "edit_file", "run_command"]
+  case .read(_, .empty), .search(_, .page), .read(_, .page), .read(_, .lineTooLong),
+    .read(_, .offsetOutOfRange), .search(_, .offsetOutOfRange):
+    return ["workspace_diagnostics"]
+  case .legacyDiagnostics:
+    return ["read_file", "edit_file"]
   }
+}
 
-  return result.diagnostics.map { diagnostic in
-    let column = diagnostic.column.map { ":\($0)" } ?? ""
+private func workspaceDiagnosticsNextStep(_ result: WorkspaceDiagnosticsResult) -> String? {
+  switch result {
+  case .read(_, .page(let page)):
+    return workspaceDiagnosticsContinuationNextStep(page.continuation)
+  case .search(_, .page(let page)):
+    return workspaceDiagnosticsContinuationNextStep(page.continuation)
+  case .read(_, .lineTooLong(_, let line, _)):
     return
-      "\(diagnostic.path.rawValue):\(diagnostic.line)\(column): \(diagnostic.severity.rawValue): \(diagnostic.message)"
-  }.joined(separator: "\n")
+      "Search this output with workspace_diagnostics operation search and a narrow pattern around line \(line)."
+  case .read(_, .offsetOutOfRange), .search(_, .offsetOutOfRange):
+    return "Retry workspace_diagnostics with an offset within the reported output line count."
+  case .read(_, .empty):
+    return
+      "The selected output stream is empty. Choose another stream or continue from the command result."
+  case .legacyDiagnostics:
+    return nil
+  }
+}
+
+private func workspaceDiagnosticsContinuationNextStep(
+  _ continuation: WorkspaceDiagnosticsContinuation
+) -> String? {
+  switch continuation {
+  case .endOfOutput:
+    return nil
+  case .next(let offset, _):
+    return
+      "Continue workspace_diagnostics with the same outputRef, operation, and stream using offset \(offset)."
+  case .blocked(let line, _):
+    return
+      "Search this output with workspace_diagnostics operation search and a narrow pattern around line \(line)."
+  }
 }
 
 private func editMismatchObservationText(
