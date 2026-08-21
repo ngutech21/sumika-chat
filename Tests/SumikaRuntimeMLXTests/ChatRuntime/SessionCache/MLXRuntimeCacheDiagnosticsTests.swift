@@ -23,7 +23,6 @@ struct MLXRuntimeCacheDiagnosticsTests {
     await diagnostics.begin(generationID: generationID, expectsReuse: true)
     await diagnostics.recordPreparedInput(
       MLXPreparedInputDiagnostics(
-        fullPromptTokens: 140,
         inputMaskPresent: false,
         preparedMediaPresent: false
       )
@@ -32,7 +31,11 @@ struct MLXRuntimeCacheDiagnosticsTests {
     let result = try #require(
       await diagnostics.complete(
         generationID: generationID,
-        info: completionInfo(promptTokens: 20, generatedTokens: 5)
+        info: completionInfo(
+          promptTokens: 20,
+          cachedPromptTokens: 120,
+          generatedTokens: 5
+        )
       )
     )
 
@@ -42,6 +45,48 @@ struct MLXRuntimeCacheDiagnosticsTests {
     #expect(result.expectedCachedTokens == 120)
     #expect(result.expectedSuffixTokens == 20)
     #expect(result.reusedPromptTokens == 120)
+    #expect(result.cacheEfficiency == 120.0 / 140.0)
+  }
+
+  @Test
+  func authoritativeCachedCountOverridesExpectedLedger() async throws {
+    let diagnostics = MLXRuntimeCacheDiagnostics(
+      cacheTypes: ["MLXLMCommon.KVCacheSimple"],
+      cacheTrimmable: true
+    )
+
+    try await completeColdGeneration(
+      diagnostics,
+      fullPromptTokens: 100,
+      generatedTokens: 20
+    )
+
+    let generationID = UUID()
+    await diagnostics.begin(generationID: generationID, expectsReuse: true)
+    await diagnostics.recordPreparedInput(
+      MLXPreparedInputDiagnostics(
+        inputMaskPresent: false,
+        preparedMediaPresent: false
+      )
+    )
+
+    let result = try #require(
+      await diagnostics.complete(
+        generationID: generationID,
+        info: completionInfo(
+          promptTokens: 40,
+          cachedPromptTokens: 100,
+          generatedTokens: 5
+        )
+      )
+    )
+
+    #expect(result.decision == .commonPrefixReuse)
+    #expect(result.fullPromptTokens == 140)
+    #expect(result.expectedCachedTokens == 120)
+    #expect(result.expectedSuffixTokens == 20)
+    #expect(result.reusedPromptTokens == 100)
+    #expect(result.cacheEfficiency == 100.0 / 140.0)
   }
 
   @Test
@@ -61,7 +106,6 @@ struct MLXRuntimeCacheDiagnosticsTests {
     await diagnostics.begin(generationID: generationID, expectsReuse: true)
     await diagnostics.recordPreparedInput(
       MLXPreparedInputDiagnostics(
-        fullPromptTokens: 140,
         inputMaskPresent: false,
         preparedMediaPresent: false
       )
@@ -70,7 +114,11 @@ struct MLXRuntimeCacheDiagnosticsTests {
     let result = try #require(
       await diagnostics.complete(
         generationID: generationID,
-        info: completionInfo(promptTokens: 19, generatedTokens: 5)
+        info: completionInfo(
+          promptTokens: 19,
+          cachedPromptTokens: 121,
+          generatedTokens: 5
+        )
       )
     )
 
@@ -100,7 +148,6 @@ struct MLXRuntimeCacheDiagnosticsTests {
     await diagnostics.begin(generationID: generationID, expectsReuse: true)
     await diagnostics.recordPreparedInput(
       MLXPreparedInputDiagnostics(
-        fullPromptTokens: 140,
         inputMaskPresent: false,
         preparedMediaPresent: false
       )
@@ -140,7 +187,6 @@ struct MLXRuntimeCacheDiagnosticsTests {
     await diagnostics.begin(generationID: generationID, expectsReuse: true)
     await diagnostics.recordPreparedInput(
       MLXPreparedInputDiagnostics(
-        fullPromptTokens: 140,
         inputMaskPresent: true,
         preparedMediaPresent: false
       )
@@ -179,7 +225,6 @@ struct MLXRuntimeCacheDiagnosticsTests {
     )
     await diagnostics.recordPreparedInput(
       MLXPreparedInputDiagnostics(
-        fullPromptTokens: 140,
         inputMaskPresent: false,
         preparedMediaPresent: true
       )
@@ -215,7 +260,6 @@ struct MLXRuntimeCacheDiagnosticsTests {
     await diagnostics.begin(generationID: generationID, expectsReuse: true)
     await diagnostics.recordPreparedInput(
       MLXPreparedInputDiagnostics(
-        fullPromptTokens: 140,
         inputMaskPresent: false,
         preparedMediaPresent: true
       )
@@ -252,7 +296,6 @@ struct MLXRuntimeCacheDiagnosticsTests {
     await diagnostics.begin(generationID: generationID, expectsReuse: false)
     await diagnostics.recordPreparedInput(
       MLXPreparedInputDiagnostics(
-        fullPromptTokens: 140,
         inputMaskPresent: false,
         preparedMediaPresent: false
       )
@@ -268,6 +311,9 @@ struct MLXRuntimeCacheDiagnosticsTests {
     #expect(result.decision == .coldPrefill)
     #expect(result.expectedCachedTokens == nil)
     #expect(result.mismatchReason == nil)
+    #expect(result.fullPromptTokens == 140)
+    #expect(result.reusedPromptTokens == 0)
+    #expect(result.cacheEfficiency == 0)
   }
 
   @Test
@@ -280,7 +326,6 @@ struct MLXRuntimeCacheDiagnosticsTests {
     await diagnostics.begin(generationID: generationID, expectsReuse: true)
     await diagnostics.recordPreparedInput(
       MLXPreparedInputDiagnostics(
-        fullPromptTokens: 140,
         inputMaskPresent: false,
         preparedMediaPresent: false
       )
@@ -307,7 +352,6 @@ struct MLXRuntimeCacheDiagnosticsTests {
     await diagnostics.begin(generationID: generationID, expectsReuse: false)
     await diagnostics.recordPreparedInput(
       MLXPreparedInputDiagnostics(
-        fullPromptTokens: fullPromptTokens,
         inputMaskPresent: false,
         preparedMediaPresent: false
       )
@@ -325,10 +369,12 @@ struct MLXRuntimeCacheDiagnosticsTests {
 
   private func completionInfo(
     promptTokens: Int,
+    cachedPromptTokens: Int = 0,
     generatedTokens: Int
   ) -> GenerateCompletionInfo {
     GenerateCompletionInfo(
       promptTokenCount: promptTokens,
+      cachedPromptTokenCount: cachedPromptTokens,
       generationTokenCount: generatedTokens,
       promptTime: 0.1,
       generationTime: 0.2

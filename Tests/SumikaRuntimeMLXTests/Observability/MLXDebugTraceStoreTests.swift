@@ -81,6 +81,7 @@ struct MLXDebugTraceStoreTests {
           expectedCachedTokens: 120,
           expectedSuffixTokens: 20,
           reusedPromptTokens: 0,
+          cacheEfficiency: 0,
           inputMaskPresent: false,
           preparedMediaPresent: false,
           newMediaPresent: false,
@@ -123,6 +124,7 @@ struct MLXDebugTraceStoreTests {
     #expect(object["expectedCachedTokens"] as? Int == 120)
     #expect(object["expectedSuffixTokens"] as? Int == 20)
     #expect(object["reusedPromptTokens"] as? Int == 0)
+    #expect(object["cacheEfficiency"] as? Double == 0)
     #expect(object["inputMaskPresent"] as? Bool == false)
     #expect(object["preparedMediaPresent"] as? Bool == false)
     #expect(object["newMediaPresent"] as? Bool == false)

@@ -178,6 +178,7 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
         trace["expectedSuffixTokens"] = expectedSuffixTokens
       }
       trace["reusedPromptTokens"] = diagnostics.reusedPromptTokens
+      trace["cacheEfficiency"] = diagnostics.cacheEfficiency
       trace["inputMaskPresent"] = diagnostics.inputMaskPresent
       trace["preparedMediaPresent"] = diagnostics.preparedMediaPresent
       trace["newMediaPresent"] = diagnostics.newMediaPresent

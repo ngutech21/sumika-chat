@@ -23,7 +23,6 @@ enum MLXRuntimeCacheMismatchReason: String, Equatable, Sendable {
 }
 
 struct MLXPreparedInputDiagnostics: Equatable, Sendable {
-  let fullPromptTokens: Int
   let inputMaskPresent: Bool
   let preparedMediaPresent: Bool
 }
@@ -40,6 +39,7 @@ struct MLXRuntimeCacheDiagnosticResult: Equatable, Sendable {
   let expectedCachedTokens: Int?
   let expectedSuffixTokens: Int?
   let reusedPromptTokens: Int
+  let cacheEfficiency: Double
   let inputMaskPresent: Bool
   let preparedMediaPresent: Bool
   let newMediaPresent: Bool
@@ -159,7 +159,7 @@ actor MLXRuntimeCacheDiagnostics {
 
     switch info.stopReason {
     case .stop, .length:
-      let lowerBound = preparedInput.fullPromptTokens + info.generationTokenCount
+      let lowerBound = info.totalPromptTokenCount + info.generationTokenCount
       cachedTokenLedger = CachedTokenLedger(
         lowerBound: lowerBound,
         // `generationTokenCount` excludes an EOS token, but includes a token
@@ -188,8 +188,8 @@ actor MLXRuntimeCacheDiagnostics {
     cacheTypes: [String],
     cacheTrimmable: Bool
   ) -> MLXRuntimeCacheDiagnosticResult {
-    let fullPromptTokens = preparedInput.fullPromptTokens
-    let reusedPromptTokens = max(fullPromptTokens - info.promptTokenCount, 0)
+    let fullPromptTokens = info.totalPromptTokenCount
+    let reusedPromptTokens = info.cachedPromptTokenCount
     let matchedCachedTokens = expectedCachedTokens.map { ledger in
       ledger.contains(reusedPromptTokens) ? reusedPromptTokens : ledger.lowerBound
     }
@@ -216,6 +216,7 @@ actor MLXRuntimeCacheDiagnostics {
       preparedInput: preparedInput,
       newMediaPresent: newMediaPresent,
       expectedCachedTokens: expectedCachedTokens,
+      fullPromptTokens: fullPromptTokens,
       cacheTrimmable: cacheTrimmable
     )
     return MLXRuntimeCacheDiagnosticResult(
@@ -225,6 +226,7 @@ actor MLXRuntimeCacheDiagnostics {
       expectedCachedTokens: matchedCachedTokens,
       expectedSuffixTokens: expectedSuffixTokens,
       reusedPromptTokens: reusedPromptTokens,
+      cacheEfficiency: info.cacheEfficiency,
       inputMaskPresent: preparedInput.inputMaskPresent,
       preparedMediaPresent: preparedInput.preparedMediaPresent,
       newMediaPresent: newMediaPresent,
@@ -238,6 +240,7 @@ actor MLXRuntimeCacheDiagnostics {
     preparedInput: MLXPreparedInputDiagnostics,
     newMediaPresent: Bool,
     expectedCachedTokens: CachedTokenLedger?,
+    fullPromptTokens: Int,
     cacheTrimmable: Bool
   ) -> MLXRuntimeCacheMismatchReason? {
     guard
@@ -263,7 +266,7 @@ actor MLXRuntimeCacheDiagnostics {
       return .preparedMedia
     }
     if let expectedCachedTokens,
-      expectedCachedTokens.lowerBound > preparedInput.fullPromptTokens
+      expectedCachedTokens.lowerBound > fullPromptTokens
     {
       return .cachedLedgerLongerThanPrompt
     }
@@ -281,7 +284,6 @@ private struct MLXDiagnosingInputProcessor: UserInputProcessor {
     let preparedInput = try await base.prepare(input: input)
     await diagnostics.recordPreparedInput(
       MLXPreparedInputDiagnostics(
-        fullPromptTokens: preparedInput.text.tokens.size,
         inputMaskPresent: preparedInput.text.mask != nil,
         preparedMediaPresent: preparedInput.image != nil
           || preparedInput.video != nil

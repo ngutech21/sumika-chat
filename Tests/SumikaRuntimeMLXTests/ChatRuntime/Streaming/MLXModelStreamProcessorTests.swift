@@ -440,7 +440,7 @@ struct MLXModelStreamProcessorTests {
   }
 
   @Test
-  func reusedModelStreamRecordsInternalFullPrefillDiagnostics() async throws {
+  func reusedModelStreamRecordsAuthoritativeCacheMetrics() async throws {
     let diagnostics = MLXRuntimeCacheDiagnostics(
       cacheTypes: [
         "MLXLMCommon.MambaCache",
@@ -452,7 +452,6 @@ struct MLXModelStreamProcessorTests {
     await diagnostics.begin(generationID: coldGenerationID, expectsReuse: false)
     await diagnostics.recordPreparedInput(
       MLXPreparedInputDiagnostics(
-        fullPromptTokens: 100,
         inputMaskPresent: false,
         preparedMediaPresent: false
       )
@@ -471,7 +470,6 @@ struct MLXModelStreamProcessorTests {
     await diagnostics.begin(generationID: traceID, expectsReuse: true)
     await diagnostics.recordPreparedInput(
       MLXPreparedInputDiagnostics(
-        fullPromptTokens: 140,
         inputMaskPresent: false,
         preparedMediaPresent: false
       )
@@ -482,7 +480,8 @@ struct MLXModelStreamProcessorTests {
       continuation.yield(
         .info(
           GenerateCompletionInfo(
-            promptTokenCount: 140,
+            promptTokenCount: 20,
+            cachedPromptTokenCount: 120,
             generationTokenCount: 5,
             promptTime: 0.5,
             generationTime: 0.25
@@ -522,15 +521,14 @@ struct MLXModelStreamProcessorTests {
 
     let prefill = try #require(await tracer.firstRuntimePrefillTrace())
     let cacheDiagnostics = try #require(prefill.cacheDiagnostics)
-    #expect(prefill.event.promptTokens == 140)
-    #expect(cacheDiagnostics.decision == .fullPrefill)
-    #expect(
-      cacheDiagnostics.mismatchReason == .nontrimmablePrefixOrAlignmentMismatch
-    )
+    #expect(prefill.event.promptTokens == 20)
+    #expect(cacheDiagnostics.decision == .exactSuffixReuse)
+    #expect(cacheDiagnostics.mismatchReason == nil)
     #expect(cacheDiagnostics.fullPromptTokens == 140)
     #expect(cacheDiagnostics.expectedCachedTokens == 120)
     #expect(cacheDiagnostics.expectedSuffixTokens == 20)
-    #expect(cacheDiagnostics.reusedPromptTokens == 0)
+    #expect(cacheDiagnostics.reusedPromptTokens == 120)
+    #expect(cacheDiagnostics.cacheEfficiency == 120.0 / 140.0)
     #expect(cacheDiagnostics.inputMaskPresent == false)
     #expect(cacheDiagnostics.preparedMediaPresent == false)
     #expect(cacheDiagnostics.newMediaPresent == false)
@@ -1436,7 +1434,6 @@ struct MLXModelStreamProcessorTests {
     await diagnostics.begin(generationID: previousGenerationID, expectsReuse: false)
     await diagnostics.recordPreparedInput(
       MLXPreparedInputDiagnostics(
-        fullPromptTokens: 100,
         inputMaskPresent: false,
         preparedMediaPresent: false
       )
@@ -1454,7 +1451,6 @@ struct MLXModelStreamProcessorTests {
     await diagnostics.begin(generationID: traceID, expectsReuse: true)
     await diagnostics.recordPreparedInput(
       MLXPreparedInputDiagnostics(
-        fullPromptTokens: 140,
         inputMaskPresent: false,
         preparedMediaPresent: false
       )
@@ -1509,7 +1505,6 @@ struct MLXModelStreamProcessorTests {
     await diagnostics.begin(generationID: nextGenerationID, expectsReuse: true)
     await diagnostics.recordPreparedInput(
       MLXPreparedInputDiagnostics(
-        fullPromptTokens: 160,
         inputMaskPresent: false,
         preparedMediaPresent: false
       )

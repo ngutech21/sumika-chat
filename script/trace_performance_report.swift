@@ -62,6 +62,7 @@ struct GenerationReport: Codable {
   var expectedCachedTokens: Int?
   var expectedSuffixTokens: Int?
   var reusedPromptTokens: Int?
+  var cacheEfficiency: Double?
   var inputMaskPresent: Bool?
   var preparedMediaPresent: Bool?
   var newMediaPresent: Bool?
@@ -334,8 +335,8 @@ func markdown(_ report: PerformanceReport) -> String {
     "- Rows: \(report.rowCount)",
     "- Generations: \(report.generationCount)",
     "",
-    "| # | Mode | Iter | Cache | Reason | MLX decision | MLX mismatch | Memory clear | TTFT ms | Prefill ms | Prompt tokens | Full tokens | Reused tokens | Decode ms | tok/s | Prompt bytes | Outcome | Error |",
-    "|---:|---|---:|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
+    "| # | Mode | Iter | Cache | Reason | MLX decision | MLX mismatch | Memory clear | TTFT ms | Prefill ms | Prompt tokens | Full tokens | Reused tokens | Cache % | Decode ms | tok/s | Prompt bytes | Outcome | Error |",
+    "|---:|---|---:|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
   ]
 
   for (index, generation) in report.generations.enumerated() {
@@ -353,6 +354,7 @@ func markdown(_ report: PerformanceReport) -> String {
       generation.promptTokens.map(String.init) ?? "-",
       generation.fullPromptTokens.map(String.init) ?? "-",
       generation.reusedPromptTokens.map(String.init) ?? "-",
+      generation.cacheEfficiency.map { String(format: "%.1f", $0 * 100) } ?? "-",
       formatted(generation.decodeMs),
       formatted(generation.tokensPerSecond),
       generation.promptBytes.map(String.init) ?? "-",
@@ -631,6 +633,7 @@ for (rowIndex, row) in rows.enumerated() {
       report.expectedCachedTokens = intValue(object, "expectedCachedTokens")
       report.expectedSuffixTokens = intValue(object, "expectedSuffixTokens")
       report.reusedPromptTokens = intValue(object, "reusedPromptTokens")
+      report.cacheEfficiency = doubleValue(object, "cacheEfficiency")
       report.inputMaskPresent = boolValue(object, "inputMaskPresent")
       report.preparedMediaPresent = boolValue(object, "preparedMediaPresent")
       report.newMediaPresent = boolValue(object, "newMediaPresent")

@@ -394,26 +394,27 @@ terminal stop handling. Its `durationMs` is `promptTime * 1000`, and
 `promptTokens` is MLX's exact `promptTokenCount`; TTFT remains the separately
 measured wall-clock interval.
 
-In debug-trace mode the loaded model processor is wrapped without changing its
-output. The wrapper records the complete rendered prompt-token count plus the
-prepared mask/media state; the runtime records whether the newly appended
-messages themselves contain media. Combined with the previous terminal token
-ledger, `runtime_prefill` reports
+MLX completion info supplies the authoritative rendered prompt-token count,
+reused cache-prefix count, and cache efficiency. In debug-trace mode the loaded
+model processor is wrapped without changing its output so Sumika can additionally
+record the prepared mask/media state; the runtime also records whether the newly
+appended messages themselves contain media. Combined with the previous terminal
+token ledger as the expected reuse range, `runtime_prefill` reports
 `mlxCacheDecision` (`cold_prefill`, `exact_suffix_reuse`,
 `common_prefix_reuse`, `full_prefill`, `unavailable`, or
 `unexpected_prompt_count`),
 `mlxCacheMismatchReason`, `fullPromptTokens`, `expectedCachedTokens`,
-`expectedSuffixTokens`, `reusedPromptTokens`, `inputMaskPresent`,
+`expectedSuffixTokens`, `reusedPromptTokens`, `cacheEfficiency`, `inputMaskPresent`,
 `preparedMediaPresent`, `newMediaPresent`, `cacheTrimmable`, and `cacheTypes`.
 The expected ledger accepts both MLX-valid `.stop` outcomes: an EOS token may
 already be in the cache even though it is excluded from `generationTokenCount`,
 while a textual stop-string token is included in that count. A matching
-continuation reports the candidate proven by the observed suffix.
+continuation reports the candidate matching MLX's observed cached-prefix count.
 For a non-trimmable hybrid cache, a full prefill without a mask or media is
 classified as `prefix_or_alignment_mismatch_nontrimmable_cache`. The pinned MLX
-API does not expose its private cached token IDs, so Sumika does not invent a
-token-level first-mismatch index; exact token localization still requires
-upstream instrumentation.
+API exposes the authoritative cached token count but not its private cached token
+IDs, so Sumika does not invent a token-level first-mismatch index; exact token
+localization still requires upstream instrumentation.
 
 The terminal `runtime_decode` row records MLX's exact `generatedTokenCount` with
 `generatedTokenCountIsEstimate: false`. The matching `mlx_response` retains the

@@ -275,6 +275,15 @@ nonisolated final class MLXChatSessionContinuationTests: XCTestCase {
         XCTAssertEqual(warmRendered, coldRendered)
         XCTAssertEqual(warmResult.text, coldResult.text)
         XCTAssertLessThan(warmResult.info.promptTokenCount, coldResult.info.promptTokenCount)
+        XCTAssertEqual(coldResult.info.cachedPromptTokenCount, 0)
+        XCTAssertEqual(coldResult.info.totalPromptTokenCount, coldResult.info.promptTokenCount)
+        XCTAssertGreaterThan(warmResult.info.cachedPromptTokenCount, 0)
+        XCTAssertEqual(warmResult.info.totalPromptTokenCount, coldResult.info.totalPromptTokenCount)
+        XCTAssertEqual(warmResult.info.totalPromptTokenCount, warmRendered.count)
+        XCTAssertEqual(
+          warmResult.info.totalPromptTokenCount,
+          warmResult.info.cachedPromptTokenCount + warmResult.info.promptTokenCount
+        )
       }
     }
   }
@@ -331,6 +340,15 @@ nonisolated final class MLXChatSessionContinuationTests: XCTestCase {
         XCTAssertEqual(warmRendered, coldRendered)
         XCTAssertEqual(warmResult.text, coldResult.text)
         XCTAssertLessThan(warmResult.info.promptTokenCount, coldResult.info.promptTokenCount)
+        XCTAssertEqual(coldResult.info.cachedPromptTokenCount, 0)
+        XCTAssertEqual(coldResult.info.totalPromptTokenCount, coldResult.info.promptTokenCount)
+        XCTAssertGreaterThan(warmResult.info.cachedPromptTokenCount, 0)
+        XCTAssertEqual(warmResult.info.totalPromptTokenCount, coldResult.info.totalPromptTokenCount)
+        XCTAssertEqual(warmResult.info.totalPromptTokenCount, warmRendered.count)
+        XCTAssertEqual(
+          warmResult.info.totalPromptTokenCount,
+          warmResult.info.cachedPromptTokenCount + warmResult.info.promptTokenCount
+        )
       }
     }
   }
