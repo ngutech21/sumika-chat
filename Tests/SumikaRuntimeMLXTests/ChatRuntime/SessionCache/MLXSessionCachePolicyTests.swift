@@ -11,6 +11,41 @@ import Testing
 @Suite()
 struct MLXSessionCachePolicyTests {
   @Test
+  func speculativeDecodingModeChangeForcesCacheIdentityRebuild() {
+    let plainIdentity = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Stable",
+      settings: .agentDefault,
+      projectionMode: .fullHistory,
+      speculativeDecodingMode: .none
+    )
+    let mtpIdentity = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Stable",
+      settings: .agentDefault,
+      projectionMode: .fullHistory,
+      speculativeDecodingMode: .mtp
+    )
+    let unchangedMTPIdentity = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Stable",
+      settings: .agentDefault,
+      projectionMode: .fullHistory,
+      speculativeDecodingMode: .mtp
+    )
+
+    #expect(plainIdentity != mtpIdentity)
+    #expect(mtpIdentity == unchangedMTPIdentity)
+    #expect(
+      MLXSessionCachePolicy.identityMismatchReason(
+        cached: plainIdentity,
+        current: mtpIdentity
+      ) == .speculativeDecodingChanged)
+    #expect(
+      MLXSessionCachePolicy.identityMismatchReason(
+        cached: mtpIdentity,
+        current: plainIdentity
+      ) == .speculativeDecodingChanged)
+  }
+
+  @Test
   func thinkingBudgetModeChangeForcesCacheIdentityRebuild() {
     let chatBudget = MLXThinkingBudgetIdentity(
       policy: .qwen36ImmediateV1,

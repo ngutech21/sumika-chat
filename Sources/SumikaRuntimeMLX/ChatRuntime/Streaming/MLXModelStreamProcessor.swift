@@ -495,30 +495,69 @@ extension MLXModelStreamProcessor {
     guard let traceMetadata else {
       return metrics
     }
-    await traceMetadata.tracer.recordTurnTraceEvent(
-      TurnTraceEvent(
-        turnID: traceMetadata.turnID,
-        generationID: traceID,
-        phase: .runtimeDecode,
-        durationMs: info.generateTime * 1000,
-        toolLoopIteration: traceMetadata.toolLoopIteration,
-        tokensPerSecond: info.tokensPerSecond,
-        cacheMode: cacheTrace.cacheMode.rawValue,
-        cacheReason: cacheTrace.cacheReason.rawValue,
-        interactionMode: traceMetadata.interactionMode,
-        contextSignature: cacheTrace.contextSignature,
-        previousContextSignature: cacheTrace.previousContextSignature,
-        appendOnly: cacheTrace.appendOnly,
-        reusedMessageCount: cacheTrace.reusedMessageCount,
-        appendedMessageCount: cacheTrace.appendedMessageCount,
-        mismatchReason: cacheTrace.mismatchReason,
-        firstMismatchIndex: cacheTrace.firstMismatchIndex,
-        systemPromptChanged: cacheTrace.systemPromptChanged,
-        generatedTokenCount: info.generationTokenCount,
-        generatedTokenCountIsEstimate: false
-      )
+    let event = TurnTraceEvent(
+      turnID: traceMetadata.turnID,
+      generationID: traceID,
+      phase: .runtimeDecode,
+      durationMs: info.generateTime * 1000,
+      toolLoopIteration: traceMetadata.toolLoopIteration,
+      tokensPerSecond: info.tokensPerSecond,
+      cacheMode: cacheTrace.cacheMode.rawValue,
+      cacheReason: cacheTrace.cacheReason.rawValue,
+      interactionMode: traceMetadata.interactionMode,
+      contextSignature: cacheTrace.contextSignature,
+      previousContextSignature: cacheTrace.previousContextSignature,
+      appendOnly: cacheTrace.appendOnly,
+      reusedMessageCount: cacheTrace.reusedMessageCount,
+      appendedMessageCount: cacheTrace.appendedMessageCount,
+      mismatchReason: cacheTrace.mismatchReason,
+      firstMismatchIndex: cacheTrace.firstMismatchIndex,
+      systemPromptChanged: cacheTrace.systemPromptChanged,
+      generatedTokenCount: info.generationTokenCount,
+      generatedTokenCountIsEstimate: false
     )
+    if let runtimeTracer = traceMetadata.tracer as? any MLXRuntimeTracing {
+      await runtimeTracer.recordRuntimeDecodeTrace(
+        MLXRuntimeDecodeTrace(event: event, mtp: mtpDecodeTrace(from: info))
+      )
+    } else {
+      await traceMetadata.tracer.recordTurnTraceEvent(event)
+    }
     return metrics
+  }
+
+  private static func mtpDecodeTrace(from info: GenerateCompletionInfo) -> MLXMTPDecodeTrace? {
+    guard
+      info.proposedDraftTokens != nil
+        || info.acceptedDraftTokens != nil
+        || info.passthroughReason != nil
+        || info.speculativeDecodingTelemetry != nil
+    else {
+      return nil
+    }
+
+    let telemetry = info.speculativeDecodingTelemetry
+    let proposedDraftTokens = info.proposedDraftTokens ?? telemetry?.draftTokenCount
+    let acceptedDraftTokens = info.acceptedDraftTokens ?? telemetry?.acceptedDraftTokenCount
+    let acceptanceRate: Double? =
+      if let proposedDraftTokens, let acceptedDraftTokens {
+        proposedDraftTokens > 0
+          ? Double(acceptedDraftTokens) / Double(proposedDraftTokens)
+          : 0
+      } else {
+        nil
+      }
+    return MLXMTPDecodeTrace(
+      proposedDraftTokens: proposedDraftTokens,
+      acceptedDraftTokens: acceptedDraftTokens,
+      acceptanceRate: acceptanceRate,
+      roundCount: telemetry?.roundCount,
+      targetModelCallCount: telemetry?.targetModelCallCount,
+      draftModelCallCount: telemetry?.draftModelCallCount,
+      targetVerifiedTokenCount: telemetry?.targetVerifiedTokenCount,
+      emittedTokenCount: telemetry?.emittedTokenCount,
+      passthroughReason: info.passthroughReason
+    )
   }
 
   private static func yieldSegments(

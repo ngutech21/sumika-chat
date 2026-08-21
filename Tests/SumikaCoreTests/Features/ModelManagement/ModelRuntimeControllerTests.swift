@@ -219,6 +219,7 @@ struct ModelRuntimeControllerTests {
     let configuration = await runtime.loadedConfiguration
     #expect(configuration?.localModelDirectory == modelDirectory)
     #expect(configuration?.contextTokenLimit == 2048)
+    #expect(configuration?.usesBundledMTPDrafter == false)
   }
 
   @Test
@@ -235,6 +236,22 @@ struct ModelRuntimeControllerTests {
     try await waitUntil { controller.modelState == .ready }
 
     #expect(await runtime.loadedConfiguration?.thinkingBudgetPolicy == .hardLimitImmediate)
+  }
+
+  @Test
+  func bundledMTPModelLoadCarriesCatalogDrafterPolicyToRuntime() async throws {
+    let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
+    let runtime = RuntimeControllerRecordingRuntime()
+    let controller = await makeController(
+      initialModelID: "Qwen3.6-27B-OptiQ-4bit",
+      runtime: runtime,
+      modelPath: modelDirectory.path(percentEncoded: false)
+    )
+
+    controller.loadModel()
+    try await waitUntil { controller.modelState == .ready }
+
+    #expect(await runtime.loadedConfiguration?.usesBundledMTPDrafter == true)
   }
 
   @Test

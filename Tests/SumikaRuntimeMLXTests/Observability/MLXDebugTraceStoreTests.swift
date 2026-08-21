@@ -167,6 +167,58 @@ struct MLXDebugTraceStoreTests {
   }
 
   @Test
+  func runtimeDecodeTracePreservesZeroMTPValuesAndPassthroughReason() async throws {
+    setenv("SUMIKA_DEBUG_TRACE", "1", 1)
+    defer { unsetenv("SUMIKA_DEBUG_TRACE") }
+    let fileURL = try temporaryTraceFileURL()
+    let store = MLXDebugTraceStore(fileURL: fileURL)
+
+    await store.recordRuntimeDecodeTrace(
+      MLXRuntimeDecodeTrace(
+        event: TurnTraceEvent(
+          generationID: UUID(),
+          phase: .runtimeDecode,
+          durationMs: 250,
+          tokensPerSecond: 20,
+          generatedTokenCount: 5,
+          generatedTokenCountIsEstimate: false
+        ),
+        mtp: MLXMTPDecodeTrace(
+          proposedDraftTokens: 0,
+          acceptedDraftTokens: 0,
+          acceptanceRate: 0,
+          roundCount: 0,
+          targetModelCallCount: 0,
+          draftModelCallCount: 0,
+          targetVerifiedTokenCount: 0,
+          emittedTokenCount: 0,
+          passthroughReason: "main model did not emit drafter state"
+        )
+      )
+    )
+
+    let data = try Data(contentsOf: fileURL)
+    let line = try #require(String(data: data, encoding: .utf8)?.split(separator: "\n").first)
+    let object = try #require(
+      JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+    )
+
+    #expect(object["phase"] as? String == "runtime_decode")
+    #expect(object["mtpProposedDraftTokens"] as? Int == 0)
+    #expect(object["mtpAcceptedDraftTokens"] as? Int == 0)
+    #expect(object["mtpAcceptanceRate"] as? Double == 0)
+    #expect(object["mtpRoundCount"] as? Int == 0)
+    #expect(object["mtpTargetModelCallCount"] as? Int == 0)
+    #expect(object["mtpDraftModelCallCount"] as? Int == 0)
+    #expect(object["mtpTargetVerifiedTokenCount"] as? Int == 0)
+    #expect(object["mtpEmittedTokenCount"] as? Int == 0)
+    #expect(
+      object["mtpPassthroughReason"] as? String
+        == "main model did not emit drafter state"
+    )
+  }
+
+  @Test
   func requestTraceRecordsAllGenerationSettings() async throws {
     setenv("SUMIKA_DEBUG_TRACE", "1", 1)
     defer {
@@ -198,6 +250,8 @@ struct MLXDebugTraceStoreTests {
         transitionMode: .immediate,
         validationStatus: .validated
       ),
+      mtpDrafterLoaded: true,
+      speculativeDecodingMode: "mtp",
       interactionMode: .chat
     )
 
@@ -212,6 +266,8 @@ struct MLXDebugTraceStoreTests {
     #expect(tracedSettings["reasoningEnabled"] as? Bool == false)
     #expect(tracedSettings["repetitionContextSize"] as? Int == 512)
     #expect(object["interactionMode"] as? String == "chat")
+    #expect(object["mtpDrafterLoaded"] as? Bool == true)
+    #expect(object["speculativeDecodingMode"] as? String == "mtp")
     let budget = try #require(object["thinkingBudget"] as? [String: Any])
     #expect(budget["policy"] as? String == "qwen36_immediate_v1")
     #expect(budget["maximumTokenCount"] as? Int == 1_024)

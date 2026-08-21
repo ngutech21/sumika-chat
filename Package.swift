@@ -37,8 +37,8 @@ let package = Package(
     .package(url: "https://github.com/tree-sitter/tree-sitter-typescript", exact: "0.23.2"),
     .package(url: "https://github.com/ml-explore/mlx-swift/", from: "0.31.6"),
     .package(
-      url: "https://github.com/ml-explore/mlx-swift-lm",
-      revision: "b6ba48d899eaf408b79db449647d0ddb82734922"),
+      url: "https://github.com/ngutech21/mlx-swift-lm",
+      revision: "c3dcb8d4b05906633c0b505fb555c5d7ea189a6b"),
     .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.3"),
     .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
     .package(url: "https://github.com/FluidInference/FluidAudio", from: "0.15.4"),
@@ -85,6 +85,7 @@ let package = Package(
       dependencies: [
         "SumikaCore",
         .product(name: "MLX", package: "mlx-swift"),
+        .product(name: "MLXNN", package: "mlx-swift"),
         .product(name: "MLXLLM", package: "mlx-swift-lm"),
         .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
         .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
