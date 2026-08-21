@@ -29,6 +29,12 @@ final class AppState {
     mcpServersStore: any MCPServersStoring = MCPServersStore(),
     runtime: any ChatModelRuntime,
     modelAvailability: (@Sendable (ManagedModel) -> Bool)? = nil,
+    skillCatalog: SkillCatalog = SkillCatalog(
+      personalSkillsURL: FileManager.default.temporaryDirectory.appending(
+        path: "sumika-app-state-no-personal-skills-\(UUID().uuidString)",
+        directoryHint: .isDirectory
+      )
+    ),
     turnTracer: any TurnTracing = NoopTurnTracer(),
     workspaceOpener: any WorkspaceOpening = MacWorkspaceOpenService(),
     assistantSpeechService: AssistantSpeechService = AssistantSpeechService(),
@@ -43,6 +49,7 @@ final class AppState {
       webAccessSettingsProvider: {
         await webAccessSettingsStore.settings()
       },
+      skillCatalog: skillCatalog,
       turnTracer: turnTracer
     )
     self.init(
@@ -159,7 +166,7 @@ final class AppState {
   }
 
   @discardableResult
-  func sendMessage(prompt: String) -> Bool {
+  func sendMessage(_ submission: MessageSubmission) async -> Bool {
     do {
       guard let workspaceID = workspaceState.activeWorkspace?.id else {
         throw ConversationIntentError.inactive
@@ -168,7 +175,7 @@ final class AppState {
         workspaceID: workspaceID,
         sessionID: workspaceState.activeSessionID
       )
-      try sumika.conversation.sendMessage(prompt: prompt)
+      try await sumika.conversation.sendMessage(submission)
       return true
     } catch {
       workspaceState.errorMessage = error.localizedDescription

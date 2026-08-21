@@ -5,6 +5,8 @@ import SumikaCore
 struct ChatComposerPresentation: Equatable {
   let session: ChatComposerSessionState
   let isGenerating: Bool
+  let isPreparingTurn: Bool
+  let skillCatalog: SkillCatalogSnapshot
   let errorMessage: String?
   let canChangeInteractionMode: Bool
   let canChangeMCPServerSelection: Bool
@@ -51,6 +53,8 @@ final class ChatFeatureState {
     return ChatComposerPresentation(
       session: sessionState,
       isGenerating: selectedActiveState?.isGenerating == true,
+      isPreparingTurn: selectedActiveState?.isPreparingTurn == true,
+      skillCatalog: selectedActiveState?.skillCatalog ?? .empty,
       errorMessage: intentErrorMessage
         ?? (anotherConversationIsBusy ? "Another chat operation is still active." : nil)
           ?? selectedActiveState?.errorMessage,
@@ -147,6 +151,20 @@ final class ChatFeatureState {
 
   func cancelGeneration() {
     conversation.cancelGeneration()
+  }
+
+  func refreshSkillCatalog() async -> SkillCatalogSnapshot {
+    guard activateSelectedConversation() else {
+      return .empty
+    }
+    do {
+      let snapshot = try await conversation.refreshSkillCatalog()
+      intentErrorMessage = nil
+      return snapshot
+    } catch {
+      intentErrorMessage = error.localizedDescription
+      return .empty
+    }
   }
 
   func approveToolCall(

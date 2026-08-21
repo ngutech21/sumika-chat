@@ -33,6 +33,7 @@ internal struct ChatModelContextBuilder: Sendable {
       appendEntries(
         for: turn,
         workspaceInstructionsProjection: workspaceInstructionsProjection,
+        includesActivatedSkills: state.interactionMode == .agent,
         preservesHistoricalReasoning: supportsHistoricalReasoningPreservation,
         to: &entries
       )
@@ -52,6 +53,7 @@ internal struct ChatModelContextBuilder: Sendable {
   private func appendEntries(
     for turn: ChatTurn,
     workspaceInstructionsProjection: WorkspaceInstructionsProjection?,
+    includesActivatedSkills: Bool,
     preservesHistoricalReasoning: Bool,
     to entries: inout [ModelContextEntry]
   ) {
@@ -66,6 +68,7 @@ internal struct ChatModelContextBuilder: Sendable {
           message,
           turnID: turn.id,
           workspaceInstructionsProjection: workspaceInstructionsProjection,
+          includesActivatedSkills: includesActivatedSkills,
           to: &entries
         )
         previousProjectedItemWasTool = false
@@ -148,11 +151,13 @@ internal struct ChatModelContextBuilder: Sendable {
     _ message: UserTurnMessage,
     turnID: ChatTurn.ID,
     workspaceInstructionsProjection: WorkspaceInstructionsProjection?,
+    includesActivatedSkills: Bool,
     to entries: inout [ModelContextEntry]
   ) {
     let promptContext = effectivePromptContext(
       for: message,
-      workspaceInstructionsProjection: workspaceInstructionsProjection
+      workspaceInstructionsProjection: workspaceInstructionsProjection,
+      includesActivatedSkills: includesActivatedSkills
     )
     guard
       let entry = try? ModelFacingPromptRenderer.userPromptEntry(
@@ -174,14 +179,18 @@ internal struct ChatModelContextBuilder: Sendable {
 
   private func effectivePromptContext(
     for message: UserTurnMessage,
-    workspaceInstructionsProjection: WorkspaceInstructionsProjection?
+    workspaceInstructionsProjection: WorkspaceInstructionsProjection?,
+    includesActivatedSkills: Bool
   ) -> CurrentPromptContext {
-    guard workspaceInstructionsProjection?.messageID == message.id,
+    let context: CurrentPromptContext
+    if workspaceInstructionsProjection?.messageID == message.id,
       workspaceInstructionsProjection?.rendersSnapshot == true
-    else {
-      return message.promptContext.removingWorkspaceInstructions()
+    {
+      context = message.promptContext
+    } else {
+      context = message.promptContext.removingWorkspaceInstructions()
     }
-    return message.promptContext
+    return includesActivatedSkills ? context : context.removingActivatedSkills()
   }
 
   private func latestWorkspaceInstructionsProjection(

@@ -469,7 +469,7 @@ struct AppStateTests {
       !appState.workspaceState.isLoading
     }
     appState.modelManagementState.setModelLoadStateForTesting(.ready)
-    appState.sendMessage(prompt: "Persist this")
+    await appState.sendMessage(MessageSubmission(text: "Persist this"))
 
     let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
       let savedSession = library.workspaces.first?
@@ -1153,7 +1153,7 @@ struct AppStateTests {
     }
     appState.modelManagementState.setModelLoadStateForTesting(.ready)
 
-    let didSend = appState.sendMessage(prompt: "Create a chat")
+    let didSend = await appState.sendMessage(MessageSubmission(text: "Create a chat"))
 
     #expect(didSend)
     let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
@@ -1293,6 +1293,7 @@ struct AppStateTests {
       ),
       modelSettingsStore: InMemoryModelSettingsStore(),
       runtime: AppStateTestRuntime(),
+      skillCatalog: try testSkillCatalog(),
       turnTracer: NoopTurnTracer()
     )
 
@@ -1314,6 +1315,7 @@ struct AppStateTests {
       webAccessSettingsProvider: {
         await webAccessSettingsStore.settings()
       },
+      skillCatalog: try testSkillCatalog(),
       turnTracer: NoopTurnTracer()
     )
     let appState = AppState(
@@ -1451,6 +1453,7 @@ struct AppStateTests {
       webAccessSettingsProvider: {
         await webAccessSettingsStore.settings()
       },
+      skillCatalog: try testSkillCatalog(),
       turnTracer: NoopTurnTracer()
     )
 
@@ -1528,7 +1531,7 @@ struct AppStateTests {
     )
     appState.chatFeatureState.setInteractionMode(.agent)
     appState.modelManagementState.setModelLoadStateForTesting(.ready)
-    appState.sendMessage(prompt: "refresh the preview")
+    await appState.sendMessage(MessageSubmission(text: "refresh the preview"))
 
     try await waitUntil {
       !appState.chatFeatureState.transcript.isGenerating
@@ -1574,7 +1577,7 @@ struct AppStateTests {
     }
     appState.modelManagementState.setModelLoadStateForTesting(.ready)
     appState.chatFeatureState.setInteractionMode(.agent)
-    appState.sendMessage(prompt: "inspect the project")
+    await appState.sendMessage(MessageSubmission(text: "inspect the project"))
 
     try await waitUntil {
       !appState.chatFeatureState.transcript.isGenerating
@@ -1630,7 +1633,7 @@ struct AppStateTests {
 
     appState.modelManagementState.setModelLoadStateForTesting(.ready)
     appState.chatFeatureState.setInteractionMode(.agent)
-    appState.sendMessage(prompt: "inspect the project")
+    await appState.sendMessage(MessageSubmission(text: "inspect the project"))
 
     try await waitUntil {
       !appState.chatFeatureState.transcript.isGenerating
@@ -1792,7 +1795,7 @@ struct AppStateTests {
       }?.state == .connected(toolCount: 1))
 
     appState.modelManagementState.setModelLoadStateForTesting(.ready)
-    appState.sendMessage(prompt: "Use the first server")
+    await appState.sendMessage(MessageSubmission(text: "Use the first server"))
     try await waitUntil { !appState.chatFeatureState.transcript.isGenerating }
 
     appState.setSelectedMCPServerIDs([secondServer.id])
@@ -1803,7 +1806,7 @@ struct AppStateTests {
         && statuses.first(where: { $0.serverID == secondServer.id })?.state
           == .connected(toolCount: 1)
     }
-    appState.sendMessage(prompt: "Use the second server")
+    await appState.sendMessage(MessageSubmission(text: "Use the second server"))
     try await waitUntil { !appState.chatFeatureState.transcript.isGenerating }
 
     let capturedToolContexts = await runtime.capturedToolContexts
@@ -1866,6 +1869,15 @@ struct AppStateTests {
     }
     #expect(savedLibrary.workspaces.first?.sessions.first?.selectedMCPServerIDs == [])
   }
+}
+
+private func testSkillCatalog() throws -> SkillCatalog {
+  SkillCatalog(
+    personalSkillsURL: try scopedTemporaryDirectory().appending(
+      path: "personal-skills-\(UUID().uuidString)",
+      directoryHint: .isDirectory
+    )
+  )
 }
 
 private func makeMCPServerScript(initializationDelay: Double = 0) throws -> URL {

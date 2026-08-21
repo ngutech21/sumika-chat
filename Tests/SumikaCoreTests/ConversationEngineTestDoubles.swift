@@ -51,7 +51,8 @@ extension ConversationEngine {
     chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
     turnTracer: any TurnTracing = NoopTurnTracer(),
     chatSession: ChatSession = ChatSession(),
-    workspaceInstructionsLoader: (any WorkspaceInstructionsLoading)? = nil
+    workspaceInstructionsLoader: (any WorkspaceInstructionsLoading)? = nil,
+    skillCatalog: SkillCatalog? = nil
   ) {
     self.init(
       testSelectedModelID: chatSession.selectedModelID,
@@ -64,6 +65,13 @@ extension ConversationEngine {
       modelAvailability: modelAvailability,
       toolOrchestrator: toolOrchestrator,
       chatAttachmentLoader: chatAttachmentLoader,
+      skillCatalog: skillCatalog
+        ?? SkillCatalog(
+          personalSkillsURL: FileManager.default.temporaryDirectory.appending(
+            path: "sumika-tests-no-personal-skills-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+          )
+        ),
       turnTracer: turnTracer
     )
     if let workspaceInstructionsLoader {
@@ -82,6 +90,7 @@ extension ConversationEngine {
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool,
     toolOrchestrator: ToolOrchestrator,
     chatAttachmentLoader: any ChatAttachmentLoading,
+    skillCatalog: SkillCatalog,
     turnTracer: any TurnTracing
   ) {
     let operationID = UUID()
@@ -116,6 +125,7 @@ extension ConversationEngine {
       ),
       toolOrchestrator: toolOrchestrator,
       chatAttachmentLoader: chatAttachmentLoader,
+      skillCatalog: skillCatalog,
       turnTracer: turnTracer
     )
     installConversation(
@@ -172,8 +182,8 @@ extension ConversationEngine {
   }
 
   @discardableResult
-  func sendMessageInTestWorkspace(prompt: String) throws -> Bool {
-    try sendMessage(prompt: prompt)
+  func sendMessageInTestWorkspace(prompt: String) async throws -> Bool {
+    try await sendMessage(prompt: prompt)
     return true
   }
 }

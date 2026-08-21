@@ -9,6 +9,7 @@ struct ChatComposer: View {
   let selectedModel: ManagedModel
   let modelState: ModelLoadState
   let interactionMode: WorkspaceInteractionMode
+  let skillCatalog: SkillCatalogSnapshot
   let sessionOptionsConfiguration: ChatComposerOptions.Configuration
   let todoState: TodoState?
   let canChangeModel: Bool
@@ -16,6 +17,7 @@ struct ChatComposer: View {
   let canSend: Bool
   let canRunLocalCommand: Bool
   let isGenerating: Bool
+  let isPreparingTurn: Bool
   let errorMessage: String?
   let onSelectInteractionMode: (WorkspaceInteractionMode) -> Void
   let onSelectModel: (ManagedModel) -> Void
@@ -25,20 +27,24 @@ struct ChatComposer: View {
   let onRemoveAttachment: (ChatAttachment.ID) -> Void
   let speechInputController: ComposerSpeechInputController
   let onOpenAudioModels: () -> Void
-  let onSend: (String) -> Bool
+  let onRefreshSkills: () async -> SkillCatalogSnapshot
+  let onSend: (MessageSubmission) async -> Bool
   let onCancel: () -> Void
   @State private var draftBridge = ComposerDraftBridge()
   @State private var draftState = ComposerDraftState()
-  @State private var slashSelectionIndex = 0
-  @State private var slashSuggestionsDismissed = false
+  @State private var suggestionSelectionIndex = 0
+  @State private var suggestionsDismissed = false
+  @State private var refreshedSkillCatalog: SkillCatalogSnapshot?
+  @State private var boundSkillMentions: [SkillMention] = []
   @State private var showModelPicker = false
   @State private var isDropTarget = false
+  @State private var isSubmitting = false
 
   private let slashCommandParser = SlashCommandParser()
 
   var body: some View {
-    let suggestions = slashSuggestions
-    let selectedSlashIndex = clampedSlashIndex(for: suggestions)
+    let suggestions = composerSuggestions
+    let selectedSuggestionIndex = clampedSuggestionIndex(for: suggestions)
     let canSubmitDraft = canSendCurrentDraft
     let canActivateSend = isGenerating || canSubmitDraft
 
@@ -53,7 +59,7 @@ struct ChatComposer: View {
         AttachmentList(
           title: nil,
           attachments: attachments,
-          canRemove: !isGenerating,
+          canRemove: !isComposerBusy,
           onRemoveAttachment: onRemoveAttachment
         )
       }
@@ -64,12 +70,13 @@ struct ChatComposer: View {
           .transition(.opacity.combined(with: .move(edge: .top)))
       }
 
-      if !suggestions.isEmpty {
-        SlashCommandSuggestionList(
+      if shouldShowSuggestionList {
+        ComposerSuggestionList(
           suggestions: suggestions,
-          selectedIndex: selectedSlashIndex,
-          onSelect: acceptSlashSuggestion,
-          onHighlight: { slashSelectionIndex = $0 }
+          diagnostics: suggestionDiagnostics,
+          selectedIndex: selectedSuggestionIndex,
+          onSelect: acceptSuggestion,
+          onHighlight: { suggestionSelectionIndex = $0 }
         )
         .transition(.opacity)
       }
@@ -77,13 +84,15 @@ struct ChatComposer: View {
       VStack(spacing: 8) {
         ComposerTextView(
           draftBridge: draftBridge,
-          placeholder: "Ask, dictate, or type / for commands",
+          placeholder: composerPlaceholder,
           canAcceptAttachments: canAcceptAttachments,
+          isEditable: !isComposerBusy,
+          onTextEdit: updateBoundMentions(replacing:with:),
           onTextStateChanged: updateDraftState(_:),
           onSubmit: sendMessage,
-          onMoveSlashSelection: moveSlashSelection(by:),
-          onCommitSlashSelection: commitSlashSelectionFromKey,
-          onDismissSlashSuggestions: dismissSlashSuggestions,
+          onMoveSuggestionSelection: moveSuggestionSelection(by:),
+          onCommitSuggestionSelection: commitSuggestionSelectionFromKey,
+          onDismissSuggestions: dismissSuggestions,
           onPasteboardAttachments: handlePasteboardAttachments(_:)
         )
         .frame(height: 60, alignment: .topLeading)
@@ -94,7 +103,7 @@ struct ChatComposer: View {
           }
           .buttonStyle(.borderless)
           .foregroundStyle(.secondary)
-          .disabled(isGenerating || modelState != .ready)
+          .disabled(isComposerBusy || modelState != .ready)
           .accessibilityLabel("Add context files")
 
           modelControlGroup
@@ -105,23 +114,32 @@ struct ChatComposer: View {
 
           ComposerSpeechInputControl(
             controller: speechInputController,
-            isDisabled: isGenerating || modelState != .ready,
+            isDisabled: isComposerBusy || modelState != .ready,
             onTranscript: insertSpeechTranscript(_:),
             onNeedsAudioModel: onOpenAudioModels
           )
 
           Button(action: isGenerating ? onCancel : sendMessage) {
-            Image(systemName: isGenerating ? "stop.fill" : "arrow.up")
-              .font(.system(size: 13, weight: .bold))
-              .foregroundStyle(sendButtonForeground(canActivateSend: canActivateSend))
-              .frame(width: 28, height: 28)
-              .background(sendButtonBackground(canActivateSend: canActivateSend), in: Circle())
-              .contentShape(Circle())
+            Group {
+              if isPreparingTurn || isSubmitting {
+                ProgressView()
+                  .controlSize(.small)
+              } else {
+                Image(systemName: isGenerating ? "stop.fill" : "arrow.up")
+              }
+            }
+            .font(.system(size: 13, weight: .bold))
+            .foregroundStyle(sendButtonForeground(canActivateSend: canActivateSend))
+            .frame(width: 28, height: 28)
+            .background(sendButtonBackground(canActivateSend: canActivateSend), in: Circle())
+            .contentShape(Circle())
           }
           .buttonStyle(.plain)
           .accessibilityIdentifier(isGenerating ? "cancel-generation-button" : "send-button")
           .disabled(!isGenerating && !canSubmitDraft)
-          .accessibilityLabel(isGenerating ? "Cancel" : "Send")
+          .accessibilityLabel(
+            isGenerating ? "Cancel" : (isPreparingTurn || isSubmitting ? "Preparing" : "Send")
+          )
 
         }
       }
@@ -149,6 +167,15 @@ struct ChatComposer: View {
       }
     }
     .padding(16)
+    .onChange(of: skillCatalog) { _, snapshot in
+      refreshedSkillCatalog = snapshot
+    }
+    .onChange(of: interactionMode) { _, mode in
+      if mode == .chat {
+        boundSkillMentions = []
+        suggestionsDismissed = false
+      }
+    }
   }
 
   private var modelControlGroup: some View {
@@ -260,11 +287,21 @@ struct ChatComposer: View {
   }
 
   private var canLoadSelectedModel: Bool {
-    !availableModels.isEmpty && modelState != .loading && modelState != .ready && !isGenerating
+    !availableModels.isEmpty && modelState != .loading && modelState != .ready && !isComposerBusy
   }
 
   private var canAcceptAttachments: Bool {
-    !isGenerating && modelState == .ready
+    !isComposerBusy && modelState == .ready
+  }
+
+  private var isComposerBusy: Bool {
+    isGenerating || isPreparingTurn || isSubmitting
+  }
+
+  private var composerPlaceholder: String {
+    interactionMode == .agent
+      ? "Ask, dictate, or type / for commands and $ for skills"
+      : "Ask, dictate, or type / for commands"
   }
 
   private func sendButtonBackground(canActivateSend: Bool) -> Color {
@@ -299,22 +336,46 @@ struct ChatComposer: View {
     availableModels.isEmpty ? "Download a model from Models first" : selectedModel.displayName
   }
 
-  private var slashSuggestions: [SlashCommandDescriptor] {
-    guard !slashSuggestionsDismissed else {
-      return []
-    }
-    guard let token = draftState.slashSuggestionPrefix else {
-      return []
-    }
-    return SlashCommandRegistry.matching(prefix: token)
+  private var effectiveSkillCatalog: SkillCatalogSnapshot {
+    refreshedSkillCatalog ?? skillCatalog
   }
 
-  private func clampedSlashIndex(for suggestions: [SlashCommandDescriptor]) -> Int {
+  private var composerSuggestions: [ComposerSuggestion] {
+    guard !suggestionsDismissed else {
+      return []
+    }
+    if let token = draftState.slashSuggestionPrefix {
+      return SlashCommandRegistry.matching(prefix: token).map(ComposerSuggestion.slash)
+    }
+    guard interactionMode == .agent, let token = draftState.skillSuggestionToken else {
+      return []
+    }
+    return effectiveSkillCatalog.skills
+      .filter { descriptor in
+        token.prefix.isEmpty
+          || descriptor.name.lowercased().hasPrefix(token.prefix.lowercased())
+      }
+      .map(ComposerSuggestion.skill)
+  }
+
+  private var suggestionDiagnostics: [SkillDiagnostic] {
+    guard interactionMode == .agent, draftState.skillSuggestionToken != nil else {
+      return []
+    }
+    return effectiveSkillCatalog.diagnostics
+  }
+
+  private var shouldShowSuggestionList: Bool {
+    guard !suggestionsDismissed else { return false }
+    return !composerSuggestions.isEmpty || !suggestionDiagnostics.isEmpty
+  }
+
+  private func clampedSuggestionIndex(for suggestions: [ComposerSuggestion]) -> Int {
     let count = suggestions.count
     guard count > 0 else {
       return 0
     }
-    return min(max(slashSelectionIndex, 0), count - 1)
+    return min(max(suggestionSelectionIndex, 0), count - 1)
   }
 
   private var hasDraftText: Bool {
@@ -322,7 +383,7 @@ struct ChatComposer: View {
   }
 
   private var canSendCurrentDraft: Bool {
-    guard hasDraftText else {
+    guard hasDraftText, !isSubmitting, !isPreparingTurn else {
       return false
     }
 
@@ -340,46 +401,112 @@ struct ChatComposer: View {
     guard draftState != state else {
       return
     }
+    let previousSkillToken = draftState.skillSuggestionToken
+    let previousSlashPrefix = draftState.slashSuggestionPrefix
+    let wasDismissed = suggestionsDismissed
     draftState = state
+    boundSkillMentions = ComposerSkillMentionEditor.validMentions(
+      boundSkillMentions,
+      in: draftBridge.text
+    )
+    if state.skillSuggestionToken != previousSkillToken
+      || state.slashSuggestionPrefix != previousSlashPrefix
+    {
+      suggestionsDismissed = false
+      suggestionSelectionIndex = 0
+    }
+    if interactionMode == .agent,
+      state.skillSuggestionToken != nil,
+      previousSkillToken == nil || wasDismissed
+    {
+      refreshSkills()
+    }
   }
 
-  private func moveSlashSelection(by delta: Int) -> KeyPress.Result {
-    let suggestions = slashSuggestions
+  private func moveSuggestionSelection(by delta: Int) -> KeyPress.Result {
+    let suggestions = composerSuggestions
     guard !suggestions.isEmpty else {
       return .ignored
     }
-    let selectedIndex = clampedSlashIndex(for: suggestions)
-    slashSelectionIndex = min(max(selectedIndex + delta, 0), suggestions.count - 1)
+    let selectedIndex = clampedSuggestionIndex(for: suggestions)
+    suggestionSelectionIndex = min(max(selectedIndex + delta, 0), suggestions.count - 1)
     return .handled
   }
 
-  private func commitSlashSelectionFromKey() -> KeyPress.Result {
-    let suggestions = slashSuggestions
+  private func commitSuggestionSelectionFromKey() -> KeyPress.Result {
+    let suggestions = composerSuggestions
     guard !suggestions.isEmpty else {
       return .ignored
     }
-    acceptSlashSuggestion(suggestions[clampedSlashIndex(for: suggestions)])
+    acceptSuggestion(suggestions[clampedSuggestionIndex(for: suggestions)])
     return .handled
   }
 
-  private func dismissSlashSuggestions() -> KeyPress.Result {
-    guard !slashSuggestions.isEmpty else {
+  private func dismissSuggestions() -> KeyPress.Result {
+    guard shouldShowSuggestionList else {
       return .ignored
     }
-    slashSuggestionsDismissed = true
+    suggestionsDismissed = true
     return .handled
+  }
+
+  private func acceptSuggestion(_ suggestion: ComposerSuggestion) {
+    switch suggestion {
+    case .slash(let descriptor):
+      acceptSlashSuggestion(descriptor)
+    case .skill(let descriptor):
+      acceptSkillSuggestion(descriptor)
+    }
   }
 
   private func acceptSlashSuggestion(_ descriptor: SlashCommandDescriptor) {
     setDraftText(descriptor.token + " ")
-    slashSelectionIndex = 0
-    slashSuggestionsDismissed = false
+    suggestionSelectionIndex = 0
+    suggestionsDismissed = false
+  }
+
+  private func acceptSkillSuggestion(_ descriptor: SkillDescriptor) {
+    guard let token = draftState.skillSuggestionToken else { return }
+    let replacement = "$\(descriptor.name)"
+    updateBoundMentions(replacing: token.range, with: replacement)
+    let insertion = ComposerDraftTextEditor.inserting(
+      replacement,
+      into: draftBridge.text,
+      selectedRange: token.range
+    )
+    let mention = SkillMention(
+      id: descriptor.id,
+      range: NSRange(location: token.range.location, length: (replacement as NSString).length)
+    )
+    boundSkillMentions.removeAll { $0.range == mention.range }
+    boundSkillMentions.append(mention)
+    boundSkillMentions.sort { $0.range.location < $1.range.location }
+    draftBridge.replaceText(insertion.text, selectedRange: insertion.selectedRange)
+    updateDraftState(
+      ComposerDraftState(text: insertion.text, selectedRange: insertion.selectedRange)
+    )
+    suggestionSelectionIndex = 0
+    suggestionsDismissed = true
+  }
+
+  private func refreshSkills() {
+    Task { @MainActor in
+      refreshedSkillCatalog = await onRefreshSkills()
+    }
+  }
+
+  private func updateBoundMentions(replacing range: NSRange, with replacement: String) {
+    boundSkillMentions = ComposerSkillMentionEditor.updating(
+      boundSkillMentions,
+      replacing: range,
+      with: replacement
+    )
   }
 
   private func sendMessage() {
-    let suggestions = slashSuggestions
+    let suggestions = composerSuggestions
     if !suggestions.isEmpty {
-      acceptSlashSuggestion(suggestions[clampedSlashIndex(for: suggestions)])
+      acceptSuggestion(suggestions[clampedSuggestionIndex(for: suggestions)])
       return
     }
 
@@ -388,25 +515,40 @@ struct ChatComposer: View {
     }
 
     let submittedDraft = draftBridge.text
-    let shouldClearDraft = onSend(submittedDraft)
+    let submittedMentions = ComposerSkillMentionEditor.validMentions(
+      boundSkillMentions,
+      in: submittedDraft
+    )
+    isSubmitting = true
     Task { @MainActor in
+      let shouldClearDraft = await onSend(
+        MessageSubmission(text: submittedDraft, skillMentions: submittedMentions)
+      )
       let currentDraft = draftBridge.text
       if shouldClearDraft && (currentDraft.isEmpty || currentDraft == submittedDraft) {
         setDraftText("")
       }
+      isSubmitting = false
     }
   }
 
   private func setDraftText(_ text: String) {
-    draftBridge.replaceText(text)
-    updateDraftState(ComposerDraftState(text: text))
+    boundSkillMentions = []
+    let selectedRange = NSRange(location: (text as NSString).length, length: 0)
+    draftBridge.replaceText(text, selectedRange: selectedRange)
+    updateDraftState(ComposerDraftState(text: text, selectedRange: selectedRange))
   }
 
   private func insertSpeechTranscript(_ text: String) {
+    updateBoundMentions(replacing: draftBridge.selectedRange, with: text)
     draftBridge.insertTextAtCurrentSelection(text)
-    updateDraftState(ComposerDraftState(text: draftBridge.text))
+    updateDraftState(
+      ComposerDraftState(text: draftBridge.text, selectedRange: draftBridge.selectedRange)
+    )
   }
+}
 
+extension ChatComposer {
   private func handlePaste(_ providers: [NSItemProvider]) {
     guard canAcceptAttachments else {
       return
@@ -671,10 +813,20 @@ struct ComposerDraftState: Equatable {
   var hasText = false
   var slashSuggestionPrefix: String?
   var slashCommandText: String?
+  var selectedRange = NSRange(location: 0, length: 0)
+  var skillSuggestionToken: ComposerSkillSuggestionToken?
 
   init() {}
 
-  init(text: String) {
+  init(text: String, selectedRange: NSRange? = nil) {
+    let textLength = (text as NSString).length
+    let requestedRange = selectedRange ?? NSRange(location: textLength, length: 0)
+    self.selectedRange = NSRange(
+      location: min(max(requestedRange.location, 0), textLength),
+      length: min(
+        max(requestedRange.length, 0), textLength - min(max(requestedRange.location, 0), textLength)
+      )
+    )
     hasText = text.contains { !$0.isWhitespace }
 
     if text.first == "/" {
@@ -687,6 +839,125 @@ struct ComposerDraftState: Equatable {
     if text.first(where: { !$0.isWhitespace }) == "/" {
       slashCommandText = text
     }
+
+    skillSuggestionToken = Self.skillToken(in: text, selectedRange: self.selectedRange)
+  }
+
+  private static func skillToken(
+    in text: String,
+    selectedRange: NSRange
+  ) -> ComposerSkillSuggestionToken? {
+    guard selectedRange.length == 0 else { return nil }
+    let nsText = text as NSString
+    let caret = selectedRange.location
+    var tokenStart = caret
+    while tokenStart > 0, isSkillNameCodeUnit(nsText.character(at: tokenStart - 1)) {
+      tokenStart -= 1
+    }
+    guard tokenStart > 0, nsText.character(at: tokenStart - 1) == 36 else {
+      return nil
+    }
+    let dollarLocation = tokenStart - 1
+    guard
+      dollarLocation == 0
+        || !isSkillNameCodeUnit(nsText.character(at: dollarLocation - 1))
+    else {
+      return nil
+    }
+    var tokenEnd = caret
+    while tokenEnd < nsText.length, isSkillNameCodeUnit(nsText.character(at: tokenEnd)) {
+      tokenEnd += 1
+    }
+    return ComposerSkillSuggestionToken(
+      prefix: nsText.substring(
+        with: NSRange(location: tokenStart, length: caret - tokenStart)
+      ),
+      range: NSRange(location: dollarLocation, length: tokenEnd - dollarLocation)
+    )
+  }
+
+  private static func isSkillNameCodeUnit(_ codeUnit: unichar) -> Bool {
+    (codeUnit >= 48 && codeUnit <= 57)
+      || (codeUnit >= 65 && codeUnit <= 90)
+      || (codeUnit >= 97 && codeUnit <= 122)
+      || codeUnit == 45
+  }
+}
+
+struct ComposerSkillSuggestionToken: Equatable {
+  let prefix: String
+  let range: NSRange
+}
+
+enum ComposerSkillMentionEditor {
+  static func updating(
+    _ mentions: [SkillMention],
+    replacing editedRange: NSRange,
+    with replacement: String
+  ) -> [SkillMention] {
+    let replacementLength = (replacement as NSString).length
+    let delta = replacementLength - editedRange.length
+    let editedUpperBound = editedRange.location + editedRange.length
+    return mentions.compactMap { mention in
+      let mentionUpperBound = mention.range.location + mention.range.length
+      if editedRange.length == 0 {
+        if editedRange.location <= mention.range.location {
+          return SkillMention(
+            id: mention.id,
+            range: NSRange(
+              location: mention.range.location + delta,
+              length: mention.range.length
+            )
+          )
+        }
+        if editedRange.location >= mentionUpperBound {
+          return mention
+        }
+        return nil
+      }
+      if editedUpperBound <= mention.range.location {
+        return SkillMention(
+          id: mention.id,
+          range: NSRange(
+            location: mention.range.location + delta,
+            length: mention.range.length
+          )
+        )
+      }
+      if editedRange.location >= mentionUpperBound {
+        return mention
+      }
+      return nil
+    }
+  }
+
+  static func validMentions(_ mentions: [SkillMention], in text: String) -> [SkillMention] {
+    let nsText = text as NSString
+    return mentions.filter { mention in
+      guard mention.range.location >= 0,
+        mention.range.length > 1,
+        mention.range.location + mention.range.length <= nsText.length
+      else {
+        return false
+      }
+      let upperBound = mention.range.location + mention.range.length
+      let hasValidLeadingBoundary =
+        mention.range.location == 0
+        || !isSkillNameCodeUnit(nsText.character(at: mention.range.location - 1))
+      let hasValidTrailingBoundary =
+        upperBound == nsText.length
+        || !isSkillNameCodeUnit(nsText.character(at: upperBound))
+      return hasValidLeadingBoundary
+        && hasValidTrailingBoundary
+        && nsText.substring(with: mention.range) == "$\(mention.id.name)"
+    }
+  }
+
+  private static func isSkillNameCodeUnit(_ codeUnit: unichar) -> Bool {
+    (codeUnit >= 48 && codeUnit <= 57)
+      || (codeUnit >= 65 && codeUnit <= 90)
+      || (codeUnit >= 97 && codeUnit <= 122)
+      || codeUnit == 45
   }
 }
 
@@ -698,6 +969,10 @@ private final class ComposerDraftBridge {
     textView?.string ?? storedText
   }
 
+  var selectedRange: NSRange {
+    textView?.selectedRange() ?? NSRange(location: (storedText as NSString).length, length: 0)
+  }
+
   func bind(_ textView: ComposerNSTextView) {
     self.textView = textView
     storedText = textView.string
@@ -707,9 +982,12 @@ private final class ComposerDraftBridge {
     storedText = text
   }
 
-  func replaceText(_ text: String) {
+  func replaceText(
+    _ text: String,
+    selectedRange: NSRange? = nil
+  ) {
     storedText = text
-    textView?.replaceAllText(text)
+    textView?.replaceAllText(text, selectedRange: selectedRange)
   }
 
   func insertTextAtCurrentSelection(_ text: String) {
@@ -845,15 +1123,21 @@ private struct ComposerTextView: NSViewRepresentable {
   let draftBridge: ComposerDraftBridge
   let placeholder: String
   let canAcceptAttachments: Bool
+  let isEditable: Bool
+  let onTextEdit: (NSRange, String) -> Void
   let onTextStateChanged: (ComposerDraftState) -> Void
   let onSubmit: () -> Void
-  let onMoveSlashSelection: (Int) -> KeyPress.Result
-  let onCommitSlashSelection: () -> KeyPress.Result
-  let onDismissSlashSuggestions: () -> KeyPress.Result
+  let onMoveSuggestionSelection: (Int) -> KeyPress.Result
+  let onCommitSuggestionSelection: () -> KeyPress.Result
+  let onDismissSuggestions: () -> KeyPress.Result
   let onPasteboardAttachments: (NSPasteboard) -> Bool
 
   func makeCoordinator() -> Coordinator {
-    Coordinator(draftBridge: draftBridge, onTextStateChanged: onTextStateChanged)
+    Coordinator(
+      draftBridge: draftBridge,
+      onTextEdit: onTextEdit,
+      onTextStateChanged: onTextStateChanged
+    )
   }
 
   func makeNSView(context: Context) -> NSScrollView {
@@ -915,6 +1199,7 @@ private struct ComposerTextView: NSViewRepresentable {
     }
 
     context.coordinator.draftBridge = draftBridge
+    context.coordinator.onTextEdit = onTextEdit
     context.coordinator.onTextStateChanged = onTextStateChanged
     draftBridge.bind(textView)
     if textView.placeholder != placeholder {
@@ -922,11 +1207,11 @@ private struct ComposerTextView: NSViewRepresentable {
     }
     textView.canAcceptAttachments = canAcceptAttachments
     textView.onSubmit = onSubmit
-    textView.onMoveSlashSelection = onMoveSlashSelection
-    textView.onCommitSlashSelection = onCommitSlashSelection
-    textView.onDismissSlashSuggestions = onDismissSlashSuggestions
+    textView.onMoveSuggestionSelection = onMoveSuggestionSelection
+    textView.onCommitSuggestionSelection = onCommitSuggestionSelection
+    textView.onDismissSuggestions = onDismissSuggestions
     textView.onPasteboardAttachments = onPasteboardAttachments
-    textView.isEditable = true
+    textView.isEditable = isEditable
     textView.isSelectable = true
     textView.textColor = .labelColor
     textView.frame.size.width = max(scrollView.contentSize.width, 1)
@@ -948,14 +1233,26 @@ private struct ComposerTextView: NSViewRepresentable {
 
   final class Coordinator: NSObject, NSTextViewDelegate {
     var draftBridge: ComposerDraftBridge
+    var onTextEdit: (NSRange, String) -> Void
     var onTextStateChanged: (ComposerDraftState) -> Void
 
     init(
       draftBridge: ComposerDraftBridge,
+      onTextEdit: @escaping (NSRange, String) -> Void,
       onTextStateChanged: @escaping (ComposerDraftState) -> Void
     ) {
       self.draftBridge = draftBridge
+      self.onTextEdit = onTextEdit
       self.onTextStateChanged = onTextStateChanged
+    }
+
+    func textView(
+      _ textView: NSTextView,
+      shouldChangeTextIn affectedCharRange: NSRange,
+      replacementString: String?
+    ) -> Bool {
+      onTextEdit(affectedCharRange, replacementString ?? "")
+      return true
     }
 
     func textDidChange(_ notification: Notification) {
@@ -965,10 +1262,19 @@ private struct ComposerTextView: NSViewRepresentable {
 
       let previousText = draftBridge.text
       draftBridge.noteTextDidChange(textView.string)
-      onTextStateChanged(ComposerDraftState(text: textView.string))
+      onTextStateChanged(
+        ComposerDraftState(text: textView.string, selectedRange: textView.selectedRange())
+      )
       if previousText.isEmpty != textView.string.isEmpty {
         textView.needsDisplay = true
       }
+    }
+
+    func textViewDidChangeSelection(_ notification: Notification) {
+      guard let textView = notification.object as? NSTextView else { return }
+      onTextStateChanged(
+        ComposerDraftState(text: textView.string, selectedRange: textView.selectedRange())
+      )
     }
   }
 }
@@ -982,19 +1288,19 @@ final class ComposerNSTextView: NSTextView {
 
   var canAcceptAttachments = false
   var onSubmit: (() -> Void)?
-  var onMoveSlashSelection: ((Int) -> KeyPress.Result)?
-  var onCommitSlashSelection: (() -> KeyPress.Result)?
-  var onDismissSlashSuggestions: (() -> KeyPress.Result)?
+  var onMoveSuggestionSelection: ((Int) -> KeyPress.Result)?
+  var onCommitSuggestionSelection: (() -> KeyPress.Result)?
+  var onDismissSuggestions: (() -> KeyPress.Result)?
   var onPasteboardAttachments: ((NSPasteboard) -> Bool)?
 
-  func replaceAllText(_ newText: String) {
-    guard string != newText else {
-      return
-    }
-
+  func replaceAllText(_ newText: String, selectedRange: NSRange? = nil) {
     let wasEmpty = string.isEmpty
-    string = newText
-    setSelectedRange(NSRange(location: newText.utf16.count, length: 0))
+    if string != newText {
+      string = newText
+    }
+    setSelectedRange(
+      selectedRange ?? NSRange(location: (newText as NSString).length, length: 0)
+    )
     if wasEmpty != newText.isEmpty {
       needsDisplay = true
     }
@@ -1055,22 +1361,22 @@ final class ComposerNSTextView: NSTextView {
     case 36, 76:
       handleReturn(event)
     case 126:
-      if didHandle(onMoveSlashSelection?(-1)) {
+      if didHandle(onMoveSuggestionSelection?(-1)) {
         return
       }
       super.keyDown(with: event)
     case 125:
-      if didHandle(onMoveSlashSelection?(1)) {
+      if didHandle(onMoveSuggestionSelection?(1)) {
         return
       }
       super.keyDown(with: event)
     case 48:
-      if didHandle(onCommitSlashSelection?()) {
+      if didHandle(onCommitSuggestionSelection?()) {
         return
       }
       super.keyDown(with: event)
     case 53:
-      if didHandle(onDismissSlashSuggestions?()) {
+      if didHandle(onDismissSuggestions?()) {
         return
       }
       super.keyDown(with: event)

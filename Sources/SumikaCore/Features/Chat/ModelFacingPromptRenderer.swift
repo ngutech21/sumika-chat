@@ -156,12 +156,18 @@ package enum ModelFacingPromptRenderer {
     request: ToolCallRequest,
     policy: ToolResultProjectionPolicy
   ) -> String {
-    if request.toolName == .readFile,
-      case .readFile(.page) = toolResult.payload
-    {
+    let isCompleteFilePage =
+      switch (request.toolName, toolResult.payload) {
+      case (.readFile, .readFile(.page)),
+        (.readSkillResource, .readSkillResource(.page)):
+        true
+      default:
+        false
+      }
+    if isCompleteFilePage {
       precondition(
         content.count <= ProjectionLimit.readFilePageObservation.maxCharacters,
-        "read_file page observation exceeded the model observation limit."
+        "File page observation exceeded the model observation limit."
       )
       return content
     }

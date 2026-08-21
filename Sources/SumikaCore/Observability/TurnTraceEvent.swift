@@ -104,6 +104,9 @@ package struct TurnTraceEvent: Codable, Equatable, Sendable {
   package let interactionMode: WorkspaceInteractionMode?
   package let selectedMCPServerIDs: [UUID]?
   package let activeMCPToolCount: Int?
+  package let activatedSkillIDs: [String]?
+  package let activatedSkillContentHashes: [String]?
+  package let activatedSkillCharacterCount: Int?
   package let contextSignature: String?
   package let previousContextSignature: String?
   package let appendOnly: Bool?
@@ -148,6 +151,9 @@ package struct TurnTraceEvent: Codable, Equatable, Sendable {
     interactionMode: WorkspaceInteractionMode? = nil,
     selectedMCPServerIDs: [UUID]? = nil,
     activeMCPToolCount: Int? = nil,
+    activatedSkillIDs: [String]? = nil,
+    activatedSkillContentHashes: [String]? = nil,
+    activatedSkillCharacterCount: Int? = nil,
     contextSignature: String? = nil,
     previousContextSignature: String? = nil,
     appendOnly: Bool? = nil,
@@ -191,6 +197,9 @@ package struct TurnTraceEvent: Codable, Equatable, Sendable {
     self.interactionMode = interactionMode
     self.selectedMCPServerIDs = selectedMCPServerIDs
     self.activeMCPToolCount = activeMCPToolCount
+    self.activatedSkillIDs = activatedSkillIDs
+    self.activatedSkillContentHashes = activatedSkillContentHashes
+    self.activatedSkillCharacterCount = activatedSkillCharacterCount
     self.contextSignature = contextSignature
     self.previousContextSignature = previousContextSignature
     self.appendOnly = appendOnly

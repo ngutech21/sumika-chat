@@ -13,6 +13,7 @@ struct AgentToolConfiguration: Sendable {
       mcpExecutorGroups
       .filter { selectedIDs.contains($0.serverID) }
       .flatMap(\.executors)
+      .filter { $0.definition.name != .readSkillResource }
     return ToolExecutorRegistry.codingAgentRegistry(
       todoWriteEnabled: todoWriteEnabled
     )

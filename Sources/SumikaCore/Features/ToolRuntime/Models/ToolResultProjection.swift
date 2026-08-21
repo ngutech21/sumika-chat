@@ -352,6 +352,8 @@ package enum ToolResultProjector {
     switch payload {
     case .readFile(let result):
       return projectReadFile(result, request: request, policy: policy)
+    case .readSkillResource(let result):
+      return projectReadSkillResource(result, request: request)
     case .listFiles(let result):
       return projectListFiles(result, request: request, policy: policy)
     case .globFiles(let result):
@@ -1020,6 +1022,60 @@ private func projectReadFile(
       text: reason.message,
       affectedPaths: path.map { [$0] } ?? []
     )
+  }
+}
+
+private func projectReadSkillResource(
+  _ result: ReadSkillResourceResult,
+  request: ToolCallRequest
+) -> ToolResultProjection {
+  switch result {
+  case .page(let page):
+    let content = page.textOutput
+    guard
+      let modelPage = try? ReadFilePage(
+        path: page.affectedPath,
+        startLine: page.startLine,
+        endLine: page.endLine,
+        content: page.content,
+        continuation: page.continuation
+      )
+    else {
+      return summaryProjection(
+        toolName: request.toolName,
+        status: .failed,
+        text: "The skill resource page could not be projected safely.",
+        affectedPaths: [page.affectedPath]
+      )
+    }
+    return toolResultProjection(
+      display: .fileContent(path: page.affectedPath, content: content),
+      observation: ToolModelObservation.success(
+        toolName: request.toolName,
+        affectedPaths: [page.affectedPath],
+        blocks: [.readFilePage(modelPage)]
+      ),
+      nextAllowedActions: readSkillResourceNextAllowedActions(for: page)
+    )
+  case .failed(_, _, let message, let status):
+    return summaryProjection(
+      toolName: request.toolName,
+      status: status,
+      text: message,
+      affectedPaths: result.preview.affectedPaths.map(WorkspaceRelativePath.init(rawValue:)),
+      kind: "skill_resource_failure"
+    )
+  }
+}
+
+private func readSkillResourceNextAllowedActions(
+  for page: ReadSkillResourcePage
+) -> [String] {
+  switch page.continuation {
+  case .endOfFile:
+    []
+  case .next, .blocked:
+    [ToolName.readSkillResource.rawValue]
   }
 }
 

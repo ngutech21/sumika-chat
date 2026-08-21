@@ -178,6 +178,99 @@ final class SumikaUITests: XCTestCase {
   }
 
   @MainActor
+  func testSkillAutocompleteSupportsScopesFilteringKeyboardMouseDiagnosticsAndSlashCommands()
+    throws
+  {
+    let fixture = try launchFixture(
+      projectSkills: [
+        UISkillFixture(name: "review", description: "Review project changes."),
+        UISkillFixture(
+          name: "broken",
+          frontmatterName: "wrong-name",
+          description: "Invalid skill."
+        ),
+      ],
+      personalSkills: [
+        UISkillFixture(name: "review", description: "Review any changes."),
+        UISkillFixture(name: "testing", description: "Run focused tests."),
+      ]
+    )
+    let application = try launchApp(fixture: fixture)
+    defer { application.terminate() }
+
+    let agentMode = application.buttons["chat.mode.agent"]
+    XCTAssertTrue(agentMode.waitForExistence(timeout: 5))
+    agentMode.click()
+    let messageField = waitForMessageField(in: application)
+    messageField.click()
+    messageField.typeText("$")
+
+    let skillSuggestions = application.descendants(matching: .any)["skill-suggestions"]
+    XCTAssertTrue(skillSuggestions.waitForExistence(timeout: 5))
+    let projectReview = application.descendants(matching: .any)[
+      "skill-suggestion.project:review"
+    ]
+    let personalReview = application.descendants(matching: .any)[
+      "skill-suggestion.personal:review"
+    ]
+    XCTAssertTrue(projectReview.waitForExistence(timeout: 5))
+    XCTAssertTrue(personalReview.waitForExistence(timeout: 5))
+    XCTAssertLessThan(projectReview.frame.minY, personalReview.frame.minY)
+
+    let diagnosticsFooter = application.buttons["skill-diagnostics-footer"]
+    XCTAssertTrue(diagnosticsFooter.waitForExistence(timeout: 5))
+    diagnosticsFooter.click()
+    XCTAssertTrue(
+      application.descendants(matching: .any)["skill-diagnostics-list"]
+        .waitForExistence(timeout: 5)
+    )
+
+    messageField.typeText("te")
+    XCTAssertTrue(
+      application.descendants(matching: .any)["skill-suggestion.personal:testing"]
+        .waitForExistence(timeout: 5)
+    )
+    XCTAssertFalse(projectReview.exists)
+
+    messageField.typeKey("a", modifierFlags: .command)
+    messageField.typeText("$rev")
+    messageField.typeKey(.downArrow, modifierFlags: [])
+    messageField.typeKey(.tab, modifierFlags: [])
+    XCTAssertEqual(messageField.value as? String, "$review")
+    XCTAssertFalse(skillSuggestions.exists)
+
+    messageField.typeKey("a", modifierFlags: .command)
+    messageField.typeText("$r")
+    XCTAssertTrue(projectReview.waitForExistence(timeout: 5))
+    projectReview.click()
+    XCTAssertEqual(messageField.value as? String, "$review")
+
+    messageField.typeKey("a", modifierFlags: .command)
+    messageField.typeText("/")
+    XCTAssertTrue(
+      application.descendants(matching: .any)["slash-command-suggestions"]
+        .waitForExistence(timeout: 5)
+    )
+    XCTAssertFalse(skillSuggestions.exists)
+
+    try loadSelectedModel(in: application)
+    messageField.click()
+    messageField.typeKey("a", modifierFlags: .command)
+    messageField.typeText("$review")
+    messageField.typeKey(.escape, modifierFlags: [])
+    let baseline = UITurnBaseline.capture(in: application)
+    application.buttons["send-button"].click()
+    let ambiguityError = application.staticTexts.matching(
+      NSPredicate(format: "label CONTAINS %@", "Multiple skills are named 'review'")
+    ).firstMatch
+    XCTAssertTrue(ambiguityError.waitForExistence(timeout: 5))
+    XCTAssertEqual(messageField.value as? String, "$review")
+    let afterFailure = UITurnBaseline.capture(in: application)
+    XCTAssertEqual(afterFailure.assistantMessageCount, baseline.assistantMessageCount)
+    XCTAssertEqual(afterFailure.toolCallCount, baseline.toolCallCount)
+  }
+
+  @MainActor
   func testSessionOptionsShowOnlyRelevantControlsAndPersistMCPSelection() throws {
     let server = MCPServerConfig(
       name: "Offline Test Server",
@@ -613,6 +706,8 @@ final class SumikaUITests: XCTestCase {
     readme: String? = nil,
     files: [String: String] = [:],
     mcpServers: [MCPServerConfig] = [],
+    projectSkills: [UISkillFixture] = [],
+    personalSkills: [UISkillFixture] = [],
     modelID selectedModelID: String? = nil
   ) throws -> LaunchFixture {
     let selectedModelID = selectedModelID ?? modelID
@@ -663,6 +758,14 @@ final class SumikaUITests: XCTestCase {
       )
       try contents.write(to: url, atomically: true, encoding: .utf8)
     }
+    try writeSkills(
+      projectSkills,
+      to: workspaceURL.appending(path: ".agents/skills", directoryHint: .isDirectory)
+    )
+    try writeSkills(
+      personalSkills,
+      to: storageRoot.appending(path: ".agents/skills", directoryHint: .isDirectory)
+    )
 
     let traceURL = traceFileURL()
     return LaunchFixture(
@@ -672,6 +775,24 @@ final class SumikaUITests: XCTestCase {
       traceOffset: fileSize(at: traceURL),
       modelID: selectedModelID
     )
+  }
+
+  private func writeSkills(_ skills: [UISkillFixture], to root: URL) throws {
+    for skill in skills {
+      let directory = root.appending(path: skill.name, directoryHint: .isDirectory)
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      try """
+      ---
+      name: \(skill.frontmatterName ?? skill.name)
+      description: \(skill.description)
+      ---
+      \(skill.body)
+      """.write(
+        to: directory.appending(path: "SKILL.md", directoryHint: .notDirectory),
+        atomically: true,
+        encoding: .utf8
+      )
+    }
   }
 
   private func requireCompleteModelWeights(
@@ -1136,6 +1257,25 @@ private struct LaunchFixture {
   let traceURL: URL
   let traceOffset: UInt64
   let modelID: String
+}
+
+private struct UISkillFixture {
+  let name: String
+  let frontmatterName: String?
+  let description: String
+  let body: String
+
+  init(
+    name: String,
+    frontmatterName: String? = nil,
+    description: String,
+    body: String = "Follow these instructions."
+  ) {
+    self.name = name
+    self.frontmatterName = frontmatterName
+    self.description = description
+    self.body = body
+  }
 }
 
 private struct SafetensorsIndex: Decodable {

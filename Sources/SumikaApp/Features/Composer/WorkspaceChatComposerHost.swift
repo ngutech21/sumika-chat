@@ -10,23 +10,23 @@ struct WorkspaceChatComposerHost: View {
   let mcpServerStatuses: [MCPServerStatus]
   let previewState: WorkspacePreviewFeatureState
   let speechInputController: ComposerSpeechInputController
-  let onSendMessage: (String) -> Bool
+  let onSendMessage: (MessageSubmission) async -> Bool
   let onSelectMCPServerIDs: ([UUID]) -> Void
   let onOpenAudioModels: () -> Void
 
   private static let slashCommandParser = SlashCommandParser()
   @State private var composerErrorMessage: String?
 
-  private var onSend: (String) -> Bool {
-    { submittedDraft in
-      switch handleLocalSlashCommand(submittedDraft) {
+  private var onSend: (MessageSubmission) async -> Bool {
+    { submission in
+      switch handleLocalSlashCommand(submission.text) {
       case .handled(let shouldClearDraft):
         return shouldClearDraft
       case .notHandled:
         break
       }
 
-      return onSendMessage(submittedDraft)
+      return await onSendMessage(submission)
     }
   }
 
@@ -48,6 +48,7 @@ struct WorkspaceChatComposerHost: View {
       selectedModel: composerSelectedModel(from: localDownloadedModels),
       modelState: modelState.modelState,
       interactionMode: composerState.interactionMode,
+      skillCatalog: presentation.skillCatalog,
       sessionOptionsConfiguration: ChatComposerOptions.Configuration(
         interactionMode: composerState.interactionMode,
         reasoningEnabled: composerState.reasoningEnabled,
@@ -69,6 +70,7 @@ struct WorkspaceChatComposerHost: View {
       canSend: modelManagementState.canSend,
       canRunLocalCommand: !isGenerating,
       isGenerating: isGenerating,
+      isPreparingTurn: presentation.isPreparingTurn,
       errorMessage: presentedErrorMessage,
       onSelectInteractionMode: chatState.setInteractionMode,
       onSelectModel: selectModel(_:),
@@ -78,6 +80,7 @@ struct WorkspaceChatComposerHost: View {
       onRemoveAttachment: chatState.removeAttachment,
       speechInputController: speechInputController,
       onOpenAudioModels: onOpenAudioModels,
+      onRefreshSkills: chatState.refreshSkillCatalog,
       onSend: onSend,
       onCancel: chatState.cancelGeneration
     )

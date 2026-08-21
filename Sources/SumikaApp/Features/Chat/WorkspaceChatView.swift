@@ -19,7 +19,7 @@ struct WorkspaceChatView: View, Equatable {
   let onCreateSession: (Workspace.ID) -> ChatSession.ID?
   let onOpenWorkspaceInFinder: () -> Void
   let onOpenWorkspaceInVisualStudioCode: () -> Void
-  let onSendMessage: (String) -> Bool
+  let onSendMessage: (MessageSubmission) async -> Bool
   let onSelectMCPServerIDs: ([UUID]) -> Void
   let onOpenAudioModels: () -> Void
   @State private var previewState = WorkspacePreviewFeatureState()
@@ -117,7 +117,7 @@ private struct WorkspaceChatMainColumn: View, Equatable {
   let speechInputController: ComposerSpeechInputController
   let previewState: WorkspacePreviewFeatureState
   @Binding var isWorkspaceTerminalVisible: Bool
-  let onSendMessage: (String) -> Bool
+  let onSendMessage: (MessageSubmission) async -> Bool
   let onSelectMCPServerIDs: ([UUID]) -> Void
   let onOpenAudioModels: () -> Void
   @State private var composerHeight: CGFloat = 0

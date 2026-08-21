@@ -44,6 +44,9 @@ struct TurnTraceEventTests {
       interactionMode: .agent,
       selectedMCPServerIDs: [mcpServerID],
       activeMCPToolCount: 3,
+      activatedSkillIDs: ["project:review", "personal:testing"],
+      activatedSkillContentHashes: ["hash-a", "hash-b"],
+      activatedSkillCharacterCount: 1234,
       contextSignature: "ctx-new",
       previousContextSignature: "ctx-old",
       appendOnly: true,
@@ -100,6 +103,13 @@ struct TurnTraceEventTests {
     #expect(object["interactionMode"] as? String == "agent")
     #expect(object["selectedMCPServerIDs"] as? [String] == [mcpServerID.uuidString])
     #expect(object["activeMCPToolCount"] as? Int == 3)
+    #expect(
+      object["activatedSkillIDs"] as? [String] == ["project:review", "personal:testing"]
+    )
+    #expect(object["activatedSkillContentHashes"] as? [String] == ["hash-a", "hash-b"])
+    #expect(object["activatedSkillCharacterCount"] as? Int == 1234)
+    #expect(object["activatedSkillContents"] == nil)
+    #expect(object["activatedSkillPaths"] == nil)
     #expect(object["contextSignature"] as? String == "ctx-new")
     #expect(object["previousContextSignature"] as? String == "ctx-old")
     #expect(object["appendOnly"] as? Bool == true)

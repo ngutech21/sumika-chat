@@ -44,6 +44,9 @@ struct MLXDebugTraceStoreTests {
           cacheMode: "reused_session",
           cacheReason: "reused_session",
           memoryClearReason: "runtime_error",
+          activatedSkillIDs: ["project:review"],
+          activatedSkillContentHashes: ["skill-hash"],
+          activatedSkillCharacterCount: 812,
           contextSignature: "ctx-new",
           previousContextSignature: "ctx-old",
           appendOnly: true,
@@ -107,6 +110,11 @@ struct MLXDebugTraceStoreTests {
     #expect(object["cacheMode"] as? String == "reused_session")
     #expect(object["cacheReason"] as? String == "reused_session")
     #expect(object["memoryClearReason"] as? String == "runtime_error")
+    #expect(object["activatedSkillIDs"] as? [String] == ["project:review"])
+    #expect(object["activatedSkillContentHashes"] as? [String] == ["skill-hash"])
+    #expect(object["activatedSkillCharacterCount"] as? Int == 812)
+    #expect(object["activatedSkillContents"] == nil)
+    #expect(object["activatedSkillPaths"] == nil)
     #expect(object["contextSignature"] as? String == "ctx-new")
     #expect(object["previousContextSignature"] as? String == "ctx-old")
     #expect(object["appendOnly"] as? Bool == true)

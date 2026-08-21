@@ -49,7 +49,9 @@ final class ConversationEngine {
   private(set) var modelContextDebugState = ModelContextDebugState()
   var isGenerating = false
   private(set) var isLoadingAttachments = false
+  private(set) var isPreparingTurn = false
   private(set) var errorMessage: String?
+  private(set) var skillCatalogSnapshot = SkillCatalogSnapshot.empty
 
   @ObservationIgnored private let conversationModel: @MainActor () -> ConversationModelState
   @ObservationIgnored private let runtimeContextClearCoordinator: RuntimeContextClearCoordinator
@@ -61,6 +63,8 @@ final class ConversationEngine {
   @ObservationIgnored var turnToolOrchestrators: [ChatTurn.ID: ToolOrchestrator] = [:]
   @ObservationIgnored let turnExecutionCoordinator: ChatTurnExecutionCoordinator
   @ObservationIgnored var workspaceInstructionsLoader: any WorkspaceInstructionsLoading
+  @ObservationIgnored let skillCatalog: SkillCatalog
+  @ObservationIgnored private var skillCatalogRefreshTask: Task<Void, Never>?
   @ObservationIgnored let toolResumeCoordinator = ToolResumeCoordinator()
   @ObservationIgnored private let modelContextBuilder = ChatModelContextBuilder()
   @ObservationIgnored private let attachmentCoordinator: ChatAttachmentCoordinator
@@ -88,6 +92,7 @@ final class ConversationEngine {
       && !isGenerating
       && !isInputBlocked
       && !isLoadingAttachments
+      && !isPreparingTurn
   }
 
   var hasPendingApproval: Bool {
@@ -132,6 +137,7 @@ final class ConversationEngine {
     chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
     workspaceInstructionsLoader: any WorkspaceInstructionsLoading =
       WorkspaceInstructionsLoader(),
+    skillCatalog: SkillCatalog = SkillCatalog(),
     turnTracer: any TurnTracing = NoopTurnTracer()
   ) {
     self.conversationModel = conversationModel
@@ -141,6 +147,7 @@ final class ConversationEngine {
       turnTracer: turnTracer
     )
     self.workspaceInstructionsLoader = workspaceInstructionsLoader
+    self.skillCatalog = skillCatalog
     self.toolOrchestrator = toolOrchestrator
     self.toolLoopCoordinator = ToolLoopCoordinator(
       turnTracer: turnTracer
@@ -150,6 +157,7 @@ final class ConversationEngine {
 
   deinit {
     activeTurnTask?.cancel()
+    skillCatalogRefreshTask?.cancel()
   }
 }
 
@@ -181,7 +189,7 @@ extension ConversationEngine {
     if hasPendingUserAnswer {
       return .awaitingUserAnswer
     }
-    if isGenerating || isLoadingAttachments {
+    if isGenerating || isLoadingAttachments || isPreparingTurn {
       return .working
     }
     return .idle
@@ -321,10 +329,12 @@ extension ConversationEngine {
     errorMessage = nil
     updateRuntimeCacheDebugSnapshot(nil)
     activeConversation = ActiveConversation(workspace: workspace, session: session)
+    skillCatalogSnapshot = .empty
     syncComposerSessionState()
     applyConfiguredAgentToolsForActiveSession()
     disableUnsupportedInteractionModeIfNeeded()
     invalidateModelContextDebugDocument()
+    scheduleSkillCatalogRefreshIfNeeded()
 
     guard prepareRuntimeContext else {
       return
@@ -368,6 +378,9 @@ extension ConversationEngine {
     isLoadingAttachments = false
     publishSessionSnapshot()
     activeConversation = nil
+    skillCatalogRefreshTask?.cancel()
+    skillCatalogRefreshTask = nil
+    skillCatalogSnapshot = .empty
     composerSessionState = ChatComposerSessionState()
     errorMessage = nil
     updateRuntimeCacheDebugSnapshot(nil)
@@ -387,6 +400,13 @@ extension ConversationEngine {
     }
 
     chatSession.interactionMode = mode
+    if mode == .agent {
+      scheduleSkillCatalogRefreshIfNeeded()
+    } else {
+      skillCatalogRefreshTask?.cancel()
+      skillCatalogRefreshTask = nil
+      skillCatalogSnapshot = .empty
+    }
     errorMessage = nil
     invalidateModelContextDebugDocument()
     clearRuntimeContextForReuse()
@@ -573,13 +593,53 @@ extension ConversationEngine {
     applyPendingConversationUpdates()
   }
 
-  func sendMessage(prompt rawPrompt: String) throws {
+  func refreshSkillCatalog() async throws -> SkillCatalogSnapshot {
+    guard let workspace = activeWorkspace else {
+      throw ConversationIntentError.inactive
+    }
+    guard chatSession.interactionMode == .agent else {
+      skillCatalogSnapshot = .empty
+      return .empty
+    }
+    let workspaceID = workspace.id
+    let sessionID = chatSession.id
+    let snapshot = await skillCatalog.refresh(for: workspace)
+    guard matches(workspaceID: workspaceID, sessionID: sessionID),
+      chatSession.interactionMode == .agent
+    else {
+      return skillCatalogSnapshot
+    }
+    skillCatalogSnapshot = snapshot
+    return snapshot
+  }
+
+  private func scheduleSkillCatalogRefreshIfNeeded() {
+    guard let workspace = activeWorkspace, chatSession.interactionMode == .agent else {
+      return
+    }
+    let workspaceID = workspace.id
+    let sessionID = chatSession.id
+    skillCatalogRefreshTask?.cancel()
+    skillCatalogRefreshTask = Task { [weak self] in
+      guard let self else { return }
+      let snapshot = await skillCatalog.refresh(for: workspace)
+      guard !Task.isCancelled,
+        matches(workspaceID: workspaceID, sessionID: sessionID),
+        chatSession.interactionMode == .agent
+      else {
+        return
+      }
+      skillCatalogSnapshot = snapshot
+    }
+  }
+
+  func sendMessage(_ submission: MessageSubmission) async throws {
     guard let workspace = activeWorkspace,
       let sessionID = activeSessionID
     else {
       throw ConversationIntentError.inactive
     }
-    let prompt = rawPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+    let prompt = submission.text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !prompt.isEmpty else {
       throw ConversationIntentError.emptyPrompt
     }
@@ -601,6 +661,27 @@ extension ConversationEngine {
       throw ConversationIntentError.unsupportedImageInput
     }
 
+    isPreparingTurn = true
+    defer { isPreparingTurn = false }
+    let interactionMode = chatSession.interactionMode
+    let preparedSkills: PreparedSkillSubmission
+    do {
+      preparedSkills = try await skillCatalog.prepareSubmission(
+        submission,
+        mode: interactionMode,
+        workspace: workspace
+      )
+    } catch {
+      errorMessage = error.localizedDescription
+      throw error
+    }
+    guard matches(workspaceID: workspace.id, sessionID: sessionID),
+      chatSession.interactionMode == interactionMode,
+      conversationModelState.loadState == .ready
+    else {
+      throw ConversationIntentError.busy(workspaceID: workspace.id, sessionID: sessionID)
+    }
+
     updateDefaultSessionTitleIfNeeded(fromFirstPrompt: prompt)
     applyPendingAgentToolExecutorRegistry()
     errorMessage = nil
@@ -612,20 +693,27 @@ extension ConversationEngine {
       workspace: workspace,
       sessionID: sessionID,
       attachments: attachmentsForTurn,
+      preparedSkills: preparedSkills,
       runtime: turnRuntimeContext(),
       runtimeContextClearCoordinator: runtimeContextClearCoordinator
     )
   }
 
+  // Test-only convenience that still enters the canonical asynchronous submission path.
+  // swiftlint:disable:next unused_declaration
+  func sendMessage(prompt: String) async throws {
+    try await sendMessage(MessageSubmission(text: prompt))
+  }
+
   /// Internal compatibility seam for focused engine tests. Package callers use
-  /// `ConversationFeature.activate` followed by `sendMessage(prompt:)`.
+  /// `ConversationFeature.activate` followed by `sendMessage(_:)`.
   @discardableResult
   // swiftlint:disable:next unused_declaration
   func sendMessage(
     prompt: String,
     in workspace: Workspace,
     sessionID: ChatSession.ID
-  ) -> Bool {
+  ) async -> Bool {
     guard activeSessionID == sessionID,
       workspace.sessions.contains(where: { $0.id == sessionID })
     else {
@@ -634,7 +722,7 @@ extension ConversationEngine {
     }
     activeConversation?.workspace = workspace
     do {
-      try sendMessage(prompt: prompt)
+      try await sendMessage(MessageSubmission(text: prompt))
       return true
     } catch {
       errorMessage = error.localizedDescription
@@ -834,7 +922,6 @@ extension ConversationEngine {
         batchAnchorID: approvalGroup.anchorID,
         in: workspace,
         turnID: turnID,
-        toolOrchestrator: toolOrchestrator(for: existingRecord, turnID: turnID),
         runtime: turnRuntimeContext()
       )
     } else {
@@ -842,7 +929,6 @@ extension ConversationEngine {
         existingRecord,
         in: workspace,
         turnID: turnID,
-        toolOrchestrator: toolOrchestrator(for: existingRecord, turnID: turnID),
         runtime: turnRuntimeContext()
       )
     }
@@ -872,7 +958,7 @@ extension ConversationEngine {
       return
     }
     let pendingRecords = batch.pendingApprovalRecords
-    guard pendingRecords.count >= 2, let firstRecord = pendingRecords.first else {
+    guard pendingRecords.count >= 2 else {
       return
     }
 
@@ -883,7 +969,6 @@ extension ConversationEngine {
       batchAnchorID: batch.anchorID,
       in: workspace,
       turnID: turnID,
-      toolOrchestrator: toolOrchestrator(for: firstRecord, turnID: turnID),
       runtime: turnRuntimeContext()
     )
   }
@@ -911,7 +996,7 @@ extension ConversationEngine {
       let turn = chatSession.turns.first(where: { $0.id == turnID }),
       let batch = turn.toolCallBatch(containing: batchAnchorID),
       batch.anchorID == batchAnchorID,
-      let firstRecord = batch.pendingApprovalRecords.first
+      !batch.pendingApprovalRecords.isEmpty
     else {
       return
     }
@@ -923,7 +1008,6 @@ extension ConversationEngine {
       batchAnchorID: batch.anchorID,
       in: workspace,
       turnID: turnID,
-      toolOrchestrator: toolOrchestrator(for: firstRecord, turnID: turnID),
       approvalSource: .automatic,
       runtime: turnRuntimeContext()
     )
@@ -936,26 +1020,6 @@ extension ConversationEngine {
       }
     }
     return nil
-  }
-
-  private func toolOrchestrator(
-    for record: ToolCallRecord,
-    turnID: ChatTurn.ID
-  ) -> ToolOrchestrator {
-    if let frozenOrchestrator = turnToolOrchestrators[turnID] {
-      return frozenOrchestrator
-    }
-    let profile: ToolExecutionProfile =
-      if chatSession.interactionMode == .chat,
-        record.request.toolName == .webSearch || record.request.toolName == .webFetch
-      {
-        .chatWeb
-      } else {
-        .agent
-      }
-    let selectedOrchestrator = effectiveToolOrchestrator(for: profile) ?? toolOrchestrator
-    turnToolOrchestrators[turnID] = selectedOrchestrator
-    return selectedOrchestrator
   }
 
   func effectiveToolOrchestrator(

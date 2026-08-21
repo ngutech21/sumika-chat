@@ -7,7 +7,7 @@ import Testing
 @MainActor
 struct AgentCompositionIntegrationTests {
   @Test
-  func conversationRequiresValidatedActivationAndPublishesFinalSnapshot() throws {
+  func conversationRequiresValidatedActivationAndPublishesFinalSnapshot() async throws {
     let testRoot = try scopedTemporaryDirectory()
 
     let sumika = Sumika(
@@ -15,12 +15,15 @@ struct AgentCompositionIntegrationTests {
         runtime: AgentCompositionRuntime(),
         modelSettingsStore: ModelSettingsStore(
           settingsURL: testRoot.appending(path: "model-settings.json")
+        ),
+        skillCatalog: SkillCatalog(
+          personalSkillsURL: testRoot.appending(path: "personal-skills")
         )
       )
     )
     #expect(sumika.conversation.state == .inactive)
-    #expect(throws: ConversationIntentError.inactive) {
-      try sumika.conversation.sendMessage(prompt: "Not active")
+    await #expect(throws: ConversationIntentError.inactive) {
+      try await sumika.conversation.sendMessage(MessageSubmission(text: "Not active"))
     }
 
     let session = ChatSession(title: "Original")
@@ -106,7 +109,10 @@ struct AgentCompositionIntegrationTests {
         runtime: runtime,
         modelSettingsStore: modelSettingsStore,
         modelDownloader: UnavailableModelDownloader(),
-        modelAvailability: { _ in true }
+        modelAvailability: { _ in true },
+        skillCatalog: SkillCatalog(
+          personalSkillsURL: testRoot.appending(path: "personal-skills")
+        )
       )
     )
     sumika.agent.updateConfiguration(todoWriteEnabled: true)
@@ -122,8 +128,8 @@ struct AgentCompositionIntegrationTests {
       sessions: [session]
     )
     try sumika.conversation.activate(sessionID: session.id, in: workspace)
-    try sumika.conversation.sendMessage(
-      prompt: "Read README.md and report what it contains."
+    try await sumika.conversation.sendMessage(
+      MessageSubmission(text: "Read README.md and report what it contains.")
     )
 
     try await waitUntil {

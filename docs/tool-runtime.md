@@ -634,6 +634,25 @@ declarations.
   `ReadFilePage.content` remains raw normalized text in persistence, and stored
   legacy `success(path:content:)` payloads decode without invented
   continuation metadata.
+- `read_skill_resource` is registered only in an Agent turn that activated at
+  least one skill. Its executor receives an immutable map of the exact scoped
+  `SkillID` values and canonical skill roots captured during that turn's send
+  preflight; this authority is not added to `ToolContext`, shared with another
+  turn, or exposed in Chat mode. After a persisted turn pause is reloaded, roots
+  are restored from a fresh catalog scan only when the persisted skill ID,
+  portable path, content hash, and content still match; changed or missing skills
+  receive no restored resource authority. The built-in name is reserved from
+  dynamic MCP tools. Calls must provide one active `skill_id` and a relative `path`.
+  Absolute paths, traversal, inactive IDs, non-files, and symlinks resolving
+  outside the selected skill root are denied. Project resource inspection and IO
+  run while the workspace's security-scoped access is active.
+- Skill resources must be UTF-8 and use the same 1-based `offset`, 500-line
+  `limit`, complete-line paging, CRLF normalization, trailing-newline handling,
+  and 16 KiB rendered page budget as `read_file`. The tool is read-only and
+  never requires approval. Reading a script does not execute it: execution can
+  happen only through the existing approval-required `run_command` path.
+  A skill frontmatter `allowed-tools` value is validated as metadata but grants
+  no tool, filesystem, command, or approval authority in V1.
 - `show_file` uses the same complete-line page implementation and read-only
   path validation with a separate 40 KiB display budget, but it represents a
   different workflow state: display the file directly to the user and stop the

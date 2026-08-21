@@ -45,6 +45,7 @@ let package = Package(
     .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.13.0"),
     .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.8.0"),
     .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.4"),
+    .package(url: "https://github.com/jpsim/Yams.git", from: "6.2.2"),
 
   ],
   targets: [
@@ -54,6 +55,7 @@ let package = Package(
         .product(name: "Crypto", package: "swift-crypto"),
         .product(name: "MCP", package: "swift-sdk"),
         .product(name: "SwiftSoup", package: "SwiftSoup"),
+        .product(name: "Yams", package: "Yams"),
       ],
       swiftSettings: concurrencyChecking
     ),

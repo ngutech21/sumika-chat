@@ -18,6 +18,8 @@ package struct ActiveConversationState: Equatable, Sendable {
   package let turns: [ChatTurn]
   package let activity: ConversationActivity
   package let isGenerating: Bool
+  package let isPreparingTurn: Bool
+  package let skillCatalog: SkillCatalogSnapshot
   package let errorMessage: String?
   package let modelContextDebug: ModelContextDebugState
   package let canChangeInteractionMode: Bool
@@ -99,6 +101,8 @@ package final class ConversationFeature {
         turns: engine.turns,
         activity: engine.activity,
         isGenerating: engine.isGenerating,
+        isPreparingTurn: engine.isPreparingTurn,
+        skillCatalog: engine.skillCatalogSnapshot,
         errorMessage: engine.errorMessage,
         modelContextDebug: engine.modelContextDebugState,
         canChangeInteractionMode: engine.canChangeInteractionMode,
@@ -124,8 +128,13 @@ package final class ConversationFeature {
     engine.setSessionChangeHandler(handler)
   }
 
-  package func sendMessage(prompt: String) throws {
-    try engine.sendMessage(prompt: prompt)
+  package func sendMessage(_ submission: MessageSubmission) async throws {
+    try await engine.sendMessage(submission)
+  }
+
+  package func refreshSkillCatalog() async throws -> SkillCatalogSnapshot {
+    try requireActiveConversation()
+    return try await engine.refreshSkillCatalog()
   }
 
   @discardableResult

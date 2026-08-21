@@ -192,7 +192,7 @@ private struct WorkspaceRouteHost: View {
   let onCreateSession: (Workspace.ID) -> ChatSession.ID?
   let onOpenWorkspaceInFinder: () -> Void
   let onOpenWorkspaceInVisualStudioCode: () -> Void
-  let onSendMessage: (String) -> Bool
+  let onSendMessage: (MessageSubmission) async -> Bool
   let onSelectMCPServerIDs: ([UUID]) -> Void
   let onOpenAudioModels: () -> Void
 

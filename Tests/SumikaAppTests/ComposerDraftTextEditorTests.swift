@@ -1,4 +1,5 @@
 import Foundation
+import SumikaCore
 import Testing
 
 @testable import SumikaApp
@@ -67,5 +68,77 @@ struct ComposerDraftTextEditorTests {
 
     #expect(insertion.text == "/show README.md")
     #expect(draftState.slashCommandText == "/show README.md")
+  }
+
+  @Test
+  func findsSkillTokenAtCursorBoundaryAndUsesUTF16Range() throws {
+    let text = "😀 Use $rev then continue"
+    let nsText = text as NSString
+    let tokenRange = nsText.range(of: "$rev")
+    let state = ComposerDraftState(
+      text: text,
+      selectedRange: NSRange(
+        location: tokenRange.location + tokenRange.length,
+        length: 0
+      )
+    )
+
+    let token = try #require(state.skillSuggestionToken)
+    #expect(token.prefix == "rev")
+    #expect(token.range == tokenRange)
+  }
+
+  @Test
+  func ignoresDollarWithoutTokenBoundary() {
+    let text = "price$rev"
+    let state = ComposerDraftState(text: text)
+
+    #expect(state.skillSuggestionToken == nil)
+  }
+
+  @Test
+  func skillMentionBindingsShiftBeforeEditsAndDropOverlappingEdits() {
+    let id = SkillID(scope: .project, name: "review")
+    let mention = SkillMention(id: id, range: NSRange(location: 4, length: 7))
+
+    let shifted = ComposerSkillMentionEditor.updating(
+      [mention],
+      replacing: NSRange(location: 0, length: 0),
+      with: "Go "
+    )
+    let removed = ComposerSkillMentionEditor.updating(
+      shifted,
+      replacing: NSRange(location: 9, length: 1),
+      with: "x"
+    )
+
+    #expect(shifted == [SkillMention(id: id, range: NSRange(location: 7, length: 7))])
+    #expect(removed.isEmpty)
+  }
+
+  @Test
+  func skillMentionBindingsDropWhenAdjacentEditsBreakTokenBoundaries() {
+    let id = SkillID(scope: .project, name: "review")
+    let mention = SkillMention(id: id, range: NSRange(location: 4, length: 7))
+    let leadingEdit = ComposerSkillMentionEditor.updating(
+      [mention],
+      replacing: NSRange(location: 4, length: 0),
+      with: "x"
+    )
+    let trailingEdit = ComposerSkillMentionEditor.updating(
+      [mention],
+      replacing: NSRange(location: 11, length: 0),
+      with: "x"
+    )
+
+    #expect(
+      ComposerSkillMentionEditor.validMentions(leadingEdit, in: "Use x$review").isEmpty
+    )
+    #expect(
+      ComposerSkillMentionEditor.validMentions(trailingEdit, in: "Use $reviewx").isEmpty
+    )
+    #expect(
+      ComposerSkillMentionEditor.validMentions([mention], in: "Use $review.") == [mention]
+    )
   }
 }

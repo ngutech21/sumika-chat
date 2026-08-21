@@ -176,7 +176,13 @@ enum AppLaunchConfiguration {
       modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: webAccessSettingsStore,
       appBehaviorSettingsStore: appBehaviorSettingsStore,
-      mcpServersStore: mcpServersStore
+      mcpServersStore: mcpServersStore,
+      skillCatalog: SkillCatalog(
+        personalSkillsURL: storageRoot.appending(
+          path: ".agents/skills",
+          directoryHint: .isDirectory
+        )
+      )
     )
   }
 
@@ -191,7 +197,8 @@ enum AppLaunchConfiguration {
     modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
     webAccessSettingsStore: any WebAccessSettingsStoring = WebAccessSettingsStore(),
     appBehaviorSettingsStore: any AppBehaviorSettingsStoring = AppBehaviorSettingsStore(),
-    mcpServersStore: any MCPServersStoring = MCPServersStore()
+    mcpServersStore: any MCPServersStoring = MCPServersStore(),
+    skillCatalog: SkillCatalog = SkillCatalog()
   ) -> AppState {
     let browserToolService = HTMLPreviewBrowserToolService()
     let sumika = makeSumika(
@@ -204,6 +211,7 @@ enum AppLaunchConfiguration {
       webAccessSettingsProvider: {
         await webAccessSettingsStore.settings()
       },
+      skillCatalog: skillCatalog,
       turnTracer: turnTracer
     )
 
@@ -229,6 +237,7 @@ enum AppLaunchConfiguration {
     webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
       .disabled
     },
+    skillCatalog: SkillCatalog,
     turnTracer: any TurnTracing
   ) -> Sumika {
     Sumika(
@@ -240,6 +249,7 @@ enum AppLaunchConfiguration {
         modelAvailability: modelAvailability,
         browserToolService: browserToolService,
         webAccessSettingsProvider: webAccessSettingsProvider,
+        skillCatalog: skillCatalog,
         turnTracer: turnTracer
       )
     )

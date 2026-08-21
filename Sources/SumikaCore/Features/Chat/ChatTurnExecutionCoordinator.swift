@@ -73,6 +73,7 @@ struct ChatTurnExecutionCoordinator {
     userMessageID: UUID,
     assistantMessageID: UUID,
     attachments: [ChatAttachment],
+    activatedSkills: [ActivatedSkill],
     workspace: Workspace?,
     interactionMode: WorkspaceInteractionMode,
     conversation: ConversationEngine
@@ -83,11 +84,12 @@ struct ChatTurnExecutionCoordinator {
       workspace: workspace,
       focusedFileState: session.focusedFileState
     )
-    let currentPromptContext = modelContextBuilder.currentPromptContext(
+    let basePromptContext = modelContextBuilder.currentPromptContext(
       mode: interactionMode,
       focusedFileState: session.focusedFileState,
       attachments: attachments
     )
+    let currentPromptContext = basePromptContext.appendingActivatedSkills(activatedSkills)
     conversation.applyWorkflowEvents(
       focusedEvents + [
         .turnAppended(
@@ -672,6 +674,17 @@ extension ChatTurnExecutionCoordinator {
       supportsHistoricalReasoningPreservation:
         runtime.selectedModel.supportsHistoricalReasoningPreservation
     )
+    let activatedSkills =
+      conversation.chatSession.turns
+      .first(where: { $0.id == turnID })?
+      .items
+      .compactMap { item -> UserTurnMessage? in
+        guard case .userMessage(let message) = item else { return nil }
+        return message
+      }
+      .first?
+      .promptContext
+      .activatedSkills ?? []
     traceTurnPhase(
       .contextBuild,
       startedAt: contextBuildStartedAt,
@@ -679,7 +692,10 @@ extension ChatTurnExecutionCoordinator {
       generationID: nil,
       messageCount: modelPromptProjection.entries.count,
       toolLoopIteration: toolLoopIteration,
-      interactionMode: interactionMode
+      interactionMode: interactionMode,
+      activatedSkillIDs: activatedSkills.map(\.id.rawValue),
+      activatedSkillContentHashes: activatedSkills.map(\.contentHash),
+      activatedSkillCharacterCount: activatedSkills.reduce(0) { $0 + $1.content.count }
     )
     return (promptPlan, modelPromptProjection)
   }
@@ -950,7 +966,10 @@ extension ChatTurnExecutionCoordinator {
     cacheMode: String? = nil,
     interactionMode: WorkspaceInteractionMode? = nil,
     selectedMCPServerIDs: [UUID]? = nil,
-    activeMCPToolCount: Int? = nil
+    activeMCPToolCount: Int? = nil,
+    activatedSkillIDs: [String]? = nil,
+    activatedSkillContentHashes: [String]? = nil,
+    activatedSkillCharacterCount: Int? = nil
   ) {
     let durationMs = Date().timeIntervalSince(startedAt) * 1000
     Task {
@@ -970,7 +989,10 @@ extension ChatTurnExecutionCoordinator {
           cacheMode: cacheMode,
           interactionMode: interactionMode,
           selectedMCPServerIDs: selectedMCPServerIDs,
-          activeMCPToolCount: activeMCPToolCount
+          activeMCPToolCount: activeMCPToolCount,
+          activatedSkillIDs: activatedSkillIDs,
+          activatedSkillContentHashes: activatedSkillContentHashes,
+          activatedSkillCharacterCount: activatedSkillCharacterCount
         )
       )
     }

@@ -202,3 +202,51 @@ package struct WorkspaceInstructionsRemoval: Codable, Equatable, Sendable {
     self.path = path
   }
 }
+
+package struct ActivatedSkillsPromptContext: Codable, Equatable, Sendable {
+  package let skills: [ActivatedSkill]
+  package let totalCharacterCount: Int
+
+  private init(skills: [ActivatedSkill], totalCharacterCount: Int) {
+    self.skills = skills
+    self.totalCharacterCount = totalCharacterCount
+  }
+
+  package static func make(
+    skills: [ActivatedSkill]
+  ) -> ActivatedSkillsPromptContext? {
+    let totalCharacterCount = skills.reduce(0) { $0 + $1.content.count }
+    guard !skills.isEmpty,
+      Set(skills.map(\.id)).count == skills.count,
+      totalCharacterCount <= SkillCatalog.maximumActivatedContentCharacters
+    else {
+      return nil
+    }
+    return ActivatedSkillsPromptContext(
+      skills: skills,
+      totalCharacterCount: totalCharacterCount
+    )
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case skills
+    case totalCharacterCount
+  }
+
+  package init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let skills = try container.decode([ActivatedSkill].self, forKey: .skills)
+    let totalCharacterCount = try container.decode(Int.self, forKey: .totalCharacterCount)
+    guard let context = Self.make(skills: skills),
+      context.totalCharacterCount == totalCharacterCount
+    else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .skills,
+        in: container,
+        debugDescription:
+          "Activated skills must be non-empty, unique, within budget, and match their character count."
+      )
+    }
+    self = context
+  }
+}

@@ -723,7 +723,7 @@ struct ReadFileToolExecutor: TypedToolExecutor {
     return "offset=\(offset)"
   }
 
-  private static func readPage(
+  static func readPage(
     from url: URL,
     path: WorkspaceRelativePath,
     startLine: Int,

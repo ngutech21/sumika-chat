@@ -48,6 +48,7 @@ extension ConversationEngine {
     workspace: Workspace?,
     sessionID: ChatSession.ID?,
     attachments: [ChatAttachment],
+    preparedSkills: PreparedSkillSubmission = .empty,
     runtime: ChatTurnRuntimeContext,
     runtimeContextClearCoordinator: RuntimeContextClearCoordinator
   ) -> ChatTurn.ID {
@@ -62,7 +63,21 @@ extension ConversationEngine {
       for: toolProfile
     )
     let turnID = UUID()
-    let turnToolOrchestrator = effectiveToolOrchestrator(for: toolProfile)
+    let baseToolOrchestrator = effectiveToolOrchestrator(for: toolProfile)
+    let turnToolOrchestrator: ToolOrchestrator?
+    if toolProfile == .agent,
+      !preparedSkills.resourceRoots.isEmpty,
+      let baseToolOrchestrator
+    {
+      let registry = baseToolOrchestrator.executorRegistry.replacing(
+        AnyToolExecutor(
+          ReadSkillResourceToolExecutor(resourceRoots: preparedSkills.resourceRoots)
+        )
+      )
+      turnToolOrchestrator = baseToolOrchestrator.replacingExecutorRegistry(registry)
+    } else {
+      turnToolOrchestrator = baseToolOrchestrator
+    }
     if let turnToolOrchestrator {
       turnToolOrchestrators[turnID] = turnToolOrchestrator
     }
@@ -76,6 +91,7 @@ extension ConversationEngine {
       userMessageID: userMessageID,
       assistantMessageID: assistantMessageID,
       attachments: attachments,
+      activatedSkills: preparedSkills.activatedSkills,
       workspace: workspace,
       interactionMode: interactionMode,
       conversation: self
@@ -181,7 +197,6 @@ extension ConversationEngine {
     _ existingRecord: ToolCallRecord,
     in workspace: Workspace,
     turnID: ChatTurn.ID,
-    toolOrchestrator: ToolOrchestrator,
     approvalSource: ToolApprovalSource = .manual,
     runtime: ChatTurnRuntimeContext
   ) {
@@ -197,6 +212,21 @@ extension ConversationEngine {
     runTurnTask(turnID) { [weak self] turnID in
       guard let self else {
         return .stop
+      }
+      let toolProfile = turnExecutionCoordinator.activeToolProfile(
+        workspace: workspace,
+        sessionID: existingRecord.request.sessionID,
+        interactionMode: chatSession.interactionMode,
+        selectedModel: runtime.selectedModel
+      )
+      guard
+        let toolOrchestrator = await frozenToolOrchestrator(
+          for: turnID,
+          toolProfile: toolProfile,
+          workspace: workspace
+        )
+      else {
+        return .fail(cancelsStreaming: false)
       }
       return try await self.resumeApprovedToolCalls(
         [existingRecord],
@@ -215,7 +245,6 @@ extension ConversationEngine {
     batchAnchorID: ToolCallRecord.ID,
     in workspace: Workspace,
     turnID: ChatTurn.ID,
-    toolOrchestrator: ToolOrchestrator,
     approvalSource: ToolApprovalSource = .manual,
     runtime: ChatTurnRuntimeContext
   ) {
@@ -234,6 +263,24 @@ extension ConversationEngine {
     runTurnTask(turnID) { [weak self] turnID in
       guard let self else {
         return .stop
+      }
+      guard let firstRecord = existingRecords.first else {
+        return .fail(cancelsStreaming: false)
+      }
+      let toolProfile = turnExecutionCoordinator.activeToolProfile(
+        workspace: workspace,
+        sessionID: firstRecord.request.sessionID,
+        interactionMode: chatSession.interactionMode,
+        selectedModel: runtime.selectedModel
+      )
+      guard
+        let toolOrchestrator = await frozenToolOrchestrator(
+          for: turnID,
+          toolProfile: toolProfile,
+          workspace: workspace
+        )
+      else {
+        return .fail(cancelsStreaming: false)
       }
       return try await self.resumeApprovedToolCalls(
         existingRecords,
@@ -483,9 +530,10 @@ extension ConversationEngine {
       ])
       notifySessionDidChange()
       guard
-        let turnToolOrchestrator = frozenToolOrchestrator(
+        let turnToolOrchestrator = await frozenToolOrchestrator(
           for: turnID,
-          toolProfile: .agent
+          toolProfile: .agent,
+          workspace: workspace
         )
       else {
         return .fail(cancelsStreaming: false)
@@ -661,9 +709,10 @@ extension ConversationEngine {
     notifySessionDidChange()
 
     guard
-      let turnToolOrchestrator = frozenToolOrchestrator(
+      let turnToolOrchestrator = await frozenToolOrchestrator(
         for: turnID,
-        toolProfile: toolProfile
+        toolProfile: toolProfile,
+        workspace: workspace
       )
     else {
       return .fail(cancelsStreaming: false)
@@ -813,9 +862,10 @@ extension ConversationEngine {
     )
     notifySessionDidChange()
 
-    let turnToolOrchestrator = frozenToolOrchestrator(
+    let turnToolOrchestrator = await frozenToolOrchestrator(
       for: turnID,
-      toolProfile: toolProfile
+      toolProfile: toolProfile,
+      workspace: workspace ?? activeWorkspace
     )
     let turnToolRegistry = turnToolOrchestrator?.toolRegistry ?? ToolRegistry(tools: [])
     let stableInstructions = stableInstructions(
@@ -965,15 +1015,46 @@ extension ConversationEngine {
 
   private func frozenToolOrchestrator(
     for turnID: ChatTurn.ID,
-    toolProfile: ToolExecutionProfile
-  ) -> ToolOrchestrator? {
+    toolProfile: ToolExecutionProfile,
+    workspace: Workspace?
+  ) async -> ToolOrchestrator? {
     if let orchestrator = turnToolOrchestrators[turnID] {
       return orchestrator
     }
-    guard let orchestrator = effectiveToolOrchestrator(for: toolProfile) else {
+    guard let baseOrchestrator = effectiveToolOrchestrator(for: toolProfile) else {
       return nil
+    }
+
+    var orchestrator = baseOrchestrator
+    let activatedSkills = activatedSkills(in: turnID)
+    if toolProfile == .agent, !activatedSkills.isEmpty, let workspace {
+      let resourceRoots = await skillCatalog.resourceRoots(
+        matching: activatedSkills,
+        workspace: workspace
+      )
+      guard isActive(turnID), activeWorkspaceID == workspace.id else {
+        return nil
+      }
+      if !resourceRoots.isEmpty {
+        let registry = baseOrchestrator.executorRegistry.replacing(
+          AnyToolExecutor(
+            ReadSkillResourceToolExecutor(resourceRoots: resourceRoots)
+          )
+        )
+        orchestrator = baseOrchestrator.replacingExecutorRegistry(registry)
+      }
     }
     turnToolOrchestrators[turnID] = orchestrator
     return orchestrator
+  }
+
+  private func activatedSkills(in turnID: ChatTurn.ID) -> [ActivatedSkill] {
+    guard let turn = chatSession.turns.first(where: { $0.id == turnID }) else {
+      return []
+    }
+    return turn.items.compactMap { item -> UserTurnMessage? in
+      guard case .userMessage(let message) = item else { return nil }
+      return message
+    }.first?.promptContext.activatedSkills ?? []
   }
 }

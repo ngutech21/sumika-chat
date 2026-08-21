@@ -69,6 +69,7 @@ struct AnyToolCodec: Sendable {
 enum ToolCodecCatalog {
   static let builtIn: [AnyToolCodec] = [
     AnyToolCodec(ReadFileToolExecutor.codec),
+    AnyToolCodec(ReadSkillResourceToolExecutor.codec),
     AnyToolCodec(ShowFileToolExecutor.codec),
     AnyToolCodec(ListFilesToolExecutor.codec),
     AnyToolCodec(GlobFilesToolExecutor.codec),

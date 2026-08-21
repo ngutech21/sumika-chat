@@ -115,6 +115,44 @@ struct ToolResultProjectorTests {
   }
 
   @Test
+  func readSkillResourcePageRendersScopedContinuationMetadata() throws {
+    let skillID = SkillID(scope: .project, name: "review")
+    let page = ReadSkillResourcePage(
+      skillID: skillID,
+      path: "references/checklist.md",
+      startLine: 4,
+      endLine: 5,
+      content: "Check one\nCheck two",
+      continuation: .next(offset: 6, reason: .lineLimit)
+    )
+    let input = ReadSkillResourceInput(
+      skillID: skillID,
+      path: page.path,
+      offset: 4,
+      limit: 2
+    )
+    let projection = ToolResultProjector.project(
+      payload: .readSkillResource(.page(page)),
+      request: request(
+        toolName: .readSkillResource,
+        payload: .readSkillResource(input)
+      )
+    )
+
+    let hybrid = try hybridToolResult(
+      ToolModelObservationRenderer.render(projection, callID: UUID())
+    )
+
+    #expect(hybrid.json["kind"] as? String == "file_page")
+    #expect(hybrid.json["path"] as? String == "project:review/references/checklist.md")
+    #expect(hybrid.json["start_line"] as? Int == 4)
+    #expect(hybrid.json["end_line"] as? Int == 5)
+    #expect(hybrid.json["next_offset"] as? Int == 6)
+    #expect(hybrid.json["next_allowed_actions"] as? [String] == ["read_skill_resource"])
+    #expect(hybrid.content == "4: Check one\n5: Check two")
+  }
+
+  @Test
   func readFileEndOfFileExplicitlyReportsNoMoreContent() throws {
     let projection = ToolResultProjector.project(
       payload: .readFile(

@@ -39,6 +39,7 @@ package final class Sumika {
     let browserToolService: any BrowserToolServing
     let webAccessSettingsProvider: @Sendable () async -> WebAccessSettings
     let chatAttachmentLoader: any ChatAttachmentLoading
+    let skillCatalog: SkillCatalog
     let turnTracer: any TurnTracing
 
     package init(
@@ -51,6 +52,7 @@ package final class Sumika {
         .disabled
       },
       chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
+      skillCatalog: SkillCatalog = SkillCatalog(),
       turnTracer: any TurnTracing = NoopTurnTracer()
     ) {
       self.runtime = runtime
@@ -61,6 +63,7 @@ package final class Sumika {
       self.browserToolService = browserToolService
       self.webAccessSettingsProvider = webAccessSettingsProvider
       self.chatAttachmentLoader = chatAttachmentLoader
+      self.skillCatalog = skillCatalog
       self.turnTracer = turnTracer
     }
   }
@@ -112,6 +115,7 @@ package final class Sumika {
       ),
       chatAttachmentLoader: dependencies.chatAttachmentLoader,
       workspaceInstructionsLoader: WorkspaceInstructionsLoader(),
+      skillCatalog: dependencies.skillCatalog,
       turnTracer: dependencies.turnTracer
     )
 

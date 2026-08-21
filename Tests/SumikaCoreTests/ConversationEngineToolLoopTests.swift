@@ -28,7 +28,7 @@ struct ConversationEngineToolLoopTests {
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "Create a file without exceeding the output limit.",
       in: workspace,
       sessionID: sessionID
@@ -63,7 +63,7 @@ struct ConversationEngineToolLoopTests {
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "Create a file without exceeding the output limit.",
       in: workspace,
       sessionID: sessionID
@@ -98,7 +98,7 @@ struct ConversationEngineToolLoopTests {
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "Create the project files.",
       in: workspace,
       sessionID: sessionID
@@ -157,7 +157,7 @@ struct ConversationEngineToolLoopTests {
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "Create the project file.",
       in: workspace,
       sessionID: sessionID
@@ -193,7 +193,7 @@ struct ConversationEngineToolLoopTests {
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "Create the project file.",
       in: workspace,
       sessionID: sessionID
@@ -236,7 +236,7 @@ struct ConversationEngineToolLoopTests {
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "Create the project file.",
       in: workspace,
       sessionID: sessionID
@@ -282,7 +282,7 @@ struct ConversationEngineToolLoopTests {
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "Create a small file.",
       in: workspace,
       sessionID: sessionID
@@ -319,7 +319,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "write both files", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "write both files", in: workspace, sessionID: sessionID)
 
     try await waitUntil {
       engine.chatSession.toolCalls.count == 2
@@ -440,7 +440,7 @@ struct ConversationEngineToolLoopTests {
     try initialController.loadSession(from: workspace, sessionID: sessionID)
     initialController.modelRuntime.modelState = .ready
     initialController.setInteractionMode(.agent)
-    initialController.sendMessage(
+    await initialController.sendMessage(
       prompt: "inspect then write",
       in: workspace,
       sessionID: sessionID
@@ -530,7 +530,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "inspect and ask",
       in: workspace,
       sessionID: sessionID
@@ -594,7 +594,7 @@ struct ConversationEngineToolLoopTests {
     engine.setInteractionMode(.agent)
     engine.enableAutomaticToolApproval(in: workspace)
 
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "inspect the fixtures and run the final command",
       in: workspace,
       sessionID: sessionID
@@ -648,7 +648,7 @@ struct ConversationEngineToolLoopTests {
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "inspect the fixtures and write the final file",
       in: workspace,
       sessionID: sessionID
@@ -702,7 +702,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "inspect the fixture directories", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
@@ -742,7 +742,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "read the README repeatedly", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
@@ -806,7 +806,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "inspect until the tool budget is exhausted",
       in: workspace,
       sessionID: sessionID
@@ -848,7 +848,7 @@ struct ConversationEngineToolLoopTests {
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "inspect every fixture directory",
       in: workspace,
       sessionID: sessionID
@@ -890,7 +890,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "inspect until the tool budget is exhausted",
       in: workspace,
       sessionID: sessionID
@@ -917,7 +917,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "read the README repeatedly", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
@@ -986,7 +986,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "run a failing command", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "run a failing command", in: workspace, sessionID: sessionID)
 
     try await waitUntil { engine.hasPendingApproval }
     let pending = try #require(engine.chatSession.toolCalls.first)
@@ -1047,7 +1047,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "stage the changes", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "stage the changes", in: workspace, sessionID: sessionID)
 
     // First failing command → approve → the model re-proposes the identical command.
     try await waitUntil { engine.hasPendingApproval }
@@ -1089,7 +1089,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "answer visibly", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "answer visibly", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1119,7 +1119,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "inspect the project", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "inspect the project", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1176,7 +1176,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "inspect README", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "inspect README", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1210,7 +1210,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "finish the task", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "finish the task", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1265,7 +1265,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "finish the task", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "finish the task", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1316,7 +1316,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "inspect and finish", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "inspect and finish", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1384,7 +1384,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "inspect and finish", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "inspect and finish", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1428,7 +1428,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "inspect README", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "inspect README", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1491,7 +1491,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1538,7 +1538,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1586,7 +1586,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1636,7 +1636,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1679,7 +1679,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1730,7 +1730,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1768,7 +1768,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1809,7 +1809,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1839,7 +1839,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "inspect the project", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "inspect the project", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1887,7 +1887,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "list until the tool budget is exhausted", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
@@ -1933,7 +1933,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "inspect until the tool budget is exhausted",
       in: workspace,
       sessionID: sessionID
@@ -1975,7 +1975,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "inspect until the tool budget is exhausted",
       in: workspace,
       sessionID: sessionID
@@ -2016,7 +2016,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "inspect until the tool budget is exhausted",
       in: workspace,
       sessionID: sessionID
@@ -2063,7 +2063,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "inspect until the tool budget is exhausted",
       in: workspace,
       sessionID: sessionID
@@ -2091,7 +2091,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "inspect until the tool budget is exhausted",
       in: workspace,
       sessionID: sessionID
@@ -2131,7 +2131,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "make a focused change", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "make a focused change", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -2151,7 +2151,7 @@ struct ConversationEngineToolLoopTests {
       })
 
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "inspect without plan", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "inspect without plan", in: workspace, sessionID: sessionID)
     try await waitUntil { !engine.isGenerating }
 
     let promptsAfterSecondAgentTurn = await runtime.capturedSystemPrompts
@@ -2193,7 +2193,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "make a focused change", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "make a focused change", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -2248,7 +2248,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "make a focused change", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "make a focused change", in: workspace, sessionID: sessionID)
     try await waitUntilAsync { await runtime.startedStreamCount == 1 }
 
     engine.configureAgentTools(todoWriteEnabled: true)
@@ -2273,7 +2273,7 @@ struct ConversationEngineToolLoopTests {
         $0.registry.definition(for: .todoWrite) == nil
       })
 
-    engine.sendMessage(prompt: "continue", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "continue", in: workspace, sessionID: sessionID)
     try await waitUntil { !engine.isGenerating }
 
     let prompts = await runtime.capturedSystemPrompts
@@ -2314,7 +2314,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "make a focused change", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "make a focused change", in: workspace, sessionID: sessionID)
     try await waitUntilAsync { await runtime.startedStreamCount == 1 }
 
     engine.configureAgentTools(todoWriteEnabled: false)
@@ -2335,7 +2335,7 @@ struct ConversationEngineToolLoopTests {
         $0.registry.definition(for: .todoWrite) != nil
       })
 
-    engine.sendMessage(prompt: "continue", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "continue", in: workspace, sessionID: sessionID)
     try await waitUntil { !engine.isGenerating }
 
     let prompts = await runtime.capturedSystemPrompts
@@ -2378,7 +2378,7 @@ struct ConversationEngineToolLoopTests {
       selectedMCPServerIDs: [serverID]
     )
 
-    engine.sendMessage(prompt: "call the MCP tool", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "call the MCP tool", in: workspace, sessionID: sessionID)
     try await waitUntilAsync { await runtime.startedStreamCount == 1 }
 
     engine.configureAgentTools(todoWriteEnabled: true, mcpExecutorGroups: [])
@@ -2421,7 +2421,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "implement the feature", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "implement the feature", in: workspace, sessionID: sessionID)
 
     try await waitUntil { engine.chatSession.turns.first?.status == .awaitingUserAnswer }
 
@@ -2472,14 +2472,14 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "implement the feature", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "implement the feature", in: workspace, sessionID: sessionID)
     try await waitUntil { engine.chatSession.turns.first?.status == .awaitingUserAnswer }
     #expect(
-      !engine.sendMessage(
+      !(await engine.sendMessage(
         prompt: "ignore that question and use the broader refactor",
         in: workspace,
         sessionID: sessionID
-      ))
+      )))
 
     #expect(engine.chatSession.turns.count == 1)
     #expect(engine.chatSession.turns[0].status == .awaitingUserAnswer)
@@ -2518,7 +2518,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "replace missing text in README", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
@@ -2568,10 +2568,10 @@ struct ConversationEngineToolLoopTests {
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
-    engine.sendMessage(prompt: "read README.md", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "read README.md", in: workspace, sessionID: sessionID)
     try await waitUntil { !engine.isGenerating }
 
-    engine.sendMessage(prompt: "list files", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "list files", in: workspace, sessionID: sessionID)
     try await waitUntil { !engine.isGenerating && engine.chatSession.toolCalls.count == 2 }
 
     #expect(engine.chatSession.turns.count == 2)
@@ -2602,7 +2602,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "check status", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "check status", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -2653,7 +2653,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "commit the project", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "commit the project", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -2684,7 +2684,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "check status", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "check status", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -2730,7 +2730,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "commit the project", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "commit the project", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -2767,7 +2767,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "inspect git state", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "inspect git state", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 
@@ -2809,7 +2809,7 @@ struct ConversationEngineToolLoopTests {
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    engine.sendMessage(prompt: "inspect the workspace", in: workspace, sessionID: sessionID)
+    await engine.sendMessage(prompt: "inspect the workspace", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !engine.isGenerating }
 

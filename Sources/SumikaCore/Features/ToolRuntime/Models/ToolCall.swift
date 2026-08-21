@@ -12,6 +12,7 @@ package struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentabl
   package static let listFiles = ToolName(rawValue: "list_files")
   package static let globFiles = ToolName(rawValue: "glob_files")
   package static let readFile = ToolName(rawValue: "read_file")
+  package static let readSkillResource = ToolName(rawValue: "read_skill_resource")
   package static let showFile = ToolName(rawValue: "show_file")
   package static let searchFiles = ToolName(rawValue: "search_files")
   package static let workspaceDiff = ToolName(rawValue: "workspace_diff")
@@ -232,6 +233,7 @@ package struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
 
 package enum ToolCallPayload: Codable, Equatable, Sendable {
   case readFile(ReadFileInput)
+  case readSkillResource(ReadSkillResourceInput)
   case showFile(ReadFileInput)
   case listFiles(ListFilesInput)
   case globFiles(GlobFilesInput)
@@ -258,6 +260,7 @@ package enum ToolCallPayload: Codable, Equatable, Sendable {
 
   private enum Kind: String, Codable {
     case readFile
+    case readSkillResource
     case showFile
     case listFiles
     case globFiles
@@ -283,6 +286,10 @@ package enum ToolCallPayload: Codable, Equatable, Sendable {
     switch try container.decode(Kind.self, forKey: .kind) {
     case .readFile:
       self = .readFile(try container.decode(ReadFileInput.self, forKey: .payload))
+    case .readSkillResource:
+      self = .readSkillResource(
+        try container.decode(ReadSkillResourceInput.self, forKey: .payload)
+      )
     case .showFile:
       self = .showFile(try container.decode(ReadFileInput.self, forKey: .payload))
     case .listFiles:
@@ -330,6 +337,8 @@ package enum ToolCallPayload: Codable, Equatable, Sendable {
     switch self {
     case .readFile(let input):
       try container.encode(input, forKey: .payload)
+    case .readSkillResource(let input):
+      try container.encode(input, forKey: .payload)
     case .showFile(let input):
       try container.encode(input, forKey: .payload)
     case .listFiles(let input):
@@ -372,6 +381,7 @@ package enum ToolCallPayload: Codable, Equatable, Sendable {
   private var kind: Kind {
     switch self {
     case .readFile: .readFile
+    case .readSkillResource: .readSkillResource
     case .showFile: .showFile
     case .listFiles: .listFiles
     case .globFiles: .globFiles
@@ -399,6 +409,8 @@ nonisolated extension ToolCallPayload {
     switch self {
     case .readFile:
       .readFile
+    case .readSkillResource:
+      .readSkillResource
     case .showFile:
       .showFile
     case .listFiles:
@@ -874,6 +886,7 @@ package struct WorkspaceRelativePath: RawRepresentable, Codable, Equatable, Hash
 
 package enum ToolResultPayload: Codable, Equatable, Sendable {
   case readFile(ReadFileResult)
+  case readSkillResource(ReadSkillResourceResult)
   case listFiles(ListFilesResult)
   case globFiles(GlobFilesResult)
   case searchFiles(SearchFilesResult)
@@ -901,6 +914,7 @@ package enum ToolResultPayload: Codable, Equatable, Sendable {
 
   private enum Kind: String, Codable {
     case readFile
+    case readSkillResource
     case listFiles
     case globFiles
     case searchFiles
@@ -927,6 +941,10 @@ package enum ToolResultPayload: Codable, Equatable, Sendable {
     switch try container.decode(Kind.self, forKey: .kind) {
     case .readFile:
       self = .readFile(try container.decode(ReadFileResult.self, forKey: .payload))
+    case .readSkillResource:
+      self = .readSkillResource(
+        try container.decode(ReadSkillResourceResult.self, forKey: .payload)
+      )
     case .listFiles:
       self = .listFiles(try container.decode(ListFilesResult.self, forKey: .payload))
     case .globFiles:
@@ -978,6 +996,8 @@ package enum ToolResultPayload: Codable, Equatable, Sendable {
     switch self {
     case .readFile(let result):
       try container.encode(result, forKey: .payload)
+    case .readSkillResource(let result):
+      try container.encode(result, forKey: .payload)
     case .listFiles(let result):
       try container.encode(result, forKey: .payload)
     case .globFiles(let result):
@@ -1022,6 +1042,7 @@ package enum ToolResultPayload: Codable, Equatable, Sendable {
   private var kind: Kind {
     switch self {
     case .readFile: .readFile
+    case .readSkillResource: .readSkillResource
     case .listFiles: .listFiles
     case .globFiles: .globFiles
     case .searchFiles: .searchFiles
@@ -1310,6 +1331,8 @@ nonisolated extension ToolResultPayload {
   package var preview: ToolResultPreview {
     switch self {
     case .readFile(let result):
+      return result.preview
+    case .readSkillResource(let result):
       return result.preview
     case .listFiles(let result):
       return result.preview

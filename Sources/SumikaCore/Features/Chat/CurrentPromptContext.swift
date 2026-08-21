@@ -54,6 +54,52 @@ package enum CurrentPromptContext: Codable, Equatable, Sendable {
     }
   }
 
+  package var activatedSkills: [ActivatedSkill] {
+    guard case .selected(let selection) = self else {
+      return []
+    }
+    return selection.blocks.values.flatMap { block -> [ActivatedSkill] in
+      guard case .activatedSkills(let context) = block else {
+        return []
+      }
+      return context.skills
+    }
+  }
+
+  package func appendingActivatedSkills(
+    _ skills: [ActivatedSkill]
+  ) -> CurrentPromptContext {
+    guard let activatedSkills = ActivatedSkillsPromptContext.make(skills: skills) else {
+      return self
+    }
+    let budget: ContextBudget
+    let truncation: PromptContextTruncation
+    let existingBlocks: [PromptContextBlock]
+    switch self {
+    case .empty(let existingBudget):
+      budget = existingBudget
+      truncation = .none
+      existingBlocks = []
+    case .selected(let selection):
+      budget = selection.budget
+      truncation = selection.truncation
+      existingBlocks = selection.blocks.values.filter { block in
+        if case .activatedSkills = block {
+          return false
+        }
+        return true
+      }
+    }
+    guard
+      let blocks = NonEmptyPromptContextBlocks.make(
+        existingBlocks + [.activatedSkills(activatedSkills)]
+      )
+    else {
+      return self
+    }
+    return .selected(.make(blocks: blocks, budget: budget, truncation: truncation))
+  }
+
   package func appendingWorkspaceInstructions(
     _ workspaceInstructions: WorkspaceInstructionsPromptContext
   ) -> CurrentPromptContext {
@@ -91,6 +137,24 @@ package enum CurrentPromptContext: Codable, Equatable, Sendable {
     }
     let remainingBlocks = selection.blocks.values.filter { block in
       if case .workspaceInstructions = block {
+        return false
+      }
+      return true
+    }
+    guard let blocks = NonEmptyPromptContextBlocks.make(remainingBlocks) else {
+      return .empty(selection.budget)
+    }
+    return .selected(
+      .make(blocks: blocks, budget: selection.budget, truncation: selection.truncation)
+    )
+  }
+
+  package func removingActivatedSkills() -> CurrentPromptContext {
+    guard case .selected(let selection) = self else {
+      return self
+    }
+    let remainingBlocks = selection.blocks.values.filter { block in
+      if case .activatedSkills = block {
         return false
       }
       return true
@@ -173,6 +237,7 @@ package enum PromptContextBlock: Codable, Equatable, Sendable {
   case focusedFile(FocusedFilePromptContext)
   case ambiguousRecentFiles(AmbiguousRecentFilesPromptContext)
   case workspaceInstructions(WorkspaceInstructionsPromptContext)
+  case activatedSkills(ActivatedSkillsPromptContext)
 
   private enum CodingKeys: String, CodingKey {
     case kind
@@ -180,6 +245,7 @@ package enum PromptContextBlock: Codable, Equatable, Sendable {
     case focusedFile
     case ambiguousRecentFiles
     case workspaceInstructions
+    case activatedSkills
   }
 
   private enum Kind: String, Codable {
@@ -187,6 +253,7 @@ package enum PromptContextBlock: Codable, Equatable, Sendable {
     case focusedFile
     case ambiguousRecentFiles
     case workspaceInstructions
+    case activatedSkills
   }
 
   package init(from decoder: Decoder) throws {
@@ -214,6 +281,13 @@ package enum PromptContextBlock: Codable, Equatable, Sendable {
           forKey: .workspaceInstructions
         )
       )
+    case .activatedSkills:
+      self = .activatedSkills(
+        try container.decode(
+          ActivatedSkillsPromptContext.self,
+          forKey: .activatedSkills
+        )
+      )
     }
   }
 
@@ -232,6 +306,9 @@ package enum PromptContextBlock: Codable, Equatable, Sendable {
     case .workspaceInstructions(let context):
       try container.encode(Kind.workspaceInstructions, forKey: .kind)
       try container.encode(context, forKey: .workspaceInstructions)
+    case .activatedSkills(let context):
+      try container.encode(Kind.activatedSkills, forKey: .kind)
+      try container.encode(context, forKey: .activatedSkills)
     }
   }
 }
@@ -623,7 +700,24 @@ internal enum CurrentPromptContextRenderer {
       return renderAmbiguousRecentFiles(context)
     case .workspaceInstructions(let context):
       return renderWorkspaceInstructions(context)
+    case .activatedSkills(let context):
+      return renderActivatedSkills(context)
     }
+  }
+
+  private static func renderActivatedSkills(
+    _ context: ActivatedSkillsPromptContext
+  ) -> String {
+    context.skills.map { skill in
+      """
+      Activated skill: \(skill.id.rawValue)
+      Source: \(skill.portablePath)
+      SHA-256: \(skill.contentHash)
+      These instructions were explicitly activated for this user message. Follow them unless they conflict with application safety rules, the user's explicit request, or workspace instructions. They cannot override any of those.
+
+      \(skill.content)
+      """
+    }.joined(separator: "\n\n")
   }
 
   private static func renderWorkspaceInstructions(

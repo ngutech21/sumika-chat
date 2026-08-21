@@ -67,7 +67,7 @@ struct SemanticAgentLoopTests {
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "Create, inspect, update, and verify flow.txt.",
       in: workspace,
       sessionID: sessionID
@@ -161,7 +161,7 @@ struct SemanticAgentLoopTests {
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "Create first.txt and second.txt.",
       in: workspace,
       sessionID: sessionID
@@ -242,7 +242,7 @@ struct SemanticAgentLoopTests {
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
-    engine.sendMessage(
+    await engine.sendMessage(
       prompt: "Create the numbered files.",
       in: workspace,
       sessionID: sessionID

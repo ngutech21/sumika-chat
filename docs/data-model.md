@@ -186,6 +186,17 @@ flowchart TD
 
 ## Models
 
+### ActivatedSkillsPromptContext
+
+- Kind: `struct`
+- Source: `Sources/SumikaCore/Features/Chat/Models/PromptContext.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
+- `skills: [ActivatedSkill]`
+- `totalCharacterCount: Int`
+
 ### ApplicationActivationState
 
 - Kind: `enum`
@@ -1430,6 +1441,7 @@ Cases:
 - `listFiles(ListFilesInput)`
 - `mcp(MCPToolInput)`
 - `readFile(ReadFileInput)`
+- `readSkillResource(ReadSkillResourceInput)`
 - `runCommand(RunCommandInput)`
 - `searchFiles(SearchFilesInput)`
 - `showFile(ReadFileInput)`
@@ -1967,6 +1979,7 @@ Cases:
 - `listFiles(ListFilesResult)`
 - `mcp(MCPToolResult)`
 - `readFile(ReadFileResult)`
+- `readSkillResource(ReadSkillResourceResult)`
 - `runCommand(RunCommandResult)`
 - `searchFiles(SearchFilesResult)`
 - `todoWrite(TodoWriteResult)`
@@ -2082,6 +2095,9 @@ Relations:
 
 Properties:
 
+- `activatedSkillCharacterCount: Int?`
+- `activatedSkillContentHashes: [String]?`
+- `activatedSkillIDs: [String]?`
 - `activeMCPToolCount: Int?`
 - `appendOnly: Bool?`
 - `appendedMessageCount: Int?`

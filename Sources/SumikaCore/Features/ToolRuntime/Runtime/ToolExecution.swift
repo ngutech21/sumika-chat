@@ -580,6 +580,23 @@ struct ToolExecutorRegistry: Sendable {
     }
     return ToolExecutorRegistry(executors)
   }
+
+  /// Replaces one executor by name while preserving registry order, or appends
+  /// it when the name was not registered yet.
+  func replacing(_ replacement: AnyToolExecutor) -> ToolExecutorRegistry {
+    var didReplace = false
+    var executors = orderedExecutors.map { executor in
+      guard executor.definition.name == replacement.definition.name else {
+        return executor
+      }
+      didReplace = true
+      return replacement
+    }
+    if !didReplace {
+      executors.append(replacement)
+    }
+    return ToolExecutorRegistry(executors)
+  }
 }
 
 private func toolApprovalScopeChanged(
