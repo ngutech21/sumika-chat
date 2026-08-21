@@ -213,7 +213,7 @@ nonisolated extension ToolDefinition {
   package static let editFile = ToolDefinition(
     name: .editFile,
     description:
-      "Replace one unique text span in an existing file. Read first unless the current content is already in context. Multiple edit_file calls may target non-overlapping spans of one current file snapshot; they are approved and applied atomically per file. Do not combine them with write_file for that file.",
+      "Replace one unique text span in an existing file. Read first unless the current content is already in context. When emitting multiple edit_file calls for the same path in one response, every old_text MUST match a unique, pairwise non-overlapping span of the same current file snapshot. Never combine a broad replacement with a narrower replacement inside it. If any spans overlap, the entire same-file batch fails and no changes are applied. Never combine edit_file with write_file for the same path.",
     parameters: [
       ToolParameterDefinition(
         name: "path",

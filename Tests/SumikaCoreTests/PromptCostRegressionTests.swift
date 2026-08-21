@@ -870,49 +870,49 @@ private enum PromptCostBaseline {
       name: "list_files_read_file",
       toolCount: 2,
       systemPromptBytes: 3_004,
-      toolSchemaBytes: 9_425,
+      toolSchemaBytes: 9_625,
       conversationBytes: 798,
       toolCallBytes: 197,
       toolResultBytes: 745,
-      totalBytes: 13_424,
-      estimatedTokens: 3_356,
-      checkpointEstimatedTokens: [3_239, 3_356]
+      totalBytes: 13_624,
+      estimatedTokens: 3_406,
+      checkpointEstimatedTokens: [3_289, 3_406]
     ),
     PromptCostSnapshot(
       name: "read_file_edit_file_test",
       toolCount: 3,
       systemPromptBytes: 3_004,
-      toolSchemaBytes: 9_425,
+      toolSchemaBytes: 9_625,
       conversationBytes: 1_429,
       toolCallBytes: 480,
       toolResultBytes: 1_354,
-      totalBytes: 14_338,
-      estimatedTokens: 3_585,
-      checkpointEstimatedTokens: [3_244, 3_425, 3_585]
+      totalBytes: 14_538,
+      estimatedTokens: 3_635,
+      checkpointEstimatedTokens: [3_294, 3_475, 3_635]
     ),
     PromptCostSnapshot(
       name: "failed_command_diagnostics",
       toolCount: 2,
       systemPromptBytes: 3_004,
-      toolSchemaBytes: 9_425,
+      toolSchemaBytes: 9_625,
       conversationBytes: 4_898,
       toolCallBytes: 359,
       toolResultBytes: 4_851,
-      totalBytes: 17_686,
-      estimatedTokens: 4_422,
-      checkpointEstimatedTokens: [3_446, 4_422]
+      totalBytes: 17_886,
+      estimatedTokens: 4_472,
+      checkpointEstimatedTokens: [3_496, 4_472]
     ),
     PromptCostSnapshot(
       name: "long_tool_loop",
       toolCount: 9,
       systemPromptBytes: 3_004,
-      toolSchemaBytes: 9_425,
+      toolSchemaBytes: 9_625,
       conversationBytes: 12_875,
       toolCallBytes: 1_386,
       toolResultBytes: 12_785,
-      totalBytes: 26_690,
-      estimatedTokens: 6_673,
-      checkpointEstimatedTokens: [3_248, 3_392, 3_510, 3_690, 4_017, 6_174, 6_310, 6_513, 6_673]
+      totalBytes: 26_890,
+      estimatedTokens: 6_723,
+      checkpointEstimatedTokens: [3_298, 3_442, 3_560, 3_740, 4_067, 6_224, 6_360, 6_563, 6_723]
     ),
   ]
 }
