@@ -755,8 +755,24 @@ extension ConversationEngine {
       toolLoopIteration: turn.toolCallBatchCount
     )
     if promptMode.isFinal {
-      try turnExecutionCoordinator.requireVisibleFinalResponse(generationResult)
-      return .complete
+      let toolLoopOutcome = try await turnExecutionCoordinator.finishFinalResponse(
+        generationResult,
+        workspace: workspace,
+        sessionID: existingRecord.request.sessionID,
+        assistantMessageID: nextAssistantMessageID,
+        turnID: turnID,
+        interactionMode: chatSession.interactionMode,
+        promptMode: promptMode,
+        runtime: runtime,
+        conversation: self,
+        turnToolOrchestrator: turnToolOrchestrator
+      )
+      return try await resolveToolLoopOutcome(
+        toolLoopOutcome,
+        in: workspace,
+        turnID: turnID,
+        runtime: runtime
+      )
     }
     try turnExecutionCoordinator.requireVisibleTextOrToolCall(generationResult)
     let toolLoopOutcome = try await turnExecutionCoordinator.runToolLoop(
@@ -862,10 +878,11 @@ extension ConversationEngine {
     )
     notifySessionDidChange()
 
+    let resolvedWorkspace = workspace ?? activeWorkspace
     let turnToolOrchestrator = await frozenToolOrchestrator(
       for: turnID,
       toolProfile: toolProfile,
-      workspace: workspace ?? activeWorkspace
+      workspace: resolvedWorkspace
     )
     let turnToolRegistry = turnToolOrchestrator?.toolRegistry ?? ToolRegistry(tools: [])
     let stableInstructions = stableInstructions(
@@ -910,8 +927,24 @@ extension ConversationEngine {
       toolLoopIteration: turn.toolCallBatchCount
     )
     if promptMode.isFinal {
-      try turnExecutionCoordinator.requireVisibleFinalResponse(generationResult)
-      return .complete
+      let toolLoopOutcome = try await turnExecutionCoordinator.finishFinalResponse(
+        generationResult,
+        workspace: resolvedWorkspace,
+        sessionID: firstRecord.request.sessionID,
+        assistantMessageID: nextAssistantMessageID,
+        turnID: turnID,
+        interactionMode: chatSession.interactionMode,
+        promptMode: promptMode,
+        runtime: runtime,
+        conversation: self,
+        turnToolOrchestrator: turnToolOrchestrator
+      )
+      return try await resolveToolLoopOutcome(
+        toolLoopOutcome,
+        in: resolvedWorkspace,
+        turnID: turnID,
+        runtime: runtime
+      )
     }
 
     guard let workspace else {

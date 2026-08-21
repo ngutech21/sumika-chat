@@ -92,7 +92,7 @@ struct ToolLoopCoordinator: Sendable {
   ) async throws -> ChatWorkflowStep? {
     try Task.checkCancellation()
     let toolRegistry = toolOrchestrator.toolRegistry
-    guard !toolRegistry.tools.isEmpty
+    guard !toolRegistry.tools.isEmpty || !request.nativeToolCalls.isEmpty
     else {
       return nil
     }

@@ -10,8 +10,8 @@ enum ToolPromptMode: Equatable, Sendable {
   case afterToolResultFinal
   case afterChatWebToolResultFinal
 
-  /// A final generation runs with tools stripped and must produce visible text.
-  /// Both the agent and the chat-web variants are terminal.
+  /// A final generation runs with tools stripped. Any native calls emitted anyway
+  /// are rejected and audited before a deterministic response ends the turn.
   var isFinal: Bool {
     switch self {
     case .afterToolResultFinal, .afterChatWebToolResultFinal:

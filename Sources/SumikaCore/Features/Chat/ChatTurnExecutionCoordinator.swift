@@ -45,6 +45,28 @@ private enum ToolBudgetFinalizationFailure {
   }
 }
 
+private enum FinalResponseRecovery {
+  case missingVisibleResponse
+  case unavailableToolCall
+
+  func userVisibleMessage(interactionMode: WorkspaceInteractionMode) -> String {
+    switch self {
+    case .missingVisibleResponse:
+      "The model did not produce a final response after the tool result. Please try again."
+    case .unavailableToolCall:
+      switch interactionMode {
+      case .chat:
+        "Chat mode could not complete this request because the model attempted another "
+          + "unavailable tool call. No additional tool was executed. Switch to Agent mode "
+          + "to work with local files or shell commands."
+      case .agent:
+        "The model attempted another tool call after tool access had ended. No additional "
+          + "tool was executed, and the request may be incomplete."
+      }
+    }
+  }
+}
+
 @MainActor
 struct ChatTurnExecutionCoordinator {
   private let focusedFileReducer: FocusedFileStateReducer
@@ -416,13 +438,23 @@ struct ChatTurnExecutionCoordinator {
           turnID: turnID,
           toolLoopIteration: toolLoopIteration
         )
+        if promptMode.isFinal {
+          return try await finishFinalResponse(
+            generationResult,
+            workspace: workspace,
+            sessionID: sessionID,
+            assistantMessageID: nextAssistantMessageID,
+            turnID: turnID,
+            interactionMode: interactionMode,
+            promptMode: promptMode,
+            runtime: runtime,
+            conversation: conversation,
+            turnToolOrchestrator: turnToolOrchestrator
+          )
+        }
         currentNativeToolCalls = generationResult.nativeToolCalls
         currentBatchFollowUpNotice = outputLimitFollowUpNotice(for: generationResult)
         try requireVisibleTextOrToolCall(generationResult)
-        guard !promptMode.isFinal else {
-          try requireVisibleFinalResponse(generationResult)
-          return .complete
-        }
         currentAssistantMessageID = nextAssistantMessageID
       case .resumeCorrectionGeneration(let nextAssistantMessageID, let promptMode):
         let effectivePromptMode = ToolFollowUpPromptPolicy.promptMode(
@@ -448,13 +480,23 @@ struct ChatTurnExecutionCoordinator {
           turnID: turnID,
           toolLoopIteration: toolLoopIteration
         )
+        if effectivePromptMode.isFinal {
+          return try await finishFinalResponse(
+            generationResult,
+            workspace: workspace,
+            sessionID: sessionID,
+            assistantMessageID: nextAssistantMessageID,
+            turnID: turnID,
+            interactionMode: interactionMode,
+            promptMode: effectivePromptMode,
+            runtime: runtime,
+            conversation: conversation,
+            turnToolOrchestrator: turnToolOrchestrator
+          )
+        }
         currentNativeToolCalls = generationResult.nativeToolCalls
         currentBatchFollowUpNotice = outputLimitFollowUpNotice(for: generationResult)
         try requireVisibleTextOrToolCall(generationResult)
-        guard !effectivePromptMode.isFinal else {
-          try requireVisibleFinalResponse(generationResult)
-          return .complete
-        }
         currentAssistantMessageID = nextAssistantMessageID
       case .none, .stopTurn:
         return .complete
@@ -626,6 +668,78 @@ struct ChatTurnExecutionCoordinator {
 }
 
 extension ChatTurnExecutionCoordinator {
+  func finishFinalResponse(
+    _ generationResult: ChatGenerationResult,
+    workspace: Workspace?,
+    sessionID: ChatSession.ID,
+    assistantMessageID: UUID,
+    turnID: ChatTurn.ID,
+    interactionMode: WorkspaceInteractionMode,
+    promptMode: ToolPromptMode,
+    runtime: ChatTurnRuntimeContext,
+    conversation: ConversationEngine,
+    turnToolOrchestrator: ToolOrchestrator?
+  ) async throws -> ChatToolLoopOutcome {
+    try Task.checkCancellation()
+    guard conversation.isActive(turnID) else {
+      return .stop
+    }
+
+    guard !generationResult.nativeToolCalls.isEmpty else {
+      if !hasVisibleAssistantContent(generationResult) {
+        appendAssistantFallback(
+          to: assistantMessageID,
+          content: FinalResponseRecovery.missingVisibleResponse.userVisibleMessage(
+            interactionMode: interactionMode
+          ),
+          conversation: conversation
+        )
+      }
+      return .complete
+    }
+
+    var fallbackMessageID = assistantMessageID
+    if let workspace, let turnToolOrchestrator {
+      let unavailableToolOrchestrator = turnToolOrchestrator.replacingExecutorRegistry(
+        ToolExecutorRegistry()
+      )
+      if let step = try await runtime.toolLoopCoordinator.run(
+        ToolLoopRequest(
+          workspace: workspace,
+          sessionID: sessionID,
+          turnID: turnID,
+          assistantMessageID: assistantMessageID,
+          items: conversation.chatSession.turns.flatMap(\.items),
+          focusedFileState: conversation.chatSession.focusedFileState,
+          interactionMode: interactionMode,
+          followUpPromptMode: promptMode,
+          toolLoopIteration: nil,
+          toolCallingPolicy: runtime.selectedModel.toolCallingPolicy,
+          nativeToolCalls: generationResult.nativeToolCalls
+        ),
+        using: unavailableToolOrchestrator
+      ) {
+        try Task.checkCancellation()
+        guard conversation.isActive(turnID) else {
+          return .stop
+        }
+        conversation.applyWorkflowEvents(step.events)
+        conversation.notifySessionDidChange()
+        fallbackMessageID =
+          continuationAssistantMessageID(for: step.continuation) ?? assistantMessageID
+      }
+    }
+
+    appendAssistantFallback(
+      to: fallbackMessageID,
+      content: FinalResponseRecovery.unavailableToolCall.userVisibleMessage(
+        interactionMode: interactionMode
+      ),
+      conversation: conversation
+    )
+    return .complete
+  }
+
   private func prepareGenerationContext(
     runtime: ChatTurnRuntimeContext,
     conversation: ConversationEngine,
@@ -705,6 +819,18 @@ extension ChatTurnExecutionCoordinator {
     failure: ToolBudgetFinalizationFailure,
     conversation: ConversationEngine
   ) {
+    appendAssistantFallback(
+      to: assistantMessageID,
+      content: failure.userVisibleMessage,
+      conversation: conversation
+    )
+  }
+
+  private func appendAssistantFallback(
+    to assistantMessageID: UUID,
+    content: String,
+    conversation: ConversationEngine
+  ) {
     let targetMessage = conversation.chatSession.turns
       .flatMap(\.items)
       .compactMap { item -> AssistantTurnMessage? in
@@ -718,7 +844,7 @@ extension ChatTurnExecutionCoordinator {
       .first
     var events: [ChatWorkflowEvent] = [
       .assistantChunkAppended(
-        chunk: failure.userVisibleMessage,
+        chunk: content,
         messageID: assistantMessageID
       )
     ]
@@ -731,6 +857,18 @@ extension ChatTurnExecutionCoordinator {
     }
     conversation.applyWorkflowEvents(events)
     conversation.notifySessionDidChange()
+  }
+
+  private func continuationAssistantMessageID(
+    for continuation: ChatWorkflowContinuation
+  ) -> UUID? {
+    switch continuation {
+    case .resumeGeneration(let messageID, _),
+      .resumeCorrectionGeneration(let messageID, _):
+      messageID
+    case .none, .awaitingApproval, .awaitingUserAnswer, .resumeAutomaticApproval, .stopTurn:
+      nil
+    }
   }
 
   private func finalizationFailure(

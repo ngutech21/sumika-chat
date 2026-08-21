@@ -460,6 +460,61 @@ struct ConversationEngineWriteApprovalTests {
     #expect(engine.chatSession.testMessages[2].content == "I will leave README.md unchanged.")
   }
 
+  @Test
+  func finalToolCallAfterDeniedEditIsAuditedWithoutExecution() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "edit_file",
+            arguments: [
+              "path": .string("README.md"),
+              "old_text": .string("project notes"),
+              "new_text": .string("updated notes"),
+            ]
+          ))
+      ],
+      [
+        .chunk("I will try a command instead."),
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "run_command",
+            arguments: [
+              "command": .string("touch should-not-exist.txt"),
+              "reason": .string("Try another mutation after denial."),
+            ]
+          )),
+      ],
+    ])
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    await engine.sendMessage(prompt: "update the readme", in: workspace, sessionID: sessionID)
+    try await waitUntil { engine.chatSession.turns.first?.status == .awaitingApproval }
+    let editCallID = try #require(engine.chatSession.toolCalls.first?.id)
+
+    engine.denyToolCall(id: editCallID)
+    try await waitUntil { !engine.isGenerating }
+
+    #expect(engine.chatSession.turns.first?.status == .completed)
+    #expect(engine.chatSession.turns.first?.modelContextPolicy == .included)
+    #expect(engine.errorMessage == nil)
+    #expect(engine.chatSession.toolCalls.map(\.request.toolName) == [.editFile, .runCommand])
+    #expect(engine.chatSession.toolCalls.map(\.status) == [.denied, .failed])
+    #expect(!engine.hasPendingApproval)
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: workspace.rootURL.appending(path: "should-not-exist.txt").path
+      ))
+    let expectedFallback =
+      "The model attempted another tool call after tool access had ended. No additional "
+      + "tool was executed, and the request may be incomplete."
+    #expect(engine.chatSession.testMessages.last?.content == expectedFallback)
+  }
+
   private func waitUntil(
     timeout: Duration = .seconds(1),
     condition: @escaping @MainActor () -> Bool

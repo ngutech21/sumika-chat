@@ -147,8 +147,11 @@ flowchart TD
   `finish_task` protocol tail caused by the output limit also ends with the
   deterministic missing-finish fallback and is never retried. Runtime failures
   such as cancellation or a failed model stream remain normal errors rather than
-  budget fallbacks. Chat-web finalization keeps its no-tools behavior and never
-  receives the Agent-only transient instruction.
+  budget fallbacks. Chat-web finalization keeps its no-tools prompt context and
+  never receives the Agent-only transient instruction. If the model nevertheless
+  emits a native call in any tools-stripped final response, every call is stored
+  as an unavailable failed audit record, no executor runs, and deterministic
+  assistant text completes the turn instead of raising a conversation error.
 - The transient finish-only instruction is appended to the MLX prompt snapshot
   and therefore to the completed generation's cached prefix, but it is not part
   of persisted `ChatTurn.items`. On the next turn the reconstructed canonical
@@ -913,10 +916,9 @@ declarations.
   is intentionally out of scope: the runtime does not infer that a later
   generated edit overlaps an earlier one. Revalidation and explicit approval
   protect each later mutation independently.
-- Denied approval-sensitive tools may also receive one final no-tools assistant
-  follow-up. The denied tool result stays auditable, no side effect occurs, and
-  further tool attempts in the final response are recorded as structured
-  failures instead of executed.
+- Denied tools may also receive one final no-tools assistant follow-up. The denied
+  tool result stays auditable, no side effect occurs, and further tool attempts
+  in the final response are recorded as structured failures instead of executed.
 - Tool results must report affected paths where possible so the UI can show a
   useful audit trail. Domain result payloads use canonical workspace-relative
   paths; UI renderers may decide how to display them.

@@ -1720,6 +1720,132 @@ struct ConversationEngineTests {
   }
 
   @Test
+  func chatFinalResponseToolCallIsAuditedWithoutFailingTurn() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .chunk("Let me check the current git status first."),
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "web_fetch",
+            arguments: ["url": .string("file:///tmp/project/.git/HEAD")]
+          )),
+      ],
+      [
+        .chunk("Let me check the current git status."),
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "run_command",
+            arguments: [
+              "command": .string("git status"),
+              "reason": .string("Inspect the working tree before committing."),
+            ]
+          )),
+      ],
+    ])
+    let engine = ConversationEngine(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: .codingAgent,
+        webAccessSettingsProvider: {
+          WebAccessSettings(policy: .allow, provider: .duckDuckGo)
+        }
+      )
+    )
+    engine.loadSession(
+      ChatSession(
+        id: sessionID,
+        selectedModelID: "gemma4-12b-qat-4bit",
+        interactionMode: .chat
+      ))
+    engine.modelRuntime.modelState = .ready
+
+    await engine.sendMessage(prompt: "commit the changes", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !engine.isGenerating }
+
+    let turn = try #require(engine.chatSession.turns.first)
+    #expect(turn.status == .completed)
+    #expect(turn.modelContextPolicy == .included)
+    #expect(engine.errorMessage == nil)
+    let toolCalls = engine.chatSession.toolCalls
+    #expect(toolCalls.count == 2)
+    guard toolCalls.count == 2 else {
+      return
+    }
+    #expect(toolCalls[0].request.toolName == .webFetch)
+    #expect(toolCalls[0].status == .denied)
+    #expect(toolCalls[1].request.toolName == .runCommand)
+    #expect(toolCalls[1].status == .failed)
+    #expect(toolCalls[1].evaluation.decision == .denied)
+    #expect(
+      toolCalls[1].state.preview?.text.contains(
+        "Tool is not available in the active registry: run_command."
+      ) == true)
+    #expect(!engine.hasPendingApproval)
+    let expectedFallback =
+      "Chat mode could not complete this request because the model attempted another "
+      + "unavailable tool call. No additional tool was executed. Switch to Agent mode "
+      + "to work with local files or shell commands."
+    #expect(engine.chatSession.testMessages.last?.content == expectedFallback)
+
+    let capturedToolContexts = await runtime.capturedToolContexts
+    #expect(capturedToolContexts.count == 2)
+    #expect(capturedToolContexts[1] == nil)
+  }
+
+  @Test
+  func emptyChatFinalResponseUsesDeterministicFallback() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "web_fetch",
+            arguments: ["url": .string("file:///tmp/project/.git/HEAD")]
+          ))
+      ],
+      [.thinkingChunk("I still want to inspect the workspace.")],
+    ])
+    let engine = ConversationEngine(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: .codingAgent,
+        webAccessSettingsProvider: {
+          WebAccessSettings(policy: .allow, provider: .duckDuckGo)
+        }
+      )
+    )
+    engine.loadSession(
+      ChatSession(
+        id: sessionID,
+        selectedModelID: "gemma4-12b-qat-4bit",
+        interactionMode: .chat
+      ))
+    engine.modelRuntime.modelState = .ready
+
+    await engine.sendMessage(prompt: "commit the changes", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !engine.isGenerating }
+
+    #expect(engine.chatSession.turns.first?.status == .completed)
+    #expect(engine.chatSession.turns.first?.modelContextPolicy == .included)
+    #expect(engine.errorMessage == nil)
+    #expect(engine.chatSession.toolCalls.count == 1)
+    #expect(engine.chatSession.toolCalls.first?.status == .denied)
+    #expect(
+      engine.chatSession.testMessages.contains { message in
+        message.content
+          == "The model did not produce a final response after the tool result. Please try again."
+      }
+    )
+  }
+
+  @Test
   func chatModeWebFetchRequiresApprovalWhenPolicyAsksEachTime() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
