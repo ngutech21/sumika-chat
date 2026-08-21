@@ -14,26 +14,6 @@ struct MLXCompletedAssistantSnapshot: Equatable, Sendable {
 }
 
 enum MLXModelStreamProcessor {
-  private enum ReasoningBoundaryState {
-    case absent
-    case open
-    case closed
-
-    var isOpen: Bool {
-      if case .open = self {
-        return true
-      }
-      return false
-    }
-
-    var isClosed: Bool {
-      if case .closed = self {
-        return true
-      }
-      return false
-    }
-  }
-
   private struct StreamTerminationState {
     var reachedTokenLimit = false
     var discardedToolProtocolTail = false
@@ -83,7 +63,6 @@ enum MLXModelStreamProcessor {
       var output = ""
       var visibleOutput = ""
       var reasoningOutput = ""
-      var reasoningBoundaryState = ReasoningBoundaryState.absent
       var completedMetrics: ChatGenerationMetrics?
       let iterationStartedAt = generationStartedAt
       var firstChunkAt: Date?
@@ -127,8 +106,7 @@ enum MLXModelStreamProcessor {
               reasoningParser: &reasoningParser,
               to: continuation,
               visibleOutput: &visibleOutput,
-              reasoningOutput: &reasoningOutput,
-              reasoningBoundaryState: &reasoningBoundaryState
+              reasoningOutput: &reasoningOutput
             ) {
               termination.terminatedDownstream = true
               break generationLoop
@@ -142,8 +120,7 @@ enum MLXModelStreamProcessor {
                 reasoningParser: &reasoningParser,
                 to: continuation,
                 visibleOutput: &visibleOutput,
-                reasoningOutput: &reasoningOutput,
-                reasoningBoundaryState: &reasoningBoundaryState
+                reasoningOutput: &reasoningOutput
               )
               || yieldToolCall(
                 toolCall,
@@ -172,8 +149,7 @@ enum MLXModelStreamProcessor {
                 reasoningParser: &reasoningParser,
                 to: continuation,
                 visibleOutput: &visibleOutput,
-                reasoningOutput: &reasoningOutput,
-                reasoningBoundaryState: &reasoningBoundaryState
+                reasoningOutput: &reasoningOutput
               ) {
                 termination.terminatedDownstream = true
                 break generationLoop
@@ -192,8 +168,7 @@ enum MLXModelStreamProcessor {
               ),
               to: continuation,
               visibleOutput: &visibleOutput,
-              reasoningOutput: &reasoningOutput,
-              reasoningBoundaryState: &reasoningBoundaryState
+              reasoningOutput: &reasoningOutput
             ) {
               termination.terminatedDownstream = true
               break generationLoop
@@ -216,8 +191,7 @@ enum MLXModelStreamProcessor {
             reasoningParser: &reasoningParser,
             to: continuation,
             visibleOutput: &visibleOutput,
-            reasoningOutput: &reasoningOutput,
-            reasoningBoundaryState: &reasoningBoundaryState
+            reasoningOutput: &reasoningOutput
           )
         {
           termination.terminatedDownstream = true
@@ -230,8 +204,7 @@ enum MLXModelStreamProcessor {
             ),
             to: continuation,
             visibleOutput: &visibleOutput,
-            reasoningOutput: &reasoningOutput,
-            reasoningBoundaryState: &reasoningBoundaryState
+            reasoningOutput: &reasoningOutput
           )
         {
           termination.terminatedDownstream = true
@@ -248,9 +221,9 @@ enum MLXModelStreamProcessor {
           assistantSnapshot: completedAssistantSnapshot(
             visibleOutput: visibleOutput,
             reasoningOutput: reasoningOutput,
-            reasoningBoundaryState: reasoningBoundaryState
+            reasoningBoundaryState: reasoningParser.boundaryState
           ),
-          hasUnconfirmedReasoning: reasoningBoundaryState.isOpen,
+          hasUnconfirmedReasoning: reasoningParser.boundaryState.isOpen,
           completedMetrics: completedMetrics,
           didTerminateDownstream: termination.terminatedDownstream,
           didCompleteNaturally: completedMetrics != nil && !termination.reachedTokenLimit,
@@ -552,8 +525,7 @@ extension MLXModelStreamProcessor {
     _ segments: [ReasoningTraceParser.Segment],
     to continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
     visibleOutput: inout String,
-    reasoningOutput: inout String,
-    reasoningBoundaryState: inout ReasoningBoundaryState
+    reasoningOutput: inout String
   ) -> Bool {
     for segment in segments {
       switch segment {
@@ -564,12 +536,10 @@ extension MLXModelStreamProcessor {
         }
       case .thinking(let thinkingChunk):
         reasoningOutput += thinkingChunk
-        reasoningBoundaryState = .open
         if case .terminated = continuation.yield(.thinkingChunk(thinkingChunk)) {
           return true
         }
       case .thinkingCompleted:
-        reasoningBoundaryState = .closed
         if case .terminated = continuation.yield(.thinkingCompleted) {
           return true
         }
@@ -584,8 +554,7 @@ extension MLXModelStreamProcessor {
     reasoningParser: inout ReasoningTraceParser,
     to continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
     visibleOutput: inout String,
-    reasoningOutput: inout String,
-    reasoningBoundaryState: inout ReasoningBoundaryState
+    reasoningOutput: inout String
   ) throws -> Bool {
     if isPotentialToolProtocolResidual(chunk) {
       pendingChunk = (pendingChunk ?? "") + chunk
@@ -596,8 +565,7 @@ extension MLXModelStreamProcessor {
       reasoningParser: &reasoningParser,
       to: continuation,
       visibleOutput: &visibleOutput,
-      reasoningOutput: &reasoningOutput,
-      reasoningBoundaryState: &reasoningBoundaryState
+      reasoningOutput: &reasoningOutput
     ) {
       return true
     }
@@ -605,8 +573,7 @@ extension MLXModelStreamProcessor {
       try reasoningParser.append(chunk),
       to: continuation,
       visibleOutput: &visibleOutput,
-      reasoningOutput: &reasoningOutput,
-      reasoningBoundaryState: &reasoningBoundaryState
+      reasoningOutput: &reasoningOutput
     )
   }
 
@@ -615,8 +582,7 @@ extension MLXModelStreamProcessor {
     reasoningParser: inout ReasoningTraceParser,
     to continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
     visibleOutput: inout String,
-    reasoningOutput: inout String,
-    reasoningBoundaryState: inout ReasoningBoundaryState
+    reasoningOutput: inout String
   ) throws -> Bool {
     guard let chunk = pendingChunk else {
       return false
@@ -626,8 +592,7 @@ extension MLXModelStreamProcessor {
       try reasoningParser.append(chunk),
       to: continuation,
       visibleOutput: &visibleOutput,
-      reasoningOutput: &reasoningOutput,
-      reasoningBoundaryState: &reasoningBoundaryState
+      reasoningOutput: &reasoningOutput
     )
   }
 
@@ -653,16 +618,14 @@ extension MLXModelStreamProcessor {
     reasoningParser: inout ReasoningTraceParser,
     to continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
     visibleOutput: inout String,
-    reasoningOutput: inout String,
-    reasoningBoundaryState: inout ReasoningBoundaryState
+    reasoningOutput: inout String
   ) throws -> Bool {
     if try flushPendingChunk(
       &pendingChunk,
       reasoningParser: &reasoningParser,
       to: continuation,
       visibleOutput: &visibleOutput,
-      reasoningOutput: &reasoningOutput,
-      reasoningBoundaryState: &reasoningBoundaryState
+      reasoningOutput: &reasoningOutput
     ) {
       return true
     }
@@ -670,8 +633,7 @@ extension MLXModelStreamProcessor {
       reasoningParser.prepareForToolCall(),
       to: continuation,
       visibleOutput: &visibleOutput,
-      reasoningOutput: &reasoningOutput,
-      reasoningBoundaryState: &reasoningBoundaryState
+      reasoningOutput: &reasoningOutput
     )
   }
 
@@ -821,7 +783,7 @@ extension MLXModelStreamProcessor {
   private static func completedAssistantSnapshot(
     visibleOutput: String,
     reasoningOutput: String,
-    reasoningBoundaryState: ReasoningBoundaryState
+    reasoningBoundaryState: ReasoningTraceParser.BoundaryState
   ) -> MLXCompletedAssistantSnapshot {
     let completedReasoningContent: String? =
       if reasoningBoundaryState.isClosed,

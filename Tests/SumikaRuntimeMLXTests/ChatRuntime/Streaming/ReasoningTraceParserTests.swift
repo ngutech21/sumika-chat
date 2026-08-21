@@ -14,9 +14,28 @@ struct ReasoningTraceParserTests {
   func passThroughParserEmitsOnlyVisibleText() throws {
     var parser = try ReasoningTraceParser(format: .none)
 
+    #expect(parser.boundaryState == .absent)
     #expect(try parser.append("") == [])
     #expect(try parser.append("Visible") == [.visible("Visible")])
     #expect(try parser.finish() == [])
+    #expect(parser.boundaryState == .absent)
+  }
+
+  @Test
+  func protocolBoundaryStateDoesNotDependOnEmittedReasoningText() throws {
+    var gemmaParser = try ReasoningTraceParser(format: .gemmaChannel)
+    #expect(gemmaParser.boundaryState == .absent)
+    #expect(try gemmaParser.append("<|channel|>thought") == [])
+    #expect(gemmaParser.boundaryState == .open)
+    #expect(gemmaParser.prepareForToolCall() == [])
+    #expect(gemmaParser.boundaryState == .closed)
+
+    var qwenParser = try ReasoningTraceParser(format: .qwenThinkTags)
+    #expect(qwenParser.boundaryState == .open)
+    #expect(try qwenParser.append("<think>") == [])
+    #expect(qwenParser.boundaryState == .open)
+    #expect(qwenParser.prepareForToolCall() == [])
+    #expect(qwenParser.boundaryState == .closed)
   }
 
   @Test

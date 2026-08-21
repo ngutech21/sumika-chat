@@ -1004,6 +1004,54 @@ struct MLXModelStreamProcessorTests {
   }
 
   @Test
+  func unclosedQwenReasoningWithoutEmittedTextInvalidatesCache() async throws {
+    let snapshotRecorder = MLXAssistantSnapshotRecorder()
+    let invalidationRecorder = MLXStreamInvalidationRecorder()
+    let memoryClearRecorder = MLXMemoryClearRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("<think>"))
+      continuation.yield(.info(completionInfo()))
+      continuation.finish()
+    }
+    let stream = modelStream(
+      from: source,
+      reasoningTraceFormat: .qwenThinkTags,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
+      markCompleted: { _ in },
+      markCompletedSnapshot: { snapshot in
+        await snapshotRecorder.record(snapshot)
+      },
+      markCancelled: { reason in
+        await invalidationRecorder.record(reason)
+      },
+      memoryCacheClearer: MLXMemoryCacheClearer { reason in
+        await memoryClearRecorder.record(reason)
+      }
+    )
+
+    var didEmitCompletion = false
+    do {
+      for try await event in stream {
+        if case .completed = event {
+          didEmitCompletion = true
+        }
+      }
+      Issue.record("Expected marker-only Qwen reasoning to interrupt the stream.")
+    } catch MLXChatRuntimeError.interruptedStream {
+    } catch {
+      Issue.record("Expected interrupted stream error, got \(error).")
+    }
+
+    #expect(!didEmitCompletion)
+    #expect(await snapshotRecorder.firstSnapshot == nil)
+    #expect(await invalidationRecorder.firstReason == .interrupted)
+    #expect(await memoryClearRecorder.reasons == [.interruptedStream])
+  }
+
+  @Test
   func laterUnclosedGemmaReasoningSegmentInterruptsAfterEarlierCompletedSegment() async throws {
     let snapshotRecorder = MLXAssistantSnapshotRecorder()
     let invalidationRecorder = MLXStreamInvalidationRecorder()
@@ -1215,7 +1263,7 @@ struct MLXModelStreamProcessorTests {
   }
 
   @Test
-  func modelStreamCompletesNativeToolCallAsCleanBoundary() async throws {
+  func modelStreamCompletesQwenNativeToolCallWithoutReasoningTextAsCleanBoundary() async throws {
     let recorder = MLXStreamInvalidationRecorder()
     let boundaryRecorder = MLXNativeBoundaryRecorder()
     let memoryClearRecorder = MLXMemoryClearRecorder()
@@ -1240,6 +1288,7 @@ struct MLXModelStreamProcessorTests {
     }
     let stream = modelStream(
       from: source,
+      reasoningTraceFormat: .qwenThinkTags,
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),

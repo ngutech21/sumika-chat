@@ -2,6 +2,26 @@ import MLXLMCommon
 import SumikaCore
 
 struct ReasoningTraceParser {
+  enum BoundaryState: Equatable {
+    case absent
+    case open
+    case closed
+
+    var isOpen: Bool {
+      if case .open = self {
+        return true
+      }
+      return false
+    }
+
+    var isClosed: Bool {
+      if case .closed = self {
+        return true
+      }
+      return false
+    }
+  }
+
   struct QwenValidation: Equatable, Sendable {
     let responseStopStrings: Set<String>
   }
@@ -19,6 +39,17 @@ struct ReasoningTraceParser {
   }
 
   private var storage: Storage
+
+  var boundaryState: BoundaryState {
+    switch storage {
+    case .none:
+      .absent
+    case .gemma(let parser):
+      parser.boundaryState
+    case .qwen(let parser):
+      parser.boundaryState
+    }
+  }
 
   init(
     format: ReasoningTraceFormat,
@@ -116,6 +147,14 @@ private struct GemmaThoughtChannelParser {
   private var pending = ""
   private var isReadingThought = false
   private var hasEmittedThought = false
+  private var hasObservedThought = false
+
+  var boundaryState: ReasoningTraceParser.BoundaryState {
+    if isReadingThought {
+      return .open
+    }
+    return hasObservedThought ? .closed : .absent
+  }
 
   mutating func append(_ chunk: String) -> [ReasoningTraceParser.Segment] {
     pending += chunk
@@ -143,6 +182,7 @@ private struct GemmaThoughtChannelParser {
         pending.removeSubrange(pending.startIndex..<thoughtRange.upperBound)
         isReadingThought = true
         hasEmittedThought = false
+        hasObservedThought = true
         continue
       }
 
@@ -236,6 +276,15 @@ private struct QwenThinkTagParser {
   private var state = State.thinking
   private var mayStartWithOpenMarker = true
   private var hasEmittedThinking = false
+
+  var boundaryState: ReasoningTraceParser.BoundaryState {
+    switch state {
+    case .thinking:
+      .open
+    case .response:
+      .closed
+    }
+  }
 
   init(validation: ReasoningTraceParser.QwenValidation?) {
     let configuration = QwenReasoningProtocol.tagged
