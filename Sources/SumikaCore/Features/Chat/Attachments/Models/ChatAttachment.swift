@@ -149,7 +149,7 @@ package struct ImageAttachmentPayload: Codable, Equatable, Sendable {
 
 package enum ChatAttachmentLimits {
   package static let maxTextFileBytes = 256 * 1024
-  package static let maxImageFileBytes = 10 * 1024 * 1024
+  package static let maxImageFileBytes = 20 * 1024 * 1024
   package static let maxAttachmentCount = 8
 
   package static let supportedTextFileExtensions: Set<String> = [
