@@ -38,11 +38,11 @@ let package = Package(
     .package(url: "https://github.com/ml-explore/mlx-swift/", from: "0.31.6"),
     .package(
       url: "https://github.com/ml-explore/mlx-swift-lm",
-      revision: "b6ba48d899eaf408b79db449647d0ddb82734922"),
+      revision: "d6614025fa1f6133e34c4fe0cea2815d672d8742"),
     .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.3"),
     .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
     .package(url: "https://github.com/FluidInference/FluidAudio", from: "0.15.4"),
-    .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.13.0"),
+    .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.19.0"),
     .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.8.0"),
     .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.4"),
     .package(url: "https://github.com/jpsim/Yams.git", from: "6.2.2"),
