@@ -13,9 +13,10 @@ separate runtime required.
 Install the app, choose and download a model, and start chatting right away.
 
 Use Chat mode to write, translate, summarize, research, or code. Switch to Agent
-mode when you want Sumika to write code, work with your files, use approved
-tools, or connect to local apps. Your conversations and model execution stay on
-your Mac, and you remain in control of every action.
+mode when you want Sumika to write code, work with your files, use
+approval-aware tools, or connect to local apps. Your conversations and model
+execution stay on your Mac, and you choose how tools and network access are
+approved.
 
 ## Highlights
 
@@ -28,17 +29,17 @@ your Mac, and you remain in control of every action.
   hosted AI assistant plan.
 - 🧭 **Explicit context**: attach files, focus workspace context, and inspect
   what the model sees before the workflow grows opaque.
-- 🛠 **An agent that asks first**: let Sumika work with files, use connected
-  tools, and run commands while you review sensitive actions.
+- 🛠 **Approval-aware agent workflows**: keep manual approval prompts or opt in
+  to Auto-approve for new Agent sessions.
 - 🧩 **Connect local apps**: extend Agent mode through Model Context
   Protocol (MCP) servers and choose the integrations available to each session.
-- ✅ **Review before action**: writes, edits, shell commands, and web access pass
-  through approval instead of running as hidden automation.
+- ✅ **Choose your approval level**: Manual is the default for Agent tools;
+  Auto-approve and web access policies remain explicit user settings.
 - 🌐 **Bring your own search**: connect a self-hosted SearXNG instance or use the
   built-in DuckDuckGo search provider.
 - 📄 **Bring your own fetcher**: keep the built-in page extractor or point fetch
   at a self-hosted Firecrawl instance.
-- 🧰 **Terminal and browser built in**: run approved workspace commands and
+- 🧰 **Terminal and browser built in**: run approval-aware workspace commands and
   inspect local previews without leaving the app.
 - 🖥 **Build and preview locally**: create small apps, prototypes, and HTML
   experiments, then inspect them beside the chat.
@@ -51,6 +52,8 @@ your Mac, and you remain in control of every action.
   approvals, and command output visible in the chat.
 
 ## Install Sumika
+
+Sumika requires an Apple silicon Mac running macOS 15 or later.
 
 1. Download the latest `Sumika-*-macos.dmg` from the
    [GitHub Releases page](https://github.com/ngutech21/sumika-chat/releases/latest).
@@ -66,19 +69,24 @@ You can also check manually from **Sumika > Check for Updates…**.
 
 ## Supported Models
 
-All listed models run locally and support Chat mode, Agent tool calling, and
-image input.
+All listed models run locally and support Chat mode and Agent tool calling. The
+model browser groups them by use case, highlights recommended choices, and
+marks whether a model accepts images or text only.
 
-| Model | Download size |
-| --- | ---: |
-| [Gemma 4 E4B QAT 4-bit](https://huggingface.co/mlx-community/gemma-4-e4b-it-qat-4bit) | 6.8 GB |
-| [Gemma 4 12B QAT 4-bit](https://huggingface.co/mlx-community/gemma-4-12B-it-qat-4bit) | 11.0 GB |
-| [Gemma 4 26B QAT 4-bit](https://huggingface.co/mlx-community/gemma-4-26B-A4B-it-qat-4bit) | 15.6 GB |
-| [Gemma 4 31B QAT 4-bit](https://huggingface.co/mlx-community/gemma-4-31B-it-qat-4bit) | 28.8 GB |
-| [Qwen 3.6 27B 4-bit](https://huggingface.co/mlx-community/Qwen3.6-27B-4bit) | 16.1 GB |
-| [Qwen 3.6 27B 8-bit](https://huggingface.co/mlx-community/Qwen3.6-27B-8bit) | 29.5 GB |
-| [Qwen 3.6 35B A3B 4-bit](https://huggingface.co/mlx-community/Qwen3.6-35B-A3B-4bit) | 20.4 GB |
-| [Qwen 3.6 35B A3B 8-bit](https://huggingface.co/mlx-community/Qwen3.6-35B-A3B-8bit) | 37.7 GB |
+| Model | Input | Download size |
+| --- | --- | ---: |
+| [Gemma 4 E4B QAT 4-bit](https://huggingface.co/mlx-community/gemma-4-e4b-it-qat-4bit) | Images | 6.8 GB |
+| [Gemma 4 12B QAT 4-bit](https://huggingface.co/mlx-community/gemma-4-12B-it-qat-4bit) | Images | 11.0 GB |
+| [Gemma 4 26B A4B QAT 4-bit](https://huggingface.co/mlx-community/gemma-4-26B-A4B-it-qat-4bit) | Images | 15.6 GB |
+| [Gemma 4 31B QAT 4-bit](https://huggingface.co/mlx-community/gemma-4-31B-it-qat-4bit) | Images | 28.8 GB |
+| [Qwen 3.6 35B A3B 4-bit](https://huggingface.co/mlx-community/Qwen3.6-35B-A3B-4bit) | Images | 20.4 GB |
+| [Qwen 3.6 35B A3B OptiQ 4-bit](https://huggingface.co/mlx-community/Qwen3.6-35B-A3B-OptiQ-4bit) | Images | 24.7 GB |
+| [Qwen 3.6 35B A3B 8-bit](https://huggingface.co/mlx-community/Qwen3.6-35B-A3B-8bit) | Images | 37.7 GB |
+| [Qwen 3.6 27B 4-bit](https://huggingface.co/mlx-community/Qwen3.6-27B-4bit) | Images | 16.1 GB |
+| [Qwen 3.6 27B OptiQ 4-bit](https://huggingface.co/mlx-community/Qwen3.6-27B-OptiQ-4bit) | Images | 20.0 GB |
+| [Qwen 3.6 27B 8-bit](https://huggingface.co/mlx-community/Qwen3.6-27B-8bit) | Images | 29.5 GB |
+| [Qwen 3.8 27B OptiQ 4-bit](https://huggingface.co/mlx-community/Qwen3.8-27B-OptiQ-4bit) | Images | 20.0 GB |
+| [Qwen 3.6 40B uncensored 8-bit](https://huggingface.co/mlx-community/Qwen3.6-40B-Claude-4.6-Opus-Deckard-Heretic-Uncensored-Thinking-8bit) | Text only | 41.5 GB |
 
 ## Screenshots
 
@@ -111,12 +119,12 @@ chat into a cloud workflow.
 - Research topics on the public web through reviewable search and fetch tools.
 - Connect local apps and services through configured MCP integrations when you
   want Sumika to take action beyond the chat.
-- Let the agent read, organize, search, and update local project files while you
-  review sensitive actions.
+- Let the agent read, organize, search, and update local project files with
+  manual approval or an explicitly selected Auto-approve policy.
 - Build small apps, scripts, games, and UI prototypes in short, reviewable
   steps.
-- Review generated file writes, file edits, shell commands, and workspace diffs
-  before they run.
+- Keep manual approval prompts for generated file writes, file edits, and shell
+  commands, or opt in to Auto-approve for a session.
 - Use the integrated terminal and browser preview while working through an agent
   task.
 - Open local HTML previews and inspect browser state while iterating.
@@ -134,10 +142,24 @@ Choose how much Sumika can do in each conversation:
 - **Chat**: talk, write, translate, summarize, and research the public web. Chat
   mode cannot access local files, run commands, or make changes.
 - **Agent**: let Sumika work with a selected folder, connected tools, commands,
-  and browser previews. Sensitive actions remain subject to approval.
+  and browser previews. Manual approval is the default; Auto-approve is an
+  explicit option for new sessions.
 
 You select the mode yourself. Sumika never grants itself access because of how
 a prompt is worded.
+
+## Project Instructions And Skills
+
+Agent mode uses project guidance from the selected workspace:
+
+- **Workspace instructions**: when an `AGENTS.md` file exists at the workspace
+  root, Sumika reads it before each Agent turn and includes its instructions in
+  the model context.
+- **Skills**: Sumika discovers skills from
+  `~/.agents/skills/<name>/SKILL.md` and
+  `<workspace>/.agents/skills/<name>/SKILL.md`. Type `$myskill` in the composer
+  to activate a skill for the message you are sending; typing `$` also opens
+  the available skill suggestions.
 
 ## No Cloud Account Required
 
@@ -145,11 +167,12 @@ Sumika is designed as a private alternative to subscription-based cloud
 assistants.
 
 - No recurring AI subscription or hosted workspace account is required.
-- No telemetry, prompts, transcripts, commands, or workspace contents are
-  exported by the app.
+- No built-in telemetry or hosted model service receives your prompts,
+  transcripts, commands, or workspace contents.
 - Model execution, chat history, speech output, and dictation stay on your Mac.
-- Network access is explicit: web search and fetch tools only run when available
-  in the selected mode and approved by policy.
+- Network access is explicit. Model downloads and update checks connect to their
+  configured sources; enabled web and MCP tools can send queries, URLs, and tool
+  arguments to the service you selected.
 - You can use the built-in DuckDuckGo search provider or point Sumika at your
   own SearXNG instance. Fetch uses the built-in extractor by default and can
   optionally use a self-hosted Firecrawl instance without storing an API key.
@@ -171,8 +194,9 @@ Sumika includes two local voice surfaces:
 The Model Context Protocol (MCP) lets AI assistants use tools provided by other
 apps and services. Configure MCP servers globally in Settings using stdio or
 Streamable HTTP, then choose the servers available to each Agent session from
-the composer. MCP tools stay out of Chat mode, and every MCP tool call requires
-approval before execution.
+the composer. MCP tools stay out of Chat mode and enter the approval flow before
+every call. Manual mode shows an approval prompt; Auto-approve can execute
+allowed calls without prompting.
 
 ## Why Local First
 
@@ -184,7 +208,7 @@ subscription. Sumika takes a different approach:
 - No recurring AI subscription
 - User-controlled workspace context
 - Reviewable agent steps instead of hidden automation
-- Approval-gated tool and shell execution
+- Configurable Manual or Auto-approve tool execution
 - Visible transcripts and tool states for review
 - Native macOS workflows instead of a browser-first interface
 
@@ -223,14 +247,27 @@ app target links only the local `SumikaApp` product.
   permissions, registries, and model-facing tool calls.
 - [Chat Runtime](docs/chat-runtime.md): chat turn lifecycle, cancellation,
   transcript state, and model-context filtering.
+- [Contributing](CONTRIBUTING.md): development requirements, architecture,
+  verification, and pull request guidance.
+- [Security](SECURITY.md): supported versions and private vulnerability
+  reporting.
+- [Changelog](CHANGELOG.md): release history and notable changes.
+- [Release Process](docs/release.md): signing, packaging, notarization, and
+  update-feed publication.
 
 ## Development
 
-Install the local task runner, linter, and formatter:
+Development requires macOS 15 or later, Xcode with a Swift 6.1-compatible
+toolchain, and Homebrew. Install `just` and `typos`, then use the project recipe
+for the remaining tools:
 
 ```sh
-brew install just swiftlint swift-format
+brew install just typos-cli
+just deps
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete development and
+verification workflow.
 
 Build the app locally:
 
