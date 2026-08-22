@@ -120,6 +120,9 @@ final class AppState {
       }
       _ = try self.activateConversation(workspaceID: workspaceID, sessionID: sessionID)
     }
+    self.chatFeatureState.setInteractionModeSelectionHandler { [weak self] mode in
+      self?.rememberDefaultInteractionMode(mode)
+    }
     self.sumika.conversation.setSessionChangeHandler { [weak self] workspaceID, session in
       self?.persistSession(session, in: workspaceID)
       self?.reconcileMCPConnectionsIfNeeded()
@@ -486,6 +489,16 @@ final class AppState {
     workspaceState.updateDefaultSessionFactory(makeDefaultSessionFactory())
   }
 
+  private func rememberDefaultInteractionMode(_ mode: WorkspaceInteractionMode) {
+    guard settingsState.appBehaviorSettings.defaultInteractionMode != mode else {
+      return
+    }
+    var settings = settingsState.appBehaviorSettings
+    settings.defaultInteractionMode = mode
+    settingsState.updateAppBehaviorSettings(settings)
+    refreshDefaultSessionFactory()
+  }
+
   private func makeDefaultSessionFactory() -> DefaultChatSessionFactory {
     let selectedModelID = modelManagementState.state.selectedModel.id
     if selectedModelID != ManagedModelCatalog.defaultModelID
@@ -494,6 +507,7 @@ final class AppState {
       return Self.defaultSessionFactory(
         selectedModelID: selectedModelID,
         modeSettings: modelManagementState.modeSettings,
+        interactionMode: settingsState.appBehaviorSettings.defaultInteractionMode,
         toolApprovalPolicy: settingsState.appBehaviorSettings.defaultToolApprovalPolicy
       )
     }
@@ -501,6 +515,7 @@ final class AppState {
     return Self.defaultSessionFactory(
       selectedModelID: defaultSessionModelID,
       modeSettings: defaultSessionModeSettings,
+      interactionMode: settingsState.appBehaviorSettings.defaultInteractionMode,
       toolApprovalPolicy: settingsState.appBehaviorSettings.defaultToolApprovalPolicy
     )
   }
@@ -508,12 +523,13 @@ final class AppState {
   private static func defaultSessionFactory(
     selectedModelID: ManagedModel.ID,
     modeSettings: ChatModeSettingsSet,
+    interactionMode: WorkspaceInteractionMode = .chat,
     toolApprovalPolicy: ToolApprovalPolicy = .manual
   ) -> DefaultChatSessionFactory {
     DefaultChatSessionFactory(
       selectedModelID: selectedModelID,
       modeSettings: modeSettings,
-      interactionMode: .chat,
+      interactionMode: interactionMode,
       toolApprovalPolicy: toolApprovalPolicy
     )
   }

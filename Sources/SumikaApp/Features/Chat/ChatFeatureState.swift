@@ -27,10 +27,12 @@ struct ChatModelContextDebugPresentation: Equatable {
 @Observable
 final class ChatFeatureState {
   typealias ConversationActivator = @MainActor (Workspace.ID, ChatSession.ID?) throws -> Void
+  typealias InteractionModeSelectionHandler = @MainActor (WorkspaceInteractionMode) -> Void
 
   @ObservationIgnored private let conversation: ConversationFeature
   @ObservationIgnored private let workspaceState: WorkspaceFeatureState
   @ObservationIgnored private var activateConversation: ConversationActivator?
+  @ObservationIgnored private var handleInteractionModeSelection: InteractionModeSelectionHandler?
   private var intentErrorMessage: String?
 
   init(
@@ -43,6 +45,12 @@ final class ChatFeatureState {
 
   func setConversationActivator(_ activator: @escaping ConversationActivator) {
     activateConversation = activator
+  }
+
+  func setInteractionModeSelectionHandler(
+    _ handler: @escaping InteractionModeSelectionHandler
+  ) {
+    handleInteractionModeSelection = handler
   }
 
   var composer: ChatComposerPresentation {
@@ -114,9 +122,15 @@ final class ChatFeatureState {
   }
 
   func setInteractionMode(_ mode: WorkspaceInteractionMode) {
-    performIntent {
-      try conversation.setInteractionMode(mode)
+    guard
+      performIntent({
+        try conversation.setInteractionMode(mode)
+      }),
+      composer.session.interactionMode == mode
+    else {
+      return
     }
+    handleInteractionModeSelection?(mode)
   }
 
   func setReasoningEnabled(_ isEnabled: Bool) {
@@ -240,15 +254,18 @@ final class ChatFeatureState {
     return ChatComposerSessionState(session: session)
   }
 
-  private func performIntent(_ intent: () throws -> Void) {
+  @discardableResult
+  private func performIntent(_ intent: () throws -> Void) -> Bool {
     guard activateSelectedConversation() else {
-      return
+      return false
     }
     do {
       try intent()
       intentErrorMessage = nil
+      return true
     } catch {
       intentErrorMessage = error.localizedDescription
+      return false
     }
   }
 

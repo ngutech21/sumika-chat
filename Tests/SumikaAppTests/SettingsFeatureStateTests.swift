@@ -16,6 +16,7 @@ struct SettingsFeatureStateTests {
     let appBehaviorSettings = AppBehaviorSettings(
       autoloadLastModel: true,
       todoWriteToolEnabled: true,
+      defaultInteractionMode: .agent,
       defaultToolApprovalPolicy: .automatic,
       assistantSpeechEnabled: true,
       assistantSpeechLanguageCode: "de-DE",
@@ -68,6 +69,7 @@ struct SettingsFeatureStateTests {
     let updated = AppBehaviorSettings(
       autoloadLastModel: true,
       todoWriteToolEnabled: true,
+      defaultInteractionMode: .agent,
       defaultToolApprovalPolicy: .automatic,
       assistantSpeechEnabled: true,
       assistantSpeechLanguageCode: "en-US",
@@ -95,8 +97,28 @@ struct SettingsFeatureStateTests {
   }
 
   @Test
+  func legacyAppBehaviorSettingsDefaultNewSessionInteractionModeToChat() throws {
+    let legacyData = Data(#"{"autoloadLastModel":true}"#.utf8)
+
+    let settings = try JSONDecoder().decode(AppBehaviorSettings.self, from: legacyData)
+
+    #expect(settings.autoloadLastModel)
+    #expect(settings.defaultInteractionMode == .chat)
+  }
+
+  @Test
   func appBehaviorSettingsRoundTripAutomaticNewSessionApproval() throws {
     let settings = AppBehaviorSettings(defaultToolApprovalPolicy: .automatic)
+
+    let encoded = try JSONEncoder().encode(settings)
+    let decoded = try JSONDecoder().decode(AppBehaviorSettings.self, from: encoded)
+
+    #expect(decoded == settings)
+  }
+
+  @Test
+  func appBehaviorSettingsRoundTripAgentNewSessionInteractionMode() throws {
+    let settings = AppBehaviorSettings(defaultInteractionMode: .agent)
 
     let encoded = try JSONEncoder().encode(settings)
     let decoded = try JSONDecoder().decode(AppBehaviorSettings.self, from: encoded)

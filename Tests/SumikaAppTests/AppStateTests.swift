@@ -26,6 +26,7 @@ struct AppStateTests {
       ),
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      appBehaviorSettingsStore: InMemoryAppBehaviorSettingsStore(),
       mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime()
     )
@@ -331,10 +332,12 @@ struct AppStateTests {
     let workspaceStore = InMemoryWorkspaceStore(initialLibrary: initialLibrary)
     let modelSettingsStore = InMemoryModelSettingsStore()
     let webAccessSettingsStore = InMemoryWebAccessSettingsStore()
+    let appBehaviorSettingsStore = InMemoryAppBehaviorSettingsStore()
     let appState = AppState(
       workspaceStore: workspaceStore,
       modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: webAccessSettingsStore,
+      appBehaviorSettingsStore: appBehaviorSettingsStore,
       mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime()
     )
@@ -358,6 +361,59 @@ struct AppStateTests {
     )
 
     #expect(savedSession.interactionMode == .agent)
+    try await waitUntil {
+      await appBehaviorSettingsStore.settings().defaultInteractionMode == .agent
+    }
+  }
+
+  @Test
+  func rememberedInteractionModeAppliesOnlyToNewSessions() async throws {
+    let workspaceID = UUID()
+    let existingSession = ChatSession(interactionMode: .chat)
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [existingSession]
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspaceID,
+        activeSessionID: existingSession.id
+      )
+    )
+    let appBehaviorSettingsStore = InMemoryAppBehaviorSettingsStore(
+      settings: AppBehaviorSettings(defaultInteractionMode: .agent)
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      appBehaviorSettingsStore: appBehaviorSettingsStore,
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    let newSessionID = try #require(appState.createSession(in: workspaceID))
+
+    let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
+      guard let sessions = library.workspaces.first?.sessions else {
+        return false
+      }
+      return sessions.first { $0.id == newSessionID }?.interactionMode == .agent
+    }
+    let sessions = try #require(savedLibrary.workspaces.first?.sessions)
+    #expect(
+      sessions.first { $0.id == existingSession.id }?.interactionMode == .chat
+    )
+    #expect(
+      sessions.first { $0.id == newSessionID }?.interactionMode == .agent
+    )
   }
 
   @Test
@@ -1144,6 +1200,7 @@ struct AppStateTests {
       workspaceStore: workspaceStore,
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      appBehaviorSettingsStore: InMemoryAppBehaviorSettingsStore(),
       mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime(eventTurns: [[.chunk("Persisted reply.")]])
     )

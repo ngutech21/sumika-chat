@@ -4,6 +4,7 @@ import SumikaCore
 nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
   var autoloadLastModel: Bool
   var todoWriteToolEnabled: Bool
+  var defaultInteractionMode: WorkspaceInteractionMode
   var defaultToolApprovalPolicy: ToolApprovalPolicy
   var assistantSpeechEnabled: Bool
   var assistantSpeechLanguageCode: String?
@@ -14,6 +15,7 @@ nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
   init(
     autoloadLastModel: Bool = false,
     todoWriteToolEnabled: Bool = false,
+    defaultInteractionMode: WorkspaceInteractionMode = .chat,
     defaultToolApprovalPolicy: ToolApprovalPolicy = .manual,
     assistantSpeechEnabled: Bool = false,
     assistantSpeechLanguageCode: String? = nil,
@@ -23,6 +25,7 @@ nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
   ) {
     self.autoloadLastModel = autoloadLastModel
     self.todoWriteToolEnabled = todoWriteToolEnabled
+    self.defaultInteractionMode = defaultInteractionMode
     self.defaultToolApprovalPolicy = defaultToolApprovalPolicy
     self.assistantSpeechEnabled = assistantSpeechEnabled
     self.assistantSpeechLanguageCode = assistantSpeechLanguageCode
@@ -34,6 +37,7 @@ nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
   private enum CodingKeys: String, CodingKey {
     case autoloadLastModel
     case todoWriteToolEnabled
+    case defaultInteractionMode
     case defaultToolApprovalPolicy
     case assistantSpeechEnabled
     case assistantSpeechLanguageCode
@@ -54,6 +58,11 @@ nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
         Bool.self,
         forKey: .todoWriteToolEnabled
       ) ?? false
+    defaultInteractionMode =
+      try container.decodeIfPresent(
+        WorkspaceInteractionMode.self,
+        forKey: .defaultInteractionMode
+      ) ?? .chat
     defaultToolApprovalPolicy =
       try container.decodeIfPresent(
         ToolApprovalPolicy.self,
@@ -81,6 +90,7 @@ nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(autoloadLastModel, forKey: .autoloadLastModel)
     try container.encode(todoWriteToolEnabled, forKey: .todoWriteToolEnabled)
+    try container.encode(defaultInteractionMode, forKey: .defaultInteractionMode)
     try container.encode(defaultToolApprovalPolicy, forKey: .defaultToolApprovalPolicy)
     try container.encode(assistantSpeechEnabled, forKey: .assistantSpeechEnabled)
     try container.encodeIfPresent(assistantSpeechLanguageCode, forKey: .assistantSpeechLanguageCode)
