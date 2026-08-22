@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.8.0](https://github.com/ngutech21/sumika-chat/compare/v1.7.0...v1.8.0) (2026-08-22)
+
+
+### Features
+
+* add agent skill activation and resource access ([2e69e30](https://github.com/ngutech21/sumika-chat/commit/2e69e30b4f4446bd57cc2411ff0ece38c8dfb36f))
+* add support for images in optiq models ([153c78f](https://github.com/ngutech21/sumika-chat/commit/153c78f147afd13166e5e39018cd57bb896f394d))
+* make workspace_diagnostics a format-agnostic command-output reader ([58c52c4](https://github.com/ngutech21/sumika-chat/commit/58c52c4cec3b81a2101ee65b6bdee22772f69a88)), closes [#186](https://github.com/ngutech21/sumika-chat/issues/186)
+* remember interaction mode for new sessions ([2d8de6e](https://github.com/ngutech21/sumika-chat/commit/2d8de6e8fb7d4c7f62cca50ee8b46a7553545d88))
+
+
+### Bug Fixes
+
+* clarify edit_file overlap contract ([dfdf146](https://github.com/ngutech21/sumika-chat/commit/dfdf1469fa73cbb1720786b36b5dc2385a74d1a8))
+* fail closed on rejected MLX tool calls ([c8c98c1](https://github.com/ngutech21/sumika-chat/commit/c8c98c11edbd357bdc404444f248265900df6c5f)), closes [#216](https://github.com/ngutech21/sumika-chat/issues/216)
+* increase maximum image file size limit to 20MB ([8adcb82](https://github.com/ngutech21/sumika-chat/commit/8adcb82f333f052fb0a0e78991f89148d33356ae))
+* keep the cache invalid when reasoning opens without emitted text ([2983a77](https://github.com/ngutech21/sumika-chat/commit/2983a77944720a0a3307bfe3b5029313523acdba)), closes [#194](https://github.com/ngutech21/sumika-chat/issues/194)
+* recover from tool calls in final responses ([a5f26ee](https://github.com/ngutech21/sumika-chat/commit/a5f26ee03a552554038523dac4ccca93ccb5e669))
+* **tests:** update wait condition to check engine activity state ([9e598f5](https://github.com/ngutech21/sumika-chat/commit/9e598f5496458da7f5292268a92e1dc809993556))
+* update scope access in ActivatedSkill and adjust tests for consistency ([7859975](https://github.com/ngutech21/sumika-chat/commit/785997595009de9ad2e5d481615bd292bc80549d))
+
 ## [1.7.0](https://github.com/ngutech21/sumika-chat/compare/v1.6.0...v1.7.0) (2026-08-16)
 
 
