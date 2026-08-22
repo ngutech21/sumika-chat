@@ -69,11 +69,6 @@ package struct ReadSkillResourcePage: Codable, Equatable, Sendable {
   package let content: String
   package let continuation: ReadFileContinuation
 
-  package var returnedLineCount: Int {
-    guard let endLine else { return 0 }
-    return endLine - startLine + 1
-  }
-
   package var numberedContent: String {
     guard let endLine else { return "" }
     return zip(startLine...endLine, content.components(separatedBy: "\n"))

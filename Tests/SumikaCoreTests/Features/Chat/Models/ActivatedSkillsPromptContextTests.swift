@@ -64,7 +64,7 @@ struct ActivatedSkillsPromptContextTests {
     let decoded = try JSONDecoder().decode(ActivatedSkill.self, from: legacyData)
 
     #expect(decoded == skill)
-    #expect(decoded.scope == .project)
+    #expect(decoded.id.scope == .project)
   }
 
   @Test

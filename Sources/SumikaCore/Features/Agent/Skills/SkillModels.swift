@@ -142,7 +142,6 @@ package struct MessageSubmission: Equatable, Sendable {
 
 package struct ActivatedSkill: Codable, Equatable, Sendable {
   package let id: SkillID
-  package var scope: SkillScope { id.scope }
   package let portablePath: String
   package let contentHash: String
   package let content: String
