@@ -268,7 +268,9 @@ struct AppKitChatTranscriptDiffPlanTests {
     }
 
     let cell = configuredNativeCell(for: row, actions: actions)
-    let renderedText = cell.descendantTextFields.map(\.attributedStringValue)
+    let renderedText = cell.descendants(of: NativeTranscriptTextView.self).compactMap {
+      $0.textStorage?.copy() as? NSAttributedString
+    }
 
     #expect(requestedMarkdown == [markdown])
     #expect(renderedText.contains { $0.string.contains("Plan\n• First step") })
@@ -1823,7 +1825,7 @@ struct AppKitChatTranscriptDiffPlanTests {
 
     cell.configure(row: row, state: NativeTranscriptCellState(), actions: testNativeActions())
     let initialLabel = try #require(
-      cell.descendantTextFields.first { $0.stringValue.contains("Stable") }
+      cell.descendants(of: NativeTranscriptTextView.self).first { $0.string.contains("Stable") }
     )
 
     cell.configure(
@@ -1832,7 +1834,7 @@ struct AppKitChatTranscriptDiffPlanTests {
       actions: testNativeActions()
     )
     let labelAfterFooterStateChange = try #require(
-      cell.descendantTextFields.first { $0.stringValue.contains("Stable") }
+      cell.descendants(of: NativeTranscriptTextView.self).first { $0.string.contains("Stable") }
     )
     #expect(labelAfterFooterStateChange === initialLabel)
 
@@ -1842,10 +1844,10 @@ struct AppKitChatTranscriptDiffPlanTests {
       actions: testNativeActions()
     )
     let labelAfterContentChange = try #require(
-      cell.descendantTextFields.first { $0.stringValue.contains("Stable") }
+      cell.descendants(of: NativeTranscriptTextView.self).first { $0.string.contains("Stable") }
     )
     #expect(labelAfterContentChange !== initialLabel)
-    #expect(labelAfterContentChange.stringValue.contains("more content"))
+    #expect(labelAfterContentChange.string.contains("more content"))
   }
 
   @Test
@@ -1936,12 +1938,12 @@ struct AppKitChatTranscriptDiffPlanTests {
     )
 
     cell.configure(row: firstRow, state: NativeTranscriptCellState(), actions: testNativeActions())
-    let textView = try #require(cell.descendants(of: NativeStreamingTextView.self).first)
+    let textView = try #require(cell.descendants(of: NativeTranscriptTextView.self).first)
     #expect(textView.string == "Hello")
 
     cell.configure(row: grownRow, state: NativeTranscriptCellState(), actions: testNativeActions())
     let textViewAfterAppend = try #require(
-      cell.descendants(of: NativeStreamingTextView.self).first
+      cell.descendants(of: NativeTranscriptTextView.self).first
     )
     #expect(textViewAfterAppend === textView)
     #expect(textViewAfterAppend.string == "Hello world, streaming continues.")
@@ -1966,12 +1968,12 @@ struct AppKitChatTranscriptDiffPlanTests {
     let expandedState = NativeTranscriptCellState(isThinkingExpanded: true)
     cell.configure(row: firstRow, state: expandedState, actions: testNativeActions())
     #expect(cell.descendants(of: NativeReasoningTickerView.self).isEmpty)
-    let textView = try #require(cell.descendants(of: NativeStreamingTextView.self).first)
+    let textView = try #require(cell.descendants(of: NativeTranscriptTextView.self).first)
     #expect(textView.string == "Inspecting")
 
     cell.configure(row: grownRow, state: expandedState, actions: testNativeActions())
     let textViewAfterAppend = try #require(
-      cell.descendants(of: NativeStreamingTextView.self).first
+      cell.descendants(of: NativeTranscriptTextView.self).first
     )
     #expect(textViewAfterAppend === textView)
     #expect(textViewAfterAppend.string == "Inspecting the workspace carefully.")
@@ -2043,7 +2045,7 @@ struct AppKitChatTranscriptDiffPlanTests {
     let cell = configuredNativeCell(for: row)
 
     #expect(cell.descendantTextValues.contains("Reasoned for 12s"))
-    #expect(cell.descendants(of: NativeStreamingTextView.self).isEmpty)
+    #expect(cell.descendants(of: NativeTranscriptTextView.self).isEmpty)
   }
 
   @Test
@@ -2116,14 +2118,16 @@ struct AppKitChatTranscriptDiffPlanTests {
       cell.descendants(of: NativeStreamingAssistantBlocksView.self).first
     )
     // Markdown is applied live: the asterisks are consumed by the renderer.
-    let tailLabel = try #require(
-      blocksView.descendantTextFields.first { $0.stringValue == "Streaming bold prose" }
+    let tailTextView = try #require(
+      blocksView.descendants(of: NativeTranscriptTextView.self).first {
+        $0.string == "Streaming bold prose"
+      }
     )
 
     cell.configure(row: grownRow, state: NativeTranscriptCellState(), actions: testNativeActions())
     #expect(cell.descendants(of: NativeStreamingAssistantBlocksView.self).first === blocksView)
-    #expect(tailLabel.stringValue == "Streaming bold prose keeps going")
-    #expect(tailLabel.superview != nil)
+    #expect(tailTextView.string == "Streaming bold prose keeps going")
+    #expect(tailTextView.superview != nil)
   }
 
   @Test
@@ -2143,18 +2147,24 @@ struct AppKitChatTranscriptDiffPlanTests {
     )
 
     cell.configure(row: firstRow, state: NativeTranscriptCellState(), actions: testNativeActions())
-    let finalizedLabel = try #require(
-      cell.descendantTextFields.first { $0.stringValue == "First paragraph." }
+    let finalizedTextView = try #require(
+      cell.descendants(of: NativeTranscriptTextView.self).first {
+        $0.string == "First paragraph."
+      }
     )
     _ = try #require(
-      cell.descendantTextFields.first { $0.stringValue == "Second paragraph starts" }
+      cell.descendants(of: NativeTranscriptTextView.self).first {
+        $0.string == "Second paragraph starts"
+      }
     )
 
     cell.configure(row: grownRow, state: NativeTranscriptCellState(), actions: testNativeActions())
-    let finalizedLabelAfterGrowth = try #require(
-      cell.descendantTextFields.first { $0.stringValue == "First paragraph." }
+    let finalizedTextViewAfterGrowth = try #require(
+      cell.descendants(of: NativeTranscriptTextView.self).first {
+        $0.string == "First paragraph."
+      }
     )
-    #expect(finalizedLabelAfterGrowth === finalizedLabel)
+    #expect(finalizedTextViewAfterGrowth === finalizedTextView)
     #expect(
       cell.descendantTextValues.contains("Second paragraph starts and grows")
     )
@@ -2272,7 +2282,7 @@ struct AppKitChatTranscriptDiffPlanTests {
   func streamingTextViewLimitsHitTestingToLaidOutText() throws {
     let row = nativeStreamingAssistantRow(id: "assistant", revision: 1, content: "Ok.")
     let cell = configuredNativeCell(for: row)
-    let textView = try #require(cell.descendants(of: NativeStreamingTextView.self).first)
+    let textView = try #require(cell.descendants(of: NativeTranscriptTextView.self).first)
     let superview = try #require(textView.superview)
 
     let insideText = superview.convert(
@@ -2291,9 +2301,138 @@ struct AppKitChatTranscriptDiffPlanTests {
   func streamingTextViewExposesStaticTextAccessibilityRole() throws {
     let row = nativeStreamingAssistantRow(id: "assistant", revision: 1, content: "Hello")
     let cell = configuredNativeCell(for: row)
-    let textView = try #require(cell.descendants(of: NativeStreamingTextView.self).first)
+    let textView = try #require(cell.descendants(of: NativeTranscriptTextView.self).first)
 
     #expect(textView.accessibilityRole() == .staticText)
+  }
+
+  @Test
+  func finalizedAssistantMarkdownLinksOpenThroughTranscriptAction() throws {
+    let recorder = LinkOpenRecorder()
+    let cell = configuredNativeCell(
+      for: nativeAssistantMarkdownRow(
+        id: "assistant",
+        revision: 1,
+        markdown: "[Docs](https://example.com/docs) and http://localhost:8000"
+      ),
+      actions: testNativeActions { recorder.record($0) }
+    )
+
+    try activateLink(displayText: "Docs", in: cell)
+    try activateLink(displayText: "http://localhost:8000", in: cell)
+
+    #expect(
+      recorder.urls.map(\.absoluteString) == [
+        "https://example.com/docs",
+        "http://localhost:8000",
+      ])
+  }
+
+  @Test
+  func finalizedMarkdownTextRetainsVisibleLayout() throws {
+    let cell = configuredNativeCell(
+      for: nativeAssistantMarkdownRow(
+        id: "assistant",
+        revision: 1,
+        markdown: "Visible linked text at https://example.com/docs"
+      )
+    )
+    let textView = try #require(
+      cell.descendants(of: NativeTranscriptTextView.self).first {
+        $0.string.contains("Visible linked text")
+      })
+
+    #expect(textView.frame.width > 0)
+    #expect(textView.frame.height > 0)
+  }
+
+  @Test
+  func finalizedUserMarkdownLinkOpensThroughTranscriptAction() throws {
+    let recorder = LinkOpenRecorder()
+    let cell = configuredNativeCell(
+      for: nativeUserRow(
+        id: "user",
+        revision: 1,
+        content: "Open [Docs](https://example.com/user-guide)"
+      ),
+      actions: testNativeActions { recorder.record($0) }
+    )
+
+    try activateLink(displayText: "Docs", in: cell)
+
+    #expect(recorder.urls.map(\.absoluteString) == ["https://example.com/user-guide"])
+  }
+
+  @Test
+  func finalizedPlainAssistantLinkOpensThroughTranscriptAction() throws {
+    let recorder = LinkOpenRecorder()
+    let cell = configuredNativeCell(
+      for: nativePlainAssistantRow(
+        id: "assistant",
+        revision: 1,
+        content: "Open http://localhost:8000/plain"
+      ),
+      actions: testNativeActions { recorder.record($0) }
+    )
+
+    try activateLink(displayText: "http://localhost:8000/plain", in: cell)
+
+    #expect(recorder.urls.map(\.absoluteString) == ["http://localhost:8000/plain"])
+  }
+
+  @Test
+  func plainStreamingLinkOpensThroughTranscriptAction() throws {
+    let recorder = LinkOpenRecorder()
+    let cell = configuredNativeCell(
+      for: nativeStreamingAssistantRow(
+        id: "assistant",
+        revision: 1,
+        content: "Open http://localhost:8000/live"
+      ),
+      actions: testNativeActions { recorder.record($0) }
+    )
+
+    try activateLink(displayText: "http://localhost:8000/live", in: cell)
+
+    #expect(recorder.urls.map(\.absoluteString) == ["http://localhost:8000/live"])
+  }
+
+  @Test
+  func structuredStreamingMarkdownLinkOpensThroughTranscriptAction() throws {
+    let recorder = LinkOpenRecorder()
+    let cell = configuredNativeCell(
+      for: nativeStreamingBlocksAssistantRow(
+        id: "assistant",
+        revision: 1,
+        content: "Open [Docs](https://example.com/live-docs)"
+      ),
+      actions: testNativeActions { recorder.record($0) }
+    )
+
+    try activateLink(displayText: "Docs", in: cell)
+
+    #expect(recorder.urls.map(\.absoluteString) == ["https://example.com/live-docs"])
+  }
+
+  @Test
+  func markdownTableLinkOpensThroughTranscriptAction() throws {
+    let recorder = LinkOpenRecorder()
+    let cell = configuredNativeCell(
+      for: nativeAssistantMarkdownRow(
+        id: "assistant",
+        revision: 1,
+        markdown: """
+          | Resource |
+          | --- |
+          | [Docs](https://example.com/table-docs) |
+          """
+      ),
+      actions: testNativeActions { recorder.record($0) }
+    )
+
+    try activateLink(displayText: "Docs", in: cell)
+
+    #expect(recorder.urls.map(\.absoluteString) == ["https://example.com/table-docs"])
   }
 
   @Test
@@ -2359,6 +2498,25 @@ private func nativeAssistantRow(
         assistantRenderBlocks: [
           .paragraph(.init(id: .init(rawValue: "answer"), text: "Answer"))
         ],
+        renderRevision: revision
+      ))
+  )
+}
+
+private func nativePlainAssistantRow(
+  id: String,
+  revision: Int,
+  content: String
+) -> NativeTranscriptRow {
+  NativeTranscriptRow(
+    id: id,
+    revision: revision,
+    body: .item(
+      RenderedChatTurnItem(
+        id: id,
+        item: .assistantMessage(AssistantTurnMessage(content: content)),
+        generationMetrics: nil,
+        assistantRenderBlocks: [],
         renderRevision: revision
       ))
   )
@@ -2766,9 +2924,41 @@ private final class HighlightedCodeTestStore {
 }
 
 @MainActor
-private func testNativeActions() -> NativeTranscriptCellActions {
+private final class LinkOpenRecorder {
+  private(set) var urls: [URL] = []
+
+  func record(_ url: URL) {
+    urls.append(url)
+  }
+}
+
+@MainActor
+private func activateLink(
+  displayText: String,
+  in cell: NativeChatMessageCellView
+) throws {
+  let textView = try #require(
+    cell.descendants(of: NativeTranscriptTextView.self).first {
+      ($0.string as NSString).range(of: displayText).location != NSNotFound
+    })
+  let characterRange = (textView.string as NSString).range(of: displayText)
+  let link = try #require(
+    textView.textStorage?.attribute(
+      .link,
+      at: characterRange.location,
+      effectiveRange: nil
+    ))
+
+  textView.clicked(onLink: link, at: characterRange.location)
+}
+
+@MainActor
+private func testNativeActions(
+  openLink: @escaping @MainActor (URL) -> Void = { _ in }
+) -> NativeTranscriptCellActions {
   NativeTranscriptCellActions(
     markdownBlocks: NativeTranscriptMarkdownRenderer.blocks,
+    openLink: openLink,
     highlightedCode: { _, _ in nil },
     requestCodeHighlight: { _, _ in },
     attachmentThumbnail: { _, _ in nil },

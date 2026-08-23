@@ -10,27 +10,21 @@ import SumikaCore
 final class NativeTranscriptTableView: NSView {
   private let table: NativeMarkdownTable
   private let rows: [[NativeMarkdownTableCell]]
-  private let labels: [[NSTextField]]
+  private let labels: [[NativeTranscriptTextView]]
 
   override var isFlipped: Bool {
     true
   }
 
-  init(table: NativeMarkdownTable) {
+  init(table: NativeMarkdownTable, openLink: @escaping (URL) -> Void) {
     self.table = table
     self.rows = NativeMarkdownTableMetrics.normalizedRows(for: table)
     self.labels = rows.map { row in
       row.map { cell in
-        let label = NSTextField(labelWithAttributedString: cell.attributedString)
-        label.maximumNumberOfLines = 0
-        label.lineBreakMode = .byWordWrapping
-        label.isSelectable = true
-        label.allowsEditingTextAttributes = true
-        label.drawsBackground = false
-        label.isBordered = false
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        return label
+        let textView = NativeTranscriptTextView(openLink: openLink)
+        textView.textContainer?.lineBreakMode = .byWordWrapping
+        textView.setAttributedText(cell.attributedString)
+        return textView
       }
     }
     super.init(frame: .zero)

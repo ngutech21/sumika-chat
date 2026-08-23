@@ -9,15 +9,17 @@ final class NativeAssistantMessageView: NSView {
   typealias PlaceholderBuilder = (String) -> NSView
   typealias ContentBuilder = (RenderedChatTurnItem, String, NativeTranscriptCellState) -> NSView?
   typealias StreamingBlocksBuilder = (String) -> NativeStreamingAssistantBlocksView
+  typealias LinkOpener = (URL) -> Void
 
   private let stack = NSStackView()
   private let makePlaceholderView: PlaceholderBuilder
   private let makeFinalContentView: ContentBuilder
   private let makeFooterView: ContentBuilder
   private let makeStreamingBlocksView: StreamingBlocksBuilder
+  private let openLink: LinkOpener
   private var contentView: NSView?
   private var footerView: NSView?
-  private var streamingTextView: NativeStreamingTextView?
+  private var streamingTextView: NativeTranscriptTextView?
   private var streamingBlocksView: NativeStreamingAssistantBlocksView?
   private var currentStreamingContent = ""
   private var contentMode: ContentMode?
@@ -30,12 +32,14 @@ final class NativeAssistantMessageView: NSView {
     makePlaceholderView: @escaping PlaceholderBuilder,
     makeFinalContentView: @escaping ContentBuilder,
     makeFooterView: @escaping ContentBuilder,
-    makeStreamingBlocksView: @escaping StreamingBlocksBuilder
+    makeStreamingBlocksView: @escaping StreamingBlocksBuilder,
+    openLink: @escaping LinkOpener
   ) {
     self.makePlaceholderView = makePlaceholderView
     self.makeFinalContentView = makeFinalContentView
     self.makeFooterView = makeFooterView
     self.makeStreamingBlocksView = makeStreamingBlocksView
+    self.openLink = openLink
     super.init(frame: .zero)
     setupStack()
     update(item: item, rowID: rowID, state: state, assetsRevision: assetsRevision)
@@ -148,7 +152,7 @@ final class NativeAssistantMessageView: NSView {
 
   private func updatePlainStreamingText(_ content: String) {
     if contentMode != .streamingPlain || streamingTextView == nil {
-      let textView = NativeStreamingTextView()
+      let textView = NativeTranscriptTextView(openLink: openLink)
       streamingTextView = textView
       currentStreamingContent = ""
       replaceContentView(textView)
@@ -263,7 +267,7 @@ final class NativeStreamingAssistantBlocksView: NSStackView {
   // The tail region always sits after the finalized views: a sub-stack for
   // the live markdown tail and/or a streaming code view for an open fence.
   private let markdownTailStack = NSStackView()
-  private var markdownTailLabel: NSTextField?
+  private var markdownTailTextView: NativeTranscriptTextView?
   private var codeTailView: NativeStreamingCodeBlockView?
 
   init(
@@ -365,9 +369,9 @@ final class NativeStreamingAssistantBlocksView: NSStackView {
     let tailBlocks = markdownBlocks(String(remainder))
     if tailBlocks.count == 1,
       case .text(let attributedString) = tailBlocks[0],
-      let markdownTailLabel
+      let markdownTailTextView
     {
-      markdownTailLabel.attributedStringValue = attributedString
+      markdownTailTextView.setAttributedText(attributedString)
       return
     }
 
@@ -376,8 +380,8 @@ final class NativeStreamingAssistantBlocksView: NSStackView {
     for block in tailBlocks {
       let view = makeMarkdownBlockView(block)
       markdownTailStack.addArrangedSubview(view)
-      if tailBlocks.count == 1, let label = view as? NSTextField {
-        markdownTailLabel = label
+      if tailBlocks.count == 1, let textView = view as? NativeTranscriptTextView {
+        markdownTailTextView = textView
       }
     }
   }
@@ -410,7 +414,7 @@ final class NativeStreamingAssistantBlocksView: NSStackView {
   }
 
   private func clearMarkdownTail() {
-    markdownTailLabel = nil
+    markdownTailTextView = nil
     markdownTailStack.isHidden = true
     for view in markdownTailStack.arrangedSubviews {
       markdownTailStack.removeArrangedSubview(view)
@@ -456,7 +460,7 @@ final class NativeStreamingAssistantBlocksView: NSStackView {
 // streams into a TextKit-backed text view so appends stay O(delta).
 final class NativeStreamingCodeBlockView: NSStackView {
   private let languageLabel: NSTextField
-  private let textView = NativeStreamingTextView()
+  private let textView = NativeTranscriptTextView()
   private var codeText = ""
   private var language: String?
 
@@ -574,17 +578,17 @@ final class NativeCodeBlockView: NSStackView {
   }
 }
 
-// Non-scrolling, self-sizing text view for live streaming text. Unlike an
-// NSTextField label, TextKit keeps its layout between updates: appending a
-// suffix relayouts only the affected tail lines instead of re-measuring the
-// whole text, keeping per-flush cost O(delta) while a long message streams.
-final class NativeStreamingTextView: NSTextView {
+// Non-scrolling, self-sizing text view shared by finalized and streaming
+// transcript text. TextKit keeps its layout between streaming updates, so an
+// appended suffix relayouts only the affected tail lines.
+final class NativeTranscriptTextView: NSTextView, NSTextViewDelegate {
   // The manually assembled TextKit 1 stack only retains downwards
   // (storage -> layout manager -> container); the view must keep the storage
   // alive itself.
-  private let streamingStorage: NSTextStorage
+  private let retainedTextStorage: NSTextStorage
+  private let openLink: ((URL) -> Void)?
 
-  init() {
+  init(openLink: ((URL) -> Void)? = nil) {
     let storage = NSTextStorage()
     let layoutManager = NSLayoutManager()
     let container = NSTextContainer(
@@ -594,8 +598,10 @@ final class NativeStreamingTextView: NSTextView {
     container.lineFragmentPadding = 0
     storage.addLayoutManager(layoutManager)
     layoutManager.addTextContainer(container)
-    streamingStorage = storage
+    retainedTextStorage = storage
+    self.openLink = openLink
     super.init(frame: .zero, textContainer: container)
+    delegate = self
     translatesAutoresizingMaskIntoConstraints = false
     isEditable = false
     isSelectable = true
@@ -619,6 +625,31 @@ final class NativeStreamingTextView: NSTextView {
   @available(*, unavailable)
   required init?(coder _: NSCoder) {
     fatalError("init(coder:) has not been implemented")
+  }
+
+  func textView(_: NSTextView, clickedOnLink link: Any, at _: Int) -> Bool {
+    guard let url = Self.webURL(from: link) else {
+      return true
+    }
+    openLink?(url)
+    return true
+  }
+
+  private static func webURL(from link: Any) -> URL? {
+    let url: URL?
+    switch link {
+    case let value as URL:
+      url = value
+    case let value as String:
+      url = URL(string: value)
+    default:
+      url = nil
+    }
+    guard let url, let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme)
+    else {
+      return nil
+    }
+    return url
   }
 
   // The width is pinned to the full content column because NSTextView has no
@@ -650,6 +681,31 @@ final class NativeStreamingTextView: NSTextView {
       height: bounds.height
     )
     addCursorRect(textRect.intersection(bounds), cursor: .iBeam)
+
+    let fullRange = NSRange(location: 0, length: retainedTextStorage.length)
+    retainedTextStorage.enumerateAttribute(.link, in: fullRange) { value, range, _ in
+      guard let value, Self.webURL(from: value) != nil else {
+        return
+      }
+      let glyphRange = layoutManager.glyphRange(
+        forCharacterRange: range,
+        actualCharacterRange: nil
+      )
+      layoutManager.enumerateEnclosingRects(
+        forGlyphRange: glyphRange,
+        withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
+        in: textContainer
+      ) { [weak self] rect, _ in
+        guard let self else {
+          return
+        }
+        let cursorRect = rect.offsetBy(
+          dx: textContainerOrigin.x,
+          dy: textContainerOrigin.y
+        )
+        addCursorRect(cursorRect.intersection(bounds), cursor: .pointingHand)
+      }
+    }
   }
 
   override var intrinsicContentSize: NSSize {
@@ -672,12 +728,14 @@ final class NativeStreamingTextView: NSTextView {
   }
 
   func setAttributedText(_ attributedString: NSAttributedString) {
-    streamingStorage.setAttributedString(attributedString)
+    retainedTextStorage.setAttributedString(attributedString)
     invalidateIntrinsicContentSize()
+    window?.invalidateCursorRects(for: self)
   }
 
   func appendAttributedText(_ attributedString: NSAttributedString) {
-    streamingStorage.append(attributedString)
+    retainedTextStorage.append(attributedString)
     invalidateIntrinsicContentSize()
+    window?.invalidateCursorRects(for: self)
   }
 }

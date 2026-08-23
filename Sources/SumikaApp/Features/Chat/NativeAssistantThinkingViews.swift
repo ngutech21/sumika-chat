@@ -12,7 +12,7 @@ import SumikaCore
 final class NativeReasoningTickerView: NSView {
   private static let visibleLineCount: CGFloat = 2
 
-  private let textView = NativeStreamingTextView()
+  private let textView = NativeTranscriptTextView()
   private let fadeMask = CAGradientLayer()
   private let fixedHeight: CGFloat
 
@@ -90,7 +90,7 @@ final class NativeAssistantThinkingView: NSView {
   private let toggleThinkingExpansion: (String) -> Void
   private var statusView: NSView?
   private var tickerView: NativeReasoningTickerView?
-  private var contentTextView: NativeStreamingTextView?
+  private var contentTextView: NativeTranscriptTextView?
   private var currentRowID: String
   private var currentContent = ""
   private var currentTickerContent = ""
@@ -311,12 +311,12 @@ final class NativeAssistantThinkingView: NSView {
     needsLayout = true
   }
 
-  private func ensureContentTextView() -> NativeStreamingTextView {
+  private func ensureContentTextView() -> NativeTranscriptTextView {
     if let contentTextView {
       return contentTextView
     }
 
-    let textView = NativeStreamingTextView()
+    let textView = NativeTranscriptTextView()
     contentTextView = textView
     stack.addArrangedSubview(textView)
     textView.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true

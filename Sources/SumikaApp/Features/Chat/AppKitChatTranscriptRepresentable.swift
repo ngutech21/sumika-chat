@@ -617,6 +617,9 @@ extension NativeChatTranscriptCoordinator {
             }
             return self.markdownCache.blocks(for: markdown)
           },
+          openLink: { [weak self] url in
+            self?.openLink(url)
+          },
           highlightedCode: { [weak self] rowID, codeBlock in
             self?.codeHighlightStore.highlightedCode(rowID: rowID, codeBlock: codeBlock)
           },
@@ -696,6 +699,10 @@ extension NativeChatTranscriptCoordinator {
     )
     attachmentPreviewPopover = popover
     popover.show(relativeTo: sourceView.bounds, of: sourceView, preferredEdge: .minY)
+  }
+
+  private func openLink(_ url: URL) {
+    NSWorkspace.shared.open(url)
   }
 
   private func copy(content: String, from rowID: String) {
@@ -1634,7 +1641,7 @@ final class NativeChatMessageCellView: NSTableCellView {
 
     if item.assistantRenderBlocks.isEmpty {
       if !item.content.isEmpty {
-        stack.addArrangedSubview(makeTextLabel(item.content, color: .labelColor))
+        stack.addArrangedSubview(makeLinkifiedTextView(item.content))
       }
     } else {
       for block in item.assistantRenderBlocks {
@@ -1695,9 +1702,14 @@ final class NativeChatMessageCellView: NSTableCellView {
   private func makeMarkdownBlockView(_ block: NativeMarkdownBlock) -> NSView {
     switch block {
     case .text(let attributedString):
-      makeAttributedTextLabel(attributedString)
+      makeTranscriptTextView(attributedString)
     case .table(let table):
-      NativeTranscriptTableView(table: table)
+      NativeTranscriptTableView(
+        table: table,
+        openLink: { [weak self] url in
+          self?.actions?.openLink(url)
+        }
+      )
     }
   }
 
@@ -1751,7 +1763,7 @@ final class NativeChatMessageCellView: NSTableCellView {
     toolCallID: ToolCallRecord.ID
   ) -> NSView {
     let stack = verticalStack(spacing: 6)
-    stack.addArrangedSubview(makeTextLabel(input.question, color: .labelColor))
+    stack.addArrangedSubview(makeLinkifiedTextView(input.question))
     guard !input.options.isEmpty else {
       return stack
     }
@@ -1832,9 +1844,28 @@ final class NativeChatMessageCellView: NSTableCellView {
   }
 
   private func makeTextLabel(_ text: String, color: NSColor) -> NSTextField {
-    let label = makeAttributedTextLabel(NativeTranscriptMarkdownRenderer.linkifiedPlainText(text))
-    label.textColor = color
-    return label
+    makeAttributedTextLabel(
+      NSAttributedString(
+        string: text,
+        attributes: [
+          .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
+          .foregroundColor: color,
+        ]
+      ))
+  }
+
+  private func makeLinkifiedTextView(_ text: String) -> NativeTranscriptTextView {
+    makeTranscriptTextView(NativeTranscriptMarkdownRenderer.linkifiedPlainText(text))
+  }
+
+  private func makeTranscriptTextView(
+    _ attributedString: NSAttributedString
+  ) -> NativeTranscriptTextView {
+    let textView = NativeTranscriptTextView { [weak self] url in
+      self?.actions?.openLink(url)
+    }
+    textView.setAttributedText(attributedString)
+    return textView
   }
 
   private func makeCodeLikeLabel(_ text: String) -> NSTextField {
@@ -2225,6 +2256,9 @@ extension NativeChatMessageCellView {
             )
           }
         )
+      },
+      openLink: { [weak self] url in
+        self?.actions?.openLink(url)
       }
     )
   }

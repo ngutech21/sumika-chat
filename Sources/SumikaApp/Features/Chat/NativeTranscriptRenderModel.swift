@@ -591,6 +591,7 @@ enum NativeTranscriptRowMeasurer {
   ) -> NativeTranscriptCellActions {
     NativeTranscriptCellActions(
       markdownBlocks: markdownBlocks,
+      openLink: { _ in },
       highlightedCode: { _, _ in nil },
       requestCodeHighlight: { _, _ in },
       attachmentThumbnail: { _, _ in nil },
@@ -704,6 +705,7 @@ struct NativeTranscriptCoordinatorState: Equatable {
 
 struct NativeTranscriptCellActions {
   var markdownBlocks: @MainActor (String) -> [NativeMarkdownBlock]
+  var openLink: @MainActor (URL) -> Void
   var highlightedCode: @MainActor (String, AssistantRenderBlock.CodeBlock) -> HighlightedCode?
   var requestCodeHighlight: @MainActor (String, AssistantRenderBlock.CodeBlock) -> Void
   var attachmentThumbnail: @MainActor (ChatAttachment, Int) -> NSImage?
