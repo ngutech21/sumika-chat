@@ -73,7 +73,6 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
 @MainActor
 final class NativeChatTranscriptCoordinator: NSObject {
   private let section = NativeTranscriptSection.main
-  private let cellIdentifier = NSUserInterfaceItemIdentifier("NativeChatMessageCellView")
   private var onToggleSpeech: (String, String) -> Void
   private var onApproveToolCall: (ToolCallRecord.ID) -> Void
   private var onApproveToolCallBatch: (ToolCallRecord.ID) -> Void
@@ -162,19 +161,18 @@ extension NativeChatTranscriptCoordinator {
     self.tableView = tableView
     dataSource = NSTableViewDiffableDataSource(tableView: tableView) {
       [weak self] tableView, _, _, itemID in
-      guard let self else {
+      guard let self, let row = rowsByID[itemID] else {
         return NSView()
       }
+      let cellIdentifier = row.cellKind.reuseIdentifier
       let cell =
         tableView.makeView(withIdentifier: cellIdentifier, owner: self)
         as? NativeChatMessageCellView
-        ?? NativeChatMessageCellView(identifier: cellIdentifier)
+        ?? NativeChatMessageCellView(identifier: cellIdentifier, kind: row.cellKind)
       cell.onMeasuredHeight = { [weak self] rowID, height in
         self?.recordMeasuredStreamingHeight(height, rowID: rowID)
       }
-      if let row = rowsByID[itemID] {
-        configure(cell, with: row)
-      }
+      configure(cell, with: row)
       return cell
     }
 
@@ -1326,17 +1324,17 @@ final class NativeTranscriptNSTableView: NSTableView {
 }
 
 final class NativeChatMessageCellView: NSTableCellView {
+  private let kind: NativeTranscriptCellKind
   private let contentHost = NSView()
   private var hostedContentView: NSView?
   private var configuredRowID: String?
-  private var configuredKind: NativeTranscriptCellKind?
   private var pendingMeasuredRowID: String?
   private var isReportingMeasuredHeight = false
   private var contentHostTopConstraint: NSLayoutConstraint?
   private var contentHostBottomConstraint: NSLayoutConstraint?
-  private var alignmentConstraints: [NSLayoutConstraint] = []
+  private var userMaximumWidthConstraint: NSLayoutConstraint?
+  private var userPreferredWidthConstraint: NSLayoutConstraint?
   fileprivate var actions: NativeTranscriptCellActions?
-  private var askUserPopUpButton: NSPopUpButton?
   var onMeasuredHeight: ((String, CGFloat) -> Void)?
 
   // Test-only; exercised through @testable import.
@@ -1345,12 +1343,16 @@ final class NativeChatMessageCellView: NSTableCellView {
     hostedContentView
   }
 
-  init(identifier: NSUserInterfaceItemIdentifier) {
+  init(identifier: NSUserInterfaceItemIdentifier, kind: NativeTranscriptCellKind) {
+    self.kind = kind
     super.init(frame: .zero)
     self.identifier = identifier
     wantsLayer = true
     layer?.backgroundColor = NSColor.clear.cgColor
+    layer?.masksToBounds = true
     setupContentHost()
+    setupAlignment(for: kind)
+    updateVerticalInsets(for: kind)
   }
 
   static func measuredHeight(
@@ -1365,7 +1367,8 @@ final class NativeChatMessageCellView: NSTableCellView {
       let cell =
         reusableCell
         ?? NativeChatMessageCellView(
-          identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Measuring")
+          identifier: row.cellKind.measuringIdentifier,
+          kind: row.cellKind
         )
       cell.translatesAutoresizingMaskIntoConstraints = false
       cell.configure(row: row, state: state, actions: actions)
@@ -1395,14 +1398,14 @@ final class NativeChatMessageCellView: NSTableCellView {
 
   override func prepareForReuse() {
     super.prepareForReuse()
+    (hostedContentView as? NativeAssistantMessageView)?.prepareForReuse()
+    (hostedContentView as? NativeUserMessageView)?.prepareForReuse()
+    (hostedContentView as? NativeToolCallView)?.prepareForReuse()
     actions = nil
-    askUserPopUpButton = nil
     onMeasuredHeight = nil
     pendingMeasuredRowID = nil
     isReportingMeasuredHeight = false
     configuredRowID = nil
-    configuredKind = nil
-    clearHostedContent()
   }
 
   func configure(
@@ -1410,8 +1413,11 @@ final class NativeChatMessageCellView: NSTableCellView {
     state: NativeTranscriptCellState,
     actions: NativeTranscriptCellActions
   ) {
+    precondition(
+      row.cellKind == kind,
+      "Transcript cell kind \(kind.telemetryName) cannot render \(row.cellKind.telemetryName)"
+    )
     self.actions = actions
-    askUserPopUpButton = nil
     pendingMeasuredRowID = nil
     defer {
       if row.isStreamingTranscriptRow {
@@ -1419,49 +1425,99 @@ final class NativeChatMessageCellView: NSTableCellView {
         needsLayout = true
       }
     }
-    let kind = row.cellKind
-    updateVerticalInsets(for: kind)
-
-    if configuredRowID == row.id,
-      configuredKind == kind,
-      kind == .assistantMessage,
-      case .item(let item) = row.body,
-      let assistantView = hostedContentView as? NativeAssistantMessageView
-    {
-      assistantView.update(
-        item: item,
-        rowID: row.id,
-        state: state,
-        assetsRevision: assistantAssetsRevision(for: item)
-      )
-      updateAccessibility(for: row)
-      return
-    }
-
-    if configuredRowID == row.id,
-      configuredKind == kind,
-      kind == .assistantThinking,
-      case .item(let item) = row.body,
-      case .assistantThinking(let message) = item.item,
-      let thinkingView = hostedContentView as? NativeAssistantThinkingView
-    {
-      thinkingView.update(message: message, rowID: row.id, state: state)
-      updateAccessibility(for: row)
-      return
-    }
-
     let contentView: NSView
     switch row.body {
     case .generationIndicator:
-      contentView = makeGenerationIndicator()
+      if let indicator = hostedContentView as? NativeGenerationIndicatorView {
+        indicator.update(title: "Generating")
+        contentView = indicator
+      } else {
+        contentView = NativeGenerationIndicatorView(title: "Generating")
+      }
     case .item(let item):
-      contentView = makeContentView(for: item, rowID: row.id, state: state)
+      switch item.item {
+      case .userMessage(let message):
+        let assetsRevision = attachmentAssetsRevision(for: message.attachments)
+        if let userView = hostedContentView as? NativeUserMessageView {
+          userView.update(
+            message: message,
+            rowID: row.id,
+            assetsRevision: assetsRevision,
+            isCopied: state.isCopied,
+            maximumBubbleWidth: item.nativeMaximumBubbleWidth,
+            actions: actions
+          )
+          contentView = userView
+        } else {
+          contentView = makeUserMessageView(
+            message: message,
+            rowID: row.id,
+            assetsRevision: assetsRevision,
+            isCopied: state.isCopied,
+            maximumBubbleWidth: item.nativeMaximumBubbleWidth
+          )
+        }
+        userMaximumWidthConstraint?.constant = item.nativeMaximumBubbleWidth
+        userPreferredWidthConstraint?.constant = item.nativeMaximumBubbleWidth
+      case .assistantThinking(let message):
+        if let thinkingView = hostedContentView as? NativeAssistantThinkingView {
+          thinkingView.update(message: message, rowID: row.id, state: state)
+          contentView = thinkingView
+        } else {
+          contentView = makeAssistantThinkingView(
+            message: message,
+            rowID: row.id,
+            state: state
+          )
+        }
+      case .assistantMessage:
+        if let assistantView = hostedContentView as? NativeAssistantMessageView {
+          assistantView.update(
+            item: item,
+            rowID: row.id,
+            state: state,
+            assetsRevision: assistantAssetsRevision(for: item)
+          )
+          contentView = assistantView
+        } else {
+          contentView = makeAssistantMessageView(
+            item: item,
+            rowID: row.id,
+            state: state
+          )
+        }
+      case .tool(let record):
+        if let toolView = hostedContentView as? NativeToolCallView {
+          toolView.update(
+            record: record,
+            generationMetrics: item.generationMetrics,
+            batchPresentation: item.toolBatchPresentation,
+            rowID: row.id,
+            state: state,
+            actions: actions
+          )
+          contentView = toolView
+        } else {
+          contentView = makeToolView(
+            record: record,
+            generationMetrics: item.generationMetrics,
+            batchPresentation: item.toolBatchPresentation,
+            rowID: row.id,
+            state: state
+          )
+        }
+      }
     }
 
-    replaceHostedContent(with: contentView)
+    if hostedContentView == nil {
+      installHostedContent(contentView)
+    } else {
+      precondition(
+        hostedContentView === contentView,
+        "A fixed-kind transcript cell must rebind its existing content view"
+      )
+    }
     configuredRowID = row.id
-    configuredKind = kind
-    updateAlignment(for: row.body)
     updateAccessibility(for: row)
   }
 
@@ -1485,8 +1541,7 @@ final class NativeChatMessageCellView: NSTableCellView {
     contentHostBottomConstraint?.constant = -kind.bottomInset
   }
 
-  private func replaceHostedContent(with contentView: NSView) {
-    clearHostedContent()
+  private func installHostedContent(_ contentView: NSView) {
     hostedContentView = contentView
 
     contentHost.addSubview(contentView)
@@ -1499,23 +1554,22 @@ final class NativeChatMessageCellView: NSTableCellView {
     ])
   }
 
-  private func clearHostedContent() {
-    hostedContentView?.removeFromSuperview()
-    hostedContentView = nil
-  }
-
-  private func updateAlignment(for body: NativeTranscriptRow.Body) {
-    NSLayoutConstraint.deactivate(alignmentConstraints)
-
-    switch body {
-    case .item(let item) where item.isNativeUserMessage:
+  private func setupAlignment(for kind: NativeTranscriptCellKind) {
+    let alignmentConstraints: [NSLayoutConstraint]
+    switch kind {
+    case .userMessage:
+      let maximumWidth = contentHost.widthAnchor.constraint(lessThanOrEqualToConstant: 680)
+      let preferredWidth = contentHost.widthAnchor.constraint(equalToConstant: 680)
+      preferredWidth.priority = .defaultHigh
+      userMaximumWidthConstraint = maximumWidth
+      userPreferredWidthConstraint = preferredWidth
       alignmentConstraints = [
         contentHost.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
         contentHost.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 80),
-        contentHost.widthAnchor.constraint(
-          lessThanOrEqualToConstant: item.nativeMaximumBubbleWidth),
+        maximumWidth,
+        preferredWidth,
       ]
-    default:
+    case .assistantThinking, .assistantMessage, .tool, .generationIndicator:
       let preferredTrailing = contentHost.trailingAnchor.constraint(
         equalTo: trailingAnchor,
         constant: -80
@@ -1534,78 +1588,37 @@ final class NativeChatMessageCellView: NSTableCellView {
     NSLayoutConstraint.activate(alignmentConstraints)
   }
 
-  private func makeContentView(
-    for item: RenderedChatTurnItem,
-    rowID: String,
-    state: NativeTranscriptCellState
-  ) -> NSView {
-    switch item.item {
-    case .userMessage(let message):
-      return makeUserMessageView(
-        message: message,
-        rowID: rowID,
-        isCopied: state.isCopied
-      )
-    case .assistantThinking(let message):
-      return makeAssistantThinkingView(
-        message: message,
-        rowID: rowID,
-        state: state
-      )
-    case .assistantMessage:
-      return makeAssistantMessageView(
-        item: item,
-        rowID: rowID,
-        state: state
-      )
-    case .tool(let record):
-      return makeToolView(
-        record: record,
-        generationMetrics: item.generationMetrics,
-        batchPresentation: item.toolBatchPresentation,
-        rowID: rowID,
-        state: state
-      )
-    }
-  }
-
   private func makeUserMessageView(
     message: UserTurnMessage,
     rowID: String,
-    isCopied: Bool
+    assetsRevision: Int,
+    isCopied: Bool,
+    maximumBubbleWidth: CGFloat
   ) -> NSView {
-    let outerStack = verticalStack(spacing: 4)
-    outerStack.alignment = .trailing
-
-    if !message.attachments.isEmpty {
-      outerStack.addArrangedSubview(
-        makeAttachmentPreviews(
-          message.attachments,
+    guard let actions else {
+      preconditionFailure("Transcript actions must be installed before creating user content")
+    }
+    let userView = NativeUserMessageView(
+      openLink: { [weak self] url in
+        self?.actions?.openLink(url)
+      },
+      makeAttachmentView: { [weak self] attachments, rowID, alignsTrailing in
+        self?.makeAttachmentPreviews(
+          attachments,
           rowID: rowID,
-          alignsTrailing: true
-        ))
-    }
-    if !message.content.isEmpty {
-      let stack = verticalStack(spacing: 0)
-      stack.alignment = .trailing
-      for markdownBlock in actions?.markdownBlocks(message.content)
-        ?? NativeTranscriptMarkdownRenderer.blocks(for: message.content)
-      {
-        stack.addArrangedSubview(makeMarkdownBlockView(markdownBlock))
+          alignsTrailing: alignsTrailing
+        ) ?? NSView()
       }
-      outerStack.addArrangedSubview(
-        paddedContainer(
-          stack,
-          fillColor: NSColor.secondaryLabelColor.withAlphaComponent(0.06),
-          cornerRadius: 10
-        ))
-    }
-    if !message.content.isEmpty {
-      outerStack.addArrangedSubview(
-        makeCopyIconButton(rowID: rowID, content: message.content, isCopied: isCopied)
-      )
-    }
-    return outerStack
+    )
+    userView.update(
+      message: message,
+      rowID: rowID,
+      assetsRevision: assetsRevision,
+      isCopied: isCopied,
+      maximumBubbleWidth: maximumBubbleWidth,
+      actions: actions
+    )
+    return userView
   }
 
   private func makeAssistantThinkingView(
@@ -1628,43 +1641,22 @@ final class NativeChatMessageCellView: NSTableCellView {
     rowID: String,
     state _: NativeTranscriptCellState
   ) -> NSView? {
-    let stack = verticalStack(spacing: 8)
-
-    if !item.nativeAttachments.isEmpty {
-      stack.addArrangedSubview(
-        makeAttachmentPreviews(
-          item.nativeAttachments,
+    let contentView = NativeAssistantFinalContentView(
+      actionsProvider: { [weak self] in self?.actions },
+      makeAttachmentView: { [weak self] attachments, rowID, alignsTrailing in
+        self?.makeAttachmentPreviews(
+          attachments,
           rowID: rowID,
-          alignsTrailing: false
-        ))
-    }
-
-    if item.assistantRenderBlocks.isEmpty {
-      if !item.content.isEmpty {
-        stack.addArrangedSubview(makeLinkifiedTextView(item.content))
+          alignsTrailing: alignsTrailing
+        ) ?? NSView()
       }
-    } else {
-      for block in item.assistantRenderBlocks {
-        switch block {
-        case .paragraph(let paragraph):
-          for markdownBlock in actions?.markdownBlocks(paragraph.text)
-            ?? NativeTranscriptMarkdownRenderer.blocks(for: paragraph.text)
-          {
-            stack.addArrangedSubview(makeMarkdownBlockView(markdownBlock))
-          }
-        case .codeBlock(let codeBlock):
-          actions?.requestCodeHighlight(rowID, codeBlock)
-          stack.addArrangedSubview(
-            makeCodeBlockView(
-              codeBlock,
-              highlightedCode: actions?.highlightedCode(rowID, codeBlock)
-            )
-          )
-        }
-      }
-    }
-
-    return stack.arrangedSubviews.isEmpty ? nil : stack
+    )
+    contentView.update(
+      item: item,
+      rowID: rowID,
+      assetsRevision: assistantAssetsRevision(for: item)
+    )
+    return contentView
   }
 
   private func makeAssistantFooterView(
@@ -1672,31 +1664,10 @@ final class NativeChatMessageCellView: NSTableCellView {
     rowID: String,
     state: NativeTranscriptCellState
   ) -> NSView? {
-    let footer = horizontalStack(spacing: 8)
-    if state.isSpeechEnabled, let spokenText = item.nativeSpokenText {
-      footer.addArrangedSubview(
-        makeSpeechIconButton(
-          rowID: rowID,
-          content: spokenText,
-          isSpeaking: state.isSpeaking
-        )
-      )
-    }
-    if item.canNativeCopyMessageContent {
-      footer.addArrangedSubview(
-        makeCopyIconButton(rowID: rowID, content: item.content, isCopied: state.isCopied)
-      )
-    }
-    if let metrics = item.visibleGenerationMetrics {
-      footer.addArrangedSubview(makeSecondaryLabel(metrics.visibleSummary))
-    }
-    if let totalDurationSummary = item.visibleTotalDurationSummary {
-      footer.addArrangedSubview(makeSecondaryLabel(totalDurationSummary))
-    }
-    if footer.arrangedSubviews.isEmpty {
-      return nil
-    }
-    return footer
+    let footer = NativeAssistantFooterView(
+      actionsProvider: { [weak self] in self?.actions }
+    )
+    return footer.update(item: item, rowID: rowID, state: state) ? footer : nil
   }
 
   private func makeMarkdownBlockView(_ block: NativeMarkdownBlock) -> NSView {
@@ -1713,103 +1684,8 @@ final class NativeChatMessageCellView: NSTableCellView {
     }
   }
 
-  private func makeToolDetails(record: ToolCallRecord, metrics: ChatGenerationMetrics?) -> NSView {
-    let stack = verticalStack(spacing: 5)
-    let details = NativeToolDetailContent(record: record)
-
-    for line in details.argumentLines {
-      stack.addArrangedSubview(makeSecondaryLabel(line))
-    }
-
-    for line in details.permissionLines {
-      stack.addArrangedSubview(makeSecondaryLabel(line))
-    }
-
-    if let outputText = details.outputText {
-      if let title = details.outputTitle {
-        stack.addArrangedSubview(makeSecondaryLabel(title))
-      }
-      stack.addArrangedSubview(
-        paddedContainer(
-          makeCodeLikeLabel(outputText),
-          fillColor: NSColor.secondaryLabelColor.withAlphaComponent(0.08),
-          cornerRadius: 6
-        )
-      )
-    }
-
-    if !details.affectedPaths.isEmpty {
-      stack.addArrangedSubview(
-        makeSecondaryLabel("Affected: \(details.affectedPaths.joined(separator: ", "))")
-      )
-    }
-
-    if !details.flags.isEmpty {
-      stack.addArrangedSubview(makeSecondaryLabel(details.flags.joined(separator: " · ")))
-    }
-
-    if let metrics {
-      stack.addArrangedSubview(makeSecondaryLabel(metrics.visibleSummary))
-    }
-
-    return stack
-  }
-
-  private func makeAskUserView(
-    input: AskUserInput,
-    selectedAnswer: String?,
-    isEnabled: Bool,
-    rowID: String,
-    toolCallID: ToolCallRecord.ID
-  ) -> NSView {
-    let stack = verticalStack(spacing: 6)
-    stack.addArrangedSubview(makeLinkifiedTextView(input.question))
-    guard !input.options.isEmpty else {
-      return stack
-    }
-
-    let selectedOption =
-      selectedAnswer.flatMap { input.options.contains($0) ? $0 : nil }
-      ?? input.options[0]
-    let row = horizontalStack(spacing: 7)
-    let popup = NSPopUpButton()
-    popup.addItems(withTitles: input.options)
-    popup.selectItem(withTitle: selectedOption)
-    popup.controlSize = .small
-    popup.target = self
-    popup.action = #selector(askUserSelectionChanged(_:))
-    popup.identifier = NSUserInterfaceItemIdentifier(rowID)
-    popup.isEnabled = isEnabled
-    askUserPopUpButton = popup
-    row.addArrangedSubview(popup)
-    row.addArrangedSubview(
-      makeSmallButton(title: "Send", isEnabled: isEnabled) { [weak self] in
-        let answer = self?.askUserPopUpButton?.selectedItem?.title ?? selectedOption
-        self?.actions?.answerAskUser(rowID, toolCallID, answer)
-      }
-    )
-    row.addArrangedSubview(spacer())
-    stack.addArrangedSubview(row)
-    return stack
-  }
-
-  @objc private func askUserSelectionChanged(_ sender: NSPopUpButton) {
-    guard let rowID = sender.identifier?.rawValue, let title = sender.selectedItem?.title else {
-      return
-    }
-    actions?.updateAskUserSelection(rowID, title)
-  }
-
   private func makeGenerationIndicator(title: String = "Generating") -> NSView {
-    let row = horizontalStack(spacing: 8)
-    let spinner = NSProgressIndicator()
-    spinner.style = .spinning
-    spinner.controlSize = .small
-    spinner.isDisplayedWhenStopped = false
-    spinner.startAnimation(nil)
-    row.addArrangedSubview(spinner)
-    row.addArrangedSubview(makeSecondaryLabel(title))
-    return row
+    NativeGenerationIndicatorView(title: title)
   }
 
   private func makeCodeBlockView(
@@ -1829,9 +1705,6 @@ final class NativeChatMessageCellView: NSTableCellView {
       codeLabel: codeLabel,
       hasHighlightedCode: highlightedCode != nil
     )
-    if let languageName = codeBlock.language, !languageName.isEmpty {
-      stack.addArrangedSubview(makeSecondaryLabel(languageName))
-    }
     stack.addArrangedSubview(
       borderedPaddedContainer(
         codeLabel,
@@ -1843,21 +1716,6 @@ final class NativeChatMessageCellView: NSTableCellView {
     return stack
   }
 
-  private func makeTextLabel(_ text: String, color: NSColor) -> NSTextField {
-    makeAttributedTextLabel(
-      NSAttributedString(
-        string: text,
-        attributes: [
-          .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
-          .foregroundColor: color,
-        ]
-      ))
-  }
-
-  private func makeLinkifiedTextView(_ text: String) -> NativeTranscriptTextView {
-    makeTranscriptTextView(NativeTranscriptMarkdownRenderer.linkifiedPlainText(text))
-  }
-
   private func makeTranscriptTextView(
     _ attributedString: NSAttributedString
   ) -> NativeTranscriptTextView {
@@ -1866,12 +1724,6 @@ final class NativeChatMessageCellView: NSTableCellView {
     }
     textView.setAttributedText(attributedString)
     return textView
-  }
-
-  private func makeCodeLikeLabel(_ text: String) -> NSTextField {
-    makeCodeAttributedLabel(
-      NativeTranscriptCodeRenderer.plainAttributedString(code: text, language: nil)
-    )
   }
 
   private func makeSecondaryLabel(_ text: String) -> NSTextField {
@@ -1900,37 +1752,6 @@ final class NativeChatMessageCellView: NSTableCellView {
     return label
   }
 
-  private func makeToolStatusIndicator(status: ToolCallStatus) -> NSView {
-    if status.nativeIsInProgress {
-      let spinner = NSProgressIndicator()
-      spinner.translatesAutoresizingMaskIntoConstraints = false
-      spinner.style = .spinning
-      spinner.controlSize = .small
-      spinner.startAnimation(nil)
-      NSLayoutConstraint.activate([
-        spinner.widthAnchor.constraint(equalToConstant: 12),
-        spinner.heightAnchor.constraint(equalToConstant: 12),
-      ])
-      spinner.setAccessibilityElement(false)
-      return spinner
-    }
-
-    let imageView = NSImageView()
-    imageView.translatesAutoresizingMaskIntoConstraints = false
-    imageView.image = NSImage(
-      systemSymbolName: status.nativeQuietSystemImage,
-      accessibilityDescription: nil
-    )
-    imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
-    imageView.contentTintColor = status.nativeQuietColor
-    imageView.setAccessibilityElement(false)
-    NSLayoutConstraint.activate([
-      imageView.widthAnchor.constraint(equalToConstant: 12),
-      imageView.heightAnchor.constraint(equalToConstant: 12),
-    ])
-    return imageView
-  }
-
 }
 
 extension NativeChatMessageCellView {
@@ -1941,129 +1762,19 @@ extension NativeChatMessageCellView {
     rowID: String,
     state: NativeTranscriptCellState
   ) -> NSView {
-    let stack = verticalStack(spacing: 5)
-    let toolCall = record.transcriptToolCall
-    let hasDetails = record.hasNativeToolDetails || generationMetrics != nil
-
-    let header = NativeTranscriptDisclosureHeaderView()
-    header.translatesAutoresizingMaskIntoConstraints = false
-    header.orientation = .horizontal
-    header.alignment = .centerY
-    header.spacing = 5
-    header.distribution = .fill
-    header.addArrangedSubview(makeToolStatusIndicator(status: record.status))
-    let nameLabel = makeTextLabel(toolCall.toolName.rawValue, color: .labelColor)
-    nameLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
-    nameLabel.maximumNumberOfLines = 1
-    nameLabel.lineBreakMode = .byClipping
-    nameLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-    header.addArrangedSubview(nameLabel)
-    if let preview = toolCall.nativeHeaderPreview {
-      let summaryLabel = makeSecondaryLabel(preview.text)
-      summaryLabel.lineBreakMode = preview.lineBreakMode
-      summaryLabel.maximumNumberOfLines = 1
-      summaryLabel.setAccessibilityLabel(preview.accessibilityLabel)
-      summaryLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-      summaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-      header.addArrangedSubview(summaryLabel)
+    guard let actions else {
+      preconditionFailure("Transcript actions must be installed before creating tool content")
     }
-    if hasDetails {
-      header.actionHandler = { [weak self] in
-        self?.actions?.toggleToolExpansion(rowID)
-      }
-      header.addArrangedSubview(
-        makeIconButton(
-          systemSymbolName: state.isToolExpanded ? "chevron.down" : "chevron.right",
-          accessibilityLabel: state.isToolExpanded ? "Hide details" : "Show details",
-          tintColor: .tertiaryLabelColor
-        ) { [weak self] in
-          self?.actions?.toggleToolExpansion(rowID)
-        }
-      )
-    }
-    header.addArrangedSubview(spacer())
-    stack.addArrangedSubview(header)
-    header.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-
-    if state.isToolExpanded, hasDetails {
-      stack.addArrangedSubview(makeToolDetails(record: record, metrics: generationMetrics))
-    }
-
-    if record.status == .awaitingApproval,
-      batchPresentation?.showsApprovalActions != false
-    {
-      let actionsRow = horizontalStack(spacing: 8)
-      if state.toolApprovalPolicy == .automatic {
-        let showsResume = batchPresentation?.showsResumeAutomation ?? true
-        if showsResume {
-          let anchorID = batchPresentation?.anchorID ?? record.id
-          actionsRow.addArrangedSubview(
-            makeSmallButton(
-              title: "Resume automation",
-              accessibilityIdentifier: "chat.tool.resumeAutomation.\(anchorID.uuidString)",
-              accessibilityLabel: "Resume automatic tool approval",
-              isEnabled: state.isToolActionEnabled
-            ) { [weak self] in
-              self?.actions?.resumeAutomation(anchorID)
-            }
-          )
-        }
-      } else {
-        let approvalGroupCount = batchPresentation?.approvalGroupCount ?? 1
-        if let batch = batchPresentation, batch.showsApproveAll {
-          actionsRow.addArrangedSubview(
-            makeSmallButton(
-              title: "Approve all (\(batch.pendingApprovalCount))",
-              accessibilityIdentifier: "chat.tool.approveAll.\(batch.anchorID.uuidString)",
-              accessibilityLabel: "Approve all \(batch.pendingApprovalCount) tool calls",
-              isEnabled: state.isToolActionEnabled
-            ) { [weak self] in
-              self?.actions?.approveAll(batch.anchorID)
-            }
-          )
-        }
-        actionsRow.addArrangedSubview(
-          makeSmallButton(
-            title: approvalGroupCount > 1 ? "Approve \(approvalGroupCount) edits" : "Approve",
-            accessibilityIdentifier: "chat.tool.approve.\(record.id.uuidString)",
-            accessibilityLabel: approvalGroupCount > 1
-              ? "Approve \(approvalGroupCount) atomic edit_file calls"
-              : "Approve \(toolCall.toolName.rawValue) tool call",
-            isEnabled: state.isToolActionEnabled
-          ) { [weak self] in
-            self?.actions?.approve(record.id)
-          }
-        )
-        actionsRow.addArrangedSubview(
-          makeSmallButton(
-            title: approvalGroupCount > 1 ? "Deny \(approvalGroupCount) edits" : "Deny",
-            accessibilityIdentifier: "chat.tool.deny.\(record.id.uuidString)",
-            accessibilityLabel: approvalGroupCount > 1
-              ? "Deny \(approvalGroupCount) atomic edit_file calls"
-              : "Deny \(toolCall.toolName.rawValue) tool call",
-            isEnabled: state.isToolActionEnabled
-          ) { [weak self] in
-            self?.actions?.deny(record.id)
-          }
-        )
-      }
-      actionsRow.addArrangedSubview(spacer())
-      stack.addArrangedSubview(actionsRow)
-    }
-
-    if record.status == .awaitingUserAnswer, let input = record.nativeAskUserInput {
-      stack.addArrangedSubview(
-        makeAskUserView(
-          input: input,
-          selectedAnswer: state.askUserSelection,
-          isEnabled: state.isToolActionEnabled,
-          rowID: rowID,
-          toolCallID: record.id
-        )
-      )
-    }
-
-    return stack
+    let toolView = NativeToolCallView()
+    toolView.update(
+      record: record,
+      generationMetrics: generationMetrics,
+      batchPresentation: batchPresentation,
+      rowID: rowID,
+      state: state,
+      actions: actions
+    )
+    return toolView
   }
 
   private func reportMeasuredHeightIfNeeded() {
@@ -2080,9 +1791,7 @@ extension NativeChatMessageCellView {
 
     pendingMeasuredRowID = nil
     isReportingMeasuredHeight = true
-    let minimumHeight =
-      configuredKind?.minimumHeight ?? NativeTranscriptCellKind.assistantMessage.minimumHeight
-    let measuredHeight = ceil(max(minimumHeight, fittingSize.height))
+    let measuredHeight = ceil(max(kind.minimumHeight, fittingSize.height))
     isReportingMeasuredHeight = false
     guard measuredHeight.isFinite, configuredRowID == measuredRowID else {
       return
@@ -2096,76 +1805,6 @@ extension NativeChatMessageCellView {
       setAccessibilityIdentifier(row.accessibilityIdentifier)
       setAccessibilityLabel(row.accessibilityLabel)
     }
-  }
-
-  fileprivate func makeCopyIconButton(rowID: String, content: String, isCopied: Bool) -> NSButton {
-    makeIconButton(
-      systemSymbolName: isCopied ? "checkmark" : "doc.on.doc",
-      accessibilityLabel: isCopied ? "Copied" : "Copy message",
-      tintColor: .secondaryLabelColor
-    ) { [weak self] in
-      self?.actions?.copy(rowID, content)
-    }
-  }
-
-  fileprivate func makeSpeechIconButton(rowID: String, content: String, isSpeaking: Bool)
-    -> NSButton
-  {
-    makeIconButton(
-      systemSymbolName: isSpeaking ? "stop.fill" : "play.fill",
-      accessibilityLabel: isSpeaking ? "Stop reading message" : "Read message aloud",
-      tintColor: .secondaryLabelColor
-    ) { [weak self] in
-      self?.actions?.toggleSpeech(rowID, content)
-    }
-  }
-
-  fileprivate func makeIconButton(
-    systemSymbolName: String,
-    accessibilityLabel: String,
-    tintColor: NSColor,
-    action: @escaping () -> Void
-  ) -> NSButton {
-    let button = NativeActionButton(title: "")
-    button.translatesAutoresizingMaskIntoConstraints = false
-    button.image = NSImage(systemSymbolName: systemSymbolName, accessibilityDescription: nil)
-    button.image?.isTemplate = true
-    button.contentTintColor = tintColor
-    button.imagePosition = .imageOnly
-    button.bezelStyle = .inline
-    button.isBordered = false
-    button.controlSize = .small
-    button.setButtonType(.momentaryPushIn)
-    button.actionHandler = action
-    button.toolTip = accessibilityLabel
-    button.setAccessibilityLabel(accessibilityLabel)
-    NSLayoutConstraint.activate([
-      button.widthAnchor.constraint(equalToConstant: 18),
-      button.heightAnchor.constraint(equalToConstant: 18),
-    ])
-    return button
-  }
-
-  fileprivate func makeSmallButton(
-    title: String,
-    accessibilityIdentifier: String? = nil,
-    accessibilityLabel: String? = nil,
-    isEnabled: Bool = true,
-    action: @escaping () -> Void
-  ) -> NSButton {
-    let button = NativeActionButton(title: title)
-    button.controlSize = .small
-    button.bezelStyle = .rounded
-    button.setButtonType(.momentaryPushIn)
-    button.isEnabled = isEnabled
-    if let accessibilityIdentifier {
-      button.setAccessibilityIdentifier(accessibilityIdentifier)
-    }
-    if let accessibilityLabel {
-      button.setAccessibilityLabel(accessibilityLabel)
-    }
-    button.actionHandler = action
-    return button
   }
 
   fileprivate func paddedContainer(
@@ -2204,7 +1843,10 @@ extension NativeChatMessageCellView {
   // Thumbnail completion reconfigures the row with an unchanged renderRevision
   // and relies on this value changing to get past the ContentMode guard.
   fileprivate func assistantAssetsRevision(for item: RenderedChatTurnItem) -> Int {
-    let attachments = item.nativeAttachments
+    attachmentAssetsRevision(for: item.nativeAttachments)
+  }
+
+  private func attachmentAssetsRevision(for attachments: [ChatAttachment]) -> Int {
     guard !attachments.isEmpty else {
       return 0
     }
@@ -2304,12 +1946,6 @@ extension NativeChatMessageCellView {
     return stack
   }
 
-  fileprivate func spacer() -> NSView {
-    let view = NSView()
-    view.setContentHuggingPriority(.defaultLow, for: .horizontal)
-    view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-    return view
-  }
   fileprivate func makeAttachmentPreviews(
     _ attachments: [ChatAttachment],
     rowID: String,

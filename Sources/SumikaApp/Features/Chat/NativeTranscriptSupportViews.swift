@@ -8,9 +8,10 @@ import SumikaCore
 // now so their call sites in the other transcript files keep reaching them.
 
 final class NativeTranscriptTableView: NSView {
-  private let table: NativeMarkdownTable
-  private let rows: [[NativeMarkdownTableCell]]
-  private let labels: [[NativeTranscriptTextView]]
+  private var table: NativeMarkdownTable
+  private var rows: [[NativeMarkdownTableCell]]
+  private var labels: [[NativeTranscriptTextView]] = []
+  private let openLink: (URL) -> Void
 
   override var isFlipped: Bool {
     true
@@ -19,14 +20,7 @@ final class NativeTranscriptTableView: NSView {
   init(table: NativeMarkdownTable, openLink: @escaping (URL) -> Void) {
     self.table = table
     self.rows = NativeMarkdownTableMetrics.normalizedRows(for: table)
-    self.labels = rows.map { row in
-      row.map { cell in
-        let textView = NativeTranscriptTextView(openLink: openLink)
-        textView.textContainer?.lineBreakMode = .byWordWrapping
-        textView.setAttributedText(cell.attributedString)
-        return textView
-      }
-    }
+    self.openLink = openLink
     super.init(frame: .zero)
 
     wantsLayer = false
@@ -37,16 +31,51 @@ final class NativeTranscriptTableView: NSView {
     setAccessibilityRole(.group)
     setAccessibilityLabel("Markdown table")
 
-    for row in labels {
-      for label in row {
-        addSubview(label)
-      }
-    }
+    rebuildLabels()
   }
 
   @available(*, unavailable)
   required init?(coder _: NSCoder) {
     fatalError("init(coder:) has not been implemented")
+  }
+
+  func update(table: NativeMarkdownTable) {
+    self.table = table
+    rows = NativeMarkdownTableMetrics.normalizedRows(for: table)
+
+    let hasReusableShape =
+      labels.count == rows.count
+      && zip(labels, rows).allSatisfy { labels, row in labels.count == row.count }
+    if hasReusableShape {
+      for (rowIndex, row) in rows.enumerated() {
+        for (columnIndex, cell) in row.enumerated() {
+          labels[rowIndex][columnIndex].setAttributedText(cell.attributedString)
+        }
+      }
+    } else {
+      rebuildLabels()
+    }
+
+    invalidateIntrinsicContentSize()
+    needsLayout = true
+    needsDisplay = true
+  }
+
+  private func rebuildLabels() {
+    for row in labels {
+      for label in row {
+        label.removeFromSuperview()
+      }
+    }
+    labels = rows.map { row in
+      row.map { cell in
+        let textView = NativeTranscriptTextView(openLink: openLink)
+        textView.textContainer?.lineBreakMode = .byWordWrapping
+        textView.setAttributedText(cell.attributedString)
+        addSubview(textView)
+        return textView
+      }
+    }
   }
 
   override var intrinsicContentSize: NSSize {

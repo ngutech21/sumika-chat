@@ -7,6 +7,19 @@ import Testing
 @MainActor
 struct AppKitChatTranscriptDiffPlanTests {
   @Test
+  func cellKindsUseDistinctReuseIdentifiers() {
+    let kinds: [NativeTranscriptCellKind] = [
+      .userMessage,
+      .assistantThinking,
+      .assistantMessage,
+      .tool,
+      .generationIndicator,
+    ]
+
+    #expect(Set(kinds.map(\.reuseIdentifier)).count == kinds.count)
+  }
+
+  @Test
   func transcriptViewportCannotScrollHorizontally() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
       onToggleSpeech: { _, _ in },
@@ -59,6 +72,64 @@ struct AppKitChatTranscriptDiffPlanTests {
 
     #expect(abs(userTrailingInset - 20) < 0.5)
     #expect(abs(userTrailingInset - assistantLeadingInset) < 0.5)
+  }
+
+  @Test
+  func shortUserMessageBubbleUsesOnlyItsTextWidth() throws {
+    let content = "hey"
+    let cell = configuredNativeCell(
+      for: nativeUserRow(id: "short-user", revision: 1, content: content)
+    )
+    let userView = try #require(cell.hostedContentViewForTesting as? NativeUserMessageView)
+    let stack = try #require(userView.subviews.compactMap { $0 as? NSStackView }.first)
+    let bubble = try #require(
+      stack.arrangedSubviews.first {
+        !($0 is NSStackView) && !($0 is NSButton)
+      }
+    )
+    let blocks = NativeTranscriptMarkdownRenderer.blocks(for: content)
+    let text = try #require(
+      blocks.compactMap { block -> NSAttributedString? in
+        guard case .text(let attributedString) = block else {
+          return nil
+        }
+        return attributedString
+      }.first
+    )
+    let expectedWidth = ceil(text.size().width) + 20
+
+    #expect(abs(bubble.frame.width - expectedWidth) < 0.5)
+  }
+
+  @Test
+  func reusedUserMessageBubbleShrinksToLatestTextWidth() throws {
+    let longContent = String(
+      repeating: "A long user message needs the available width. ",
+      count: 20
+    )
+    let cell = configuredNativeCell(
+      for: nativeUserRow(id: "long-user", revision: 1, content: longContent)
+    )
+    let userView = try #require(cell.hostedContentViewForTesting as? NativeUserMessageView)
+    let stack = try #require(userView.subviews.compactMap { $0 as? NSStackView }.first)
+    let bubble = try #require(
+      stack.arrangedSubviews.first {
+        !($0 is NSStackView) && !($0 is NSButton)
+      }
+    )
+    let longWidth = bubble.frame.width
+
+    cell.prepareForReuse()
+    cell.configure(
+      row: nativeUserRow(id: "short-user", revision: 1, content: "hey"),
+      state: NativeTranscriptCellState(),
+      actions: testNativeActions()
+    )
+    cell.layoutSubtreeIfNeeded()
+
+    #expect(cell.hostedContentViewForTesting === userView)
+    #expect(bubble.frame.width < longWidth)
+    #expect(bubble.frame.width < 80)
   }
 
   @Test
@@ -563,7 +634,8 @@ struct AppKitChatTranscriptDiffPlanTests {
   func cellHeightReportUsesOnlyTheCurrentlyConfiguredRowID() {
     let host = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 300))
     let cell = NativeChatMessageCellView(
-      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test"),
+      kind: .assistantMessage
     )
     cell.frame = host.bounds
     host.addSubview(cell)
@@ -598,7 +670,7 @@ struct AppKitChatTranscriptDiffPlanTests {
     )
 
     let shortHeight = cache.height(for: shortRow, width: 640)
-    let measuringCell = try #require(cache.measuringCellForTesting)
+    let measuringCell = try #require(cache.measuringCellForTesting(kind: .assistantMessage))
     let hostedView = try #require(measuringCell.hostedContentViewForTesting)
 
     let grownHeight = cache.height(for: grownRow, width: 640)
@@ -621,7 +693,7 @@ struct AppKitChatTranscriptDiffPlanTests {
     )
 
     let shortHeight = cache.height(for: shortRow, width: 640, state: expandedState)
-    let measuringCell = try #require(cache.measuringCellForTesting)
+    let measuringCell = try #require(cache.measuringCellForTesting(kind: .assistantThinking))
     let hostedView = try #require(measuringCell.hostedContentViewForTesting)
 
     let grownHeight = cache.height(for: grownRow, width: 640, state: expandedState)
@@ -665,6 +737,7 @@ struct AppKitChatTranscriptDiffPlanTests {
     let assistantHeight = cache.height(for: assistantRow, width: 640)
     let userHeight = cache.height(for: userRow, width: 640)
     let toolHeight = cache.height(for: toolRow, width: 640)
+    #expect(cache.measuringCellCountForTesting == 3)
     cache.invalidate(rowID: "assistant")
     let assistantAgainHeight = cache.height(for: assistantRow, width: 640)
 
@@ -758,6 +831,39 @@ struct AppKitChatTranscriptDiffPlanTests {
     )
 
     #expect(markdownBlockRequests == 1)
+  }
+
+  @Test
+  func longUserRowHeightMatchesItsRenderedReusableCell() {
+    let content = """
+      Build a complete browser app called "Pixel Forge", a small pixel-art editor.
+
+      Work in this order, creating exactly these five files:
+      1. index.html
+      2. styles.css
+      3. editor-state.js
+      4. canvas-view.js
+      5. app.js
+
+      Technical constraints:
+      - Vanilla HTML, CSS, and JavaScript only. No frameworks, packages, CDNs, external fonts, or image assets. No external network requests of any kind.
+      - Use ES modules (a type="module" script tag in index.html).
+      - The app must work when served with `python3 -m http.server 8000`.
+      - Use exactly one visible <canvas> as the drawing surface.
+      - Do not duplicate the pixel document in the view layer: canvas-view.js reads pixels from the state module; only editor-state.js mutates them.
+      """
+    let row = nativeUserRow(id: "long-user", revision: 1, content: content)
+    var cache = NativeTranscriptHeightCache()
+
+    let cachedHeight = cache.height(for: row, width: 1_080)
+    let renderedHeight = NativeChatMessageCellView.measuredHeight(
+      for: row,
+      width: 1_080,
+      state: NativeTranscriptCellState(),
+      actions: testNativeActions()
+    )
+
+    #expect(cachedHeight == renderedHeight)
   }
 
   @Test
@@ -1299,7 +1405,8 @@ struct AppKitChatTranscriptDiffPlanTests {
       view.layer?.cornerRadius == 10 && view.layer?.backgroundColor != nil
     }
 
-    #expect(messageBubbles.isEmpty)
+    #expect(messageBubbles.count == 1)
+    #expect(messageBubbles.allSatisfy { $0.isHidden })
     #expect(
       cell.descendants(of: NSButton.self).contains { button in
         button.toolTip == "screen.png"
@@ -1476,7 +1583,8 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func sameAssistantRowReconfigureKeepsHostedView() throws {
     let cell = NativeChatMessageCellView(
-      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test"),
+      kind: .assistantMessage
     )
     let firstRow = nativeStreamingAssistantRow(id: "assistant", revision: 1, content: "Hel")
     let revisedRow = nativeStreamingAssistantRow(id: "assistant", revision: 2, content: "Hello")
@@ -1506,7 +1614,8 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func sameThinkingRowReconfigureKeepsHostedViewAndHeader() throws {
     let cell = NativeChatMessageCellView(
-      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test"),
+      kind: .assistantThinking
     )
     let firstRow = nativeStreamingThinkingRow(
       id: "thinking",
@@ -1744,17 +1853,17 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
-  func differentRowOrKindReplacesHostedView() throws {
+  func differentRowOfSameKindKeepsHostedViewAndRebindsContent() throws {
     let cell = NativeChatMessageCellView(
-      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test"),
+      kind: .assistantMessage
     )
     let firstRow = nativeStreamingAssistantRow(id: "assistant", revision: 1, content: "Hello")
     let differentAssistantRow = nativeStreamingAssistantRow(
       id: "other-assistant",
       revision: 1,
-      content: "Hello"
+      content: "A different answer"
     )
-    let differentKindRow = nativeUserRow(id: "other-assistant", revision: 2, content: "Question")
 
     cell.configure(row: firstRow, state: NativeTranscriptCellState(), actions: testNativeActions())
     let firstHostedView = try #require(cell.hostedContentViewForTesting)
@@ -1764,21 +1873,282 @@ struct AppKitChatTranscriptDiffPlanTests {
       actions: testNativeActions()
     )
     let differentRowHostedView = try #require(cell.hostedContentViewForTesting)
+
+    #expect(firstHostedView === differentRowHostedView)
+    #expect(cell.descendantTextValues.contains("A different answer"))
+    #expect(!cell.descendantTextValues.contains("Hello"))
+  }
+
+  @Test
+  func differentFinalAssistantRowsWithSameRevisionReuseTextView() throws {
+    let firstRow = nativeAssistantMarkdownRow(
+      id: "first-assistant",
+      revision: 1,
+      markdown: "First final answer."
+    )
+    let secondRow = nativeAssistantMarkdownRow(
+      id: "second-assistant",
+      revision: 1,
+      markdown: "Second final answer."
+    )
+    let cell = configuredNativeCell(for: firstRow)
+    let hostedView = try #require(cell.hostedContentViewForTesting)
+    let textView = try #require(cell.descendants(of: NativeTranscriptTextView.self).first)
+
     cell.configure(
-      row: differentKindRow,
+      row: secondRow,
       state: NativeTranscriptCellState(),
       actions: testNativeActions()
     )
-    let differentKindHostedView = try #require(cell.hostedContentViewForTesting)
 
-    #expect(firstHostedView !== differentRowHostedView)
-    #expect(differentRowHostedView !== differentKindHostedView)
+    #expect(cell.hostedContentViewForTesting === hostedView)
+    #expect(cell.descendants(of: NativeTranscriptTextView.self).first === textView)
+    #expect(textView.string == "Second final answer.")
+  }
+
+  @Test
+  func recycledAssistantCellFitsEveryReboundRowHeight() {
+    let width: CGFloat = 760
+    let rows = (0..<24).map { index in
+      nativeAssistantMarkdownRow(
+        id: "assistant-\(index)",
+        revision: 1,
+        markdown: index.isMultiple(of: 2)
+          ? "Short answer \(index)."
+          : String(
+            repeating: "Long answer \(index) wraps across several transcript lines. ",
+            count: 36
+          )
+      )
+    }
+    let cell = NativeChatMessageCellView(
+      identifier: NativeTranscriptCellKind.assistantMessage.reuseIdentifier,
+      kind: .assistantMessage
+    )
+    var cache = NativeTranscriptHeightCache()
+
+    for row in rows {
+      cell.prepareForReuse()
+      cell.configure(row: row, state: NativeTranscriptCellState(), actions: testNativeActions())
+      let rowHeight = cache.height(for: row, width: width)
+      cell.frame = NSRect(x: 0, y: 0, width: width, height: rowHeight)
+      cell.layoutSubtreeIfNeeded()
+
+      #expect(abs(cell.fittingSize.height - rowHeight) <= 0.5)
+      let marker = row.id.replacing("assistant-", with: "")
+      #expect(cell.descendantTextValues.contains { $0.contains(marker) })
+    }
+  }
+
+  @Test
+  func mixedAssistantBlocksKeepRenderedAndCachedWidthsInSync() {
+    let width: CGFloat = 1_080
+    let seedRow = nativeAssistantMarkdownRow(
+      id: "seed-assistant",
+      revision: 1,
+      markdown: String(repeating: "A wide paragraph establishes the reusable layout. ", count: 8)
+    )
+    let paragraph = String(
+      repeating: "The final answer contains enough prose to wrap over many lines. ",
+      count: 32
+    )
+    let mixedRow = NativeTranscriptRow(
+      id: "mixed-assistant",
+      revision: 1,
+      body: .item(
+        RenderedChatTurnItem(
+          id: "mixed-assistant",
+          item: .assistantMessage(AssistantTurnMessage(content: paragraph)),
+          generationMetrics: nil,
+          totalDuration: 2_610,
+          assistantRenderBlocks: [
+            .paragraph(.init(id: .init(rawValue: "paragraph"), text: paragraph)),
+            .codeBlock(
+              .init(
+                id: .init(rawValue: "command"),
+                language: nil,
+                text: "python3 -m http.server 8000\n",
+                isClosed: true
+              )),
+            .paragraph(
+              .init(
+                id: .init(rawValue: "trailing-paragraph"),
+                text: "Then open http://localhost:8000"
+              )),
+          ],
+          renderRevision: 1
+        )
+      )
+    )
+    var cache = NativeTranscriptHeightCache()
+    _ = cache.height(for: seedRow, width: width)
+    let cachedHeight = cache.height(for: mixedRow, width: width)
+    let cell = NativeChatMessageCellView(
+      identifier: NativeTranscriptCellKind.assistantMessage.reuseIdentifier,
+      kind: .assistantMessage
+    )
+    let narrowSeedRow = nativeAssistantCodeRow(
+      id: "narrow-seed-assistant",
+      revision: 1,
+      code: "python3 -m http.server 8000\n"
+    )
+    cell.frame = NSRect(x: 0, y: 0, width: 337, height: 80)
+    cell.configure(
+      row: narrowSeedRow,
+      state: NativeTranscriptCellState(),
+      actions: testNativeActions()
+    )
+    cell.layoutSubtreeIfNeeded()
+    cell.prepareForReuse()
+    cell.configure(
+      row: mixedRow,
+      state: NativeTranscriptCellState(),
+      actions: testNativeActions()
+    )
+    cell.frame = NSRect(x: 0, y: 0, width: width, height: cachedHeight)
+    cell.layoutSubtreeIfNeeded()
+
+    #expect(abs(cell.fittingSize.height - cachedHeight) <= 0.5)
+    #expect(
+      cell.descendants(of: NativeTranscriptTextView.self).allSatisfy { $0.frame.width >= 600 }
+    )
+  }
+
+  @Test
+  func tableScrollRecyclesAssistantCellsWithoutBlankOrOverflowingRows() throws {
+    let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      onToggleSpeech: { _, _ in },
+      onApproveToolCall: { _ in },
+      onDenyToolCall: { _ in },
+      onAnswerAskUser: { _, _ in }
+    )
+    let scrollView = coordinator.makeScrollView()
+    scrollView.frame = NSRect(x: 0, y: 0, width: 760, height: 220)
+    let window = NSWindow(
+      contentRect: NSRect(x: -10_000, y: -10_000, width: 760, height: 220),
+      styleMask: .borderless,
+      backing: .buffered,
+      defer: false
+    )
+    window.contentView = scrollView
+    window.orderFront(nil)
+    defer {
+      window.orderOut(nil)
+    }
+    let tableView = try #require(scrollView.documentView as? NSTableView)
+    let rows = (0..<24).map { index in
+      nativeAssistantMarkdownRow(
+        id: "assistant-\(index)",
+        revision: 1,
+        markdown: index.isMultiple(of: 2)
+          ? "Marker \(index): short answer."
+          : String(
+            repeating: "Marker \(index): long answer wraps across several lines. ",
+            count: 36
+          )
+      )
+    }
+
+    coordinator.update(
+      rows: rows,
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      in: scrollView
+    )
+    coordinator.flushPendingHeightInvalidationForTesting()
+    scrollView.layoutSubtreeIfNeeded()
+    tableView.layoutSubtreeIfNeeded()
+
+    var cellIdentities = Set<ObjectIdentifier>()
+    for index in rows.indices {
+      let rowRect = tableView.rect(ofRow: index)
+      scrollView.contentView.scroll(to: NSPoint(x: 0, y: rowRect.minY))
+      scrollView.reflectScrolledClipView(scrollView.contentView)
+      scrollView.layoutSubtreeIfNeeded()
+      tableView.layoutSubtreeIfNeeded()
+
+      let cell = try #require(
+        tableView.view(atColumn: 0, row: index, makeIfNecessary: false)
+          as? NativeChatMessageCellView
+      )
+      cellIdentities.insert(ObjectIdentifier(cell))
+      #expect(cell.descendantTextValues.contains { $0.contains("Marker \(index):") })
+      #expect(abs(cell.fittingSize.height - rowRect.height) <= 0.5)
+    }
+
+    #expect(cellIdentities.count < rows.count)
+  }
+
+  @Test
+  func differentUserRowsReuseContentAndCopyUsesLatestBinding() throws {
+    var copies: [(String, String)] = []
+    var actions = testNativeActions()
+    actions.copy = { copies.append(($0, $1)) }
+    let firstRow = nativeUserRow(id: "first-user", revision: 1, content: "First question")
+    let secondRow = nativeUserRow(id: "second-user", revision: 1, content: "Second question")
+    let cell = configuredNativeCell(for: firstRow, actions: actions)
+    let hostedView = try #require(cell.hostedContentViewForTesting)
+    let copyButton = try #require(
+      cell.descendantButtons(accessibilityLabel: "Copy message").first
+    )
+
+    cell.prepareForReuse()
+    copyButton.performClick(nil)
+    cell.configure(row: secondRow, state: NativeTranscriptCellState(), actions: actions)
+    let reboundCopyButton = try #require(
+      cell.descendantButtons(accessibilityLabel: "Copy message").first
+    )
+    reboundCopyButton.performClick(nil)
+
+    #expect(cell.hostedContentViewForTesting === hostedView)
+    #expect(reboundCopyButton === copyButton)
+    #expect(copies.count == 1)
+    #expect(copies.first?.0 == "second-user")
+    #expect(copies.first?.1 == "Second question")
+  }
+
+  @Test
+  func differentToolRowsReuseHeaderAndDisclosureUsesLatestBinding() throws {
+    var toggledRowIDs: [String] = []
+    var actions = testNativeActions()
+    actions.toggleToolExpansion = { toggledRowIDs.append($0) }
+    let firstRow = nativeToolRow(
+      id: "first-tool",
+      revision: 1,
+      record: nativeCompletedCommandToolRecord(command: "swift test")
+    )
+    let secondRow = nativeToolRow(
+      id: "second-tool",
+      revision: 1,
+      record: nativeCompletedCommandToolRecord(command: "swift build")
+    )
+    let cell = configuredNativeCell(for: firstRow, actions: actions)
+    let hostedView = try #require(cell.hostedContentViewForTesting)
+    let header = try #require(
+      cell.descendants(of: NativeTranscriptDisclosureHeaderView.self).first
+    )
+
+    cell.prepareForReuse()
+    header.performDisclosureAction()
+    cell.configure(row: secondRow, state: NativeTranscriptCellState(), actions: actions)
+    let reboundHeader = try #require(
+      cell.descendants(of: NativeTranscriptDisclosureHeaderView.self).first
+    )
+    reboundHeader.performDisclosureAction()
+
+    #expect(cell.hostedContentViewForTesting === hostedView)
+    #expect(reboundHeader === header)
+    #expect(toggledRowIDs == ["second-tool"])
+    #expect(cell.descendantTextValues.contains("swift build"))
+    #expect(!cell.descendantTextValues.contains("swift test"))
   }
 
   @Test
   func streamingAssistantViewUpdatesPlaceholderTextAndFinalMarkdown() throws {
     let cell = NativeChatMessageCellView(
-      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test"),
+      kind: .assistantMessage
     )
     let placeholderRow = nativeStreamingAssistantRow(id: "assistant", revision: 1, content: "")
     let streamingRow = nativeStreamingAssistantRow(id: "assistant", revision: 2, content: "**bo")
@@ -1808,9 +2178,10 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
-  func finalAssistantReconfigureWithUnchangedRevisionKeepsContentViews() throws {
+  func finalAssistantContentChangesRebindExistingTextView() throws {
     let cell = NativeChatMessageCellView(
-      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test"),
+      kind: .assistantMessage
     )
     let row = nativeAssistantMarkdownRow(
       id: "assistant",
@@ -1846,14 +2217,15 @@ struct AppKitChatTranscriptDiffPlanTests {
     let labelAfterContentChange = try #require(
       cell.descendants(of: NativeTranscriptTextView.self).first { $0.string.contains("Stable") }
     )
-    #expect(labelAfterContentChange !== initialLabel)
+    #expect(labelAfterContentChange === initialLabel)
     #expect(labelAfterContentChange.string.contains("more content"))
   }
 
   @Test
   func highlightCompletionRecolorsCodeLabelWithoutRebuild() throws {
     let cell = NativeChatMessageCellView(
-      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test"),
+      kind: .assistantMessage
     )
     let code = "let value = 1"
     let row = nativeAssistantCodeRow(id: "assistant", revision: 1, code: code)
@@ -1896,7 +2268,8 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func thumbnailArrivalRebuildsAssistantAttachmentContent() throws {
     let cell = NativeChatMessageCellView(
-      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test"),
+      kind: .assistantMessage
     )
     let row = nativeAssistantRow(
       id: "assistant",
@@ -1921,9 +2294,38 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func thumbnailArrivalRebuildsUserAttachmentContent() throws {
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test"),
+      kind: .userMessage
+    )
+    let row = nativeUserRow(
+      id: "user",
+      revision: 1,
+      attachments: [nativeImageAttachment(displayName: "diagram.png")]
+    )
+    var thumbnail: NSImage?
+    var actions = testNativeActions()
+    actions.attachmentThumbnail = { _, _ in thumbnail }
+
+    cell.configure(row: row, state: NativeTranscriptCellState(), actions: actions)
+    #expect(
+      !cell.descendants(of: NSImageView.self).contains { $0.image === thumbnail }
+    )
+
+    let loadedThumbnail = NSImage(size: NSSize(width: 8, height: 8))
+    thumbnail = loadedThumbnail
+    cell.configure(row: row, state: NativeTranscriptCellState(), actions: actions)
+    #expect(
+      cell.descendants(of: NSImageView.self).contains { $0.image === loadedThumbnail }
+    )
+  }
+
+  @Test
   func streamingTextAppendsIntoTheSameTextViewStorage() throws {
     let cell = NativeChatMessageCellView(
-      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test"),
+      kind: .assistantMessage
     )
     let firstRow = nativeStreamingAssistantRow(id: "assistant", revision: 1, content: "Hello")
     let grownRow = nativeStreamingAssistantRow(
@@ -1956,7 +2358,8 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func streamingThinkingTextAppendsIntoTheSameTextView() throws {
     let cell = NativeChatMessageCellView(
-      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test"),
+      kind: .assistantThinking
     )
     let firstRow = nativeStreamingThinkingRow(id: "thinking", revision: 1, content: "Inspecting")
     let grownRow = nativeStreamingThinkingRow(
@@ -1982,7 +2385,8 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func collapsedStreamingThinkingShowsFixedHeightLiveTicker() throws {
     let cell = NativeChatMessageCellView(
-      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test"),
+      kind: .assistantThinking
     )
     let firstRow = nativeStreamingThinkingRow(
       id: "thinking",
@@ -2100,7 +2504,8 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func streamingBlocksRenderMarkdownTailInPlace() throws {
     let cell = NativeChatMessageCellView(
-      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test"),
+      kind: .assistantMessage
     )
     let firstRow = nativeStreamingBlocksAssistantRow(
       id: "assistant",
@@ -2133,7 +2538,8 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func streamingBlocksFreezeParagraphsAtBlankLines() throws {
     let cell = NativeChatMessageCellView(
-      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test"),
+      kind: .assistantMessage
     )
     let firstRow = nativeStreamingBlocksAssistantRow(
       id: "assistant",
@@ -2173,7 +2579,8 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func streamingBlocksShowLiveOpenCodeBlock() throws {
     let cell = NativeChatMessageCellView(
-      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test"),
+      kind: .assistantMessage
     )
     let openRow = nativeStreamingBlocksAssistantRow(
       id: "assistant",
@@ -2203,7 +2610,8 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func streamingBlocksSwapClosedCodeBlockToFinalViewAndRequestHighlight() throws {
     let cell = NativeChatMessageCellView(
-      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test"),
+      kind: .assistantMessage
     )
     let requestedBlocks = HighlightRequestRecorder()
     var actions = testNativeActions()
@@ -2237,7 +2645,8 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func streamingBlocksResetOnNonPrefixRegeneration() throws {
     let cell = NativeChatMessageCellView(
-      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test"),
+      kind: .assistantMessage
     )
     let firstRow = nativeStreamingBlocksAssistantRow(
       id: "assistant",
@@ -2889,7 +3298,8 @@ private func configuredNativeCell(
   actions: NativeTranscriptCellActions = testNativeActions()
 ) -> NativeChatMessageCellView {
   let cell = NativeChatMessageCellView(
-    identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+    identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test"),
+    kind: row.cellKind
   )
   cell.translatesAutoresizingMaskIntoConstraints = false
   cell.configure(

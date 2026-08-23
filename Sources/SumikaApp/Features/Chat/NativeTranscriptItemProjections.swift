@@ -101,13 +101,6 @@ extension RenderedChatTurnItem {
     }
   }
 
-  var isNativeUserMessage: Bool {
-    guard case .userMessage = item else {
-      return false
-    }
-    return true
-  }
-
   var nativeMaximumBubbleWidth: CGFloat {
     switch item {
     case .tool:

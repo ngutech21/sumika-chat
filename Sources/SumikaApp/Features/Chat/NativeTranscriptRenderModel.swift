@@ -7,12 +7,20 @@ import SumikaCore
 // pure/data types (plus small measurement helpers) consumed by the coordinator
 // and cell; split out of AppKitChatTranscriptRepresentable.
 
-enum NativeTranscriptCellKind: Equatable {
+enum NativeTranscriptCellKind: Hashable {
   case userMessage
   case assistantThinking
   case assistantMessage
   case tool
   case generationIndicator
+
+  var reuseIdentifier: NSUserInterfaceItemIdentifier {
+    NSUserInterfaceItemIdentifier("NativeChatMessageCellView.\(telemetryName)")
+  }
+
+  var measuringIdentifier: NSUserInterfaceItemIdentifier {
+    NSUserInterfaceItemIdentifier("\(reuseIdentifier.rawValue).Measuring")
+  }
 
   var minimumHeight: CGFloat {
     switch self {
@@ -324,7 +332,7 @@ struct NativeToolDetailContent: Equatable {
 struct NativeTranscriptHeightCache {
   private var heightsByKey: [Key: CGFloat] = [:]
   private var lastKnownKeyByRowID: [String: Key] = [:]
-  private var measuringCell: NativeChatMessageCellView?
+  private var measuringCellsByKind: [NativeTranscriptCellKind: NativeChatMessageCellView] = [:]
 
   // Test-only; exercised through @testable import.
   // swiftlint:disable:next unused_declaration
@@ -334,8 +342,14 @@ struct NativeTranscriptHeightCache {
 
   // Test-only; exercised through @testable import.
   // swiftlint:disable:next unused_declaration
-  var measuringCellForTesting: NativeChatMessageCellView? {
-    measuringCell
+  func measuringCellForTesting(kind: NativeTranscriptCellKind) -> NativeChatMessageCellView? {
+    measuringCellsByKind[kind]
+  }
+
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
+  var measuringCellCountForTesting: Int {
+    measuringCellsByKind.count
   }
 
   mutating func height(
@@ -359,7 +373,7 @@ struct NativeTranscriptHeightCache {
       return height
     }
     let missReason = cacheMissReason(for: key)
-    let cell = reusableMeasuringCell()
+    let cell = reusableMeasuringCell(for: row.cellKind)
     let height = ChatDiagnostics.measure(
       "Transcript row height cache miss",
       category: .transcript,
@@ -380,17 +394,19 @@ struct NativeTranscriptHeightCache {
     return height
   }
 
-  // Reusing one measuring cell keeps its incremental streaming append path
-  // alive across measurements: repeated misses for the growing streaming row
-  // only append the new suffix instead of rebuilding the full cell content.
-  private mutating func reusableMeasuringCell() -> NativeChatMessageCellView {
-    if let measuringCell {
+  // Reusing one measuring cell per kind keeps incremental streaming state alive
+  // without forcing incompatible row hierarchies through the same cell.
+  private mutating func reusableMeasuringCell(
+    for kind: NativeTranscriptCellKind
+  ) -> NativeChatMessageCellView {
+    if let measuringCell = measuringCellsByKind[kind] {
       return measuringCell
     }
     let cell = NativeChatMessageCellView(
-      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Measuring")
+      identifier: kind.measuringIdentifier,
+      kind: kind
     )
-    measuringCell = cell
+    measuringCellsByKind[kind] = cell
     return cell
   }
 
@@ -527,13 +543,6 @@ enum NativeTranscriptRowMeasurer {
     reusing reusableCell: NativeChatMessageCellView? = nil
   ) -> CGFloat {
     ChatDiagnostics.measure("Transcript row measure", category: .transcript) {
-      if let userTextHeight = userTextHeight(
-        for: row,
-        width: width,
-        markdownBlocks: markdownBlocks
-      ) {
-        return userTextHeight
-      }
       return NativeChatMessageCellView.measuredHeight(
         for: row,
         width: width,
@@ -542,48 +551,6 @@ enum NativeTranscriptRowMeasurer {
         reusing: reusableCell
       )
     }
-  }
-
-  private static func userTextHeight(
-    for row: NativeTranscriptRow,
-    width: CGFloat,
-    markdownBlocks: @MainActor (String) -> [NativeMarkdownBlock]
-  ) -> CGFloat? {
-    guard case .item(let item) = row.body,
-      case .userMessage(let message) = item.item,
-      message.attachments.isEmpty,
-      !message.content.isEmpty
-    else {
-      return nil
-    }
-
-    let blocks = markdownBlocks(message.content)
-    guard blocks.count == 1, case .text(let attributedText) = blocks[0] else {
-      return nil
-    }
-    let contentHostWidth = min(item.nativeMaximumBubbleWidth, max(width - 20 - 80, 1))
-    let textWidth = max(contentHostWidth - 20, 1)
-    let textHeight =
-      attributedText
-      .boundingRect(
-        with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
-        options: [.usesLineFragmentOrigin, .usesFontLeading]
-      ).height
-    let bubbleVerticalPadding: CGFloat = 16
-    let copyRowHeight: CGFloat = 18
-    let contentSpacing: CGFloat = 4
-    let cellVerticalPadding =
-      NativeTranscriptCellKind.userMessage.topInset
-      + NativeTranscriptCellKind.userMessage.bottomInset
-    return ceil(
-      max(
-        NativeTranscriptCellKind.userMessage.minimumHeight,
-        textHeight
-          + bubbleVerticalPadding
-          + copyRowHeight
-          + contentSpacing
-          + cellVerticalPadding
-      ))
   }
 
   private static func measuringActions(

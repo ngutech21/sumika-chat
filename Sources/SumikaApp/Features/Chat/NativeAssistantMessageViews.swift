@@ -21,8 +21,10 @@ final class NativeAssistantMessageView: NSView {
   private var footerView: NSView?
   private var streamingTextView: NativeTranscriptTextView?
   private var streamingBlocksView: NativeStreamingAssistantBlocksView?
+  private var contentWidthConstraint: NSLayoutConstraint?
   private var currentStreamingContent = ""
   private var contentMode: ContentMode?
+  private var currentRowID: String?
 
   init(
     item: RenderedChatTurnItem,
@@ -56,12 +58,24 @@ final class NativeAssistantMessageView: NSView {
     state: NativeTranscriptCellState,
     assetsRevision: Int
   ) {
+    if currentRowID != rowID {
+      prepareStreamingContentForDifferentRow()
+      currentRowID = rowID
+    }
     updateContent(item: item, rowID: rowID, state: state, assetsRevision: assetsRevision)
     if item.isStreamingAssistantMessage {
-      replaceFooterView(nil)
+      footerView?.isHidden = true
     } else {
-      replaceFooterView(makeFooterView(item, rowID, state))
+      updateFooter(item: item, rowID: rowID, state: state)
     }
+  }
+
+  override func prepareForReuse() {
+    super.prepareForReuse()
+    currentRowID = nil
+    prepareStreamingContentForDifferentRow()
+    (contentView as? NativeAssistantFinalContentView)?.prepareForReuse()
+    (footerView as? NativeAssistantFooterView)?.prepareForReuse()
   }
 
   private func setupStack() {
@@ -98,12 +112,17 @@ final class NativeAssistantMessageView: NSView {
     if item.isStreamingAssistantMessage {
       guard item.nativeAttachments.isEmpty else {
         let mode = ContentMode.streamingStructured(
+          rowID: rowID,
           revision: item.renderRevision,
           assetsRevision: assetsRevision
         )
         if contentMode != mode {
-          replaceContentView(makeFinalContentView(item, rowID, state))
-          resetStreamingText()
+          updateFinalContent(
+            item: item,
+            rowID: rowID,
+            state: state,
+            assetsRevision: assetsRevision
+          )
           contentMode = mode
         }
         return
@@ -122,14 +141,49 @@ final class NativeAssistantMessageView: NSView {
     // footer, and finished code highlights are applied in place via
     // NativeCodeBlockView, so neither needs a content rebuild anymore.
     let mode = ContentMode.final(
+      rowID: rowID,
       revision: item.renderRevision,
       assetsRevision: assetsRevision
     )
     if contentMode != mode {
-      replaceContentView(makeFinalContentView(item, rowID, state))
-      resetStreamingText()
+      updateFinalContent(
+        item: item,
+        rowID: rowID,
+        state: state,
+        assetsRevision: assetsRevision
+      )
       contentMode = mode
     }
+  }
+
+  private func updateFinalContent(
+    item: RenderedChatTurnItem,
+    rowID: String,
+    state: NativeTranscriptCellState,
+    assetsRevision: Int
+  ) {
+    if let finalContentView = contentView as? NativeAssistantFinalContentView {
+      finalContentView.update(
+        item: item,
+        rowID: rowID,
+        assetsRevision: assetsRevision
+      )
+    } else {
+      replaceContentView(makeFinalContentView(item, rowID, state))
+    }
+    resetStreamingText()
+  }
+
+  private func updateFooter(
+    item: RenderedChatTurnItem,
+    rowID: String,
+    state: NativeTranscriptCellState
+  ) {
+    if let footerView = footerView as? NativeAssistantFooterView {
+      footerView.update(item: item, rowID: rowID, state: state)
+      return
+    }
+    replaceFooterView(makeFooterView(item, rowID, state))
   }
 
   // Streams the message as structured blocks: everything before the last
@@ -141,7 +195,6 @@ final class NativeAssistantMessageView: NSView {
       resetStreamingText()
       streamingBlocksView = blocksView
       replaceContentView(blocksView)
-      blocksView.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
       contentMode = .streamingBlocks
     }
 
@@ -156,7 +209,6 @@ final class NativeAssistantMessageView: NSView {
       streamingTextView = textView
       currentStreamingContent = ""
       replaceContentView(textView)
-      textView.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
       contentMode = .streamingPlain
     }
 
@@ -181,6 +233,8 @@ final class NativeAssistantMessageView: NSView {
   }
 
   private func replaceContentView(_ view: NSView?) {
+    contentWidthConstraint?.isActive = false
+    contentWidthConstraint = nil
     if let contentView {
       stack.removeArrangedSubview(contentView)
       contentView.removeFromSuperview()
@@ -195,6 +249,9 @@ final class NativeAssistantMessageView: NSView {
       footerView.flatMap { footer in stack.arrangedSubviews.firstIndex { $0 === footer } }
       ?? stack.arrangedSubviews.count
     stack.insertArrangedSubview(view, at: index)
+    let widthConstraint = view.widthAnchor.constraint(equalTo: stack.widthAnchor)
+    widthConstraint.isActive = true
+    contentWidthConstraint = widthConstraint
     invalidateIntrinsicContentSize()
   }
 
@@ -219,6 +276,14 @@ final class NativeAssistantMessageView: NSView {
     currentStreamingContent = ""
   }
 
+  private func prepareStreamingContentForDifferentRow() {
+    currentStreamingContent = ""
+    streamingTextView?.setAttributedText(
+      Self.streamingAttributedString(for: "", usesPlaceholderForEmpty: false)
+    )
+    streamingBlocksView?.prepareForReuse()
+  }
+
   private static func streamingAttributedString(
     for text: String,
     usesPlaceholderForEmpty: Bool = true
@@ -239,8 +304,8 @@ final class NativeAssistantMessageView: NSView {
     case placeholder(String)
     case streamingPlain
     case streamingBlocks
-    case streamingStructured(revision: Int, assetsRevision: Int)
-    case final(revision: Int, assetsRevision: Int)
+    case streamingStructured(rowID: String, revision: Int, assetsRevision: Int)
+    case final(rowID: String, revision: Int, assetsRevision: Int)
   }
 }
 
@@ -335,6 +400,11 @@ final class NativeStreamingAssistantBlocksView: NSStackView {
       clearMarkdownTail()
       clearCodeTail()
     }
+  }
+
+  override func prepareForReuse() {
+    super.prepareForReuse()
+    resetAllSegments()
   }
 
   private func finalizeBlock(_ block: AssistantRenderBlock) {
@@ -540,7 +610,8 @@ final class NativeStreamingCodeBlockView: NSStackView {
 }
 
 final class NativeCodeBlockView: NSStackView {
-  let codeBlock: AssistantRenderBlock.CodeBlock
+  private(set) var codeBlock: AssistantRenderBlock.CodeBlock
+  private let languageLabel = NSTextField(wrappingLabelWithString: "")
   private let codeLabel: NSTextField
   private var hasHighlightedCode: Bool
 
@@ -557,11 +628,28 @@ final class NativeCodeBlockView: NSStackView {
     alignment = .leading
     distribution = .gravityAreas
     spacing = 4
+
+    languageLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+    languageLabel.textColor = .secondaryLabelColor
+    languageLabel.maximumNumberOfLines = 1
+    addArrangedSubview(languageLabel)
+    updateLanguage(codeBlock.language)
   }
 
   @available(*, unavailable)
   required init?(coder _: NSCoder) {
     fatalError("init(coder:) has not been implemented")
+  }
+
+  func update(
+    codeBlock: AssistantRenderBlock.CodeBlock,
+    attributedCode: NSAttributedString,
+    hasHighlightedCode: Bool
+  ) {
+    self.codeBlock = codeBlock
+    self.hasHighlightedCode = hasHighlightedCode
+    codeLabel.attributedStringValue = attributedCode
+    updateLanguage(codeBlock.language)
   }
 
   // Metric-neutral by construction: the highlighted string is the same code in
@@ -575,6 +663,12 @@ final class NativeCodeBlockView: NSStackView {
       for: highlightedCode
     )
     hasHighlightedCode = true
+  }
+
+  private func updateLanguage(_ language: String?) {
+    let name = language ?? ""
+    languageLabel.stringValue = name
+    languageLabel.isHidden = name.isEmpty
   }
 }
 
