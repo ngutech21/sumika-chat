@@ -342,11 +342,9 @@ struct ChatTranscriptRendererTests {
     let assistantID = UUID()
     let renderer = ChatTranscriptRenderer()
     let content = """
-      I will work through the rounds systematically.
+      type safety matters here.
 
-      **Round 45: Constraint Programming Scheduler**
-      - Architecture: Tasks and resources are modeled as constraints.
-      - Selection criteria: Prefer predictable scheduling.
+      Protocol value: `{ width: number }`.
       """
 
     let streamingItems = renderer.items(for: [

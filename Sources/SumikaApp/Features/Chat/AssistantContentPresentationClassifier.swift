@@ -93,8 +93,15 @@ enum AssistantContentPresentationClassifier {
   }
 
   private static func looksLikeCSSDocument(_ content: String) -> Bool {
-    matches(
-      #"(?s)^\s*(?:(?:/\*.*?\*/\s*)?(?:[.#]?[A-Za-z][A-Za-z0-9_-]*|\*|:root)[^{;]*\{\s*(?:-{0,2}[A-Za-z][A-Za-z0-9-]*\s*:\s*[^;{}]+;\s*)+\}\s*)+$"#,
+    if matches(
+      #"(?s)^\s*(?:(?:/\*.*?\*/\s*)?(?:[.#]?[A-Za-z][A-Za-z0-9_-]*|\*|:root|@[A-Za-z-]+)[^{;]*\{\s*(?:-{0,2}[A-Za-z][A-Za-z0-9-]*\s*:\s*[^;{}]+;\s*)+\}\s*)+$"#,
+      in: content
+    ) {
+      return true
+    }
+
+    return matches(
+      #"(?s)^\s*(?:(?:/\*.*?\*/\s*)?@[A-Za-z-]+[^{;]*\{\s*(?:(?:/\*.*?\*/\s*)?(?:[.#]?[A-Za-z][A-Za-z0-9_-]*|\*|:root|\d+(?:\.\d+)?%)[^{;]*\{\s*(?:-{0,2}[A-Za-z][A-Za-z0-9-]*\s*:\s*[^;{}]+;\s*)+\}\s*)+\}\s*)+$"#,
       in: content
     )
   }
@@ -129,16 +136,35 @@ enum AssistantContentPresentationClassifier {
   }
 
   private static func looksLikeTypeScriptDocument(_ content: String) -> Bool {
-    let hasDeclaration = matches(
-      #"(?m)^\s*(?:(?:export|declare)\s+)*(?:interface|type|enum|class|function|const|let|var|import)\b"#,
-      in: content
-    )
-    let hasBlockOrStatement = matches(#"[{};]|=>"#, in: content)
-    let hasTypedBinding = matches(
-      #"(?m)^\s*(?:(?:export|declare)\s+)*(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\??\s*:\s*[A-Za-z_$][A-Za-z0-9_$<>\[\]|&.,? ]*\s*(?:=|$)"#,
-      in: content
-    )
-    return hasDeclaration && (hasBlockOrStatement || hasTypedBinding)
+    let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+      .filter { !$0.isEmpty }
+
+    return lines.contains { line in
+      if matches(
+        #"^(?:(?:export|declare)\s+)*type\s+[A-Za-z_$][A-Za-z0-9_$]*(?:\s*<[^>]+>)?\s*="#,
+        in: line
+      ) {
+        return true
+      }
+
+      if matches(
+        #"^(?:(?:export|declare)\s+)*(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\??\s*:\s*[A-Za-z_$][A-Za-z0-9_$<>\[\]|&.,? ]*\s*(?:=|$)"#,
+        in: line
+      ) {
+        return true
+      }
+
+      guard
+        matches(
+          #"^(?:(?:export|declare)\s+)*(?:interface|enum|class|function|const|let|var|import)\b"#,
+          in: line
+        )
+      else {
+        return false
+      }
+      return matches(#"[{};]|=>"#, in: line)
+    }
   }
 
   private static func matches(_ pattern: String, in content: String) -> Bool {
@@ -148,10 +174,25 @@ enum AssistantContentPresentationClassifier {
   private static func shebangLanguage(_ content: String) -> CodeLanguage? {
     guard let firstLine = content.split(separator: "\n", maxSplits: 1).first,
       firstLine.hasPrefix("#!"),
-      let interpreter = firstLine.split(whereSeparator: \Character.isWhitespace).last?
+      let executable = firstLine.dropFirst(2).split(whereSeparator: \Character.isWhitespace).first
+    else {
+      return nil
+    }
+
+    let executableName = executable.split(separator: "/").last?.lowercased()
+    let interpreter: String?
+    if executableName == "env" {
+      interpreter = firstLine.dropFirst(2)
+        .split(whereSeparator: \Character.isWhitespace)
+        .dropFirst()
+        .first { !$0.hasPrefix("-") }?
         .split(separator: "/").last?
         .lowercased()
-    else {
+    } else {
+      interpreter = executableName
+    }
+
+    guard let interpreter else {
       return nil
     }
 

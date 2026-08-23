@@ -67,6 +67,26 @@ struct AssistantContentClassifierTests {
   }
 
   @Test
+  func pythonShebangWithInterpreterArgumentIsRawPython() {
+    let content = """
+      #!/usr/bin/python3 -u
+      print("ready")
+      """
+
+    #expect(AssistantContentPresentationClassifier.classify(content) == .rawCode(.python))
+  }
+
+  @Test
+  func envSplitStringPythonShebangIsRawPython() {
+    let content = """
+      #!/usr/bin/env -S python3 -u
+      print("ready")
+      """
+
+    #expect(AssistantContentPresentationClassifier.classify(content) == .rawCode(.python))
+  }
+
+  @Test
   func completeTypeScriptDeclarationIsRawTypeScript() {
     let content = """
       interface Size {
@@ -81,6 +101,13 @@ struct AssistantContentClassifierTests {
   @Test
   func typedTypeScriptBindingIsRawTypeScript() {
     let content = "const width: number = 1280"
+
+    #expect(AssistantContentPresentationClassifier.classify(content) == .rawCode(.typescript))
+  }
+
+  @Test
+  func typeScriptAliasIsRawTypeScript() {
+    let content = "type Size = string"
 
     #expect(AssistantContentPresentationClassifier.classify(content) == .rawCode(.typescript))
   }
@@ -121,6 +148,26 @@ struct AssistantContentClassifierTests {
   @Test
   func completeSingleLineCSSRuleIsRawCSS() {
     let content = "body { color: #87CEEB; margin: 0; }"
+
+    #expect(AssistantContentPresentationClassifier.classify(content) == .rawCode(.css))
+  }
+
+  @Test
+  func completeCSSDeclarationAtRuleIsRawCSS() {
+    let content = "@font-face { font-family: Sumika; src: url(\"sumika.woff2\"); }"
+
+    #expect(AssistantContentPresentationClassifier.classify(content) == .rawCode(.css))
+  }
+
+  @Test
+  func completeCSSGroupingAtRuleIsRawCSS() {
+    let content = """
+      @media (prefers-color-scheme: dark) {
+        body {
+          color: white;
+        }
+      }
+      """
 
     #expect(AssistantContentPresentationClassifier.classify(content) == .rawCode(.css))
   }
@@ -168,6 +215,7 @@ struct AssistantContentClassifierTests {
       "The CSS declaration `color: red;` changes the foreground.",
       "color: red;",
       "Protocol value: `{ width: number }`.",
+      "type safety matters here.\n\nProtocol value: `{ width: number }`.",
       "Tasks and resources are modeled as constraints.",
       "config satisfies Options",
       "value as const",
@@ -181,7 +229,7 @@ struct AssistantContentClassifierTests {
       "just test",
       "$ git status",
     ])
-  func isolatedCodeLikeTextRemainsMarkdown(_ content: String) {
+  func ambiguousCodeLikeTextRemainsMarkdown(_ content: String) {
     #expect(AssistantContentPresentationClassifier.classify(content) == .markdown)
   }
 
