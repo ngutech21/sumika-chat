@@ -238,6 +238,24 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
+  func qwen38LoadCarriesMediumReasoningEffortWithoutChangingBudgetPolicy() async throws {
+    let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
+    let runtime = RuntimeControllerRecordingRuntime()
+    let controller = await makeController(
+      initialModelID: "qwen3.8-27B-OptiQ-4bit",
+      runtime: runtime,
+      modelPath: modelDirectory.path(percentEncoded: false)
+    )
+
+    controller.loadModel()
+    try await waitUntil { controller.modelState == .ready }
+
+    let configuration = await runtime.loadedConfiguration
+    #expect(configuration?.reasoningEffort == .medium)
+    #expect(configuration?.thinkingBudgetPolicy == .hardLimitImmediate)
+  }
+
+  @Test
   func loadModelCapsContextLimitAtUserRequestedSetting() async throws {
     let modelDirectory = try makeModelDirectory(config: #"{"max_position_embeddings":131072}"#)
     let runtime = RuntimeControllerRecordingRuntime()

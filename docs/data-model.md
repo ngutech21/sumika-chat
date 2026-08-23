@@ -15,6 +15,7 @@ flowchart TD
   AssistantTurnMessage --> ChatGenerationMetrics
   ChatModeSettings --> ChatGenerationSettings
   ChatModeSettingsSet --> ChatModeSettings
+  ChatModelConfiguration --> ModelReasoningEffort
   ChatModelConfiguration --> ReasoningTraceFormat
   ChatModelConfiguration --> ThinkingBudgetPolicy
   ChatSession --> ChatModeSettingsSet
@@ -48,6 +49,7 @@ flowchart TD
   ManagedModel --> ManagedModelGroup
   ManagedModel --> ManagedModelRecommendation
   ManagedModel --> ManagedModelStability
+  ManagedModel --> ModelReasoningEffort
   ManagedModel --> ReasoningTraceFormat
   ManagedModel --> ThinkingBudgetPolicy
   ManagedModel --> ToolCallingPolicy
@@ -424,6 +426,7 @@ Properties:
 
 - `contextTokenLimit: Int?`
 - `localModelDirectory: URL`
+- `reasoningEffort: ModelReasoningEffort?`
 - `reasoningTraceFormat: ReasoningTraceFormat`
 - `supportsHistoricalReasoningPreservation: Bool`
 - `supportsImageInput: Bool`
@@ -431,6 +434,7 @@ Properties:
 
 Relations:
 
+- `ModelReasoningEffort`
 - `ReasoningTraceFormat`
 - `ThinkingBudgetPolicy`
 
@@ -821,6 +825,7 @@ Properties:
 - `id: String`
 - `localDirectoryName: String`
 - `maxToolLoopIterations: Int`
+- `reasoningEffort: ModelReasoningEffort?`
 - `reasoningTraceFormat: ReasoningTraceFormat`
 - `recommendation: ManagedModelRecommendation`
 - `requiresLargeMemory: Bool`
@@ -836,6 +841,7 @@ Relations:
 - `ManagedModelGroup`
 - `ManagedModelRecommendation`
 - `ManagedModelStability`
+- `ModelReasoningEffort`
 - `ReasoningTraceFormat`
 - `ThinkingBudgetPolicy`
 - `ToolCallingPolicy`
@@ -1044,6 +1050,19 @@ Properties:
 Relations:
 
 - `ModelContextEntry`
+
+### ModelReasoningEffort
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ManagedModel.swift`
+- Conforms to: `Equatable`, `Sendable`, `String`
+- Summary: Catalog-owned chat-template reasoning effort. Models without an explicit value keep their template default.
+
+Cases:
+
+- `low`
+- `medium`
+- `xhigh`
 
 ### NoopTurnTracer
 

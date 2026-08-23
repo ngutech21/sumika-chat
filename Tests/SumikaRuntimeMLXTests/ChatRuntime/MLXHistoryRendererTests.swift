@@ -209,6 +209,32 @@ struct MLXHistoryRendererTests {
   }
 
   @Test
+  func qwenReasoningEffortIsSuppliedOnlyWhileReasoningIsEnabled() throws {
+    let transcript = ModelPromptProjection(entries: [
+      try ModelFacingPromptRenderer.userPromptEntry(prompt: "Solve it")
+    ])
+
+    let medium = try MLXHistoryRenderer.generationInput(
+      from: transcript,
+      reasoningEnabled: true,
+      reasoningEffort: .medium
+    )
+    let disabled = try MLXHistoryRenderer.generationInput(
+      from: transcript,
+      reasoningEnabled: false,
+      reasoningEffort: .medium
+    )
+    let templateDefault = try MLXHistoryRenderer.generationInput(
+      from: transcript,
+      reasoningEnabled: true
+    )
+
+    #expect(medium.additionalContext["reasoning_effort"] as? String == "medium")
+    #expect(disabled.additionalContext["reasoning_effort"] == nil)
+    #expect(templateDefault.additionalContext["reasoning_effort"] == nil)
+  }
+
+  @Test
   func templateMessagesUseFrozenTranscriptContent() throws {
     let callID = UUID()
     let transcript = ModelPromptProjection(

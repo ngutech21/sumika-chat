@@ -323,6 +323,7 @@ final class ModelRuntimeController {
     let reasoningTraceFormat = selectedModel.reasoningTraceFormat
     let supportsHistoricalReasoningPreservation =
       selectedModel.supportsHistoricalReasoningPreservation
+    let reasoningEffort = selectedModel.reasoningEffort
     let thinkingBudgetPolicy = selectedModel.thinkingBudgetPolicy
     modelState = .loading
     isRuntimeOperationInProgress = true
@@ -337,6 +338,7 @@ final class ModelRuntimeController {
           supportsImageInput: supportsImageInput,
           reasoningTraceFormat: reasoningTraceFormat,
           supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation,
+          reasoningEffort: reasoningEffort,
           thinkingBudgetPolicy: thinkingBudgetPolicy,
           operationID: operationID
         )

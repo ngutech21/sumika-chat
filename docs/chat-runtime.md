@@ -316,13 +316,16 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
   `streamDetails(to messages:)`. MLX retains the full conversation, renders it
   internally, verifies the rendered-token prefix, and prefills only the
   uncached suffix.
-- For the explicitly supported Qwen3.6 model, Sumika's local MLX adapter renders
+- For explicitly supported Qwen models, Sumika's local MLX adapter renders
   provider `reasoningContent` exactly once as
   `<think>\n...\n</think>\n\n` before the visible assistant content and supplies
   `preserve_thinking: true`. `enable_thinking` continues to reflect the user's
-  `reasoningEnabled` setting independently. Unsupported models receive neither
-  the historical reasoning projection nor the preservation flag. Tool-result
-  continuations and dirty rebuilds use the same canonical provider snapshots.
+  `reasoningEnabled` setting independently. A catalog-owned `reasoningEffort` is
+  supplied as `reasoning_effort` only while reasoning is enabled; the Qwen3.8
+  entry pins it to `medium`, while other entries keep their template default.
+  Unsupported models receive neither the historical reasoning projection nor the
+  preservation flag. Tool-result continuations and dirty rebuilds use the same
+  canonical provider snapshots.
 - Reused MLX sessions update decode parameters only. Their `instructions`,
   `tools`, and `additionalContext` are immutable cache inputs; a change to any
   prompt-affecting value rebuilds the session instead of mutating an already

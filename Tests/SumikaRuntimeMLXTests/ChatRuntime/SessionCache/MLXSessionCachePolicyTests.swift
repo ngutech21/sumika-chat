@@ -85,6 +85,38 @@ struct MLXSessionCachePolicyTests {
   }
 
   @Test
+  func qwenReasoningEffortChangeForcesAdditionalContextRebuild() throws {
+    let transcript = ModelPromptProjection(entries: [
+      try ModelFacingPromptRenderer.userPromptEntry(prompt: "Hello")
+    ])
+    let templateDefault = try MLXHistoryRenderer.generationInput(
+      from: transcript
+    ).additionalContext
+    let medium = try MLXHistoryRenderer.generationInput(
+      from: transcript,
+      reasoningEffort: .medium
+    ).additionalContext
+    let templateDefaultIdentity = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Stable",
+      settings: .agentDefault,
+      projectionMode: .fullHistory,
+      additionalContext: templateDefault
+    )
+    let mediumIdentity = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Stable",
+      settings: .agentDefault,
+      projectionMode: .fullHistory,
+      additionalContext: medium
+    )
+
+    #expect(
+      MLXSessionCachePolicy.identityMismatchReason(
+        cached: templateDefaultIdentity,
+        current: mediumIdentity
+      ) == .additionalContextChanged)
+  }
+
+  @Test
   func focusedFileReuseRemainsAppendOnlyForMLXCachePolicy() {
     let path = WorkspaceRelativePath(rawValue: "Sources/App.swift")
     let focusedFileState = FocusedFileState(

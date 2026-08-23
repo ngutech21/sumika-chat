@@ -23,6 +23,14 @@ package enum ReasoningTraceFormat: Equatable, Sendable {
   case qwenThinkTags
 }
 
+/// Catalog-owned chat-template reasoning effort. Models without an explicit value
+/// keep their template default.
+package enum ModelReasoningEffort: String, Equatable, Sendable {
+  case low
+  case medium
+  case xhigh
+}
+
 /// Catalog-owned policy for hard thinking limits. This is runtime configuration,
 /// not a persisted user setting.
 package enum ThinkingBudgetPolicy: Equatable, Sendable {
@@ -64,6 +72,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
   package let supportsImageInput: Bool
   package let reasoningTraceFormat: ReasoningTraceFormat
   package let supportsHistoricalReasoningPreservation: Bool
+  package let reasoningEffort: ModelReasoningEffort?
   package let thinkingBudgetPolicy: ThinkingBudgetPolicy
   package let defaultModeSettings: ChatModeSettingsSet
   package let defaultContextTokenLimit: Int
@@ -84,6 +93,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     supportsImageInput: Bool,
     reasoningTraceFormat: ReasoningTraceFormat = .none,
     supportsHistoricalReasoningPreservation: Bool = false,
+    reasoningEffort: ModelReasoningEffort? = nil,
     thinkingBudgetPolicy: ThinkingBudgetPolicy = .unmanaged,
     defaultModeSettings: ChatModeSettingsSet,
     defaultContextTokenLimit: Int,
@@ -103,6 +113,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     self.supportsImageInput = supportsImageInput
     self.reasoningTraceFormat = reasoningTraceFormat
     self.supportsHistoricalReasoningPreservation = supportsHistoricalReasoningPreservation
+    self.reasoningEffort = reasoningEffort
     self.thinkingBudgetPolicy = thinkingBudgetPolicy
     self.defaultModeSettings = defaultModeSettings
     self.defaultContextTokenLimit = defaultContextTokenLimit
@@ -338,6 +349,7 @@ package enum ManagedModelCatalog {
       supportsImageInput: true,
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
+      reasoningEffort: .medium,
       thinkingBudgetPolicy: .hardLimitImmediate,
       defaultModeSettings: qwen36DefaultModeSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,

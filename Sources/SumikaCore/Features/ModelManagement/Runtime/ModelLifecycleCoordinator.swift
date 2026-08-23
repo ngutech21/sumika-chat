@@ -65,6 +65,7 @@ struct ModelLifecycleCoordinator: Sendable {
     supportsImageInput: Bool,
     reasoningTraceFormat: ReasoningTraceFormat,
     supportsHistoricalReasoningPreservation: Bool,
+    reasoningEffort: ModelReasoningEffort?,
     thinkingBudgetPolicy: ThinkingBudgetPolicy,
     operationID: UUID
   ) async throws {
@@ -80,6 +81,7 @@ struct ModelLifecycleCoordinator: Sendable {
       supportsImageInput: supportsImageInput,
       reasoningTraceFormat: reasoningTraceFormat,
       supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation,
+      reasoningEffort: reasoningEffort,
       thinkingBudgetPolicy: thinkingBudgetPolicy
     )
     try await runtimeOperations.load(configuration: configuration, operationID: operationID)

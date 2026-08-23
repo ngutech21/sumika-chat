@@ -15,6 +15,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
   private var loadedModelSupportsImageInput = false
   private var loadedReasoningTraceFormat: ReasoningTraceFormat = .none
   private var loadedModelPreservesHistoricalReasoning = false
+  private var loadedModelReasoningEffort: ModelReasoningEffort?
   private var loadedThinkingBudgetPolicy: ThinkingBudgetPolicy = .unmanaged
   private var cachedSession: CachedMLXSession?
   private var pendingCacheInvalidationReason: MLXSessionInvalidationReason?
@@ -93,6 +94,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     loadedReasoningTraceFormat = configuration.reasoningTraceFormat
     loadedModelPreservesHistoricalReasoning =
       configuration.supportsHistoricalReasoningPreservation
+    loadedModelReasoningEffort = configuration.reasoningEffort
     loadedThinkingBudgetPolicy = configuration.thinkingBudgetPolicy
     contextTokenLimit = configuration.contextTokenLimit
     lastRuntimeCacheDebugSnapshot = nil
@@ -109,6 +111,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     loadedModelSupportsImageInput = false
     loadedReasoningTraceFormat = .none
     loadedModelPreservesHistoricalReasoning = false
+    loadedModelReasoningEffort = nil
     loadedThinkingBudgetPolicy = .unmanaged
     contextTokenLimit = nil
     lastRuntimeCacheDebugSnapshot = nil
@@ -224,7 +227,8 @@ final actor MLXChatRuntime: ChatModelRuntime {
       images: imageInputs,
       reasoningEnabled: settings.reasoningEnabled,
       supportsHistoricalReasoningPreservation:
-        loadedModelPreservesHistoricalReasoning
+        loadedModelPreservesHistoricalReasoning,
+      reasoningEffort: loadedModelReasoningEffort
     )
     let generateParameters = Self.generateParameters(from: settings)
     let additionalContext = generationInput.additionalContext

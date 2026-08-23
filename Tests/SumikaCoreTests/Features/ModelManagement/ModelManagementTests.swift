@@ -43,6 +43,18 @@ struct ModelManagementTests {
   }
 
   @Test
+  func catalogPinsMediumReasoningEffortOnlyForQwen38() throws {
+    let qwen38 = try #require(ManagedModelCatalog.model(id: "qwen3.8-27B-OptiQ-4bit"))
+
+    #expect(qwen38.reasoningEffort == .medium)
+    #expect(
+      ManagedModelCatalog.models
+        .filter { $0.id != qwen38.id }
+        .allSatisfy { $0.reasoningEffort == nil }
+    )
+  }
+
+  @Test
   func supportsWorkspaceToolsTracksToolCallingPolicyEnabledFlag() {
     #expect(ManagedModelCatalog.defaultModel.supportsWorkspaceTools)
 
