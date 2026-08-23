@@ -337,6 +337,119 @@ struct ChatTranscriptRendererTests {
   }
 
   @Test
+  func markdownDoesNotChangePresentationWhenStreamingCompletes() {
+    let turnID = UUID()
+    let assistantID = UUID()
+    let renderer = ChatTranscriptRenderer()
+    let content = """
+      I will work through the rounds systematically.
+
+      **Round 45: Constraint Programming Scheduler**
+      - Architecture: Tasks and resources are modeled as constraints.
+      - Selection criteria: Prefer predictable scheduling.
+      """
+
+    let streamingItems = renderer.items(for: [
+      ChatTurn(
+        id: turnID,
+        status: .running,
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantID,
+              content: content,
+              deliveryStatus: .streaming
+            )
+          )
+        ]
+      )
+    ])
+    let completedItems = renderer.items(for: [
+      ChatTurn(
+        id: turnID,
+        status: .completed,
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantID,
+              content: content,
+              deliveryStatus: .complete
+            )
+          )
+        ]
+      )
+    ])
+
+    #expect(streamingItems[0].assistantRenderBlocks == completedItems[0].assistantRenderBlocks)
+    #expect(
+      !completedItems[0].assistantRenderBlocks.contains { block in
+        if case .codeBlock = block {
+          return true
+        }
+        return false
+      })
+  }
+
+  @Test
+  func unfencedRawCodeChangesPresentationOnlyAfterCompletion() throws {
+    let turnID = UUID()
+    let assistantID = UUID()
+    let renderer = ChatTranscriptRenderer()
+    let content = """
+      interface Size {
+        width: number
+      }
+      """
+
+    let streamingItems = renderer.items(for: [
+      ChatTurn(
+        id: turnID,
+        status: .running,
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantID,
+              content: content,
+              deliveryStatus: .streaming
+            )
+          )
+        ]
+      )
+    ])
+    let completedItems = renderer.items(for: [
+      ChatTurn(
+        id: turnID,
+        status: .completed,
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantID,
+              content: content,
+              deliveryStatus: .complete
+            )
+          )
+        ]
+      )
+    ])
+
+    guard case .paragraph = try #require(streamingItems[0].assistantRenderBlocks.first) else {
+      Issue.record("Expected streaming unfenced code to remain a paragraph")
+      return
+    }
+    guard
+      case .codeBlock(let codeBlock) = try #require(
+        completedItems[0].assistantRenderBlocks.first
+      )
+    else {
+      Issue.record("Expected completed unfenced code to become a code block")
+      return
+    }
+    #expect(codeBlock.language == "typescript")
+    #expect(codeBlock.text == content)
+    #expect(codeBlock.isClosed)
+  }
+
+  @Test
   func streamingAssistantBlocksGrowIncrementallyWithStableIdentity() {
     let turnID = UUID()
     let assistantID = UUID()

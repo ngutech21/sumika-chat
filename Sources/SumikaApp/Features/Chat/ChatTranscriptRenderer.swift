@@ -242,11 +242,9 @@ final class ChatTranscriptRenderer {
     return blocks
   }
 
-  // Streaming messages parse the raw content without the markdown
-  // preprocessor: its code-wrapping heuristics are not stable under appends
-  // and would make the rendering flip mid-stream. Content grows append-only,
-  // so all blocks before the last one are immutable and only the tail is
-  // reparsed per flush.
+  // Streaming messages parse raw content without final presentation
+  // classification. Content grows append-only, so all blocks before the last
+  // one are immutable and only the tail is reparsed per flush.
   private func streamingBlocks(for message: AssistantTurnMessage) -> [AssistantRenderBlock] {
     if let cached = streamingBlockCache[message.id], cached.content == message.content {
       return cached.blocks
