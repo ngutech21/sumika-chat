@@ -1310,6 +1310,21 @@ enum NativeTranscriptSection: Hashable {
 }
 
 final class NativeTranscriptNSTableView: NSTableView {
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    hitTest(point, eventType: NSApp.currentEvent?.type)
+  }
+
+  func hitTest(_ point: NSPoint, eventType: NSEvent.EventType?) -> NSView? {
+    guard eventType == .scrollWheel else {
+      return super.hitTest(point)
+    }
+    guard !isHidden, alphaValue > 0 else {
+      return nil
+    }
+    let containsPoint = superview.map { _ in frame.contains(point) } ?? bounds.contains(point)
+    return containsPoint ? self : nil
+  }
+
   override func layout() {
     ChatDiagnostics.measure("Transcript table layout", category: .transcript) {
       super.layout()
@@ -2058,7 +2073,7 @@ extension NativeChatMessageCellView {
   fileprivate func makeAttachmentSymbol(_ systemSymbolName: String) -> NSImageView {
     let imageView = NSImageView()
     imageView.translatesAutoresizingMaskIntoConstraints = false
-    imageView.image = NSImage(systemSymbolName: systemSymbolName, accessibilityDescription: nil)
+    imageView.image = NativeTranscriptSymbolImages.image(named: systemSymbolName)
     imageView.image?.isTemplate = true
     imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
     imageView.contentTintColor = .secondaryLabelColor

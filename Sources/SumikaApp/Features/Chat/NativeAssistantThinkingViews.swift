@@ -212,15 +212,11 @@ final class NativeAssistantThinkingView: NSView {
   }
 
   private func updateDisclosureButton(isExpanded: Bool) {
-    let accessibilityLabel = isExpanded ? "Hide reasoning" : "Show reasoning"
-    disclosureButton.image = NSImage(
+    disclosureButton.configureIcon(
       systemSymbolName: isExpanded ? "chevron.down" : "chevron.right",
-      accessibilityDescription: nil
+      accessibilityLabel: isExpanded ? "Hide reasoning" : "Show reasoning",
+      tintColor: .tertiaryLabelColor
     )
-    disclosureButton.image?.isTemplate = true
-    disclosureButton.contentTintColor = .tertiaryLabelColor
-    disclosureButton.toolTip = accessibilityLabel
-    disclosureButton.setAccessibilityLabel(accessibilityLabel)
   }
 
   // While streaming collapsed, the row shows a fixed three-line window onto
@@ -372,7 +368,7 @@ private func nativeThinkingStatusIndicator(
 
   let imageView = NSImageView()
   imageView.translatesAutoresizingMaskIntoConstraints = false
-  imageView.image = NSImage(systemSymbolName: "brain", accessibilityDescription: nil)
+  imageView.image = NativeTranscriptSymbolImages.image(named: "brain")
   imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
   imageView.contentTintColor = .tertiaryLabelColor
   imageView.setAccessibilityElement(false)

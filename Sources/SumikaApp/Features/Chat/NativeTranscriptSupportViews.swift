@@ -195,8 +195,38 @@ final class NativeTranscriptTableView: NSView {
   }
 }
 
+@MainActor
+enum NativeTranscriptSymbolImages {
+  private static var imagesByName: [String: NSImage] = [:]
+
+  static func image(named systemSymbolName: String) -> NSImage? {
+    if let cachedImage = imagesByName[systemSymbolName] {
+      return cachedImage
+    }
+    let image = NSImage(
+      systemSymbolName: systemSymbolName,
+      accessibilityDescription: nil
+    )
+    image?.isTemplate = true
+    if let image {
+      imagesByName[systemSymbolName] = image
+    }
+    return image
+  }
+}
+
 final class NativeActionButton: NSButton {
   var actionHandler: (() -> Void)?
+  private var configuredSystemSymbolName: String?
+  private var configuredAccessibilityLabel: String?
+  private var configuredTintColor: NSColor?
+
+  // These borderless icon controls have fixed 16/18-point constraints. AppKit's
+  // default implementation resolves symbol metrics every time tooltip tracking
+  // asks for their alignment rect, even though it ultimately returns the frame.
+  override var alignmentRectInsets: NSEdgeInsets {
+    NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+  }
 
   init(title: String) {
     super.init(frame: .zero)
@@ -212,6 +242,28 @@ final class NativeActionButton: NSButton {
 
   @objc private func performAction() {
     actionHandler?()
+  }
+
+  func configureIcon(
+    systemSymbolName: String,
+    accessibilityLabel: String,
+    tintColor: NSColor
+  ) {
+    if configuredSystemSymbolName != systemSymbolName {
+      image = NativeTranscriptSymbolImages.image(named: systemSymbolName)
+      configuredSystemSymbolName = systemSymbolName
+    }
+
+    if configuredTintColor?.isEqual(tintColor) != true {
+      contentTintColor = tintColor
+      configuredTintColor = tintColor
+    }
+
+    if configuredAccessibilityLabel != accessibilityLabel {
+      toolTip = accessibilityLabel
+      setAccessibilityLabel(accessibilityLabel)
+      configuredAccessibilityLabel = accessibilityLabel
+    }
   }
 }
 
@@ -364,7 +416,7 @@ final class NativeAttachmentImagePreviewController: NSViewController {
     stack.spacing = 8
 
     let imageView = NSImageView()
-    imageView.image = NSImage(systemSymbolName: "photo", accessibilityDescription: nil)
+    imageView.image = NativeTranscriptSymbolImages.image(named: "photo")
     imageView.image?.isTemplate = true
     imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 34, weight: .regular)
     imageView.contentTintColor = .secondaryLabelColor

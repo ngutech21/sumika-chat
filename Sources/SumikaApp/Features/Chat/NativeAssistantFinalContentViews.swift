@@ -309,8 +309,7 @@ final class NativeAssistantFooterView: NSStackView {
     }
     if state.isSpeechEnabled, let spokenText = item.nativeSpokenText {
       speechButton.isHidden = false
-      NativeReusableRowViewStyle.configureIconButton(
-        speechButton,
+      speechButton.configureIcon(
         systemSymbolName: state.isSpeaking ? "stop.fill" : "play.fill",
         accessibilityLabel: state.isSpeaking ? "Stop reading message" : "Read message aloud",
         tintColor: .secondaryLabelColor
@@ -325,8 +324,7 @@ final class NativeAssistantFooterView: NSStackView {
 
     if item.canNativeCopyMessageContent {
       copyButton.isHidden = false
-      NativeReusableRowViewStyle.configureIconButton(
-        copyButton,
+      copyButton.configureIcon(
         systemSymbolName: state.isCopied ? "checkmark" : "doc.on.doc",
         accessibilityLabel: state.isCopied ? "Copied" : "Copy message",
         tintColor: .secondaryLabelColor

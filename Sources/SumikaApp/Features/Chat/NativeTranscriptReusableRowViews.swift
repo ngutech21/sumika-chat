@@ -202,8 +202,7 @@ final class NativeUserMessageView: NSView {
     bubble.isHidden = !hasContent
     copyButton.isHidden = !hasContent
     if hasContent {
-      NativeReusableRowViewStyle.configureIconButton(
-        copyButton,
+      copyButton.configureIcon(
         systemSymbolName: isCopied ? "checkmark" : "doc.on.doc",
         accessibilityLabel: isCopied ? "Copied" : "Copy message",
         tintColor: .secondaryLabelColor
@@ -287,6 +286,7 @@ final class NativeToolCallView: NSView {
   private var actions: NativeTranscriptCellActions?
   private var currentRowID: String?
   private var currentHasDetails = false
+  private var currentStatus: ToolCallStatus?
   private var askUserPopUpButton: NSPopUpButton?
 
   override init(frame frameRect: NSRect) {
@@ -338,8 +338,7 @@ final class NativeToolCallView: NSView {
       header.actionHandler = { [weak self] in
         self?.toggleExpansion()
       }
-      NativeReusableRowViewStyle.configureIconButton(
-        disclosureButton,
+      disclosureButton.configureIcon(
         systemSymbolName: state.isToolExpanded ? "chevron.down" : "chevron.right",
         accessibilityLabel: state.isToolExpanded ? "Hide details" : "Show details",
         tintColor: .tertiaryLabelColor
@@ -362,6 +361,10 @@ final class NativeToolCallView: NSView {
 
   override func prepareForReuse() {
     super.prepareForReuse()
+    if currentStatus?.nativeIsInProgress == true {
+      spinner.stopAnimation(nil)
+      currentStatus = nil
+    }
     actions = nil
     currentRowID = nil
     currentHasDetails = false
@@ -440,6 +443,10 @@ final class NativeToolCallView: NSView {
   }
 
   private func updateStatus(_ status: ToolCallStatus) {
+    guard currentStatus != status else {
+      return
+    }
+    currentStatus = status
     if status.nativeIsInProgress {
       statusImage.isHidden = true
       spinner.isHidden = false
@@ -448,11 +455,9 @@ final class NativeToolCallView: NSView {
       spinner.stopAnimation(nil)
       spinner.isHidden = true
       statusImage.isHidden = false
-      statusImage.image = NSImage(
-        systemSymbolName: status.nativeQuietSystemImage,
-        accessibilityDescription: nil
+      statusImage.image = NativeTranscriptSymbolImages.image(
+        named: status.nativeQuietSystemImage
       )
-      statusImage.image?.isTemplate = true
       statusImage.contentTintColor = status.nativeQuietColor
     }
   }
@@ -724,19 +729,6 @@ enum NativeReusableRowViewStyle {
       button.heightAnchor.constraint(equalToConstant: 18),
     ])
     return button
-  }
-
-  static func configureIconButton(
-    _ button: NativeActionButton,
-    systemSymbolName: String,
-    accessibilityLabel: String,
-    tintColor: NSColor
-  ) {
-    button.image = NSImage(systemSymbolName: systemSymbolName, accessibilityDescription: nil)
-    button.image?.isTemplate = true
-    button.contentTintColor = tintColor
-    button.toolTip = accessibilityLabel
-    button.setAccessibilityLabel(accessibilityLabel)
   }
 
   static func smallButton(

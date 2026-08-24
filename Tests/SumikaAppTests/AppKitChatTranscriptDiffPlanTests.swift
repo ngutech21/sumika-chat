@@ -57,6 +57,86 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func scrollWheelHitTestingStopsAtTableBoundaryButClicksReachContent() throws {
+    let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      onToggleSpeech: { _, _ in },
+      onApproveToolCall: { _ in },
+      onDenyToolCall: { _ in },
+      onAnswerAskUser: { _, _ in }
+    )
+    let scrollView = coordinator.makeScrollView()
+    scrollView.setFrameSize(NSSize(width: 640, height: 300))
+    coordinator.update(
+      rows: [nativeUserRow(id: "user", revision: 1, content: "Question")],
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      in: scrollView
+    )
+    scrollView.layoutSubtreeIfNeeded()
+
+    let tableView = try #require(scrollView.documentView as? NativeTranscriptNSTableView)
+    let cell = try #require(
+      tableView.view(atColumn: 0, row: 0, makeIfNecessary: true) as? NativeChatMessageCellView
+    )
+    cell.layoutSubtreeIfNeeded()
+    let copyButton = try #require(
+      cell.descendantButtons(accessibilityLabel: "Copy message").first
+    )
+    let buttonCenter = NSPoint(x: copyButton.bounds.midX, y: copyButton.bounds.midY)
+    let hitPoint = copyButton.convert(buttonCenter, to: tableView.superview)
+
+    #expect(tableView.hitTest(hitPoint, eventType: .scrollWheel) === tableView)
+    #expect(tableView.hitTest(hitPoint, eventType: .leftMouseDown) === copyButton)
+  }
+
+  @Test
+  func reusedIconButtonKeepsItsSymbolViewStateWhenConfigurationIsUnchanged() throws {
+    let button = NativeReusableRowViewStyle.iconButton()
+    button.configureIcon(
+      systemSymbolName: "doc.on.doc",
+      accessibilityLabel: "Copy message",
+      tintColor: .secondaryLabelColor
+    )
+    let initialImage = try #require(button.image)
+
+    button.configureIcon(
+      systemSymbolName: "doc.on.doc",
+      accessibilityLabel: "Copy message",
+      tintColor: .secondaryLabelColor
+    )
+    #expect(button.image === initialImage)
+
+    button.configureIcon(
+      systemSymbolName: "checkmark",
+      accessibilityLabel: "Copied",
+      tintColor: .secondaryLabelColor
+    )
+    button.configureIcon(
+      systemSymbolName: "doc.on.doc",
+      accessibilityLabel: "Copy message",
+      tintColor: .secondaryLabelColor
+    )
+    #expect(button.image === initialImage)
+
+    let otherButton = NativeReusableRowViewStyle.iconButton()
+    otherButton.configureIcon(
+      systemSymbolName: "doc.on.doc",
+      accessibilityLabel: "Copy message",
+      tintColor: .secondaryLabelColor
+    )
+    #expect(otherButton.image === initialImage)
+  }
+
+  @Test
+  func transcriptIconButtonUsesItsFixedFrameAsAlignmentRect() {
+    let button = NativeReusableRowViewStyle.iconButton()
+    button.frame = NSRect(x: 0, y: 0, width: 18, height: 18)
+
+    #expect(button.alignmentRect(forFrame: button.frame) == button.frame)
+  }
+
+  @Test
   func userTrailingInsetMatchesAssistantLeadingInset() throws {
     let userCell = configuredNativeCell(
       for: nativeUserRow(id: "user", revision: 1, content: "Question")
