@@ -22,7 +22,7 @@ struct ContentView: View {
       WorkspaceSidebar(
         sidebarState: appState.workspaceState.sidebarState,
         busySessionID: chatState.busySessionID,
-        processUsage: processResourceMonitor.usage,
+        processResourceMonitor: processResourceMonitor,
         selection: routeSelection,
         onAddWorkspace: chooseWorkspace,
         onCreateSession: createSession,

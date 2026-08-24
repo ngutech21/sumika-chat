@@ -2,19 +2,21 @@ import SwiftUI
 
 /// App-global memory and CPU usage shown at the bottom of the sidebar.
 struct ProcessResourceFooter: View {
-  let processUsage: ProcessResourceUsage?
+  let monitor: ProcessResourceMonitor
   @State private var isPopoverPresented = false
 
   var body: some View {
+    let processUsage = monitor.usage
+
     Button {
       isPopoverPresented.toggle()
     } label: {
       HStack(spacing: 7) {
         Circle()
-          .fill(statusColor)
+          .fill(statusColor(for: processUsage))
           .frame(width: 7, height: 7)
 
-        Text(summary)
+        Text(summary(for: processUsage))
           .font(.caption)
           .monospacedDigit()
           .foregroundStyle(.secondary)
@@ -40,7 +42,7 @@ struct ProcessResourceFooter: View {
     }
   }
 
-  private var summary: String {
+  private func summary(for processUsage: ProcessResourceUsage?) -> String {
     guard let processUsage else {
       return "Measuring…"
     }
@@ -48,7 +50,7 @@ struct ProcessResourceFooter: View {
     return "\(processUsage.memorySummary) · \(processUsage.cpuSummary)"
   }
 
-  private var statusColor: Color {
+  private func statusColor(for processUsage: ProcessResourceUsage?) -> Color {
     processUsage == nil ? Color.secondary.opacity(0.5) : .green
   }
 }
