@@ -2195,9 +2195,13 @@ struct AppKitChatTranscriptDiffPlanTests {
         tableView.view(atColumn: 0, row: index, makeIfNecessary: false)
           as? NativeChatMessageCellView
       )
+      let renderedWidthConstraint = cell.widthAnchor.constraint(equalToConstant: cell.bounds.width)
+      renderedWidthConstraint.isActive = true
+      let fittingHeightAtRenderedWidth = cell.fittingSize.height
+      renderedWidthConstraint.isActive = false
       cellIdentities.insert(ObjectIdentifier(cell))
       #expect(cell.descendantTextValues.contains { $0.contains("Marker \(index):") })
-      #expect(abs(cell.fittingSize.height - rowRect.height) <= 0.5)
+      #expect(abs(fittingHeightAtRenderedWidth - rowRect.height) <= 0.5)
     }
 
     #expect(cellIdentities.count < rows.count)
