@@ -637,8 +637,10 @@ struct AppKitChatTranscriptDiffPlanTests {
     #expect(cache.cachedEntryCount == 1)
   }
 
-  @Test
-  func streamingRevisionCommitsOnlyLatestVisibleModelAndPromotesItsHeight() throws {
+  @Test(arguments: [NSScroller.Style.legacy, .overlay])
+  func streamingRevisionCommitsOnlyLatestVisibleModelAndPromotesItsHeight(
+    scrollerStyle: NSScroller.Style
+  ) throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
@@ -646,6 +648,7 @@ struct AppKitChatTranscriptDiffPlanTests {
       onAnswerAskUser: { _, _ in }
     )
     let scrollView = coordinator.makeScrollView()
+    scrollView.scrollerStyle = scrollerStyle
     scrollView.setFrameSize(NSSize(width: 420, height: 300))
     let tableView = try #require(scrollView.documentView as? NSTableView)
     let initialContent = "Initial streaming text."

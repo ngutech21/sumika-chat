@@ -106,6 +106,7 @@ final class NativeChatTranscriptCoordinator: NSObject {
   private var streamingRowsBeingCommitted = Set<String>()
   private var streamingHeightWorkItem: DispatchWorkItem?
   private var preservesBottomPinOnWidthChange = false
+  private var viewportWidthChangeGeneration = 0
 
   init(
     onToggleSpeech: @escaping (String, String) -> Void,
@@ -484,6 +485,7 @@ extension NativeChatTranscriptCoordinator {
     guard updateColumnWidth(in: scrollView), !rowIDs.isEmpty else {
       return
     }
+    viewportWidthChangeGeneration += 1
     resetStreamingHeightStateForWidthChange(activeRowIDs: Set(rowIDs))
     scheduleHeightInvalidation(
       for: IndexSet(integersIn: rowIDs.indices),
@@ -932,6 +934,7 @@ extension NativeChatTranscriptCoordinator {
     }
     let scrollView = tableView.enclosingScrollView
     let wasPinnedToBottom = scrollView.map(isPinnedToBottom) ?? false
+    let viewportGenerationBeforeCommit = viewportWidthChangeGeneration
 
     streamingRowsBeingCommitted = committingRowIDs
     reconfigureVisibleRows(changedIDs: committingRowIDs)
@@ -974,11 +977,19 @@ extension NativeChatTranscriptCoordinator {
       noteHeightOfRowsWithoutAnimation(tableView, rowIndexes: changedRows)
     }
     tableView.layoutSubtreeIfNeeded()
-    guard wasPinnedToBottom, let scrollView else {
+    guard let scrollView else {
       return
     }
-    tile(scrollView, preservingBottomPin: true)
-    scrollToBottomImmediately(scrollView)
+    tile(scrollView, preservingBottomPin: wasPinnedToBottom)
+    if viewportWidthChangeGeneration != viewportGenerationBeforeCommit {
+      // A legacy scroller can narrow or widen the viewport while `tile()` lays
+      // out the committed height. Its callback only stages invalidation; drain
+      // that work after AppKit returns so this commit finishes at the final width.
+      flushPendingHeightInvalidation()
+    }
+    if wasPinnedToBottom {
+      scrollToBottomImmediately(scrollView)
+    }
   }
 
   private func layoutVisibleRows(withIDs rowIDsToLayout: Set<String>, in tableView: NSTableView) {
@@ -1092,6 +1103,10 @@ extension NativeChatTranscriptCoordinator {
   // Test-only; exercised through @testable import.
   // swiftlint:disable:next unused_declaration
   func flushPendingHeightInvalidationForTesting() {
+    flushPendingHeightInvalidation()
+  }
+
+  private func flushPendingHeightInvalidation() {
     guard let workItem = pendingHeightInvalidationWorkItem else {
       return
     }
