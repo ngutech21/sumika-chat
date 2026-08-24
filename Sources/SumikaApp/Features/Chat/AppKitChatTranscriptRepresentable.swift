@@ -105,6 +105,7 @@ final class NativeChatTranscriptCoordinator: NSObject {
   private var pendingStreamingRowIDs = Set<String>()
   private var streamingRowsBeingCommitted = Set<String>()
   private var streamingHeightWorkItem: DispatchWorkItem?
+  private var preservesBottomPinOnWidthChange = false
 
   init(
     onToggleSpeech: @escaping (String, String) -> Void,
@@ -146,7 +147,7 @@ extension NativeChatTranscriptCoordinator {
     column.resizingMask = .autoresizingMask
     tableView.addTableColumn(column)
 
-    let scrollView = NSScrollView()
+    let scrollView = NativeTranscriptNSScrollView()
     scrollView.drawsBackground = false
     scrollView.borderType = .noBorder
     scrollView.hasVerticalScroller = true
@@ -160,6 +161,9 @@ extension NativeChatTranscriptCoordinator {
     scrollView.setAccessibilityIdentifier("chat.transcript")
 
     self.tableView = tableView
+    scrollView.onDidTile = { [weak self] scrollView in
+      self?.handleViewportWidthChange(in: scrollView)
+    }
     dataSource = NSTableViewDiffableDataSource(tableView: tableView) {
       [weak self] tableView, _, _, itemID in
       guard let self, let row = rowsByID[itemID] else {
@@ -472,6 +476,28 @@ extension NativeChatTranscriptCoordinator {
       tableColumn.width = targetWidth
     }
     return didChangeViewportWidth || didChangeColumnWidth
+  }
+
+  private func handleViewportWidthChange(in scrollView: NSScrollView) {
+    let shouldPreserveBottomPin =
+      preservesBottomPinOnWidthChange || isPinnedToBottom(scrollView)
+    guard updateColumnWidth(in: scrollView), !rowIDs.isEmpty else {
+      return
+    }
+    resetStreamingHeightStateForWidthChange(activeRowIDs: Set(rowIDs))
+    scheduleHeightInvalidation(
+      for: IndexSet(integersIn: rowIDs.indices),
+      reason: "viewportWidthChanged",
+      scrollToBottomAfterFlush: shouldPreserveBottomPin
+    )
+  }
+
+  private func tile(_ scrollView: NSScrollView, preservingBottomPin: Bool) {
+    let previouslyPreservedBottomPin = preservesBottomPinOnWidthChange
+    preservesBottomPinOnWidthChange =
+      previouslyPreservedBottomPin || preservingBottomPin
+    scrollView.tile()
+    preservesBottomPinOnWidthChange = previouslyPreservedBottomPin
   }
 
   private func applySnapshot(
@@ -951,7 +977,7 @@ extension NativeChatTranscriptCoordinator {
     guard wasPinnedToBottom, let scrollView else {
       return
     }
-    scrollView.tile()
+    tile(scrollView, preservingBottomPin: true)
     scrollToBottomImmediately(scrollView)
   }
 
@@ -1107,7 +1133,7 @@ extension NativeChatTranscriptCoordinator {
       // on a scroll-view layout pass. Without it, scrollToBottomImmediately
       // reads a stale document frame and the pinned viewport never follows.
       tableView.layoutSubtreeIfNeeded()
-      scrollView.tile()
+      tile(scrollView, preservingBottomPin: true)
       scrollToBottomImmediately(scrollView)
     }
   }
@@ -1331,6 +1357,15 @@ extension NativeChatTranscriptCoordinator {
 
 enum NativeTranscriptSection: Hashable {
   case main
+}
+
+private final class NativeTranscriptNSScrollView: NSScrollView {
+  var onDidTile: ((NSScrollView) -> Void)?
+
+  override func tile() {
+    super.tile()
+    onDidTile?(self)
+  }
 }
 
 final class NativeTranscriptNSTableView: NSTableView {

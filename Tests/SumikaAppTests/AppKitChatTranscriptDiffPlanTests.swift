@@ -2197,8 +2197,10 @@ struct AppKitChatTranscriptDiffPlanTests {
     )
   }
 
-  @Test
-  func tableScrollRecyclesAssistantCellsWithoutBlankOrOverflowingRows() throws {
+  @Test(arguments: [NSScroller.Style.legacy, .overlay])
+  func tableScrollRecyclesAssistantCellsWithoutBlankOrOverflowingRows(
+    scrollerStyle: NSScroller.Style
+  ) throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
@@ -2206,6 +2208,7 @@ struct AppKitChatTranscriptDiffPlanTests {
       onAnswerAskUser: { _, _ in }
     )
     let scrollView = coordinator.makeScrollView()
+    scrollView.scrollerStyle = scrollerStyle
     scrollView.frame = NSRect(x: 0, y: 0, width: 760, height: 220)
     let window = NSWindow(
       contentRect: NSRect(x: -10_000, y: -10_000, width: 760, height: 220),
@@ -2218,6 +2221,8 @@ struct AppKitChatTranscriptDiffPlanTests {
     defer {
       window.orderOut(nil)
     }
+    scrollView.layoutSubtreeIfNeeded()
+    let initialViewportWidth = scrollView.contentSize.width
     let tableView = try #require(scrollView.documentView as? NSTableView)
     let rows = (0..<24).map { index in
       nativeAssistantMarkdownRow(
@@ -2242,6 +2247,16 @@ struct AppKitChatTranscriptDiffPlanTests {
     coordinator.flushPendingHeightInvalidationForTesting()
     scrollView.layoutSubtreeIfNeeded()
     tableView.layoutSubtreeIfNeeded()
+    let populatedViewportWidth = scrollView.contentSize.width
+    coordinator.flushPendingHeightInvalidationForTesting()
+    scrollView.layoutSubtreeIfNeeded()
+    tableView.layoutSubtreeIfNeeded()
+
+    if scrollerStyle == .legacy {
+      #expect(initialViewportWidth - populatedViewportWidth >= 0.5)
+    } else {
+      #expect(abs(initialViewportWidth - populatedViewportWidth) < 0.5)
+    }
 
     var cellIdentities = Set<ObjectIdentifier>()
     for index in rows.indices {
