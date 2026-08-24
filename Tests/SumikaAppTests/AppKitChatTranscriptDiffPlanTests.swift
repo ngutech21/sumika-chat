@@ -239,6 +239,49 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func rowHeightUsesRenderedTableColumnWidth() throws {
+    let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      onToggleSpeech: { _, _ in },
+      onApproveToolCall: { _ in },
+      onDenyToolCall: { _ in },
+      onAnswerAskUser: { _, _ in }
+    )
+    let scrollView = coordinator.makeScrollView()
+    scrollView.setFrameSize(NSSize(width: 760, height: 300))
+    scrollView.layoutSubtreeIfNeeded()
+    let tableView = try #require(scrollView.documentView as? NSTableView)
+    tableView.setFrameSize(NSSize(width: 760, height: 300))
+    let row = nativeAssistantMarkdownRow(
+      id: "assistant",
+      revision: 1,
+      markdown: String(
+        repeating: "Text wrapping must follow the rendered column width. ",
+        count: 36
+      )
+    )
+
+    coordinator.update(
+      rows: [row],
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      in: scrollView
+    )
+    coordinator.flushPendingHeightInvalidationForTesting()
+
+    let column = try #require(tableView.tableColumns.first)
+    column.width = 360
+    let expectedHeight = NativeTranscriptRowMeasurer.height(for: row, width: column.width)
+    let boundsBasedHeight = NativeTranscriptRowMeasurer.height(
+      for: row,
+      width: tableView.bounds.width
+    )
+
+    #expect(expectedHeight > boundsBasedHeight)
+    #expect(coordinator.tableView(tableView, heightOfRow: 0) == expectedHeight)
+  }
+
+  @Test
   func appendedAssistantRowDoesNotForceOutgoingScrollDecision() {
     let existingRow = nativeUserRow(id: "user", revision: 1)
     let appendedRow = nativeAssistantRow(id: "assistant", revision: 1)

@@ -414,7 +414,7 @@ extension NativeChatTranscriptCoordinator {
 
 extension NativeChatTranscriptCoordinator: NSTableViewDelegate {
 
-  func tableView(_: NSTableView, heightOfRow row: Int) -> CGFloat {
+  func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
     ChatDiagnostics.measure("Transcript row height", category: .transcript) {
       guard row >= 0, row < rowIDs.count, let rowModel = rowsByID[rowIDs[row]] else {
         return NativeTranscriptCellKind.assistantMessage.minimumHeight
@@ -424,7 +424,7 @@ extension NativeChatTranscriptCoordinator: NSTableViewDelegate {
       {
         return notedHeight
       }
-      let width = max(tableView?.bounds.width ?? 680, 320)
+      let width = max(tableView.tableColumns.first?.width ?? tableView.bounds.width, 320)
       let measuredHeight = heightCache.height(
         for: rowModel,
         width: width,
