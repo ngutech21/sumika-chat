@@ -2195,13 +2195,19 @@ struct AppKitChatTranscriptDiffPlanTests {
         tableView.view(atColumn: 0, row: index, makeIfNecessary: false)
           as? NativeChatMessageCellView
       )
-      let renderedWidthConstraint = cell.widthAnchor.constraint(equalToConstant: cell.bounds.width)
-      renderedWidthConstraint.isActive = true
-      let fittingHeightAtRenderedWidth = cell.fittingSize.height
-      renderedWidthConstraint.isActive = false
+      let hostedView = try #require(cell.hostedContentViewForTesting)
+      let textView = try #require(cell.descendants(of: NativeTranscriptTextView.self).first)
+      let copyButton = try #require(
+        cell.descendantButtons(accessibilityLabel: "Copy message").first
+      )
+      let renderedBounds = cell.bounds.insetBy(dx: -0.5, dy: -0.5)
       cellIdentities.insert(ObjectIdentifier(cell))
       #expect(cell.descendantTextValues.contains { $0.contains("Marker \(index):") })
-      #expect(abs(fittingHeightAtRenderedWidth - rowRect.height) <= 0.5)
+      #expect(abs(cell.bounds.height - rowRect.height) <= 0.5)
+      #expect(renderedBounds.contains(hostedView.frame(in: cell)))
+      #expect(renderedBounds.contains(textView.frame(in: cell)))
+      #expect(textView.bounds.height + 0.5 >= textView.intrinsicContentSize.height)
+      #expect(renderedBounds.contains(copyButton.frame(in: cell)))
     }
 
     #expect(cellIdentities.count < rows.count)
