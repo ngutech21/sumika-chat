@@ -1930,7 +1930,7 @@ struct AppStateTests {
 
 private func testSkillCatalog() throws -> SkillCatalog {
   SkillCatalog(
-    personalSkillsURL: try scopedTemporaryDirectory().appending(
+    homeDirectoryURL: try scopedTemporaryDirectory().appending(
       path: "personal-skills-\(UUID().uuidString)",
       directoryHint: .isDirectory
     )

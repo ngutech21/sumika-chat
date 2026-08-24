@@ -67,7 +67,7 @@ extension ConversationEngine {
       chatAttachmentLoader: chatAttachmentLoader,
       skillCatalog: skillCatalog
         ?? SkillCatalog(
-          personalSkillsURL: FileManager.default.temporaryDirectory.appending(
+          homeDirectoryURL: FileManager.default.temporaryDirectory.appending(
             path: "sumika-tests-no-personal-skills-\(UUID().uuidString)",
             directoryHint: .isDirectory
           )

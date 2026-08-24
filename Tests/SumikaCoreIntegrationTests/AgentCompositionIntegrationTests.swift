@@ -17,7 +17,7 @@ struct AgentCompositionIntegrationTests {
           settingsURL: testRoot.appending(path: "model-settings.json")
         ),
         skillCatalog: SkillCatalog(
-          personalSkillsURL: testRoot.appending(path: "personal-skills")
+          homeDirectoryURL: testRoot.appending(path: "personal-skills")
         )
       )
     )
@@ -111,7 +111,7 @@ struct AgentCompositionIntegrationTests {
         modelDownloader: UnavailableModelDownloader(),
         modelAvailability: { _ in true },
         skillCatalog: SkillCatalog(
-          personalSkillsURL: testRoot.appending(path: "personal-skills")
+          homeDirectoryURL: testRoot.appending(path: "personal-skills")
         )
       )
     )

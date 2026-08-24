@@ -177,12 +177,7 @@ enum AppLaunchConfiguration {
       webAccessSettingsStore: webAccessSettingsStore,
       appBehaviorSettingsStore: appBehaviorSettingsStore,
       mcpServersStore: mcpServersStore,
-      skillCatalog: SkillCatalog(
-        personalSkillsURL: storageRoot.appending(
-          path: ".agents/skills",
-          directoryHint: .isDirectory
-        )
-      )
+      skillCatalog: SkillCatalog(homeDirectoryURL: storageRoot)
     )
   }
 

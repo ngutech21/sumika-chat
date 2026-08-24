@@ -7,10 +7,171 @@ import Testing
 @Suite(TemporaryDirectoryTrait(named: "sumika-skill-catalog-tests"))
 struct SkillCatalogTests {
   @Test
-  func refreshDiscoversProjectAndPersonalSkillsWithoutShadowingDuplicateNames() async throws {
+  func refreshUsesFirstValidSkillAcrossProjectDirectoryConventions() async throws {
+    let root = try makeDirectory(named: "project-conventions")
+    let projectRoot = root.appending(path: "project", directoryHint: .isDirectory)
+    try writeSkill(
+      name: "format",
+      description: "Format with Agents.",
+      body: "Agents instructions",
+      to: projectRoot.appending(path: ".agents/skills/format", directoryHint: .isDirectory)
+    )
+    try writeSkill(
+      name: "format",
+      description: "Format with Claude.",
+      body: "Ignored Claude instructions",
+      to: projectRoot.appending(path: ".claude/skills/format", directoryHint: .isDirectory)
+    )
+    try writeSkill(
+      name: "review",
+      description: "Review with Claude.",
+      body: "Claude instructions",
+      to: projectRoot.appending(path: ".claude/skills/review", directoryHint: .isDirectory)
+    )
+    try writeRawSkill(
+      "not valid skill frontmatter",
+      to: projectRoot.appending(path: ".cursor/skills/review", directoryHint: .isDirectory)
+    )
+    try writeSkill(
+      name: "testing",
+      description: "Test with Cursor.",
+      body: "Cursor instructions",
+      to: projectRoot.appending(path: ".cursor/skills/testing", directoryHint: .isDirectory)
+    )
+
+    let snapshot = await SkillCatalog(
+      homeDirectoryURL: root.appending(path: "missing-personal", directoryHint: .isDirectory)
+    ).refresh(for: Workspace(name: "Project", rootURL: projectRoot))
+
+    #expect(
+      snapshot.skills.map(\.id.rawValue) == [
+        "project:format",
+        "project:review",
+        "project:testing",
+      ])
+    #expect(
+      snapshot.skills.map(\.portablePath) == [
+        ".agents/skills/format/SKILL.md",
+        ".claude/skills/review/SKILL.md",
+        ".cursor/skills/testing/SKILL.md",
+      ])
+    #expect(snapshot.diagnostics.isEmpty)
+  }
+
+  @Test
+  func refreshUsesProjectThenPersonalFirstValidPrecedence() async throws {
+    let root = try makeDirectory(named: "global-precedence")
+    let projectRoot = root.appending(path: "project", directoryHint: .isDirectory)
+    let homeRoot = root.appending(path: "home", directoryHint: .isDirectory)
+    try writeRawSkill(
+      "not valid skill frontmatter",
+      to: projectRoot.appending(path: ".agents/skills/review", directoryHint: .isDirectory)
+    )
+    try writeSkill(
+      name: "review",
+      description: "Project review.",
+      body: "Project instructions",
+      to: projectRoot.appending(path: ".cursor/skills/review", directoryHint: .isDirectory)
+    )
+    try writeSkill(
+      name: "review",
+      description: "Personal review.",
+      body: "Personal instructions",
+      to: homeRoot.appending(path: ".agents/skills/review", directoryHint: .isDirectory)
+    )
+    try writeSkill(
+      name: "testing",
+      description: "Personal testing.",
+      body: "Personal testing instructions",
+      to: homeRoot.appending(path: ".agents/skills/testing", directoryHint: .isDirectory)
+    )
+    try writeRawSkill(
+      "not valid skill frontmatter",
+      to: homeRoot.appending(path: ".claude/skills/testing", directoryHint: .isDirectory)
+    )
+    try writeSkill(
+      name: "deploy",
+      description: "Deploy with Claude.",
+      body: "Claude deploy instructions",
+      to: homeRoot.appending(path: ".claude/skills/deploy", directoryHint: .isDirectory)
+    )
+    try writeRawSkill(
+      "not valid skill frontmatter",
+      to: homeRoot.appending(path: ".cursor/skills/deploy", directoryHint: .isDirectory)
+    )
+
+    let snapshot = await SkillCatalog(homeDirectoryURL: homeRoot).refresh(
+      for: Workspace(name: "Project", rootURL: projectRoot)
+    )
+
+    #expect(
+      snapshot.skills.map(\.id.rawValue) == [
+        "project:review",
+        "personal:deploy",
+        "personal:testing",
+      ])
+    #expect(
+      snapshot.skills.map(\.portablePath) == [
+        ".cursor/skills/review/SKILL.md",
+        "$HOME/.claude/skills/deploy/SKILL.md",
+        "$HOME/.agents/skills/testing/SKILL.md",
+      ])
+    #expect(snapshot.diagnostics.map(\.portablePath) == [".agents/skills/review/SKILL.md"])
+    #expect(snapshot.diagnostics.map(\.kind) == [.invalidFrontmatter])
+  }
+
+  @Test
+  func refreshDiscoversSkillsFromAllSupportedRoots() async throws {
+    let root = try makeDirectory(named: "all-roots")
+    let projectRoot = root.appending(path: "project", directoryHint: .isDirectory)
+    let homeRoot = root.appending(path: "home", directoryHint: .isDirectory)
+    let skills: [(name: String, root: URL)] = [
+      ("project-agents", projectRoot.appending(path: ".agents/skills")),
+      ("project-claude", projectRoot.appending(path: ".claude/skills")),
+      ("project-cursor", projectRoot.appending(path: ".cursor/skills")),
+      ("personal-agents", homeRoot.appending(path: ".agents/skills")),
+      ("personal-claude", homeRoot.appending(path: ".claude/skills")),
+      ("personal-cursor", homeRoot.appending(path: ".cursor/skills")),
+    ]
+    for skill in skills {
+      try writeSkill(
+        name: skill.name,
+        description: "Discover \(skill.name).",
+        body: "Instructions for \(skill.name)",
+        to: skill.root.appending(path: skill.name, directoryHint: .isDirectory)
+      )
+    }
+
+    let snapshot = await SkillCatalog(homeDirectoryURL: homeRoot).refresh(
+      for: Workspace(name: "Project", rootURL: projectRoot)
+    )
+
+    #expect(
+      snapshot.skills.map(\.id.rawValue) == [
+        "project:project-agents",
+        "project:project-claude",
+        "project:project-cursor",
+        "personal:personal-agents",
+        "personal:personal-claude",
+        "personal:personal-cursor",
+      ])
+    #expect(
+      snapshot.skills.map(\.portablePath) == [
+        ".agents/skills/project-agents/SKILL.md",
+        ".claude/skills/project-claude/SKILL.md",
+        ".cursor/skills/project-cursor/SKILL.md",
+        "$HOME/.agents/skills/personal-agents/SKILL.md",
+        "$HOME/.claude/skills/personal-claude/SKILL.md",
+        "$HOME/.cursor/skills/personal-cursor/SKILL.md",
+      ])
+    #expect(snapshot.diagnostics.isEmpty)
+  }
+
+  @Test
+  func refreshShadowsPersonalSkillWithProjectSkill() async throws {
     let root = try makeDirectory(named: "catalog")
     let projectRoot = root.appending(path: "project", directoryHint: .isDirectory)
-    let personalRoot = root.appending(path: "personal", directoryHint: .isDirectory)
+    let homeRoot = root.appending(path: "personal", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
     try writeSkill(
       name: "review",
@@ -22,39 +183,43 @@ struct SkillCatalogTests {
       name: "review",
       description: "Review any changes.",
       body: "Personal instructions",
-      to: personalRoot.appending(path: "review", directoryHint: .isDirectory)
+      to: homeRoot.appending(
+        path: ".agents/skills/review",
+        directoryHint: .isDirectory
+      )
     )
     try writeSkill(
       name: "testing",
       description: "Run focused tests.",
       body: "Testing instructions",
-      to: personalRoot.appending(path: "testing", directoryHint: .isDirectory)
+      to: homeRoot.appending(
+        path: ".agents/skills/testing",
+        directoryHint: .isDirectory
+      )
     )
 
-    let snapshot = await SkillCatalog(personalSkillsURL: personalRoot).refresh(
+    let snapshot = await SkillCatalog(homeDirectoryURL: homeRoot).refresh(
       for: Workspace(name: "Project", rootURL: projectRoot)
     )
 
     #expect(
       snapshot.skills.map(\.id.rawValue) == [
         "project:review",
-        "personal:review",
         "personal:testing",
       ])
     #expect(
       snapshot.skills.map(\.description) == [
         "Review project changes.",
-        "Review any changes.",
         "Run focused tests.",
       ])
     #expect(snapshot.diagnostics.isEmpty)
   }
 
   @Test
-  func activationUsesBoundIdentityAndManualUniqueNamesInMessageOrder() async throws {
+  func activationUsesWinningIdentityAndManualUniqueNamesInMessageOrder() async throws {
     let root = try makeDirectory(named: "activation")
     let projectRoot = root.appending(path: "project", directoryHint: .isDirectory)
-    let personalRoot = root.appending(path: "personal", directoryHint: .isDirectory)
+    let homeRoot = root.appending(path: "personal", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
     try writeSkill(
       name: "review",
@@ -66,15 +231,21 @@ struct SkillCatalogTests {
       name: "review",
       description: "Personal review.",
       body: "Personal review instructions",
-      to: personalRoot.appending(path: "review", directoryHint: .isDirectory)
+      to: homeRoot.appending(
+        path: ".agents/skills/review",
+        directoryHint: .isDirectory
+      )
     )
     try writeSkill(
       name: "testing",
       description: "Test changes.",
       body: "Testing instructions",
-      to: personalRoot.appending(path: "testing", directoryHint: .isDirectory)
+      to: homeRoot.appending(
+        path: ".agents/skills/testing",
+        directoryHint: .isDirectory
+      )
     )
-    let catalog = SkillCatalog(personalSkillsURL: personalRoot)
+    let catalog = SkillCatalog(homeDirectoryURL: homeRoot)
     let text = "Use $review and $testing, then $review again. Keep $unknown as text."
     let nsText = text as NSString
     let firstReviewRange = nsText.range(of: "$review")
@@ -92,11 +263,11 @@ struct SkillCatalogTests {
         text: text,
         skillMentions: [
           SkillMention(
-            id: SkillID(scope: .personal, name: "review"),
+            id: SkillID(scope: .project, name: "review"),
             range: firstReviewRange
           ),
           SkillMention(
-            id: SkillID(scope: .personal, name: "review"),
+            id: SkillID(scope: .project, name: "review"),
             range: secondReviewRange
           ),
         ]
@@ -112,13 +283,13 @@ struct SkillCatalogTests {
 
     #expect(
       prepared.activatedSkills.map(\.id.rawValue) == [
-        "personal:review",
+        "project:review",
         "personal:testing",
       ])
     #expect(
       prepared.activatedSkillMentions == [
         ActivatedSkillMention(
-          id: SkillID(scope: .personal, name: "review"),
+          id: SkillID(scope: .project, name: "review"),
           range: firstReviewRange
         ),
         ActivatedSkillMention(
@@ -126,21 +297,21 @@ struct SkillCatalogTests {
           range: nsText.range(of: "$testing")
         ),
         ActivatedSkillMention(
-          id: SkillID(scope: .personal, name: "review"),
+          id: SkillID(scope: .project, name: "review"),
           range: secondReviewRange
         ),
       ]
     )
     #expect(
       prepared.activatedSkills.map(\.content) == [
-        "---\nname: review\ndescription: Personal review.\n---\nPersonal review instructions",
+        "---\nname: review\ndescription: Project review.\n---\nProject review instructions",
         "---\nname: testing\ndescription: Test changes.\n---\nTesting instructions",
       ])
     #expect(
       prepared.totalCharacterCount == prepared.activatedSkills.map(\.content.count).reduce(0, +))
     #expect(
       prepared.resourceRoots.map(\.id.rawValue) == [
-        "personal:review",
+        "project:review",
         "personal:testing",
       ])
     #expect(
@@ -175,7 +346,7 @@ struct SkillCatalogTests {
     )
 
     let prepared = try await SkillCatalog(
-      personalSkillsURL: root.appending(path: "missing-personal", directoryHint: .isDirectory)
+      homeDirectoryURL: root.appending(path: "missing-personal", directoryHint: .isDirectory)
     ).prepareSubmission(
       MessageSubmission(text: text),
       mode: .agent,
@@ -214,7 +385,7 @@ struct SkillCatalogTests {
     )
 
     let prepared = try await SkillCatalog(
-      personalSkillsURL: root.appending(path: "missing-personal", directoryHint: .isDirectory)
+      homeDirectoryURL: root.appending(path: "missing-personal", directoryHint: .isDirectory)
     ).prepareSubmission(
       MessageSubmission(text: "Use $code-review"),
       mode: .agent,
@@ -275,7 +446,7 @@ struct SkillCatalogTests {
     )
 
     let catalog = SkillCatalog(
-      personalSkillsURL: root.appending(path: "missing-personal", directoryHint: .isDirectory)
+      homeDirectoryURL: root.appending(path: "missing-personal", directoryHint: .isDirectory)
     )
     let snapshot = await catalog.refresh(for: Workspace(name: "Project", rootURL: projectRoot))
 
@@ -292,10 +463,10 @@ struct SkillCatalogTests {
   }
 
   @Test
-  func activationRejectsAnUnboundAmbiguousName() async throws {
-    let root = try makeDirectory(named: "ambiguous")
+  func activationUsesProjectWinnerForAnUnboundName() async throws {
+    let root = try makeDirectory(named: "unbound-winner")
     let projectRoot = root.appending(path: "project", directoryHint: .isDirectory)
-    let personalRoot = root.appending(path: "personal", directoryHint: .isDirectory)
+    let homeRoot = root.appending(path: "personal", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
     try writeSkill(
       name: "review",
@@ -307,24 +478,28 @@ struct SkillCatalogTests {
       name: "review",
       description: "Personal review.",
       body: "Personal",
-      to: personalRoot.appending(path: "review", directoryHint: .isDirectory)
-    )
-    let catalog = SkillCatalog(personalSkillsURL: personalRoot)
-
-    await #expect(throws: SkillActivationError.ambiguousName("review")) {
-      try await catalog.prepareSubmission(
-        MessageSubmission(text: "Use $review"),
-        mode: .agent,
-        workspace: Workspace(name: "Project", rootURL: projectRoot)
+      to: homeRoot.appending(
+        path: ".agents/skills/review",
+        directoryHint: .isDirectory
       )
-    }
+    )
+    let catalog = SkillCatalog(homeDirectoryURL: homeRoot)
+
+    let prepared = try await catalog.prepareSubmission(
+      MessageSubmission(text: "Use $review"),
+      mode: .agent,
+      workspace: Workspace(name: "Project", rootURL: projectRoot)
+    )
+
+    #expect(prepared.activatedSkills.map(\.id.rawValue) == ["project:review"])
+    #expect(prepared.activatedSkills.map(\.content).allSatisfy { $0.hasSuffix("Project") })
   }
 
   @Test
-  func activationRetainsExplicitMentionsForSameNameAcrossScopes() async throws {
-    let root = try makeDirectory(named: "scoped-mentions")
+  func activationRejectsAnExplicitBindingToAShadowedPersonalSkill() async throws {
+    let root = try makeDirectory(named: "shadowed-binding")
     let projectRoot = root.appending(path: "project", directoryHint: .isDirectory)
-    let personalRoot = root.appending(path: "personal", directoryHint: .isDirectory)
+    let homeRoot = root.appending(path: "personal", directoryHint: .isDirectory)
     try writeSkill(
       name: "review",
       description: "Project review.",
@@ -335,30 +510,30 @@ struct SkillCatalogTests {
       name: "review",
       description: "Personal review.",
       body: "Personal",
-      to: personalRoot.appending(path: "review", directoryHint: .isDirectory)
+      to: homeRoot.appending(
+        path: ".agents/skills/review",
+        directoryHint: .isDirectory
+      )
     )
-    let text = "$review and $review"
-    let ranges = skillMentionRanges(of: "$review", in: text)
+    let text = "$review"
+    let range = (text as NSString).range(of: "$review")
 
-    let prepared = try await SkillCatalog(personalSkillsURL: personalRoot).prepareSubmission(
-      MessageSubmission(
-        text: text,
-        skillMentions: [
-          SkillMention(id: SkillID(scope: .project, name: "review"), range: ranges[0]),
-          SkillMention(id: SkillID(scope: .personal, name: "review"), range: ranges[1]),
-        ]
-      ),
-      mode: .agent,
-      workspace: Workspace(name: "Project", rootURL: projectRoot)
-    )
-
-    #expect(
-      prepared.activatedSkills.map(\.id.rawValue) == ["project:review", "personal:review"]
-    )
-    #expect(
-      prepared.activatedSkillMentions.map(\.id.rawValue)
-        == ["project:review", "personal:review"]
-    )
+    await #expect(
+      throws: SkillActivationError.unavailableSkill(
+        SkillID(scope: .personal, name: "review")
+      )
+    ) {
+      try await SkillCatalog(homeDirectoryURL: homeRoot).prepareSubmission(
+        MessageSubmission(
+          text: text,
+          skillMentions: [
+            SkillMention(id: SkillID(scope: .personal, name: "review"), range: range)
+          ]
+        ),
+        mode: .agent,
+        workspace: Workspace(name: "Project", rootURL: projectRoot)
+      )
+    }
   }
 
   @Test
@@ -376,7 +551,7 @@ struct SkillCatalogTests {
       to: skillRoot
     )
     let catalog = SkillCatalog(
-      personalSkillsURL: root.appending(path: "missing-personal", directoryHint: .isDirectory)
+      homeDirectoryURL: root.appending(path: "missing-personal", directoryHint: .isDirectory)
     )
     let workspace = Workspace(name: "Project", rootURL: projectRoot)
     let prepared = try await catalog.prepareSubmission(
@@ -400,6 +575,47 @@ struct SkillCatalogTests {
   }
 
   @Test
+  func resourceRootRestorationDoesNotMoveFromAShadowedPersonalSkill() async throws {
+    let root = try makeDirectory(named: "shadowed-restoration")
+    let projectRoot = root.appending(path: "project", directoryHint: .isDirectory)
+    let homeRoot = root.appending(path: "home", directoryHint: .isDirectory)
+    let personalSkillRoot = homeRoot.appending(
+      path: ".agents/skills/review",
+      directoryHint: .isDirectory
+    )
+    try writeSkill(
+      name: "review",
+      description: "Review changes.",
+      body: "Stable instructions",
+      to: personalSkillRoot
+    )
+    let catalog = SkillCatalog(homeDirectoryURL: homeRoot)
+    let workspace = Workspace(name: "Project", rootURL: projectRoot)
+    let prepared = try await catalog.prepareSubmission(
+      MessageSubmission(text: "$review"),
+      mode: .agent,
+      workspace: workspace
+    )
+    try writeSkill(
+      name: "review",
+      description: "Review changes.",
+      body: "Stable instructions",
+      to: projectRoot.appending(
+        path: ".cursor/skills/review",
+        directoryHint: .isDirectory
+      )
+    )
+
+    let restoredRoots = await catalog.resourceRoots(
+      matching: prepared.activatedSkills,
+      workspace: workspace
+    )
+
+    #expect(prepared.activatedSkills.map(\.id.rawValue) == ["personal:review"])
+    #expect(restoredRoots.isEmpty)
+  }
+
+  @Test
   func resourceAuthorityRemainsBoundOnlyToSkillDocumentWhenInterfaceMetadataChanges()
     async throws
   {
@@ -417,7 +633,7 @@ struct SkillCatalogTests {
     )
     try writeOpenAIMetadata("interface:\n  display_name: First", to: skillRoot)
     let catalog = SkillCatalog(
-      personalSkillsURL: root.appending(path: "missing-personal", directoryHint: .isDirectory)
+      homeDirectoryURL: root.appending(path: "missing-personal", directoryHint: .isDirectory)
     )
     let workspace = Workspace(name: "Project", rootURL: projectRoot)
     let prepared = try await catalog.prepareSubmission(
@@ -460,7 +676,7 @@ struct SkillCatalogTests {
     )
 
     let snapshot = await SkillCatalog(
-      personalSkillsURL: root.appending(path: "missing-personal", directoryHint: .isDirectory)
+      homeDirectoryURL: root.appending(path: "missing-personal", directoryHint: .isDirectory)
     ).refresh(for: Workspace(name: "Project", rootURL: projectRoot))
 
     #expect(snapshot.skills.isEmpty)
@@ -472,27 +688,40 @@ struct SkillCatalogTests {
   func refreshRejectsAProjectSkillsRootSymlinkOutsideTheWorkspace() async throws {
     let root = try makeDirectory(named: "external-root")
     let projectRoot = root.appending(path: "project", directoryHint: .isDirectory)
-    let agentsRoot = projectRoot.appending(path: ".agents", directoryHint: .isDirectory)
     let externalSkillsRoot = root.appending(path: "external-skills", directoryHint: .isDirectory)
-    try FileManager.default.createDirectory(at: agentsRoot, withIntermediateDirectories: true)
     try writeSkill(
       name: "external",
       description: "Must remain outside the project.",
       body: "External instructions",
       to: externalSkillsRoot.appending(path: "external", directoryHint: .isDirectory)
     )
-    try FileManager.default.createSymbolicLink(
-      at: agentsRoot.appending(path: "skills", directoryHint: .isDirectory),
-      withDestinationURL: externalSkillsRoot
-    )
+    for convention in [".agents", ".claude", ".cursor"] {
+      let conventionRoot = projectRoot.appending(
+        path: convention,
+        directoryHint: .isDirectory
+      )
+      try FileManager.default.createDirectory(
+        at: conventionRoot,
+        withIntermediateDirectories: true
+      )
+      try FileManager.default.createSymbolicLink(
+        at: conventionRoot.appending(path: "skills", directoryHint: .isDirectory),
+        withDestinationURL: externalSkillsRoot
+      )
+    }
 
     let snapshot = await SkillCatalog(
-      personalSkillsURL: root.appending(path: "missing-personal", directoryHint: .isDirectory)
+      homeDirectoryURL: root.appending(path: "missing-personal", directoryHint: .isDirectory)
     ).refresh(for: Workspace(name: "Project", rootURL: projectRoot))
 
     #expect(snapshot.skills.isEmpty)
-    #expect(snapshot.diagnostics.map(\.kind) == [.pathOutsideRoot])
-    #expect(snapshot.diagnostics.map(\.portablePath) == [".agents/skills"])
+    #expect(snapshot.diagnostics.map(\.kind) == Array(repeating: .pathOutsideRoot, count: 3))
+    #expect(
+      snapshot.diagnostics.map(\.portablePath) == [
+        ".agents/skills",
+        ".claude/skills",
+        ".cursor/skills",
+      ])
   }
 
   @Test
@@ -525,7 +754,7 @@ struct SkillCatalogTests {
     )
 
     let snapshot = await SkillCatalog(
-      personalSkillsURL: root.appending(path: "missing-personal", directoryHint: .isDirectory)
+      homeDirectoryURL: root.appending(path: "missing-personal", directoryHint: .isDirectory)
     ).refresh(for: Workspace(name: "Project", rootURL: projectRoot))
 
     #expect(snapshot.skills.map(\.id.rawValue) == ["project:complete"])

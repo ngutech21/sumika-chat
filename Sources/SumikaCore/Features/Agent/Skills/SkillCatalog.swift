@@ -7,14 +7,13 @@ import Yams
 package actor SkillCatalog {
   package static let maximumActivatedContentCharacters = 32_000
 
-  private let personalSkillsURL: URL
+  private let homeDirectoryURL: URL
   private var scans: [String: Task<CatalogStorage, Never>] = [:]
 
   package init(
-    personalSkillsURL: URL = FileManager.default.homeDirectoryForCurrentUser
-      .appending(path: ".agents/skills", directoryHint: .isDirectory)
+    homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser
   ) {
-    self.personalSkillsURL = personalSkillsURL
+    self.homeDirectoryURL = homeDirectoryURL
   }
 
   package func refresh(for workspace: Workspace) async -> SkillCatalogSnapshot {
@@ -56,10 +55,10 @@ package actor SkillCatalog {
       return await scan.value
     }
 
-    let personalSkillsURL = personalSkillsURL
+    let homeDirectoryURL = homeDirectoryURL
     let scan = Task.detached(priority: .userInitiated) {
       workspace.withSecurityScopedAccess {
-        Self.scan(workspace: workspace, personalSkillsURL: personalSkillsURL)
+        Self.scan(workspace: workspace, homeDirectoryURL: homeDirectoryURL)
       }
     }
     scans[key] = scan
@@ -70,8 +69,8 @@ package actor SkillCatalog {
 
   private func scanKey(for workspace: Workspace) -> String {
     let projectRootPath = workspace.rootURL.standardizedFileURL.path(percentEncoded: false)
-    let personalRootPath = personalSkillsURL.standardizedFileURL.path(percentEncoded: false)
-    return projectRootPath + "\u{0}" + personalRootPath
+    let homeDirectoryPath = homeDirectoryURL.standardizedFileURL.path(percentEncoded: false)
+    return projectRootPath + "\u{0}" + homeDirectoryPath
   }
 }
 
@@ -92,6 +91,21 @@ extension SkillCatalog {
   fileprivate struct ScopeScanResult: Sendable {
     var entries: [SkillEntry] = []
     var diagnostics: [SkillDiagnostic] = []
+  }
+
+  fileprivate enum SkillDirectoryConvention: String, CaseIterable, Sendable {
+    case agents
+    case claude
+    case cursor
+
+    var relativeSkillsPath: String { ".\(rawValue)/skills" }
+  }
+
+  fileprivate struct SkillSearchRoot: Sendable {
+    let scope: SkillScope
+    let skillsURL: URL
+    let portablePath: String
+    let requiredContainerURL: URL?
   }
 
   struct MentionToken: Equatable, Sendable {
@@ -185,18 +199,42 @@ extension SkillCatalog {
     }
   }
 
-  fileprivate static func scan(workspace: Workspace, personalSkillsURL: URL) -> CatalogStorage {
-    let projectSkillsURL = workspace.rootURL
-      .appending(path: ".agents/skills", directoryHint: .isDirectory)
-    let project = scanScope(
-      .project,
-      skillsURL: projectSkillsURL,
-      requiredContainerURL: workspace.rootURL
-    )
-    let personal = scanScope(.personal, skillsURL: personalSkillsURL)
-    let allEntries = (project.entries + personal.entries).sorted(by: entrySort)
+  fileprivate static func scan(workspace: Workspace, homeDirectoryURL: URL) -> CatalogStorage {
+    let projectRoots = SkillDirectoryConvention.allCases.map { convention in
+      SkillSearchRoot(
+        scope: .project,
+        skillsURL: workspace.rootURL.appending(
+          path: convention.relativeSkillsPath,
+          directoryHint: .isDirectory
+        ),
+        portablePath: convention.relativeSkillsPath,
+        requiredContainerURL: workspace.rootURL
+      )
+    }
+    let personalRoots = SkillDirectoryConvention.allCases.map { convention in
+      SkillSearchRoot(
+        scope: .personal,
+        skillsURL: homeDirectoryURL.appending(
+          path: convention.relativeSkillsPath,
+          directoryHint: .isDirectory
+        ),
+        portablePath: "$HOME/" + convention.relativeSkillsPath,
+        requiredContainerURL: nil
+      )
+    }
+    var claimedNames = Set<String>()
+    var allEntries: [SkillEntry] = []
+    var diagnostics: [SkillDiagnostic] = []
+    for root in projectRoots + personalRoots {
+      let result = scanScope(root, ignoringNames: claimedNames)
+      for entry in result.entries where claimedNames.insert(entry.descriptor.name).inserted {
+        allEntries.append(entry)
+      }
+      diagnostics.append(contentsOf: result.diagnostics)
+    }
+    allEntries.sort(by: entrySort)
     let entries = Dictionary(uniqueKeysWithValues: allEntries.map { ($0.descriptor.id, $0) })
-    let diagnostics = (project.diagnostics + personal.diagnostics).sorted(by: diagnosticSort)
+    diagnostics.sort(by: diagnosticSort)
     return CatalogStorage(
       entries: entries,
       snapshot: SkillCatalogSnapshot(
@@ -221,9 +259,11 @@ extension SkillCatalog {
     let bindingsByLocation = Dictionary(
       uniqueKeysWithValues: sortedBindings.map { ($0.range.location, $0) }
     )
-    let entriesByName = Dictionary(grouping: storage.entries.values) {
-      $0.descriptor.name.lowercased()
-    }
+    let entriesByName = Dictionary(
+      uniqueKeysWithValues: storage.entries.values.map {
+        ($0.descriptor.name.lowercased(), $0)
+      }
+    )
 
     var selectedEntries: [SkillEntry] = []
     var activatedSkillMentions: [ActivatedSkillMention] = []
@@ -233,11 +273,7 @@ extension SkillCatalog {
       if let binding = bindingsByLocation[token.range.location] {
         entry = storage.entries[binding.id]
       } else {
-        let matchingEntries = entriesByName[token.name.lowercased()] ?? []
-        if matchingEntries.count > 1 {
-          throw SkillActivationError.ambiguousName(token.name)
-        }
-        entry = matchingEntries.first
+        entry = entriesByName[token.name.lowercased()]
       }
       guard let entry else {
         continue
@@ -342,23 +378,22 @@ extension SkillCatalog {
   }
 
   fileprivate static func scanScope(
-    _ scope: SkillScope,
-    skillsURL: URL,
-    requiredContainerURL: URL? = nil
+    _ root: SkillSearchRoot,
+    ignoringNames: Set<String>
   ) -> ScopeScanResult {
     let fileManager = FileManager.default
-    guard fileManager.fileExists(atPath: skillsURL.path(percentEncoded: false)) else {
+    guard fileManager.fileExists(atPath: root.skillsURL.path(percentEncoded: false)) else {
       return ScopeScanResult()
     }
 
-    let canonicalSkillsURL = skillsURL.standardizedFileURL.resolvingSymlinksInPath()
-    if let requiredContainerURL {
+    let canonicalSkillsURL = root.skillsURL.standardizedFileURL.resolvingSymlinksInPath()
+    if let requiredContainerURL = root.requiredContainerURL {
       let canonicalContainerURL = requiredContainerURL.standardizedFileURL.resolvingSymlinksInPath()
       guard contains(canonicalSkillsURL, within: canonicalContainerURL) else {
         return ScopeScanResult(diagnostics: [
           diagnostic(
-            scope: scope,
-            path: rootPortablePath(scope: scope),
+            scope: root.scope,
+            path: root.portablePath,
             kind: .pathOutsideRoot,
             message: "Skills root resolves outside the workspace."
           )
@@ -371,8 +406,8 @@ extension SkillCatalog {
       guard rootValues.isDirectory == true else {
         return ScopeScanResult(diagnostics: [
           diagnostic(
-            scope: scope,
-            path: rootPortablePath(scope: scope),
+            scope: root.scope,
+            path: root.portablePath,
             kind: .cannotInspect,
             message: "Skills root is not a directory."
           )
@@ -386,8 +421,8 @@ extension SkillCatalog {
     } catch {
       return ScopeScanResult(diagnostics: [
         diagnostic(
-          scope: scope,
-          path: rootPortablePath(scope: scope),
+          scope: root.scope,
+          path: root.portablePath,
           kind: .cannotInspect,
           message: "Could not inspect skills root."
         )
@@ -396,6 +431,9 @@ extension SkillCatalog {
 
     var result = ScopeScanResult()
     for child in children.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+      guard !ignoringNames.contains(child.lastPathComponent) else {
+        continue
+      }
       var isDirectory: ObjCBool = false
       guard
         fileManager.fileExists(
@@ -404,7 +442,7 @@ extension SkillCatalog {
         ), isDirectory.boolValue
       else { continue }
       scanSkill(
-        scope: scope,
+        root: root,
         directoryURL: child,
         canonicalSkillsURL: canonicalSkillsURL,
         into: &result
@@ -414,18 +452,18 @@ extension SkillCatalog {
   }
 
   fileprivate static func scanSkill(
-    scope: SkillScope,
+    root: SkillSearchRoot,
     directoryURL: URL,
     canonicalSkillsURL: URL,
     into result: inout ScopeScanResult
   ) {
     let directoryName = directoryURL.lastPathComponent
-    let directoryPath = portablePath(scope: scope, directoryName: directoryName)
+    let directoryPath = root.portablePath + "/" + directoryName
     let canonicalDirectoryURL = directoryURL.standardizedFileURL.resolvingSymlinksInPath()
     guard contains(canonicalDirectoryURL, within: canonicalSkillsURL) else {
       result.diagnostics.append(
         diagnostic(
-          scope: scope,
+          scope: root.scope,
           path: directoryPath,
           kind: .pathOutsideRoot,
           message: "Skill directory resolves outside its skills root."
@@ -438,7 +476,7 @@ extension SkillCatalog {
     guard FileManager.default.fileExists(atPath: sourceURL.path(percentEncoded: false)) else {
       result.diagnostics.append(
         diagnostic(
-          scope: scope,
+          scope: root.scope,
           path: directoryPath + "/SKILL.md",
           kind: .missingSkillFile,
           message: "Skill directory does not contain SKILL.md."
@@ -451,7 +489,7 @@ extension SkillCatalog {
     guard contains(canonicalSourceURL, within: canonicalDirectoryURL) else {
       result.diagnostics.append(
         diagnostic(
-          scope: scope,
+          scope: root.scope,
           path: directoryPath + "/SKILL.md",
           kind: .pathOutsideRoot,
           message: "SKILL.md resolves outside its skill directory."
@@ -465,7 +503,7 @@ extension SkillCatalog {
       guard values.isRegularFile == true else {
         result.diagnostics.append(
           diagnostic(
-            scope: scope,
+            scope: root.scope,
             path: directoryPath + "/SKILL.md",
             kind: .notRegularFile,
             message: "SKILL.md is not a regular file."
@@ -476,7 +514,7 @@ extension SkillCatalog {
     } catch {
       result.diagnostics.append(
         diagnostic(
-          scope: scope,
+          scope: root.scope,
           path: directoryPath + "/SKILL.md",
           kind: .cannotRead,
           message: "Could not inspect SKILL.md."
@@ -491,7 +529,7 @@ extension SkillCatalog {
     } catch {
       result.diagnostics.append(
         diagnostic(
-          scope: scope,
+          scope: root.scope,
           path: directoryPath + "/SKILL.md",
           kind: .cannotRead,
           message: "Could not read SKILL.md."
@@ -502,7 +540,7 @@ extension SkillCatalog {
     guard let content = String(data: data, encoding: .utf8) else {
       result.diagnostics.append(
         diagnostic(
-          scope: scope,
+          scope: root.scope,
           path: directoryPath + "/SKILL.md",
           kind: .invalidUTF8,
           message: "SKILL.md is not valid UTF-8."
@@ -513,7 +551,7 @@ extension SkillCatalog {
 
     do {
       let frontmatter = try parseFrontmatter(content, directoryName: directoryName)
-      let id = SkillID(scope: scope, name: frontmatter.name)
+      let id = SkillID(scope: root.scope, name: frontmatter.name)
       let descriptor = SkillDescriptor(
         id: id,
         description: frontmatter.description,
@@ -531,7 +569,7 @@ extension SkillCatalog {
     } catch let error as ParseError {
       result.diagnostics.append(
         diagnostic(
-          scope: scope,
+          scope: root.scope,
           path: directoryPath + "/SKILL.md",
           kind: parseDiagnosticKind(for: error),
           message: error.localizedDescription
@@ -540,7 +578,7 @@ extension SkillCatalog {
     } catch {
       result.diagnostics.append(
         diagnostic(
-          scope: scope,
+          scope: root.scope,
           path: directoryPath + "/SKILL.md",
           kind: .invalidFrontmatter,
           message: "Could not decode YAML frontmatter."
@@ -668,17 +706,6 @@ extension SkillCatalog {
 
   fileprivate static func sha256(_ data: Data) -> String {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-  }
-
-  fileprivate static func rootPortablePath(scope: SkillScope) -> String {
-    switch scope {
-    case .project: ".agents/skills"
-    case .personal: "$HOME/.agents/skills"
-    }
-  }
-
-  fileprivate static func portablePath(scope: SkillScope, directoryName: String) -> String {
-    rootPortablePath(scope: scope) + "/" + directoryName
   }
 
   fileprivate static func diagnostic(

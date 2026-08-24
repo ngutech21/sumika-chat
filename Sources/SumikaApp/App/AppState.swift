@@ -30,7 +30,7 @@ final class AppState {
     runtime: any ChatModelRuntime,
     modelAvailability: (@Sendable (ManagedModel) -> Bool)? = nil,
     skillCatalog: SkillCatalog = SkillCatalog(
-      personalSkillsURL: FileManager.default.temporaryDirectory.appending(
+      homeDirectoryURL: FileManager.default.temporaryDirectory.appending(
         path: "sumika-app-state-no-personal-skills-\(UUID().uuidString)",
         directoryHint: .isDirectory
       )

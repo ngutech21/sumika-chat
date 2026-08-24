@@ -130,8 +130,9 @@ The current `$` completion searches only installed project and personal skills.
 This is visible in
 [`ChatComposer.swift`](../../Sources/SumikaApp/Features/Composer/ChatComposer.swift#L339-L359),
 while
-[`SkillCatalog.swift`](../../Sources/SumikaCore/Features/Agent/Skills/SkillCatalog.swift#L13-L21)
-scans the project and personal `.agents/skills` directories.
+[`SkillCatalog.swift`](../../Sources/SumikaCore/Features/Agent/Skills/SkillCatalog.swift#L200-L244)
+scans project and personal `.agents/skills`, `.claude/skills`, and
+`.cursor/skills` directories using deterministic first-valid precedence.
 
 A clean extension would be:
 

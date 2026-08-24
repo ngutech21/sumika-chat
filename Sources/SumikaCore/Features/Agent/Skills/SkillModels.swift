@@ -330,7 +330,6 @@ package struct PreparedSkillSubmission: Equatable, Sendable {
 package enum SkillActivationError: LocalizedError, Equatable, Sendable {
   case invalidMention
   case unavailableSkill(SkillID)
-  case ambiguousName(String)
   case contentBudgetExceeded(maxCharacters: Int, actualCharacters: Int)
 
   package var errorDescription: String? {
@@ -339,8 +338,6 @@ package enum SkillActivationError: LocalizedError, Equatable, Sendable {
       "A selected skill mention no longer matches the message. Select the skill again."
     case .unavailableSkill(let id):
       "The selected skill '\(id.rawValue)' is no longer available."
-    case .ambiguousName(let name):
-      "Multiple skills are named '\(name)'. Choose Project or Personal from autocomplete."
     case .contentBudgetExceeded(let maxCharacters, let actualCharacters):
       "Activated skills contain \(actualCharacters) characters; the limit is \(maxCharacters)."
     }

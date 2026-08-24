@@ -155,11 +155,13 @@ Agent mode uses project guidance from the selected workspace:
 - **Workspace instructions**: when an `AGENTS.md` file exists at the workspace
   root, Sumika reads it before each Agent turn and includes its instructions in
   the model context.
-- **Skills**: Sumika discovers skills from
-  `~/.agents/skills/<name>/SKILL.md` and
-  `<workspace>/.agents/skills/<name>/SKILL.md`. Type `$myskill` in the composer
-  to activate a skill for the message you are sending; typing `$` also opens
-  the available skill suggestions.
+- **Skills**: Sumika uses the first valid `<name>/SKILL.md` it finds in
+  `<workspace>/.agents/skills`, `<workspace>/.claude/skills`,
+  `<workspace>/.cursor/skills`, `~/.agents/skills`, `~/.claude/skills`, then
+  `~/.cursor/skills`, in that order. Later copies with the same name are ignored;
+  an invalid earlier copy reports a diagnostic but does not block a valid
+  fallback. Type `$myskill` in the composer to activate a skill for the message
+  you are sending; typing `$` also opens the available skill suggestions.
 
 ## No Cloud Account Required
 

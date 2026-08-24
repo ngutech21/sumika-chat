@@ -22,7 +22,7 @@ struct SkillConversationSubmissionTests {
       runtime: ChatSessionFakeChatModelRuntime(chunks: ["unused"]),
       modelPath: "/tmp/model",
       chatSession: session,
-      skillCatalog: SkillCatalog(personalSkillsURL: missingPersonalRoot(under: root))
+      skillCatalog: SkillCatalog(homeDirectoryURL: missingHomeDirectory(under: root))
     )
     try engine.loadSession(from: workspace, sessionID: session.id)
     engine.modelRuntime.modelState = .ready
@@ -69,7 +69,7 @@ struct SkillConversationSubmissionTests {
       modelPath: "/tmp/model",
       turnTracer: tracer,
       chatSession: session,
-      skillCatalog: SkillCatalog(personalSkillsURL: missingPersonalRoot(under: root))
+      skillCatalog: SkillCatalog(homeDirectoryURL: missingHomeDirectory(under: root))
     )
     try engine.loadSession(from: workspace, sessionID: session.id)
     engine.modelRuntime.modelState = .ready
@@ -128,7 +128,7 @@ struct SkillConversationSubmissionTests {
       atomically: true,
       encoding: .utf8
     )
-    let personalSkillsURL = missingPersonalRoot(under: root)
+    let homeDirectoryURL = missingHomeDirectory(under: root)
     let initialRuntime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [
         .toolCall(
@@ -145,7 +145,7 @@ struct SkillConversationSubmissionTests {
       runtime: initialRuntime,
       modelPath: "/tmp/model",
       chatSession: session,
-      skillCatalog: SkillCatalog(personalSkillsURL: personalSkillsURL)
+      skillCatalog: SkillCatalog(homeDirectoryURL: homeDirectoryURL)
     )
     try initialEngine.loadSession(from: workspace, sessionID: session.id)
     initialEngine.modelRuntime.modelState = .ready
@@ -174,7 +174,7 @@ struct SkillConversationSubmissionTests {
     let resumedEngine = ConversationEngine(
       runtime: resumedRuntime,
       modelPath: "/tmp/model",
-      skillCatalog: SkillCatalog(personalSkillsURL: personalSkillsURL)
+      skillCatalog: SkillCatalog(homeDirectoryURL: homeDirectoryURL)
     )
     try resumedEngine.loadSession(from: workspace, sessionID: persistedSession.id)
     resumedEngine.modelRuntime.modelState = .ready
@@ -216,7 +216,7 @@ struct SkillConversationSubmissionTests {
     return url
   }
 
-  private func missingPersonalRoot(under root: URL) -> URL {
+  private func missingHomeDirectory(under root: URL) -> URL {
     root.appending(path: "missing-personal", directoryHint: .isDirectory)
   }
 
