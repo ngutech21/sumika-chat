@@ -130,6 +130,89 @@ package struct SkillMention: Equatable, Sendable {
   }
 }
 
+package struct SkillInterfaceMetadata: Codable, Equatable, Sendable {
+  package let displayName: String?
+  package let shortDescription: String?
+
+  package init(displayName: String? = nil, shortDescription: String? = nil) {
+    self.displayName = Self.nonEmpty(displayName)
+    self.shortDescription = Self.nonEmpty(shortDescription)
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case displayName
+    case shortDescription
+  }
+
+  package init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(
+      displayName: try container.decodeIfPresent(String.self, forKey: .displayName),
+      shortDescription: try container.decodeIfPresent(String.self, forKey: .shortDescription)
+    )
+  }
+
+  package func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encodeIfPresent(displayName, forKey: .displayName)
+    try container.encodeIfPresent(shortDescription, forKey: .shortDescription)
+  }
+
+  static func make(
+    displayName: String?,
+    shortDescription: String?
+  ) -> SkillInterfaceMetadata? {
+    let metadata = SkillInterfaceMetadata(
+      displayName: displayName,
+      shortDescription: shortDescription
+    )
+    guard metadata.displayName != nil || metadata.shortDescription != nil else {
+      return nil
+    }
+    return metadata
+  }
+
+  private static func nonEmpty(_ value: String?) -> String? {
+    guard let value else {
+      return nil
+    }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+}
+
+package struct ActivatedSkillMention: Codable, Equatable, Sendable {
+  package let id: SkillID
+  package let range: NSRange
+
+  package init(id: SkillID, range: NSRange) {
+    self.id = id
+    self.range = range
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case location
+    case length
+  }
+
+  package init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(SkillID.self, forKey: .id)
+    range = NSRange(
+      location: try container.decode(Int.self, forKey: .location),
+      length: try container.decode(Int.self, forKey: .length)
+    )
+  }
+
+  package func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(id, forKey: .id)
+    try container.encode(range.location, forKey: .location)
+    try container.encode(range.length, forKey: .length)
+  }
+}
+
 package struct MessageSubmission: Equatable, Sendable {
   package let text: String
   package let skillMentions: [SkillMention]
@@ -145,12 +228,14 @@ package struct ActivatedSkill: Codable, Equatable, Sendable {
   package let portablePath: String
   package let contentHash: String
   package let content: String
+  package let interfaceMetadata: SkillInterfaceMetadata?
 
   package init(
     id: SkillID,
     portablePath: String,
     contentHash: String,
-    content: String
+    content: String,
+    interfaceMetadata: SkillInterfaceMetadata? = nil
   ) {
     precondition(Self.isPortablePath(portablePath), "Activated skill path must be portable.")
     precondition(contentHash == Self.sha256(content), "Activated skill hash must match content.")
@@ -158,6 +243,7 @@ package struct ActivatedSkill: Codable, Equatable, Sendable {
     self.portablePath = portablePath
     self.contentHash = contentHash
     self.content = content
+    self.interfaceMetadata = interfaceMetadata
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -165,6 +251,7 @@ package struct ActivatedSkill: Codable, Equatable, Sendable {
     case portablePath
     case contentHash
     case content
+    case interfaceMetadata
   }
 
   package init(from decoder: Decoder) throws {
@@ -173,6 +260,10 @@ package struct ActivatedSkill: Codable, Equatable, Sendable {
     let portablePath = try container.decode(String.self, forKey: .portablePath)
     let contentHash = try container.decode(String.self, forKey: .contentHash)
     let content = try container.decode(String.self, forKey: .content)
+    let interfaceMetadata = try? container.decodeIfPresent(
+      SkillInterfaceMetadata.self,
+      forKey: .interfaceMetadata
+    )
     guard Self.isPortablePath(portablePath),
       contentHash == Self.sha256(content)
     else {
@@ -186,7 +277,8 @@ package struct ActivatedSkill: Codable, Equatable, Sendable {
       id: id,
       portablePath: portablePath,
       contentHash: contentHash,
-      content: content
+      content: content,
+      interfaceMetadata: interfaceMetadata
     )
   }
 
@@ -211,21 +303,25 @@ package struct SkillResourceRoot: Equatable, Sendable {
 
 package struct PreparedSkillSubmission: Equatable, Sendable {
   package let activatedSkills: [ActivatedSkill]
+  package let activatedSkillMentions: [ActivatedSkillMention]
   package let resourceRoots: [SkillResourceRoot]
   package let totalCharacterCount: Int
 
   package init(
     activatedSkills: [ActivatedSkill],
+    activatedSkillMentions: [ActivatedSkillMention],
     resourceRoots: [SkillResourceRoot],
     totalCharacterCount: Int
   ) {
     self.activatedSkills = activatedSkills
+    self.activatedSkillMentions = activatedSkillMentions
     self.resourceRoots = resourceRoots
     self.totalCharacterCount = totalCharacterCount
   }
 
   package static let empty = PreparedSkillSubmission(
     activatedSkills: [],
+    activatedSkillMentions: [],
     resourceRoots: [],
     totalCharacterCount: 0
   )
@@ -247,6 +343,50 @@ package enum SkillActivationError: LocalizedError, Equatable, Sendable {
       "Multiple skills are named '\(name)'. Choose Project or Personal from autocomplete."
     case .contentBudgetExceeded(let maxCharacters, let actualCharacters):
       "Activated skills contain \(actualCharacters) characters; the limit is \(maxCharacters)."
+    }
+  }
+}
+
+package struct ActivatedSkillMentionPresentation: Equatable, Sendable {
+  package let range: NSRange
+  package let displayName: String
+  package let tooltip: String
+}
+
+extension UserTurnMessage {
+  package var activatedSkillMentionPresentations: [ActivatedSkillMentionPresentation] {
+    let skillsByID = Dictionary(
+      promptContext.activatedSkills.map { ($0.id, $0) },
+      uniquingKeysWith: { first, _ in first }
+    )
+    let mentions: [ActivatedSkillMention]
+    if activatedSkillMentions.isEmpty {
+      let skillsByName = Dictionary(grouping: promptContext.activatedSkills) {
+        $0.id.name.lowercased()
+      }
+      mentions = SkillCatalog.mentionTokens(in: content).compactMap { token in
+        let matchingSkills = skillsByName[token.name.lowercased()] ?? []
+        guard matchingSkills.count == 1, let skill = matchingSkills.first else {
+          return nil
+        }
+        return ActivatedSkillMention(id: skill.id, range: token.range)
+      }
+    } else {
+      mentions = activatedSkillMentions
+    }
+
+    return mentions.compactMap { mention in
+      guard let skill = skillsByID[mention.id],
+        let tooltip = skill.interfaceMetadata?.shortDescription
+          ?? SkillCatalog.persistedDescription(in: skill)
+      else {
+        return nil
+      }
+      return ActivatedSkillMentionPresentation(
+        range: mention.range,
+        displayName: skill.interfaceMetadata?.displayName ?? "$\(skill.id.name)",
+        tooltip: tooltip
+      )
     }
   }
 }

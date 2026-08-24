@@ -1,3 +1,5 @@
+import AppKit
+import CoreGraphics
 import Darwin
 import XCTest
 
@@ -268,6 +270,86 @@ final class SumikaUITests: XCTestCase {
     let afterFailure = UITurnBaseline.capture(in: application)
     XCTAssertEqual(afterFailure.assistantMessageCount, baseline.assistantMessageCount)
     XCTAssertEqual(afterFailure.toolCallCount, baseline.toolCallCount)
+  }
+
+  @MainActor
+  func testActivatedSkillRendersDisplayNameTooltipAndCopiesRawToken() throws {
+    let tooltip = "Review a diff on standards and spec"
+    let fixture = try launchFixture(
+      projectSkills: [
+        UISkillFixture(
+          name: "code-review",
+          description: "Review the current diff.",
+          displayName: "Code Review",
+          shortDescription: tooltip
+        )
+      ]
+    )
+    let application = try launchApp(fixture: fixture)
+    defer { application.terminate() }
+    try selectAgentMode(in: application)
+    try loadSelectedModel(in: application)
+
+    let rawMessage = "Analyse $code-review"
+    let messageField = waitForMessageField(in: application)
+    messageField.click()
+    messageField.typeText("Analyse $code")
+    let suggestion = application.descendants(matching: .any)[
+      "skill-suggestion.project:code-review"
+    ]
+    XCTAssertTrue(suggestion.waitForExistence(timeout: 5))
+    suggestion.click()
+    XCTAssertEqual(messageField.value as? String, rawMessage)
+    application.buttons["send-button"].click()
+
+    let renderedSkill = application.staticTexts.matching(
+      NSPredicate(format: "value CONTAINS %@", "Code Review")
+    ).firstMatch
+    XCTAssertTrue(renderedSkill.waitForExistence(timeout: 10))
+    XCTAssertFalse(
+      application.links.matching(
+        NSPredicate(format: "value CONTAINS %@", "Code Review")
+      ).firstMatch.exists
+    )
+
+    let windowCount = application.windows.count
+    renderedSkill.click()
+    XCTAssertEqual(application.windows.count, windowCount)
+
+    application.windows.firstMatch.coordinate(
+      withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)
+    ).hover()
+    usleep(1_000_000)
+    let processID = try XCTUnwrap(
+      NSRunningApplication.runningApplications(withBundleIdentifier: "chat.sumika")
+        .first(where: \.isActive)?
+        .processIdentifier
+    )
+    let visibleWindowsBeforeHover = onScreenWindowNumbers(
+      ownedBy: processID
+    )
+    renderedSkill.hover()
+    XCTAssertTrue(
+      waitUntil(timeout: 5) {
+        !onScreenWindowNumbers(ownedBy: processID)
+          .subtracting(visibleWindowsBeforeHover)
+          .isEmpty
+      },
+      "Hovering the rendered skill should show its native tooltip window."
+    )
+
+    let copyButton = application.buttons["Copy message"].firstMatch
+    XCTAssertTrue(copyButton.waitForExistence(timeout: 5))
+    copyButton.click()
+    let cancelButton = application.buttons["cancel-generation-button"]
+    if cancelButton.waitForExistence(timeout: 1) {
+      cancelButton.click()
+    }
+    waitForGenerationIdle(in: application, timeout: 30)
+    messageField.click()
+    messageField.typeKey("a", modifierFlags: .command)
+    messageField.typeKey("v", modifierFlags: .command)
+    XCTAssertEqual(messageField.value as? String, rawMessage)
   }
 
   @MainActor
@@ -792,7 +874,42 @@ final class SumikaUITests: XCTestCase {
         atomically: true,
         encoding: .utf8
       )
+      if skill.displayName != nil || skill.shortDescription != nil {
+        let agentsURL = directory.appending(path: "agents", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: agentsURL, withIntermediateDirectories: true)
+        let interfaceLines = [
+          skill.displayName.map { "  display_name: \($0)" },
+          skill.shortDescription.map { "  short_description: \($0)" },
+        ].compactMap { $0 }
+        try (["interface:"] + interfaceLines).joined(separator: "\n").write(
+          to: agentsURL.appending(path: "openai.yaml", directoryHint: .notDirectory),
+          atomically: true,
+          encoding: .utf8
+        )
+      }
     }
+  }
+
+  private func onScreenWindowNumbers(ownedBy processID: pid_t) -> Set<CGWindowID> {
+    guard
+      let windows = CGWindowListCopyWindowInfo(
+        [.optionOnScreenOnly, .excludeDesktopElements],
+        kCGNullWindowID
+      ) as? [[String: Any]]
+    else {
+      return []
+    }
+    return Set(
+      windows.compactMap { window in
+        guard
+          (window[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == processID,
+          let number = window[kCGWindowNumber as String] as? NSNumber
+        else {
+          return nil
+        }
+        return CGWindowID(number.uint32Value)
+      }
+    )
   }
 
   private func requireCompleteModelWeights(
@@ -1264,17 +1381,23 @@ private struct UISkillFixture {
   let frontmatterName: String?
   let description: String
   let body: String
+  let displayName: String?
+  let shortDescription: String?
 
   init(
     name: String,
     frontmatterName: String? = nil,
     description: String,
-    body: String = "Follow these instructions."
+    body: String = "Follow these instructions.",
+    displayName: String? = nil,
+    shortDescription: String? = nil
   ) {
     self.name = name
     self.frontmatterName = frontmatterName
     self.description = description
     self.body = body
+    self.displayName = displayName
+    self.shortDescription = shortDescription
   }
 }
 

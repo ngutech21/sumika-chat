@@ -52,6 +52,16 @@ struct SkillConversationSubmissionTests {
       body: "Review every changed line.",
       to: root.appending(path: ".agents/skills/review", directoryHint: .isDirectory)
     )
+    let agentsURL = root.appending(
+      path: ".agents/skills/review/agents",
+      directoryHint: .isDirectory
+    )
+    try FileManager.default.createDirectory(at: agentsURL, withIntermediateDirectories: true)
+    try "interface:\n  display_name: Review\n  short_description: Review the diff".write(
+      to: agentsURL.appending(path: "openai.yaml", directoryHint: .notDirectory),
+      atomically: true,
+      encoding: .utf8
+    )
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["Reviewed."])
     let tracer = SkillRecordingTurnTracer()
     let engine = ConversationEngine(
@@ -76,6 +86,16 @@ struct SkillConversationSubmissionTests {
     let activated = try #require(userMessage.promptContext.activatedSkills.first)
     #expect(activated.id.rawValue == "project:review")
     #expect(activated.content == content)
+    #expect(activated.interfaceMetadata?.displayName == "Review")
+    #expect(
+      userMessage.activatedSkillMentions
+        == [
+          ActivatedSkillMention(
+            id: activated.id,
+            range: (userMessage.content as NSString).range(of: "$review")
+          )
+        ]
+    )
     let captured = await runtime.capturedMessages.flatMap { $0 }.map(\.content)
       .joined(separator: "\n")
     #expect(captured.contains(content))

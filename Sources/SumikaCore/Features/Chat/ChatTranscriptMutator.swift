@@ -7,6 +7,7 @@ struct ChatTranscriptMutator: Sendable {
     turnID: ChatTurn.ID? = nil,
     attachments: [ChatAttachment],
     promptContext: CurrentPromptContext = .empty(.focusedFileDefault),
+    activatedSkillMentions: [ActivatedSkillMention] = [],
     to state: inout ChatSession
   ) {
     appendItem(
@@ -15,7 +16,8 @@ struct ChatTranscriptMutator: Sendable {
           id: id,
           content: content,
           attachments: attachments,
-          promptContext: promptContext
+          promptContext: promptContext,
+          activatedSkillMentions: activatedSkillMentions
         )),
       toTurn: turnID,
       in: &state

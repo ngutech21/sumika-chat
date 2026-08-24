@@ -823,13 +823,30 @@ final class NativeTranscriptTextView: NSTextView, NSTextViewDelegate {
 
   func setAttributedText(_ attributedString: NSAttributedString) {
     retainedTextStorage.setAttributedString(attributedString)
+    updateAccessibilityHelp()
     invalidateIntrinsicContentSize()
     window?.invalidateCursorRects(for: self)
   }
 
   func appendAttributedText(_ attributedString: NSAttributedString) {
     retainedTextStorage.append(attributedString)
+    updateAccessibilityHelp()
     invalidateIntrinsicContentSize()
     window?.invalidateCursorRects(for: self)
+  }
+
+  private func updateAccessibilityHelp() {
+    var tooltips: [String] = []
+    let fullRange = NSRange(location: 0, length: retainedTextStorage.length)
+    retainedTextStorage.enumerateAttribute(.toolTip, in: fullRange) { value, _, _ in
+      guard let tooltip = value as? String,
+        !tooltip.isEmpty,
+        !tooltips.contains(tooltip)
+      else {
+        return
+      }
+      tooltips.append(tooltip)
+    }
+    setAccessibilityHelp(tooltips.isEmpty ? nil : tooltips.joined(separator: "\n"))
   }
 }

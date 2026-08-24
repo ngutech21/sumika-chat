@@ -169,7 +169,8 @@ struct ChatWorkflowEventApplierTests {
           messageID: userMessageID,
           turnID: turnID,
           attachments: [],
-          promptContext: .empty(.focusedFileDefault)
+          promptContext: .empty(.focusedFileDefault),
+          activatedSkillMentions: []
         ),
         .assistantPlaceholderAppended(messageID: assistantMessageID, turnID: turnID),
         .assistantChunkAppended(chunk: "hello", messageID: assistantMessageID),

@@ -213,6 +213,66 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func reusedUserMessageCellClearsSkillTooltipAccessibilityHelp() throws {
+    let firstRow = nativeUserRow(
+      id: "skill-user",
+      revision: 1,
+      message: nativeSkillUserMessage(content: "Use $review", displayName: "Review")
+    )
+    let cell = configuredNativeCell(for: firstRow)
+    let textView = try #require(cell.descendants(of: NativeTranscriptTextView.self).first)
+
+    #expect(textView.string.contains("Review"))
+    #expect(textView.accessibilityHelp() == "Review changes.")
+
+    cell.prepareForReuse()
+    cell.configure(
+      row: nativeUserRow(id: "plain-user", revision: 2, content: "Plain message"),
+      state: NativeTranscriptCellState(),
+      actions: testNativeActions()
+    )
+    cell.layoutSubtreeIfNeeded()
+
+    #expect(cell.descendants(of: NativeTranscriptTextView.self).first === textView)
+    #expect(textView.string == "Plain message")
+    #expect(textView.accessibilityHelp() == nil)
+  }
+
+  @Test
+  func skillUserBubbleMeasuresFinalIconLabelAndMultilineContent() throws {
+    let shortMessage = nativeSkillUserMessage(content: "$review", displayName: "Code Review")
+    let shortRow = nativeUserRow(
+      id: "short-skill",
+      revision: 1,
+      message: shortMessage
+    )
+    let multilineMessage = nativeSkillUserMessage(
+      content: "$review\n\nSecond line\n\nThird line",
+      displayName: "Code Review"
+    )
+    let multilineRow = nativeUserRow(
+      id: "multiline-skill",
+      revision: 1,
+      message: multilineMessage
+    )
+    let cell = configuredNativeCell(for: shortRow)
+    let userView = try #require(cell.hostedContentViewForTesting as? NativeUserMessageView)
+    let stack = try #require(userView.subviews.compactMap { $0 as? NSStackView }.first)
+    let bubble = try #require(
+      stack.arrangedSubviews.first {
+        !($0 is NSStackView) && !($0 is NSButton)
+      }
+    )
+    let rendered = combinedUserMessageText(shortMessage)
+    let expectedWidth = ceil(rendered.size().width) + 20
+    let shortHeight = NativeTranscriptRowMeasurer.height(for: shortRow, width: 640)
+    let multilineHeight = NativeTranscriptRowMeasurer.height(for: multilineRow, width: 640)
+
+    #expect(abs(bubble.frame.width - expectedWidth) < 0.5)
+    #expect(multilineHeight > shortHeight)
+  }
+
+  @Test
   func bottomContentInsetDoesNotShortenVerticalScroller() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
       onToggleSpeech: { _, _ in },
@@ -447,7 +507,7 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
-  func userMessageUsesMarkdownBlocksForRendering() {
+  func userMessageUsesDedicatedBlocksForRendering() {
     let markdown = "# Plan\n- **First** step"
     let row = nativeUserRow(
       id: "user-markdown",
@@ -456,9 +516,9 @@ struct AppKitChatTranscriptDiffPlanTests {
     )
     var requestedMarkdown: [String] = []
     var actions = testNativeActions()
-    actions.markdownBlocks = { source in
-      requestedMarkdown.append(source)
-      return NativeTranscriptMarkdownRenderer.blocks(for: source)
+    actions.userMessageBlocks = { _, _, message in
+      requestedMarkdown.append(message.content)
+      return NativeUserMessageRenderer.blocks(for: message)
     }
 
     let cell = configuredNativeCell(for: row, actions: actions)
@@ -927,8 +987,8 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
-  func userHeightMeasurementUsesProvidedMarkdownBlocks() {
-    var markdownBlockRequests = 0
+  func userHeightMeasurementUsesProvidedUserMessageBlocks() {
+    var userMessageBlockRequests = 0
     var cache = NativeTranscriptHeightCache()
     let row = nativeUserRow(
       id: "user",
@@ -939,21 +999,21 @@ struct AppKitChatTranscriptDiffPlanTests {
     _ = cache.height(
       for: row,
       width: 640,
-      markdownBlocks: { markdown in
-        markdownBlockRequests += 1
-        return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
+      userMessageBlocks: { _, _, message in
+        userMessageBlockRequests += 1
+        return NativeUserMessageRenderer.blocks(for: message)
       }
     )
     _ = cache.height(
       for: row,
       width: 640,
-      markdownBlocks: { markdown in
-        markdownBlockRequests += 1
-        return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
+      userMessageBlocks: { _, _, message in
+        userMessageBlockRequests += 1
+        return NativeUserMessageRenderer.blocks(for: message)
       }
     )
 
-    #expect(markdownBlockRequests == 1)
+    #expect(userMessageBlockRequests == 1)
   }
 
   @Test
@@ -3004,7 +3064,8 @@ private func nativeUserRow(
   id: String,
   revision: Int,
   content: String = "Question",
-  attachments: [ChatAttachment] = []
+  attachments: [ChatAttachment] = [],
+  message: UserTurnMessage? = nil
 ) -> NativeTranscriptRow {
   NativeTranscriptRow(
     id: id,
@@ -3012,12 +3073,51 @@ private func nativeUserRow(
     body: .item(
       RenderedChatTurnItem(
         id: id,
-        item: .userMessage(UserTurnMessage(content: content, attachments: attachments)),
+        item: .userMessage(
+          message ?? UserTurnMessage(content: content, attachments: attachments)
+        ),
         generationMetrics: nil,
         assistantRenderBlocks: [],
         renderRevision: revision
       ))
   )
+}
+
+private func nativeSkillUserMessage(
+  content: String,
+  displayName: String
+) -> UserTurnMessage {
+  let skillContent = "---\nname: review\ndescription: Review changes.\n---\nInstructions"
+  let skill = ActivatedSkill(
+    id: SkillID(scope: .project, name: "review"),
+    portablePath: ".agents/skills/review/SKILL.md",
+    contentHash: ChatAttachmentStore.contentSHA256(for: Data(skillContent.utf8)),
+    content: skillContent,
+    interfaceMetadata: SkillInterfaceMetadata(displayName: displayName)
+  )
+  let range = (content as NSString).range(of: "$review")
+  return UserTurnMessage(
+    content: content,
+    promptContext: CurrentPromptContext.empty(.focusedFileDefault)
+      .appendingActivatedSkills([skill]),
+    activatedSkillMentions: range.location == NSNotFound
+      ? []
+      : [ActivatedSkillMention(id: skill.id, range: range)]
+  )
+}
+
+private func combinedUserMessageText(_ message: UserTurnMessage) -> NSAttributedString {
+  let result = NSMutableAttributedString()
+  for block in NativeUserMessageRenderer.blocks(for: message) {
+    guard case .text(let attributedString) = block else {
+      continue
+    }
+    if result.length > 0 {
+      result.append(NSAttributedString(string: "\n"))
+    }
+    result.append(attributedString)
+  }
+  return result
 }
 
 private func nativeAssistantRow(
@@ -3501,6 +3601,9 @@ private func testNativeActions(
 ) -> NativeTranscriptCellActions {
   NativeTranscriptCellActions(
     markdownBlocks: NativeTranscriptMarkdownRenderer.blocks,
+    userMessageBlocks: { _, _, message in
+      NativeUserMessageRenderer.blocks(for: message)
+    },
     openLink: openLink,
     highlightedCode: { _, _ in nil },
     requestCodeHighlight: { _, _ in },

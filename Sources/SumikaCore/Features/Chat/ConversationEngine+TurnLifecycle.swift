@@ -92,6 +92,7 @@ extension ConversationEngine {
       assistantMessageID: assistantMessageID,
       attachments: attachments,
       activatedSkills: preparedSkills.activatedSkills,
+      activatedSkillMentions: preparedSkills.activatedSkillMentions,
       workspace: workspace,
       interactionMode: interactionMode,
       conversation: self

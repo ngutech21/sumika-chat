@@ -502,17 +502,24 @@ package struct UserTurnMessage: Codable, Identifiable, Equatable, Sendable {
   package var content: String
   package var attachments: [ChatAttachment]
   package var promptContext: CurrentPromptContext
+  package let activatedSkillMentions: [ActivatedSkillMention]
 
   package init(
     id: UUID = UUID(),
     content: String,
     attachments: [ChatAttachment] = [],
-    promptContext: CurrentPromptContext = .empty(.focusedFileDefault)
+    promptContext: CurrentPromptContext = .empty(.focusedFileDefault),
+    activatedSkillMentions: [ActivatedSkillMention] = []
   ) {
     self.id = id
     self.content = content
     self.attachments = attachments
     self.promptContext = promptContext
+    self.activatedSkillMentions = Self.validatedSkillMentions(
+      activatedSkillMentions,
+      content: content,
+      promptContext: promptContext
+    )
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -520,6 +527,7 @@ package struct UserTurnMessage: Codable, Identifiable, Equatable, Sendable {
     case content
     case attachments
     case promptContext
+    case activatedSkillMentions
   }
 
   package init(from decoder: Decoder) throws {
@@ -532,6 +540,16 @@ package struct UserTurnMessage: Codable, Identifiable, Equatable, Sendable {
       forKey: .promptContext,
       default: .empty(.focusedFileDefault)
     )
+    let decodedSkillMentions =
+      (try? container.decodeLossyArray(
+        [ActivatedSkillMention].self,
+        forKey: .activatedSkillMentions
+      )) ?? []
+    activatedSkillMentions = Self.validatedSkillMentions(
+      decodedSkillMentions,
+      content: content,
+      promptContext: promptContext
+    )
   }
 
   package func encode(to encoder: Encoder) throws {
@@ -540,6 +558,42 @@ package struct UserTurnMessage: Codable, Identifiable, Equatable, Sendable {
     try container.encode(content, forKey: .content)
     try container.encode(attachments, forKey: .attachments)
     try container.encode(promptContext, forKey: .promptContext)
+    if !activatedSkillMentions.isEmpty {
+      try container.encode(activatedSkillMentions, forKey: .activatedSkillMentions)
+    }
+  }
+
+  private static func validatedSkillMentions(
+    _ mentions: [ActivatedSkillMention],
+    content: String,
+    promptContext: CurrentPromptContext
+  ) -> [ActivatedSkillMention] {
+    let activeIDs = Set(promptContext.activatedSkills.map(\.id))
+    let tokens = SkillCatalog.mentionTokens(in: content)
+    let text = content as NSString
+    var previousUpperBound = 0
+    return mentions.sorted { lhs, rhs in
+      if lhs.range.location == rhs.range.location {
+        return lhs.range.length < rhs.range.length
+      }
+      return lhs.range.location < rhs.range.location
+    }.filter { mention in
+      guard activeIDs.contains(mention.id),
+        mention.range.location >= previousUpperBound,
+        mention.range.location >= 0,
+        mention.range.length > 1,
+        mention.range.location <= text.length,
+        mention.range.length <= text.length - mention.range.location,
+        tokens.contains(where: { token in
+          token.range == mention.range
+            && token.name == mention.id.name
+        })
+      else {
+        return false
+      }
+      previousUpperBound = mention.range.location + mention.range.length
+      return true
+    }
   }
 }
 

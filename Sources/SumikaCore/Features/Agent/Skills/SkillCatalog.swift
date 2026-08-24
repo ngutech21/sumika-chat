@@ -86,6 +86,7 @@ extension SkillCatalog {
     let rootURL: URL
     let contentHash: String
     let content: String
+    let interfaceMetadata: SkillInterfaceMetadata?
   }
 
   fileprivate struct ScopeScanResult: Sendable {
@@ -93,9 +94,29 @@ extension SkillCatalog {
     var diagnostics: [SkillDiagnostic] = []
   }
 
-  fileprivate struct MentionToken: Equatable, Sendable {
+  struct MentionToken: Equatable, Sendable {
     let name: String
     let range: NSRange
+  }
+
+  fileprivate struct OpenAIMetadata: Decodable {
+    let interface: OpenAIInterfaceFields?
+  }
+
+  fileprivate struct OpenAIInterfaceFields: Decodable {
+    let displayName: String?
+    let shortDescription: String?
+
+    init(from decoder: Decoder) throws {
+      let container = try decoder.container(keyedBy: OpenAIInterfaceCodingKeys.self)
+      displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
+      shortDescription = try container.decodeIfPresent(String.self, forKey: .shortDescription)
+    }
+  }
+
+  fileprivate enum OpenAIInterfaceCodingKeys: String, CodingKey {
+    case displayName = "display_name"
+    case shortDescription = "short_description"
   }
 
   fileprivate struct Frontmatter: Decodable {
@@ -205,6 +226,7 @@ extension SkillCatalog {
     }
 
     var selectedEntries: [SkillEntry] = []
+    var activatedSkillMentions: [ActivatedSkillMention] = []
     var selectedIDs = Set<SkillID>()
     for token in tokens {
       let entry: SkillEntry?
@@ -217,10 +239,15 @@ extension SkillCatalog {
         }
         entry = matchingEntries.first
       }
-      guard let entry, selectedIDs.insert(entry.descriptor.id).inserted else {
+      guard let entry else {
         continue
       }
-      selectedEntries.append(entry)
+      activatedSkillMentions.append(
+        ActivatedSkillMention(id: entry.descriptor.id, range: token.range)
+      )
+      if selectedIDs.insert(entry.descriptor.id).inserted {
+        selectedEntries.append(entry)
+      }
     }
 
     let totalCharacterCount = selectedEntries.reduce(0) { $0 + $1.content.count }
@@ -236,9 +263,11 @@ extension SkillCatalog {
           id: entry.descriptor.id,
           portablePath: entry.descriptor.portablePath,
           contentHash: entry.contentHash,
-          content: entry.content
+          content: entry.content,
+          interfaceMetadata: entry.interfaceMetadata
         )
       },
+      activatedSkillMentions: activatedSkillMentions,
       resourceRoots: selectedEntries.map { entry in
         SkillResourceRoot(id: entry.descriptor.id, rootURL: entry.rootURL)
       },
@@ -274,7 +303,7 @@ extension SkillCatalog {
     }
   }
 
-  fileprivate static func mentionTokens(in text: String) -> [MentionToken] {
+  static func mentionTokens(in text: String) -> [MentionToken] {
     let nsText = text as NSString
     var tokens: [MentionToken] = []
     var index = 0
@@ -495,7 +524,8 @@ extension SkillCatalog {
           descriptor: descriptor,
           rootURL: canonicalDirectoryURL,
           contentHash: sha256(data),
-          content: content
+          content: content,
+          interfaceMetadata: readInterfaceMetadata(in: canonicalDirectoryURL)
         )
       )
     } catch let error as ParseError {
@@ -542,6 +572,39 @@ extension SkillCatalog {
     }
     try validate(frontmatter, directoryName: directoryName)
     return frontmatter
+  }
+
+  static func persistedDescription(in skill: ActivatedSkill) -> String? {
+    try? parseFrontmatter(skill.content, directoryName: skill.id.name).description
+  }
+
+  fileprivate static func readInterfaceMetadata(
+    in canonicalSkillDirectoryURL: URL
+  ) -> SkillInterfaceMetadata? {
+    let metadataURL =
+      canonicalSkillDirectoryURL
+      .appending(path: "agents", directoryHint: .isDirectory)
+      .appending(path: "openai.yaml", directoryHint: .notDirectory)
+    guard FileManager.default.fileExists(atPath: metadataURL.path(percentEncoded: false)) else {
+      return nil
+    }
+    let canonicalMetadataURL = metadataURL.standardizedFileURL.resolvingSymlinksInPath()
+    guard contains(canonicalMetadataURL, within: canonicalSkillDirectoryURL) else {
+      return nil
+    }
+    guard
+      let values = try? canonicalMetadataURL.resourceValues(forKeys: [.isRegularFileKey]),
+      values.isRegularFile == true,
+      let data = try? Data(contentsOf: canonicalMetadataURL),
+      let content = String(data: data, encoding: .utf8),
+      let metadata = try? YAMLDecoder().decode(OpenAIMetadata.self, from: content)
+    else {
+      return nil
+    }
+    return SkillInterfaceMetadata.make(
+      displayName: metadata.interface?.displayName,
+      shortDescription: metadata.interface?.shortDescription
+    )
   }
 
   fileprivate static func validate(_ frontmatter: Frontmatter, directoryName: String) throws {

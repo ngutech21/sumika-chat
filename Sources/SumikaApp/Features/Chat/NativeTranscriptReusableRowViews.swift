@@ -171,6 +171,7 @@ final class NativeUserMessageView: NSView {
   func update(
     message: UserTurnMessage,
     rowID: String,
+    renderRevision: Int,
     assetsRevision: Int,
     isCopied: Bool,
     maximumBubbleWidth: CGFloat,
@@ -193,7 +194,10 @@ final class NativeUserMessageView: NSView {
     }
 
     let hasContent = !message.content.isEmpty
-    let blocks = hasContent ? actions.markdownBlocks(message.content) : []
+    let blocks =
+      hasContent
+      ? actions.userMessageBlocks(rowID, renderRevision, message)
+      : []
     markdownView.update(blocks: blocks)
     bubblePreferredWidthConstraint?.constant = Self.preferredBubbleWidth(
       for: blocks,

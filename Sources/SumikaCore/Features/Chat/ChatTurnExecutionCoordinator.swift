@@ -96,6 +96,7 @@ struct ChatTurnExecutionCoordinator {
     assistantMessageID: UUID,
     attachments: [ChatAttachment],
     activatedSkills: [ActivatedSkill],
+    activatedSkillMentions: [ActivatedSkillMention],
     workspace: Workspace?,
     interactionMode: WorkspaceInteractionMode,
     conversation: ConversationEngine
@@ -124,7 +125,8 @@ struct ChatTurnExecutionCoordinator {
           messageID: userMessageID,
           turnID: turnID,
           attachments: attachments,
-          promptContext: currentPromptContext
+          promptContext: currentPromptContext,
+          activatedSkillMentions: activatedSkillMentions
         ),
       ])
 

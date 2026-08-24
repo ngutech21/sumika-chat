@@ -357,7 +357,12 @@ struct NativeTranscriptHeightCache {
     width: CGFloat,
     state: NativeTranscriptCellState = NativeTranscriptCellState(),
     markdownBlocks: @escaping @MainActor (String) -> [NativeMarkdownBlock] =
-      NativeTranscriptMarkdownRenderer.blocks
+      NativeTranscriptMarkdownRenderer.blocks,
+    userMessageBlocks:
+      @escaping @MainActor (String, Int, UserTurnMessage) ->
+      [NativeMarkdownBlock] = { _, _, message in
+        NativeUserMessageRenderer.blocks(for: message)
+      }
   ) -> CGFloat {
     let normalizedWidth = Int(width.rounded(.down))
     let key = Key(
@@ -386,6 +391,7 @@ struct NativeTranscriptHeightCache {
         width: width,
         state: state,
         markdownBlocks: markdownBlocks,
+        userMessageBlocks: userMessageBlocks,
         reusing: cell
       )
     }
@@ -540,6 +546,11 @@ enum NativeTranscriptRowMeasurer {
     state: NativeTranscriptCellState = NativeTranscriptCellState(),
     markdownBlocks: @escaping @MainActor (String) -> [NativeMarkdownBlock] =
       NativeTranscriptMarkdownRenderer.blocks,
+    userMessageBlocks:
+      @escaping @MainActor (String, Int, UserTurnMessage) ->
+      [NativeMarkdownBlock] = { _, _, message in
+        NativeUserMessageRenderer.blocks(for: message)
+      },
     reusing reusableCell: NativeChatMessageCellView? = nil
   ) -> CGFloat {
     ChatDiagnostics.measure("Transcript row measure", category: .transcript) {
@@ -547,17 +558,24 @@ enum NativeTranscriptRowMeasurer {
         for: row,
         width: width,
         state: state,
-        actions: measuringActions(markdownBlocks: markdownBlocks),
+        actions: measuringActions(
+          markdownBlocks: markdownBlocks,
+          userMessageBlocks: userMessageBlocks
+        ),
         reusing: reusableCell
       )
     }
   }
 
   private static func measuringActions(
-    markdownBlocks: @escaping @MainActor (String) -> [NativeMarkdownBlock]
+    markdownBlocks: @escaping @MainActor (String) -> [NativeMarkdownBlock],
+    userMessageBlocks:
+      @escaping @MainActor (String, Int, UserTurnMessage) ->
+      [NativeMarkdownBlock]
   ) -> NativeTranscriptCellActions {
     NativeTranscriptCellActions(
       markdownBlocks: markdownBlocks,
+      userMessageBlocks: userMessageBlocks,
       openLink: { _ in },
       highlightedCode: { _, _ in nil },
       requestCodeHighlight: { _, _ in },
@@ -672,6 +690,7 @@ struct NativeTranscriptCoordinatorState: Equatable {
 
 struct NativeTranscriptCellActions {
   var markdownBlocks: @MainActor (String) -> [NativeMarkdownBlock]
+  var userMessageBlocks: @MainActor (String, Int, UserTurnMessage) -> [NativeMarkdownBlock]
   var openLink: @MainActor (URL) -> Void
   var highlightedCode: @MainActor (String, AssistantRenderBlock.CodeBlock) -> HighlightedCode?
   var requestCodeHighlight: @MainActor (String, AssistantRenderBlock.CodeBlock) -> Void

@@ -7,7 +7,8 @@ enum ChatWorkflowEvent: Equatable, Sendable {
     messageID: UUID,
     turnID: ChatTurn.ID,
     attachments: [ChatAttachment],
-    promptContext: CurrentPromptContext
+    promptContext: CurrentPromptContext,
+    activatedSkillMentions: [ActivatedSkillMention]
   )
   case userMessagePromptContextUpdated(
     messageID: UUID,
@@ -138,7 +139,8 @@ struct ChatWorkflowEventApplier: Sendable {
       let messageID,
       let turnID,
       let attachments,
-      let promptContext
+      let promptContext,
+      let activatedSkillMentions
     ):
       mutator.appendUserMessage(
         content,
@@ -146,6 +148,7 @@ struct ChatWorkflowEventApplier: Sendable {
         turnID: turnID,
         attachments: attachments,
         promptContext: promptContext,
+        activatedSkillMentions: activatedSkillMentions,
         to: &state
       )
     case .userMessagePromptContextUpdated(let messageID, let promptContext):
@@ -218,7 +221,7 @@ struct ChatWorkflowEventApplier: Sendable {
     switch event {
     case .turnAppended:
       return []
-    case .userMessageAppended(_, _, let turnID, _, _):
+    case .userMessageAppended(_, _, let turnID, _, _, _):
       return missingTurnDiagnostics([turnID], event: event, in: state)
     case .userMessagePromptContextUpdated(let messageID, _):
       return missingMessageDiagnostics([messageID], event: event, in: state)

@@ -177,6 +177,204 @@ struct NativeTranscriptTextRenderingTests {
   }
 
   @Test
+  func userMessageRendererProjectsSkillAsIconAndDisplayNameWithTooltip() throws {
+    let tooltip = "Review a diff on standards and spec"
+    let rendered = combinedTextBlocks(
+      NativeUserMessageRenderer.blocks(
+        for: skillMessage(
+          content: "Use $code-review",
+          name: "code-review",
+          description: "Full review description.",
+          metadata: SkillInterfaceMetadata(
+            displayName: "Code Review",
+            shortDescription: tooltip
+          )
+        )
+      )
+    )
+    let iconRange = (rendered.string as NSString).range(of: "\u{fffc}")
+    let labelRange = (rendered.string as NSString).range(of: "Code Review")
+
+    #expect(iconRange.location != NSNotFound)
+    #expect(labelRange.location != NSNotFound)
+    #expect(rendered.attribute(.attachment, at: iconRange.location, effectiveRange: nil) != nil)
+    #expect(
+      rendered.attribute(.toolTip, at: iconRange.location, effectiveRange: nil) as? String
+        == tooltip)
+    #expect(
+      rendered.attribute(.toolTip, at: labelRange.location, effectiveRange: nil) as? String
+        == tooltip)
+    #expect(rendered.attribute(.toolTip, at: iconRange.location + 1, effectiveRange: nil) == nil)
+    #expect(rendered.attribute(.link, at: labelRange.location, effectiveRange: nil) == nil)
+    #expect(
+      rendered.attribute(.underlineStyle, at: labelRange.location, effectiveRange: nil) == nil)
+    #expect(rendered.foregroundColor(inText: "Code Review") == NSColor.linkColor)
+    #expect(
+      rendered.font(inText: "Code Review")
+        == NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+    )
+  }
+
+  @Test
+  func userMessageRendererUsesPersistedSkillFallbacks() {
+    let rendered = combinedTextBlocks(
+      NativeUserMessageRenderer.blocks(
+        for: skillMessage(
+          content: "$testing",
+          name: "testing",
+          description: "Run all focused tests."
+        )
+      )
+    )
+    let labelRange = (rendered.string as NSString).range(of: "$testing")
+
+    #expect(rendered.string.contains("\u{fffc} $testing"))
+    #expect(
+      rendered.attribute(.toolTip, at: labelRange.location, effectiveRange: nil) as? String
+        == "Run all focused tests."
+    )
+  }
+
+  @Test
+  func userMessageRendererHandlesEmphasisTablesAndUTF16SourceRanges() throws {
+    let content = "🧪 **$code-review**\n\n| Skill |\n| --- |\n| $code-review |"
+    let blocks = NativeUserMessageRenderer.blocks(
+      for: skillMessage(
+        content: content,
+        name: "code-review",
+        description: "Review changes.",
+        metadata: SkillInterfaceMetadata(displayName: "Code Review")
+      )
+    )
+    let text = combinedTextBlocks(blocks)
+    let table = try tableBlock(in: blocks)
+
+    #expect(text.string.contains("🧪 \u{fffc} Code Review"))
+    #expect(!text.string.contains("$code-review"))
+    #expect(table.rows[0][0].attributedString.string.contains("\u{fffc} Code Review"))
+    #expect(
+      table.rows[0][0].attributedString.attribute(
+        .toolTip,
+        at: 0,
+        effectiveRange: nil
+      ) as? String == "Review changes."
+    )
+  }
+
+  @Test
+  func userMessageRendererMapsDecodedMarkdownSourceAroundSkillMentions() {
+    let cases = [
+      (content: "&amp; $review", prefix: "& "),
+      (content: "\\* $review", prefix: "* "),
+      (content: "&#36;review $review", prefix: "$review "),
+    ]
+
+    for testCase in cases {
+      let rendered = combinedTextBlocks(
+        NativeUserMessageRenderer.blocks(
+          for: skillMessage(
+            content: testCase.content,
+            name: "review",
+            description: "Review changes.",
+            metadata: SkillInterfaceMetadata(displayName: "Review")
+          )
+        )
+      )
+
+      #expect(rendered.string == "\(testCase.prefix)\u{fffc} Review")
+      #expect(rendered.string.components(separatedBy: "\u{fffc}").count - 1 == 1)
+    }
+  }
+
+  @Test
+  func userMessageRendererLeavesSkillTokensInsideCodeAndLinksUnchanged() {
+    let content = "`$code-review` and [$code-review](https://example.com) then $code-review"
+    let rendered = combinedTextBlocks(
+      NativeUserMessageRenderer.blocks(
+        for: skillMessage(
+          content: content,
+          name: "code-review",
+          description: "Review changes.",
+          metadata: SkillInterfaceMetadata(displayName: "Code Review")
+        )
+      )
+    )
+
+    #expect(rendered.string.components(separatedBy: "$code-review").count - 1 == 2)
+    #expect(rendered.string.components(separatedBy: "Code Review").count - 1 == 1)
+    #expect(rendered.hasMonospacedFont(inText: "$code-review"))
+    let secondRawRange = (rendered.string as NSString).range(
+      of: "$code-review",
+      options: [],
+      range: NSRange(
+        location: NSMaxRange((rendered.string as NSString).range(of: "$code-review")),
+        length: (rendered.string as NSString).length
+          - NSMaxRange((rendered.string as NSString).range(of: "$code-review"))
+      )
+    )
+    #expect(rendered.attribute(.link, at: secondRawRange.location, effectiveRange: nil) != nil)
+  }
+
+  @Test
+  func userMessageTooltipsBecomeAccessibilityHelpAndClearOnReuse() {
+    let rendered = combinedTextBlocks(
+      NativeUserMessageRenderer.blocks(
+        for: skillMessage(
+          content: "$code-review and $code-review",
+          name: "code-review",
+          description: "Review changes.",
+          metadata: SkillInterfaceMetadata(
+            displayName: "Code Review",
+            shortDescription: "Review a diff"
+          )
+        )
+      )
+    )
+    let textView = NativeTranscriptTextView()
+
+    textView.setAttributedText(rendered)
+    #expect(textView.accessibilityRole() == .staticText)
+    #expect(textView.accessibilityHelp() == "Review a diff")
+
+    textView.setAttributedText(NativeTranscriptMarkdownRenderer.linkifiedPlainText("Plain"))
+    #expect(textView.accessibilityHelp() == nil)
+  }
+
+  @Test
+  func userMessageCacheSeparatesIdenticalTextWithDifferentSkillSnapshots() {
+    var cache = NativeUserMessageRenderCache()
+    let first = skillMessage(
+      content: "$review",
+      name: "review",
+      description: "First description.",
+      metadata: SkillInterfaceMetadata(displayName: "Project Review")
+    )
+    let second = skillMessage(
+      content: "$review",
+      name: "review",
+      scope: .personal,
+      description: "Second description.",
+      metadata: SkillInterfaceMetadata(displayName: "Personal Review")
+    )
+
+    let firstText = combinedTextBlocks(
+      cache.blocks(for: first, rowID: "first", renderRevision: 1)
+    )
+    let secondText = combinedTextBlocks(
+      cache.blocks(for: second, rowID: "second", renderRevision: 1)
+    )
+    _ = cache.blocks(for: second, rowID: "first", renderRevision: 2)
+
+    #expect(firstText.string.contains("Project Review"))
+    #expect(secondText.string.contains("Personal Review"))
+    #expect(cache.cachedEntryCount == 2)
+    cache.prune(
+      activeKeys: [NativeUserMessageRenderCache.Key(rowID: "first", renderRevision: 2)]
+    )
+    #expect(cache.cachedEntryCount == 1)
+  }
+
+  @Test
   func markdownCacheReusesRenderedBlocksAndPrunesInactiveEntries() {
     var cache = NativeTranscriptMarkdownCache()
 
@@ -364,6 +562,50 @@ private func tableBlock(in blocks: [NativeMarkdownBlock]) throws -> NativeMarkdo
 
 private struct TestFailure: Error {}
 
+private func skillMessage(
+  content: String,
+  name: String,
+  scope: SkillScope = .project,
+  description: String,
+  metadata: SkillInterfaceMetadata? = nil
+) -> UserTurnMessage {
+  let skillContent = "---\nname: \(name)\ndescription: \(description)\n---\nInstructions"
+  let skill = ActivatedSkill(
+    id: SkillID(scope: scope, name: name),
+    portablePath: scope == .project
+      ? ".agents/skills/\(name)/SKILL.md"
+      : "$HOME/.agents/skills/\(name)/SKILL.md",
+    contentHash: ChatAttachmentStore.contentSHA256(for: Data(skillContent.utf8)),
+    content: skillContent,
+    interfaceMetadata: metadata
+  )
+  let mentions = allRanges(of: "$\(name)", in: content).map {
+    ActivatedSkillMention(id: skill.id, range: $0)
+  }
+  return UserTurnMessage(
+    content: content,
+    promptContext: CurrentPromptContext.empty(.focusedFileDefault)
+      .appendingActivatedSkills([skill]),
+    activatedSkillMentions: mentions
+  )
+}
+
+private func allRanges(of token: String, in text: String) -> [NSRange] {
+  let source = text as NSString
+  var result: [NSRange] = []
+  var searchRange = NSRange(location: 0, length: source.length)
+  while searchRange.length > 0 {
+    let range = source.range(of: token, options: [], range: searchRange)
+    guard range.location != NSNotFound else {
+      break
+    }
+    result.append(range)
+    let nextLocation = NSMaxRange(range)
+    searchRange = NSRange(location: nextLocation, length: source.length - nextLocation)
+  }
+  return result
+}
+
 extension NSAttributedString {
   fileprivate func hasLink(inText text: String) -> Bool {
     attribute(.link, inText: text) != nil
@@ -390,6 +632,10 @@ extension NSAttributedString {
       return 0
     }
     return font.pointSize
+  }
+
+  fileprivate func font(inText text: String) -> NSFont? {
+    attribute(.font, inText: text) as? NSFont
   }
 
   fileprivate func hasFontTrait(_ trait: NSFontTraitMask, inText text: String) -> Bool {

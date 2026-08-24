@@ -92,6 +92,7 @@ final class NativeChatTranscriptCoordinator: NSObject {
   private var cellStateStore = NativeTranscriptCoordinatorState()
   private var heightCache = NativeTranscriptHeightCache()
   private var markdownCache = NativeTranscriptMarkdownCache()
+  private var userMessageRenderCache = NativeUserMessageRenderCache()
   private let codeHighlightStore = NativeTranscriptCodeHighlightStore()
   private let attachmentThumbnailStore = NativeTranscriptAttachmentThumbnailStore()
   private var attachmentPreviewPopover: NSPopover?
@@ -440,7 +441,8 @@ extension NativeChatTranscriptCoordinator: NSTableViewDelegate {
             return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
           }
           return self.markdownCache.blocks(for: markdown)
-        }
+        },
+        userMessageBlocks: makeUserMessageBlocksProvider()
       )
       if rowModel.isStreamingTranscriptRow {
         lastNotedHeightByRowID[rowModel.id] = measuredHeight
@@ -597,6 +599,21 @@ extension NativeChatTranscriptCoordinator {
 
 extension NativeChatTranscriptCoordinator {
 
+  private func makeUserMessageBlocksProvider()
+    -> @MainActor (String, Int, UserTurnMessage) -> [NativeMarkdownBlock]
+  {
+    { [weak self] rowID, revision, message in
+      guard let self else {
+        return NativeUserMessageRenderer.blocks(for: message)
+      }
+      return self.userMessageRenderCache.blocks(
+        for: message,
+        rowID: rowID,
+        renderRevision: revision
+      )
+    }
+  }
+
   private func configure(_ cell: NativeChatMessageCellView, with row: NativeTranscriptRow) {
     ChatDiagnostics.measure("Transcript row configure", category: .transcript) {
       cell.configure(
@@ -615,6 +632,7 @@ extension NativeChatTranscriptCoordinator {
             }
             return self.markdownCache.blocks(for: markdown)
           },
+          userMessageBlocks: makeUserMessageBlocksProvider(),
           openLink: { [weak self] url in
             self?.openLink(url)
           },
@@ -1240,6 +1258,19 @@ extension NativeChatTranscriptCoordinator {
       streamingHeightWorkItem = nil
     }
     markdownCache.prune(activeTexts: activeMarkdownTexts(in: activeRows))
+    userMessageRenderCache.prune(
+      activeKeys: Set(
+        activeRows.compactMap { row in
+          guard row.isUserMessage else {
+            return nil
+          }
+          return NativeUserMessageRenderCache.Key(
+            rowID: row.id,
+            renderRevision: row.revision
+          )
+        }
+      )
+    )
     codeHighlightStore.prune(activeDescriptors: activeCodeHighlightDescriptors(in: activeRows))
     attachmentThumbnailStore.prune(
       activeDescriptors: activeAttachmentThumbnailDescriptors(in: activeRows)
@@ -1247,24 +1278,17 @@ extension NativeChatTranscriptCoordinator {
   }
 
   private func activeMarkdownTexts(in rows: [NativeTranscriptRow]) -> Set<String> {
-    Set(
+    return Set(
       rows.flatMap { row -> [String] in
         guard case .item(let item) = row.body else {
           return []
         }
-        let userMessages: [String] =
-          if case .userMessage(let message) = item.item, !message.content.isEmpty {
-            [message.content]
-          } else {
-            []
-          }
-        let assistantParagraphs: [String] = item.assistantRenderBlocks.compactMap { block in
+        return item.assistantRenderBlocks.compactMap { block in
           guard case .paragraph(let paragraph) = block else {
             return nil
           }
           return paragraph.text
         }
-        return userMessages + assistantParagraphs
       })
   }
 
@@ -1457,6 +1481,7 @@ final class NativeChatMessageCellView: NSTableCellView {
           userView.update(
             message: message,
             rowID: row.id,
+            renderRevision: item.renderRevision,
             assetsRevision: assetsRevision,
             isCopied: state.isCopied,
             maximumBubbleWidth: item.nativeMaximumBubbleWidth,
@@ -1467,6 +1492,7 @@ final class NativeChatMessageCellView: NSTableCellView {
           contentView = makeUserMessageView(
             message: message,
             rowID: row.id,
+            renderRevision: item.renderRevision,
             assetsRevision: assetsRevision,
             isCopied: state.isCopied,
             maximumBubbleWidth: item.nativeMaximumBubbleWidth
@@ -1606,6 +1632,7 @@ final class NativeChatMessageCellView: NSTableCellView {
   private func makeUserMessageView(
     message: UserTurnMessage,
     rowID: String,
+    renderRevision: Int,
     assetsRevision: Int,
     isCopied: Bool,
     maximumBubbleWidth: CGFloat
@@ -1628,6 +1655,7 @@ final class NativeChatMessageCellView: NSTableCellView {
     userView.update(
       message: message,
       rowID: rowID,
+      renderRevision: renderRevision,
       assetsRevision: assetsRevision,
       isCopied: isCopied,
       maximumBubbleWidth: maximumBubbleWidth,

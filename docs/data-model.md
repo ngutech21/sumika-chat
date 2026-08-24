@@ -2240,6 +2240,7 @@ Properties:
 
 Properties:
 
+- `activatedSkillMentions: [ActivatedSkillMention]`
 - `attachments: [ChatAttachment]`
 - `content: String`
 - `id: UUID`

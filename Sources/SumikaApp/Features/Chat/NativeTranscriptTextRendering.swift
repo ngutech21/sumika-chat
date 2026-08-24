@@ -26,6 +26,49 @@ struct NativeTranscriptMarkdownCache {
   }
 }
 
+struct NativeUserMessageRenderCache {
+  private var blocksByKey: [Key: [NativeMarkdownBlock]] = [:]
+
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
+  var cachedEntryCount: Int {
+    blocksByKey.count
+  }
+
+  mutating func blocks(
+    for message: UserTurnMessage,
+    rowID: String,
+    renderRevision: Int
+  ) -> [NativeMarkdownBlock] {
+    let key = Key(rowID: rowID, renderRevision: renderRevision)
+    if let cached = blocksByKey[key] {
+      return cached
+    }
+    blocksByKey = blocksByKey.filter { $0.key.rowID != rowID }
+    let blocks = NativeUserMessageRenderer.blocks(for: message)
+    blocksByKey[key] = blocks
+    return blocks
+  }
+
+  mutating func prune(activeKeys: Set<Key>) {
+    blocksByKey = blocksByKey.filter { activeKeys.contains($0.key) }
+  }
+
+  struct Key: Hashable {
+    let rowID: String
+    let renderRevision: Int
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+      lhs.rowID == rhs.rowID && lhs.renderRevision == rhs.renderRevision
+    }
+
+    func hash(into hasher: inout Hasher) {
+      hasher.combine(rowID)
+      hasher.combine(renderRevision)
+    }
+  }
+}
+
 enum NativeMarkdownBlock {
   case text(NSAttributedString)
   case table(NativeMarkdownTable)
@@ -72,10 +115,16 @@ enum NativeTranscriptMarkdownRenderer {
     return attributedString
   }
 
-  private static func renderMarkdown(_ markdown: String) -> [NativeMarkdownBlock] {
+  fileprivate static func renderMarkdown(
+    _ markdown: String,
+    skillMentions: [ActivatedSkillMentionPresentation] = []
+  ) -> [NativeMarkdownBlock] {
     let source = markdown.isEmpty ? " " : markdown
     let document = Document(parsing: source)
-    let renderer = NativeTranscriptMarkdownASTRenderer()
+    let renderer = NativeTranscriptMarkdownASTRenderer(
+      source: source,
+      skillMentions: skillMentions
+    )
     return renderer.renderBlocks(document)
   }
 
@@ -124,11 +173,274 @@ enum NativeTranscriptMarkdownRenderer {
   }
 }
 
+enum NativeUserMessageRenderer {
+  static func blocks(for message: UserTurnMessage) -> [NativeMarkdownBlock] {
+    NativeTranscriptMarkdownRenderer.renderMarkdown(
+      message.content,
+      skillMentions: message.activatedSkillMentionPresentations
+    )
+  }
+}
+
+private struct NativeMarkdownSourceMap {
+  private let source: String
+  private let lineStartUTF8Offsets: [Int]
+
+  init(source: String) {
+    self.source = source
+    var lineStarts = [0]
+    for (offset, byte) in source.utf8.enumerated() where byte == 10 {
+      lineStarts.append(offset + 1)
+    }
+    lineStartUTF8Offsets = lineStarts
+  }
+
+  func utf16Range(for sourceRange: SourceRange) -> NSRange? {
+    guard let lowerBound = stringIndex(for: sourceRange.lowerBound),
+      let upperBound = stringIndex(for: sourceRange.upperBound),
+      lowerBound <= upperBound
+    else {
+      return nil
+    }
+    return NSRange(lowerBound..<upperBound, in: source)
+  }
+
+  private func stringIndex(for location: SourceLocation) -> String.Index? {
+    guard location.line > 0,
+      location.line <= lineStartUTF8Offsets.count,
+      location.column > 0
+    else {
+      return nil
+    }
+    let absoluteOffset = lineStartUTF8Offsets[location.line - 1] + location.column - 1
+    guard absoluteOffset <= source.utf8.count else {
+      return nil
+    }
+    let utf8Index = source.utf8.index(source.utf8.startIndex, offsetBy: absoluteOffset)
+    return String.Index(utf8Index, within: source)
+  }
+}
+
+private struct NativeSkillMentionRenderingContext {
+  private let source: NSString
+  private let sourceMap: NativeMarkdownSourceMap
+  private let mentions: [ActivatedSkillMentionPresentation]
+
+  init(source: String, mentions: [ActivatedSkillMentionPresentation]) {
+    self.source = source as NSString
+    sourceMap = NativeMarkdownSourceMap(source: source)
+    self.mentions = mentions
+  }
+
+  func append(
+    text: Text,
+    baseAttributes: [NSAttributedString.Key: Any],
+    paragraphStyle: NSParagraphStyle,
+    into result: NSMutableAttributedString
+  ) -> Bool {
+    guard let sourceRange = text.range,
+      let rawRange = sourceMap.utf16Range(for: sourceRange)
+    else {
+      return false
+    }
+    let rawText = source.substring(with: rawRange) as NSString
+    let renderedText = text.string as NSString
+    guard Self.decodedTextSource(rawText as String) == text.string else {
+      return false
+    }
+    let matchingMentions = mentions.filter { mention in
+      mention.range.location >= rawRange.location
+        && NSMaxRange(mention.range) <= NSMaxRange(rawRange)
+    }
+    guard !matchingMentions.isEmpty else {
+      return false
+    }
+
+    let renderedMentions: [(presentation: ActivatedSkillMentionPresentation, range: NSRange)] =
+      matchingMentions.compactMap { mention in
+        let localRawRange = NSRange(
+          location: mention.range.location - rawRange.location,
+          length: mention.range.length
+        )
+        guard
+          let renderedRange = Self.renderedRange(
+            for: localRawRange,
+            rawText: rawText,
+            renderedText: renderedText
+          )
+        else {
+          return nil
+        }
+        return (presentation: mention, range: renderedRange)
+      }
+    guard !renderedMentions.isEmpty else {
+      return false
+    }
+
+    var localOffset = 0
+    for renderedMention in renderedMentions {
+      guard renderedMention.range.location >= localOffset else {
+        continue
+      }
+      if renderedMention.range.location > localOffset {
+        result.append(
+          NSAttributedString(
+            string: renderedText.substring(
+              with: NSRange(
+                location: localOffset,
+                length: renderedMention.range.location - localOffset
+              )
+            ),
+            attributes: baseAttributes
+          )
+        )
+      }
+      result.append(
+        Self.attributedSkillReference(
+          displayName: renderedMention.presentation.displayName,
+          tooltip: renderedMention.presentation.tooltip,
+          paragraphStyle: paragraphStyle
+        )
+      )
+      localOffset = NSMaxRange(renderedMention.range)
+    }
+    if localOffset < renderedText.length {
+      result.append(
+        NSAttributedString(
+          string: renderedText.substring(
+            with: NSRange(location: localOffset, length: renderedText.length - localOffset)
+          ),
+          attributes: baseAttributes
+        )
+      )
+    }
+    return true
+  }
+
+  private static func renderedRange(
+    for rawRange: NSRange,
+    rawText: NSString,
+    renderedText: NSString
+  ) -> NSRange? {
+    let rawPrefix = rawText.substring(
+      with: NSRange(location: 0, length: rawRange.location)
+    )
+    let rawThroughMention = rawText.substring(
+      with: NSRange(location: 0, length: NSMaxRange(rawRange))
+    )
+    guard let renderedPrefix = decodedTextSource(rawPrefix),
+      let renderedThroughMention = decodedTextSource(rawThroughMention)
+    else {
+      return nil
+    }
+    let renderedPrefixLength = (renderedPrefix as NSString).length
+    let renderedThroughMentionLength = (renderedThroughMention as NSString).length
+    guard renderedPrefixLength <= renderedThroughMentionLength,
+      renderedThroughMentionLength <= renderedText.length,
+      renderedText.substring(
+        with: NSRange(location: 0, length: renderedPrefixLength)
+      ) == renderedPrefix,
+      renderedText.substring(
+        with: NSRange(location: 0, length: renderedThroughMentionLength)
+      ) == renderedThroughMention
+    else {
+      return nil
+    }
+    let renderedRange = NSRange(
+      location: renderedPrefixLength,
+      length: renderedThroughMentionLength - renderedPrefixLength
+    )
+    guard renderedText.substring(with: renderedRange) == rawText.substring(with: rawRange) else {
+      return nil
+    }
+    return renderedRange
+  }
+
+  private static func decodedTextSource(_ rawText: String) -> String? {
+    let prefix = "\u{e000}"
+    let suffix = "\u{e001}"
+    let document = Document(parsing: prefix + rawText + suffix)
+    let children = Array(document.children)
+    guard children.count == 1,
+      let paragraph = children.first as? Paragraph,
+      paragraph.plainText.hasPrefix(prefix),
+      paragraph.plainText.hasSuffix(suffix)
+    else {
+      return nil
+    }
+    return String(paragraph.plainText.dropFirst(prefix.count).dropLast(suffix.count))
+  }
+
+  private static func attributedSkillReference(
+    displayName: String,
+    tooltip: String,
+    paragraphStyle: NSParagraphStyle
+  ) -> NSAttributedString {
+    let font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+    let symbolConfiguration = NSImage.SymbolConfiguration(
+      pointSize: font.pointSize,
+      weight: .medium
+    ).applying(NSImage.SymbolConfiguration(paletteColors: [.linkColor]))
+    let attachment = NSTextAttachment(data: nil, ofType: nil)
+    attachment.image = NSImage(
+      systemSymbolName: "cube",
+      accessibilityDescription: "Skill"
+    )?.withSymbolConfiguration(symbolConfiguration)
+    let iconSize = ceil(font.pointSize)
+    attachment.bounds = NSRect(x: 0, y: -2, width: iconSize, height: iconSize)
+
+    let result = NSMutableAttributedString(attachment: attachment)
+    result.append(NSAttributedString(string: " "))
+    result.append(NSAttributedString(string: displayName))
+    result.addAttributes(
+      [
+        .font: font,
+        .foregroundColor: NSColor.linkColor,
+        .paragraphStyle: paragraphStyle,
+      ],
+      range: NSRange(location: 0, length: result.length)
+    )
+    result.addAttribute(.toolTip, value: tooltip, range: NSRange(location: 0, length: 1))
+    result.addAttribute(
+      .toolTip,
+      value: tooltip,
+      range: NSRange(location: 2, length: (displayName as NSString).length)
+    )
+    return result
+  }
+}
+
+private func appendMarkdownText(
+  _ text: Text,
+  attributes: [NSAttributedString.Key: Any],
+  paragraphStyle: NSParagraphStyle,
+  linkURL: URL?,
+  skillMentionContext: NativeSkillMentionRenderingContext?,
+  into result: NSMutableAttributedString
+) {
+  guard linkURL == nil,
+    skillMentionContext?.append(
+      text: text,
+      baseAttributes: attributes,
+      paragraphStyle: paragraphStyle,
+      into: result
+    ) == true
+  else {
+    result.append(NSAttributedString(string: text.string, attributes: attributes))
+    return
+  }
+}
+
 private final class NativeTranscriptInlineAccumulator {
   private let result: NSMutableAttributedString
+  private let skillMentionContext: NativeSkillMentionRenderingContext?
 
-  init(result: NSMutableAttributedString) {
+  init(
+    result: NSMutableAttributedString,
+    skillMentionContext: NativeSkillMentionRenderingContext? = nil
+  ) {
     self.result = result
+    self.skillMentionContext = skillMentionContext
   }
 
   func renderInlineChildren(of markup: Markup, style: NativeTranscriptInlineStyle) {
@@ -140,7 +452,15 @@ private final class NativeTranscriptInlineAccumulator {
   private func renderInline(_ markup: Markup, style: NativeTranscriptInlineStyle) {
     switch markup {
     case let text as Text:
-      appendText(text.string, attributes: inlineAttributes(style: style))
+      let attributes = inlineAttributes(style: style)
+      appendMarkdownText(
+        text,
+        attributes: attributes,
+        paragraphStyle: style.paragraphStyle,
+        linkURL: style.linkURL,
+        skillMentionContext: skillMentionContext,
+        into: result
+      )
 
     case let code as InlineCode:
       appendText(
@@ -245,6 +565,14 @@ private struct NativeTranscriptInlineStyle {
 private final class NativeTranscriptMarkdownASTRenderer {
   private var blocks: [NativeMarkdownBlock] = []
   private let textResult = NSMutableAttributedString()
+  private let skillMentionContext: NativeSkillMentionRenderingContext?
+
+  init(source: String, skillMentions: [ActivatedSkillMentionPresentation]) {
+    skillMentionContext =
+      skillMentions.isEmpty
+      ? nil
+      : NativeSkillMentionRenderingContext(source: source, mentions: skillMentions)
+  }
 
   func renderBlocks(_ document: Document) -> [NativeMarkdownBlock] {
     renderBlockChildren(of: document, depth: 0, quoteDepth: 0)
@@ -451,7 +779,10 @@ private final class NativeTranscriptMarkdownASTRenderer {
       isHeader
       ? .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
       : .systemFont(ofSize: NSFont.systemFontSize)
-    let renderer = NativeTranscriptInlineAccumulator(result: cellResult)
+    let renderer = NativeTranscriptInlineAccumulator(
+      result: cellResult,
+      skillMentionContext: skillMentionContext
+    )
     renderer.renderInlineChildren(
       of: cell,
       style: NativeTranscriptInlineStyle(
@@ -482,7 +813,15 @@ private final class NativeTranscriptMarkdownASTRenderer {
   private func renderInline(_ markup: Markup, style: InlineStyle) {
     switch markup {
     case let text as Text:
-      appendText(text.string, attributes: inlineAttributes(style: style))
+      let attributes = inlineAttributes(style: style)
+      appendMarkdownText(
+        text,
+        attributes: attributes,
+        paragraphStyle: style.paragraphStyle,
+        linkURL: style.linkURL,
+        skillMentionContext: skillMentionContext,
+        into: textResult
+      )
 
     case let code as InlineCode:
       appendText(
