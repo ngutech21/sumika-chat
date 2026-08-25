@@ -328,7 +328,7 @@ final class NativeAttachmentPreviewButton: NSButton {
   }
 
   override func hitTest(_ point: NSPoint) -> NSView? {
-    bounds.contains(point) ? self : nil
+    frame.contains(point) ? self : nil
   }
 
   override func accessibilityPerformPress() -> Bool {

@@ -91,6 +91,54 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func liveInsertedUserImageRoutesClicksToItsPreviewButton() throws {
+    let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      onToggleSpeech: { _, _ in },
+      onApproveToolCall: { _ in },
+      onDenyToolCall: { _ in },
+      onAnswerAskUser: { _, _ in }
+    )
+    let scrollView = coordinator.makeScrollView()
+    scrollView.setFrameSize(NSSize(width: 640, height: 300))
+    coordinator.update(
+      rows: [],
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      in: scrollView
+    )
+    let attachment = nativeImageAttachment(displayName: "diagram.png")
+    coordinator.update(
+      rows: [
+        nativeUserRow(
+          id: "user",
+          revision: 1,
+          attachments: [attachment]
+        )
+      ],
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      in: scrollView
+    )
+    coordinator.flushPendingHeightInvalidationForTesting()
+    scrollView.layoutSubtreeIfNeeded()
+
+    let tableView = try #require(scrollView.documentView as? NativeTranscriptNSTableView)
+    let cell = try #require(
+      tableView.view(atColumn: 0, row: 0, makeIfNecessary: true) as? NativeChatMessageCellView
+    )
+    cell.layoutSubtreeIfNeeded()
+    let imageButton = try #require(
+      cell.descendants(of: NSButton.self).first { $0.toolTip == attachment.displayName }
+    )
+    let buttonCenter = NSPoint(x: imageButton.bounds.midX, y: imageButton.bounds.midY)
+    let hitPoint = imageButton.convert(buttonCenter, to: tableView.superview)
+
+    #expect(tableView.hitTest(hitPoint, eventType: .leftMouseDown) === imageButton)
+  }
+
+  @Test
   func reusedIconButtonKeepsItsSymbolViewStateWhenConfigurationIsUnchanged() throws {
     let button = NativeReusableRowViewStyle.iconButton()
     button.configureIcon(
