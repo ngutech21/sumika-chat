@@ -7,6 +7,7 @@ enum MLXChatRuntimeError: LocalizedError {
   case invalidChatTemplateMessageSequence
   case unsupportedArchitecture
   case unsupportedImageInput
+  case unreadableImageAttachment(String)
   case interruptedStream
   case generationTokenLimitReached
 
@@ -22,6 +23,8 @@ enum MLXChatRuntimeError: LocalizedError {
       "Local MLX inference requires an Apple Silicon Mac."
     case .unsupportedImageInput:
       "The selected local model cannot analyze images. Select a vision-capable model or remove the image attachment."
+    case .unreadableImageAttachment(let name):
+      "\(name) could not be decoded as an image."
     case .interruptedStream:
       "Local MLX generation ended before the model reported completion."
     case .generationTokenLimitReached:

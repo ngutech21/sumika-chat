@@ -1,6 +1,10 @@
+import CoreGraphics
+import CoreImage
 import Foundation
+import ImageIO
 import MLXLMCommon
 import Testing
+import UniformTypeIdentifiers
 
 @testable import SumikaCore
 @testable import SumikaRuntimeMLX
@@ -21,39 +25,79 @@ extension MLXGenerationInput {
 
 @Suite(TemporaryDirectoryTrait(named: "sumika-mlx-history-tests"))
 struct MLXHistoryRendererTests {
-  @Test
-  func imageInputsUseAttachmentFileURLs() throws {
-    let directoryURL = try scopedTemporaryDirectory()
-      .appending(
-        path: UUID().uuidString, directoryHint: .isDirectory)
-    try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-    let url = directoryURL.appending(path: "screenshot.png", directoryHint: .notDirectory)
-    let data = Data([0x89, 0x50, 0x4e, 0x47])
-    try data.write(to: url)
-    let store = ChatAttachmentStore(baseURL: directoryURL.appending(path: "attachments"))
-    let id = AttachmentID()
-    let storedURL = try store.storeFile(from: url, id: id, displayName: "screenshot.png")
-    let attachment = ChatAttachment(
-      id: id,
-      displayName: "screenshot.png",
-      payload: .image(
-        ImageAttachmentPayload(
-          mimeType: "image/png",
-          byteSize: data.count,
-          contentSHA256: ChatAttachmentStore.contentSHA256(for: data)
-        )
-      )
+  @Test(arguments: EXIFOrientationExpectation.allCases)
+  func imageInputsNormalizeEXIFOrientation(_ expectation: EXIFOrientationExpectation) throws {
+    let fixture = try storedImageFixture(exifOrientation: expectation.rawValue)
+    let storedDataBeforeProjection = try Data(contentsOf: fixture.storedURL)
+    let storedHashBeforeProjection = ChatAttachmentStore.contentSHA256(
+      for: storedDataBeforeProjection
     )
 
-    let images = try MLXHistoryRenderer.imageInputs(from: [attachment], attachmentStore: store)
+    let images = try MLXHistoryRenderer.imageInputs(
+      from: [fixture.attachment],
+      attachmentStore: fixture.store
+    )
+
+    let input = try #require(images.first)
+    let modelImage = try input.asCIImage()
+    let previewImage = try previewImage(from: fixture.storedURL)
+    let isCIImage: Bool = if case .ciImage = input { true } else { false }
+    let storedDataAfterProjection = try Data(contentsOf: fixture.storedURL)
+    let storedHashAfterProjection = ChatAttachmentStore.contentSHA256(
+      for: storedDataAfterProjection
+    )
 
     #expect(images.count == 1)
-    guard case .url(let imageURL) = try #require(images.first) else {
-      Issue.record("Expected URL-backed image input.")
-      return
+    #expect(isCIImage)
+    #expect(modelImage.extent.integral.size == expectation.size)
+    #expect(modelImage.extent.integral == previewImage.extent.integral)
+    #expect(markerSignature(of: modelImage) == expectation.markerSignature)
+    #expect(markerSignature(of: modelImage) == markerSignature(of: previewImage))
+    #expect(storedDataAfterProjection == storedDataBeforeProjection)
+    #expect(storedHashBeforeProjection == fixture.attachment.contentSHA256)
+    #expect(storedHashAfterProjection == storedHashBeforeProjection)
+  }
+
+  @Test
+  func imageInputsRejectUndecodableStoredImage() throws {
+    let fixture = try storedImageFixture(
+      data: Data("not an image".utf8),
+      displayName: "broken.jpg"
+    )
+
+    do {
+      _ = try MLXHistoryRenderer.imageInputs(
+        from: [fixture.attachment],
+        attachmentStore: fixture.store
+      )
+      Issue.record("Expected unreadable image attachment error.")
+    } catch MLXChatRuntimeError.unreadableImageAttachment(let name) {
+      #expect(name == "broken.jpg")
+      #expect(
+        MLXChatRuntimeError.unreadableImageAttachment(name).errorDescription
+          == "broken.jpg could not be decoded as an image."
+      )
+    } catch {
+      Issue.record("Unexpected error: \(error)")
     }
-    #expect(imageURL.lastPathComponent == storedURL.lastPathComponent)
-    #expect(try Data(contentsOf: imageURL) == data)
+  }
+
+  @Test
+  func imageInputsRejectChangedStoredImageBeforeDecode() throws {
+    let fixture = try storedImageFixture(exifOrientation: 1)
+    try Data("changed after attachment".utf8).write(to: fixture.storedURL)
+
+    do {
+      _ = try MLXHistoryRenderer.imageInputs(
+        from: [fixture.attachment],
+        attachmentStore: fixture.store
+      )
+      Issue.record("Expected changed stored attachment error.")
+    } catch ChatAttachmentError.changedStoredAttachment(let name) {
+      #expect(name == fixture.attachment.displayName)
+    } catch {
+      Issue.record("Unexpected error: \(error)")
+    }
   }
 
   @Test
@@ -1123,6 +1167,184 @@ struct MLXHistoryRendererTests {
     ) + input.promptMessages
   }
 
+  private func storedImageFixture(exifOrientation: Int) throws -> StoredImageFixture {
+    let directoryURL = try scopedTemporaryDirectory()
+      .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+    let sourceURL = directoryURL.appending(
+      path: "orientation-\(exifOrientation).jpg",
+      directoryHint: .notDirectory
+    )
+    try writeMarkerJPEG(to: sourceURL, exifOrientation: exifOrientation)
+    let data = try Data(contentsOf: sourceURL)
+    let store = ChatAttachmentStore(baseURL: directoryURL.appending(path: "attachments"))
+    let id = AttachmentID()
+    let storedURL = try store.storeFile(
+      from: sourceURL,
+      id: id,
+      displayName: sourceURL.lastPathComponent
+    )
+    let attachment = ChatAttachment(
+      id: id,
+      displayName: sourceURL.lastPathComponent,
+      payload: .image(
+        ImageAttachmentPayload(
+          mimeType: "image/jpeg",
+          byteSize: data.count,
+          contentSHA256: ChatAttachmentStore.contentSHA256(for: data)
+        )
+      )
+    )
+    return StoredImageFixture(
+      store: store,
+      attachment: attachment,
+      storedURL: storedURL
+    )
+  }
+
+  private func storedImageFixture(data: Data, displayName: String) throws -> StoredImageFixture {
+    let directoryURL = try scopedTemporaryDirectory()
+      .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+    let sourceURL = directoryURL.appending(path: displayName, directoryHint: .notDirectory)
+    try data.write(to: sourceURL)
+    let store = ChatAttachmentStore(baseURL: directoryURL.appending(path: "attachments"))
+    let id = AttachmentID()
+    let storedURL = try store.storeFile(from: sourceURL, id: id, displayName: displayName)
+    let attachment = ChatAttachment(
+      id: id,
+      displayName: displayName,
+      payload: .image(
+        ImageAttachmentPayload(
+          mimeType: "image/jpeg",
+          byteSize: data.count,
+          contentSHA256: ChatAttachmentStore.contentSHA256(for: data)
+        )
+      )
+    )
+    return StoredImageFixture(
+      store: store,
+      attachment: attachment,
+      storedURL: storedURL
+    )
+  }
+
+  private func writeMarkerJPEG(to url: URL, exifOrientation: Int) throws {
+    guard
+      let destination = CGImageDestinationCreateWithURL(
+        url as CFURL,
+        UTType.jpeg.identifier as CFString,
+        1,
+        nil
+      )
+    else {
+      throw EXIFImageFixtureError.couldNotCreateDestination
+    }
+    CGImageDestinationAddImage(
+      destination,
+      try markerImage(),
+      [kCGImagePropertyOrientation: exifOrientation] as CFDictionary
+    )
+    guard CGImageDestinationFinalize(destination) else {
+      throw EXIFImageFixtureError.couldNotFinalizeDestination
+    }
+  }
+
+  private func markerImage() throws -> CGImage {
+    let width = 40
+    let height = 20
+    var pixels: [UInt8] = []
+    pixels.reserveCapacity(width * height * 4)
+    for row in 0..<height {
+      for column in 0..<width {
+        let color: (UInt8, UInt8, UInt8) =
+          switch (column < width / 2, row < height / 2) {
+          case (true, true): (255, 0, 0)
+          case (false, true): (0, 255, 0)
+          case (true, false): (0, 0, 255)
+          case (false, false): (255, 255, 0)
+          }
+        pixels.append(contentsOf: [color.0, color.1, color.2, 255])
+      }
+    }
+    guard
+      let provider = CGDataProvider(data: Data(pixels) as CFData),
+      let image = CGImage(
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bitsPerPixel: 32,
+        bytesPerRow: width * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+        provider: provider,
+        decode: nil,
+        shouldInterpolate: false,
+        intent: .defaultIntent
+      )
+    else {
+      throw EXIFImageFixtureError.couldNotCreateMarkerImage
+    }
+    return image
+  }
+
+  private func previewImage(from url: URL) throws -> CIImage {
+    guard
+      let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+      let image = CGImageSourceCreateThumbnailAtIndex(
+        source,
+        0,
+        [
+          kCGImageSourceCreateThumbnailFromImageAlways: true,
+          kCGImageSourceCreateThumbnailWithTransform: true,
+          kCGImageSourceThumbnailMaxPixelSize: 1_024,
+        ] as CFDictionary
+      )
+    else {
+      throw EXIFImageFixtureError.couldNotCreatePreviewImage
+    }
+    return CIImage(cgImage: image)
+  }
+
+  private func markerSignature(of image: CIImage) -> String {
+    let extent = image.extent.integral
+    let width = Int(extent.width)
+    let height = Int(extent.height)
+    var pixels = [UInt8](repeating: 0, count: width * height * 4)
+    CIContext(options: [.cacheIntermediates: false]).render(
+      image,
+      toBitmap: &pixels,
+      rowBytes: width * 4,
+      bounds: extent,
+      format: .RGBA8,
+      colorSpace: CGColorSpace(name: CGColorSpace.sRGB)
+    )
+
+    func marker(atColumn column: Int, row: Int) -> Character {
+      let offset = (row * width + column) * 4
+      let red = Int(pixels[offset])
+      let green = Int(pixels[offset + 1])
+      let blue = Int(pixels[offset + 2])
+      if red > 160, green > 160, blue < 100 {
+        return "Y"
+      }
+      if red > green, red > blue {
+        return "R"
+      }
+      if green > red, green > blue {
+        return "G"
+      }
+      return "B"
+    }
+
+    return String([
+      marker(atColumn: width / 4, row: height / 4),
+      marker(atColumn: 3 * width / 4, row: height / 4),
+      marker(atColumn: width / 4, row: 3 * height / 4),
+      marker(atColumn: 3 * width / 4, row: 3 * height / 4),
+    ])
+  }
+
   private func generationHistoryMessages(
     from entries: [ModelContextEntry]
   ) throws -> [Chat.Message] {
@@ -1193,4 +1415,50 @@ struct MLXHistoryRendererTests {
     )
   }
 
+}
+
+private struct StoredImageFixture {
+  let store: ChatAttachmentStore
+  let attachment: ChatAttachment
+  let storedURL: URL
+}
+
+private enum EXIFImageFixtureError: Error {
+  case couldNotCreateDestination
+  case couldNotFinalizeDestination
+  case couldNotCreateMarkerImage
+  case couldNotCreatePreviewImage
+}
+
+enum EXIFOrientationExpectation: Int, CaseIterable, Sendable {
+  case upright = 1
+  case upMirrored = 2
+  case down = 3
+  case downMirrored = 4
+  case leftMirrored = 5
+  case right = 6
+  case rightMirrored = 7
+  case left = 8
+
+  var size: CGSize {
+    switch self {
+    case .upright, .upMirrored, .down, .downMirrored:
+      CGSize(width: 40, height: 20)
+    case .leftMirrored, .right, .rightMirrored, .left:
+      CGSize(width: 20, height: 40)
+    }
+  }
+
+  var markerSignature: String {
+    switch self {
+    case .upright: "RGBY"
+    case .upMirrored: "GRYB"
+    case .down: "YBGR"
+    case .downMirrored: "BYRG"
+    case .leftMirrored: "RBGY"
+    case .right: "BRYG"
+    case .rightMirrored: "YGBR"
+    case .left: "GYRB"
+    }
+  }
 }

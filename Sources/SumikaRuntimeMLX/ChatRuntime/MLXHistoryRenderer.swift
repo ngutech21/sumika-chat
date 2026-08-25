@@ -1,3 +1,4 @@
+import CoreImage
 import MLXLMCommon
 import SumikaCore
 
@@ -28,7 +29,16 @@ enum MLXHistoryRenderer {
     attachmentStore: ChatAttachmentStore = ChatAttachmentStore()
   ) throws -> [UserInput.Image] {
     try attachments.map { attachment in
-      .url(try attachmentStore.validateStoredFile(for: attachment))
+      let url = try attachmentStore.validateStoredFile(for: attachment)
+      guard
+        let image = CIImage(
+          contentsOf: url,
+          options: [.applyOrientationProperty: true]
+        )
+      else {
+        throw MLXChatRuntimeError.unreadableImageAttachment(attachment.displayName)
+      }
+      return .ciImage(image)
     }
   }
 
