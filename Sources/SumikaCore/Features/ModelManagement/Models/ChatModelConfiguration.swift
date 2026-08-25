@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 package struct ChatModelConfiguration: Equatable, Sendable {
@@ -25,46 +26,6 @@ package struct ChatModelConfiguration: Equatable, Sendable {
     self.supportsHistoricalReasoningPreservation = supportsHistoricalReasoningPreservation
     self.reasoningEffort = reasoningEffort
     self.thinkingBudgetPolicy = thinkingBudgetPolicy
-  }
-}
-
-package struct ChatGenerationConfigPreset: Equatable, Sendable {
-  package let temperature: Double?
-  package let topP: Double?
-  package let topK: Int?
-  package let repetitionPenalty: Double?
-
-  package init(
-    temperature: Double? = nil,
-    topP: Double? = nil,
-    topK: Int? = nil,
-    repetitionPenalty: Double? = nil
-  ) {
-    self.temperature = temperature
-    self.topP = topP
-    self.topK = topK
-    self.repetitionPenalty = repetitionPenalty
-  }
-
-  package var hasValues: Bool {
-    temperature != nil || topP != nil || topK != nil || repetitionPenalty != nil
-  }
-
-  package func applying(to settings: ChatGenerationSettings) -> ChatGenerationSettings {
-    var updated = settings
-    if let temperature {
-      updated.temperature = temperature
-    }
-    if let topP {
-      updated.topP = topP
-    }
-    if let topK {
-      updated.topK = topK
-    }
-    if let repetitionPenalty {
-      updated.repetitionPenalty = repetitionPenalty
-    }
-    return updated
   }
 }
 
@@ -99,9 +60,9 @@ package enum LocalModelDirectory {
     return contextTokenLimit(in: object)
   }
 
-  package static func readGenerationConfigPreset(
+  static func readGenerationConfigPreset(
     from modelDirectory: URL
-  ) -> ChatGenerationConfigPreset? {
+  ) -> GenerationSettingsOverride? {
     let configURL = modelDirectory.appending(
       path: "generation_config.json", directoryHint: .notDirectory)
     guard
@@ -111,22 +72,30 @@ package enum LocalModelDirectory {
       return nil
     }
 
-    let preset = ChatGenerationConfigPreset(
-      temperature: doubleValue(for: "temperature", in: object),
-      topP: doubleValue(for: "top_p", in: object),
-      topK: intValue(for: "top_k", in: object),
-      repetitionPenalty: doubleValue(for: "repetition_penalty", in: object)
+    let preset = GenerationSettingsOverride(
+      temperature: doubleValue(for: "temperature", in: object) { $0 >= 0 },
+      topP: doubleValue(for: "top_p", in: object) { (0...1).contains($0) },
+      topK: intValue(for: "top_k", in: object) { $0 >= 0 },
+      minP: doubleValue(for: "min_p", in: object) { (0...1).contains($0) },
+      repetitionPenalty: doubleValue(for: "repetition_penalty", in: object) { $0 > 0 },
+      presencePenalty: doubleValue(for: "presence_penalty", in: object) {
+        (-2...2).contains($0)
+      }
     )
     return preset.hasValues ? preset : nil
   }
 
   private static func contextTokenLimit(in object: [String: Any]) -> Int? {
     for key in ["max_position_embeddings", "max_seq_len", "seq_length", "n_ctx"] {
-      if let value = object[key] as? Int {
+      guard let rawValue = object[key], !isBoolean(rawValue) else {
+        continue
+      }
+
+      if let value = rawValue as? Int {
         return value
       }
 
-      if let value = object[key] as? Double {
+      if let value = rawValue as? Double {
         return Int(value)
       }
     }
@@ -142,23 +111,54 @@ package enum LocalModelDirectory {
     return nil
   }
 
-  private static func doubleValue(for key: String, in object: [String: Any]) -> Double? {
-    if let value = object[key] as? Double {
-      return value
+  private static func doubleValue(
+    for key: String,
+    in object: [String: Any],
+    validating isValid: (Double) -> Bool
+  ) -> Double? {
+    guard let rawValue = object[key], !isBoolean(rawValue) else {
+      return nil
     }
-    if let value = object[key] as? Int {
-      return Double(value)
+    let value: Double?
+    if let double = rawValue as? Double {
+      value = double
+    } else if let integer = rawValue as? Int {
+      value = Double(integer)
+    } else {
+      value = nil
     }
-    return nil
+    guard let value, value.isFinite, isValid(value) else {
+      return nil
+    }
+    return value
   }
 
-  private static func intValue(for key: String, in object: [String: Any]) -> Int? {
-    if let value = object[key] as? Int {
-      return value
+  private static func intValue(
+    for key: String,
+    in object: [String: Any],
+    validating isValid: (Int) -> Bool
+  ) -> Int? {
+    guard let rawValue = object[key], !isBoolean(rawValue) else {
+      return nil
     }
-    if let value = object[key] as? Double {
-      return Int(value)
+    let value: Int?
+    if let integer = rawValue as? Int {
+      value = integer
+    } else if let double = rawValue as? Double, double.isFinite {
+      value = Int(exactly: double)
+    } else {
+      value = nil
     }
-    return nil
+    guard let value, isValid(value) else {
+      return nil
+    }
+    return value
+  }
+
+  private static func isBoolean(_ value: Any) -> Bool {
+    guard let number = value as? NSNumber else {
+      return false
+    }
+    return CFGetTypeID(number) == CFBooleanGetTypeID()
   }
 }

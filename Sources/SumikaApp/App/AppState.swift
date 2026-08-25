@@ -506,7 +506,7 @@ final class AppState {
     {
       return Self.defaultSessionFactory(
         selectedModelID: selectedModelID,
-        modeSettings: modelManagementState.modeSettings,
+        modeSettings: modelManagementState.resolvedModeSettings,
         interactionMode: settingsState.appBehaviorSettings.defaultInteractionMode,
         toolApprovalPolicy: settingsState.appBehaviorSettings.defaultToolApprovalPolicy
       )

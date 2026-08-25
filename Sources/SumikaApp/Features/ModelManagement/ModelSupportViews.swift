@@ -290,7 +290,8 @@ struct ModelAdvancedSettings: View {
   @Binding var modeSettings: ChatModeSettingsSet
   @Binding var contextTokenLimit: Int
   let canChangeContextTokenLimit: Bool
-  let generationConfigPreset: ChatGenerationConfigPreset?
+  let onUseRecommendedSettings: (WorkspaceInteractionMode) -> Void
+  let onResetContextTokenLimit: () -> Void
   @State private var selectedMode = WorkspaceInteractionMode.chat
 
   var body: some View {
@@ -370,6 +371,20 @@ struct ModelAdvancedSettings: View {
 
         VStack(alignment: .leading, spacing: 6) {
           HStack {
+            Label("Min P", systemImage: "chart.line.downtrend.xyaxis")
+            Spacer()
+            Text(
+              selectedGenerationSettings.wrappedValue.minP.formatted(
+                .number.precision(.fractionLength(2)))
+            )
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+          }
+          Slider(value: selectedMinP, in: 0...1, step: 0.01)
+        }
+
+        VStack(alignment: .leading, spacing: 6) {
+          HStack {
             Label("Repetition Penalty", systemImage: "repeat")
             Spacer()
             Text(
@@ -421,20 +436,12 @@ struct ModelAdvancedSettings: View {
           }
         }
 
-        Button("Reset \(selectedMode.displayName) Defaults") {
-          // Reset to exactly what the model loads with when nothing is saved: the built-in
-          // defaults layered with the model's generation_config.json preset (chat adopts it
-          // fully, agent keeps its conservative loop-resistant temperature). Single source
-          // of truth with ModelSettingsStore.settings(for:).
-          modeSettings[selectedMode] =
-            ModelSettingsStore.applyingGenerationConfigPreset(
-              generationConfigPreset,
-              to: model.defaultModeSettings
-            )[selectedMode]
+        Button("Use Recommended \(selectedMode.displayName) Settings") {
+          onUseRecommendedSettings(selectedMode)
         }
 
         Button("Reset Context Length") {
-          contextTokenLimit = model.defaultContextTokenLimit
+          onResetContextTokenLimit()
         }
       }
     }
@@ -484,6 +491,13 @@ struct ModelAdvancedSettings: View {
     Binding(
       get: { selectedGenerationSettings.wrappedValue.topK },
       set: { selectedGenerationSettings.wrappedValue.topK = $0 }
+    )
+  }
+
+  private var selectedMinP: Binding<Double> {
+    Binding(
+      get: { selectedGenerationSettings.wrappedValue.minP },
+      set: { selectedGenerationSettings.wrappedValue.minP = $0 }
     )
   }
 

@@ -74,11 +74,12 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
   package let supportsHistoricalReasoningPreservation: Bool
   package let reasoningEffort: ModelReasoningEffort?
   package let thinkingBudgetPolicy: ThinkingBudgetPolicy
+  let generationProfile: ModelGenerationProfile?
   package let defaultModeSettings: ChatModeSettingsSet
   package let defaultContextTokenLimit: Int
   package let maxToolLoopIterations: Int
 
-  package init(
+  init(
     id: String,
     displayName: String,
     detail: String,
@@ -95,6 +96,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     supportsHistoricalReasoningPreservation: Bool = false,
     reasoningEffort: ModelReasoningEffort? = nil,
     thinkingBudgetPolicy: ThinkingBudgetPolicy = .unmanaged,
+    generationProfile: ModelGenerationProfile? = nil,
     defaultModeSettings: ChatModeSettingsSet,
     defaultContextTokenLimit: Int,
     maxToolLoopIterations: Int = 8
@@ -115,6 +117,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     self.supportsHistoricalReasoningPreservation = supportsHistoricalReasoningPreservation
     self.reasoningEffort = reasoningEffort
     self.thinkingBudgetPolicy = thinkingBudgetPolicy
+    self.generationProfile = generationProfile
     self.defaultModeSettings = defaultModeSettings
     self.defaultContextTokenLimit = defaultContextTokenLimit
     self.maxToolLoopIterations = maxToolLoopIterations
@@ -142,24 +145,6 @@ package enum ManagedModelCatalog {
   package static let defaultModelID = "gemma4-12b-qat-4bit"
   package static let defaultContextTokenLimit = 16_384
 
-  private static let qwen36DefaultModeSettings: ChatModeSettingsSet = {
-    var settings = ChatModeSettingsSet.defaultSettings
-    settings.agent.generationSettings.temperature = 0.6
-    settings.agent.generationSettings.topP = 0.95
-    settings.agent.generationSettings.topK = 20
-    settings.agent.generationSettings.presencePenalty = 0.3
-    settings.agent.generationSettings.repetitionPenalty = 1
-    settings.agent.generationSettings.maxTokens = 32_768
-
-    settings.chat.generationSettings.temperature = 0.6
-    settings.chat.generationSettings.topP = 0.95
-    settings.chat.generationSettings.topK = 20
-    settings.chat.generationSettings.presencePenalty = 0.3
-    settings.chat.generationSettings.repetitionPenalty = 1
-    settings.chat.generationSettings.maxTokens = 32_768
-    return settings
-  }()
-
   package static let models: [ManagedModel] = [
     ManagedModel(
       id: "gemma4-e4b-qat-4bit",
@@ -173,6 +158,7 @@ package enum ManagedModelCatalog {
       stability: .stable,
       supportsImageInput: true,
       reasoningTraceFormat: .gemmaChannel,
+      generationProfile: .gemma4,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit
     ),
@@ -189,6 +175,7 @@ package enum ManagedModelCatalog {
       stability: .stable,
       supportsImageInput: true,
       reasoningTraceFormat: .gemmaChannel,
+      generationProfile: .gemma4,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit
     ),
@@ -205,6 +192,7 @@ package enum ManagedModelCatalog {
       stability: .stable,
       supportsImageInput: true,
       reasoningTraceFormat: .gemmaChannel,
+      generationProfile: .gemma4,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit
     ),
@@ -220,6 +208,7 @@ package enum ManagedModelCatalog {
       stability: .stable,
       supportsImageInput: true,
       reasoningTraceFormat: .gemmaChannel,
+      generationProfile: .gemma4,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
@@ -239,7 +228,8 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,
-      defaultModeSettings: qwen36DefaultModeSettings,
+      generationProfile: .qwen36,
+      defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
     ),
@@ -258,7 +248,8 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,
-      defaultModeSettings: qwen36DefaultModeSettings,
+      generationProfile: .qwen36,
+      defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
     ),
@@ -276,7 +267,8 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,
-      defaultModeSettings: qwen36DefaultModeSettings,
+      generationProfile: .qwen36,
+      defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
     ),
@@ -294,7 +286,8 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,
-      defaultModeSettings: qwen36DefaultModeSettings,
+      generationProfile: .qwen36,
+      defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
     ),
@@ -313,7 +306,8 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,
-      defaultModeSettings: qwen36DefaultModeSettings,
+      generationProfile: .qwen36,
+      defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
     ),
@@ -331,7 +325,8 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,
-      defaultModeSettings: qwen36DefaultModeSettings,
+      generationProfile: .qwen36,
+      defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
     ),
@@ -351,7 +346,8 @@ package enum ManagedModelCatalog {
       supportsHistoricalReasoningPreservation: true,
       reasoningEffort: .medium,
       thinkingBudgetPolicy: .hardLimitImmediate,
-      defaultModeSettings: qwen36DefaultModeSettings,
+      generationProfile: .qwen38,
+      defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
     ),
@@ -370,7 +366,8 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,
-      defaultModeSettings: qwen36DefaultModeSettings,
+      generationProfile: .qwen36,
+      defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       maxToolLoopIterations: 18
     ),

@@ -18,6 +18,10 @@ final class ModelManagementFeatureState {
     models.modeSettings
   }
 
+  var resolvedModeSettings: ChatModeSettingsSet {
+    models.resolvedModeSettings
+  }
+
   var errorMessage: String? {
     models.errorMessage
   }
@@ -102,6 +106,14 @@ final class ModelManagementFeatureState {
 
   func updateContextTokenLimit(_ limit: Int) {
     models.updateContextTokenLimit(limit)
+  }
+
+  func useRecommendedSettings(for mode: WorkspaceInteractionMode) {
+    models.useRecommendedSettings(for: mode)
+  }
+
+  func resetContextTokenLimit() {
+    models.resetContextTokenLimit()
   }
 
   func loadSelectedModelForStartup() {

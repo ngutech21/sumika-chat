@@ -62,7 +62,6 @@ flowchart TD
   ModelContextEntryBody --> ToolObservationContext
   ModelContextEntryBody --> UserPromptContext
   ModelContextEntryError --> ModelContextRole
-  ModelManagementState --> ChatGenerationConfigPreset
   ModelManagementState --> ManagedModel
   ModelManagementState --> ModelDownloadState
   ModelManagementState --> ModelLoadState
@@ -345,19 +344,6 @@ Relations:
 - `AssistantModelProjectionPolicy`
 - `ChatGenerationMetrics`
 
-### ChatGenerationConfigPreset
-
-- Kind: `struct`
-- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ChatModelConfiguration.swift`
-- Conforms to: `Equatable`, `Sendable`
-
-Properties:
-
-- `repetitionPenalty: Double?`
-- `temperature: Double?`
-- `topK: Int?`
-- `topP: Double?`
-
 ### ChatGenerationMetrics
 
 - Kind: `struct`
@@ -378,6 +364,7 @@ Properties:
 Properties:
 
 - `maxTokens: Int`
+- `minP: Double`
 - `presencePenalty: Double`
 - `reasoningEnabled: Bool`
 - `repetitionContextSize: Int`
@@ -1025,13 +1012,11 @@ Properties:
 - `downloadState: ModelDownloadState`
 - `downloadedModelIDs: Set<ManagedModel.ID>`
 - `modelContextTokenLimit: Int`
-- `modelGenerationConfigPreset: ChatGenerationConfigPreset?`
 - `modelState: ModelLoadState`
 - `selectedModel: ManagedModel`
 
 Relations:
 
-- `ChatGenerationConfigPreset`
 - `ManagedModel`
 - `ModelDownloadState`
 - `ModelLoadState`
@@ -2204,6 +2189,7 @@ Cases:
 - `persist`
 - `renderSystemPrompt`
 - `runtimeDecode`
+- `runtimeMemory`
 - `runtimePartialDecode`
 - `runtimePrefill`
 - `runtimeStreamEnd`

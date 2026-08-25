@@ -11,7 +11,6 @@ final class ModelRuntimeController {
   var modelState: ModelLoadState = .notLoaded
   var modelContextTokenLimit = ManagedModelCatalog.defaultContextTokenLimit
   var selectedModeSettings = ManagedModelCatalog.defaultModel.defaultModeSettings
-  var modelGenerationConfigPreset: ChatGenerationConfigPreset?
   var modelAvailabilitySnapshot: [ManagedModel.ID: Bool] = [:]
   var deletingModelID: ManagedModel.ID?
   private var isRuntimeOperationInProgress = false
@@ -23,10 +22,9 @@ final class ModelRuntimeController {
   @ObservationIgnored private var downloadTask: Task<Void, Never>?
   @ObservationIgnored private var deleteTask: Task<Void, Never>?
   @ObservationIgnored private var availabilityRefreshTask: Task<Void, Never>?
-  @ObservationIgnored private var generationConfigRefreshTask: Task<Void, Never>?
+  @ObservationIgnored private var settingsMutationTask: Task<Void, Never>?
   @ObservationIgnored private var availabilityRefreshRevision = 0
   @ObservationIgnored private var availabilityMutationRevisions: [ManagedModel.ID: Int] = [:]
-  @ObservationIgnored private var generationConfigRevision = 0
   @ObservationIgnored private var modelOperationID: UUID
 
   @ObservationIgnored var onModelDidChange: (@MainActor (StoredModelSettings) -> Void)?
@@ -56,7 +54,6 @@ final class ModelRuntimeController {
       downloadState: downloadState,
       modelState: modelState,
       modelContextTokenLimit: modelContextTokenLimit,
-      modelGenerationConfigPreset: modelGenerationConfigPreset,
       deletingModelID: deletingModelID,
       canPerformSelectedModelAction: canPerformSelectedModelAction
     )
@@ -92,7 +89,6 @@ final class ModelRuntimeController {
     self.runtimeOperations = runtimeOperations
     self.modelLifecycleCoordinator = modelLifecycleCoordinator
     self.modelOperationID = initialOperationID
-    refreshModelGenerationConfigPreset()
   }
 
   func setEventHandlers(_ handlers: ModelManagementEventHandlers) {
@@ -106,7 +102,7 @@ final class ModelRuntimeController {
     downloadTask?.cancel()
     deleteTask?.cancel()
     availabilityRefreshTask?.cancel()
-    generationConfigRefreshTask?.cancel()
+    settingsMutationTask?.cancel()
   }
 
   #if DEBUG
@@ -126,15 +122,20 @@ final class ModelRuntimeController {
       } else if !modelPath.hasPrefix(baseURL.path(percentEncoded: false)) {
         modelPath = selectedModel.localPath
       }
-      refreshModelGenerationConfigPreset()
+      await refreshResolvedSettings(for: selectedModel)
       await refreshModelAvailability()
     } catch {
       onError?(error.localizedDescription)
     }
   }
 
-  func setContextTokenLimit(_ limit: Int) {
+  func updateContextTokenLimit(_ limit: Int) {
     modelContextTokenLimit = limit
+    enqueueSettingsMutation(.contextTokenLimitChanged(limit), for: selectedModel)
+  }
+
+  func resetContextTokenLimit() {
+    enqueueSettingsMutation(.resetContextTokenLimit, for: selectedModel)
   }
 
   func selectModel(_ model: ManagedModel) {
@@ -147,7 +148,6 @@ final class ModelRuntimeController {
     modelPath = model.localPath
     downloadState = .idle
     modelContextTokenLimit = model.defaultContextTokenLimit
-    modelGenerationConfigPreset = nil
     updateModelAvailability(
       modelLifecycleCoordinator.isModelDownloaded(model),
       for: model.id
@@ -155,13 +155,13 @@ final class ModelRuntimeController {
 
     Task { [modelSettingsStore] in
       await modelSettingsStore.setSelectedModelID(model.id)
+      await settingsMutationTask?.value
       let settings = await modelSettingsStore.settings(for: model)
       guard selectedModelID == model.id else {
         return
       }
       modelContextTokenLimit = settings.contextTokenLimit
       selectedModeSettings = settings.modeSettings
-      refreshModelGenerationConfigPreset()
       onModelDidChange?(settings)
     }
   }
@@ -177,19 +177,18 @@ final class ModelRuntimeController {
       modelPath = model.localPath
       downloadState = .idle
       modelContextTokenLimit = model.defaultContextTokenLimit
-      modelGenerationConfigPreset = nil
     } else if modelPath.isEmpty {
       modelPath = model.localPath
     }
 
     Task { [modelSettingsStore] in
+      await settingsMutationTask?.value
       let settings = await modelSettingsStore.settings(for: model)
       guard selectedModelID == model.id else {
         return
       }
       modelContextTokenLimit = settings.contextTokenLimit
       selectedModeSettings = settings.modeSettings
-      refreshModelGenerationConfigPreset()
     }
 
     if shouldUnloadRuntime {
@@ -251,7 +250,7 @@ final class ModelRuntimeController {
         downloadState = .downloaded
         modelPath = result.localPath
         updateModelAvailability(true, for: model.id)
-        refreshModelGenerationConfigPreset()
+        await refreshResolvedSettings(for: model)
       } catch is CancellationError {
         downloadState = .idle
       } catch {
@@ -263,42 +262,22 @@ final class ModelRuntimeController {
     }
   }
 
-  func saveSelectedModelSettings(modeSettings: ChatModeSettingsSet) {
-    selectedModeSettings = modeSettings
-    let settings = StoredModelSettings(
-      modeSettings: modeSettings,
-      contextTokenLimit: modelContextTokenLimit
+  func updateModeSettings(
+    from previous: ChatModeSettingsSet,
+    to updated: ChatModeSettingsSet
+  ) {
+    selectedModeSettings = updated
+    enqueueSettingsMutation(
+      .modeSettingsChanged(from: previous, updated: updated),
+      for: selectedModel
     )
-
-    let selectedModel = selectedModel
-    Task { [modelSettingsStore] in
-      do {
-        try await modelSettingsStore.save(settings: settings, for: selectedModel)
-      } catch {
-        onError?(error.localizedDescription)
-      }
-    }
   }
 
-  private func refreshModelGenerationConfigPreset() {
-    generationConfigRevision &+= 1
-    let revision = generationConfigRevision
-    let modelDirectory = URL(fileURLWithPath: modelPath, isDirectory: true)
-    generationConfigRefreshTask?.cancel()
-    generationConfigRefreshTask = Task {
-      let preset = await Task.detached {
-        LocalModelDirectory.readGenerationConfigPreset(from: modelDirectory)
-      }.value
-      guard
-        !Task.isCancelled,
-        revision == generationConfigRevision,
-        modelPath == modelDirectory.path(percentEncoded: false)
-      else {
-        return
-      }
-      modelGenerationConfigPreset = preset
-      generationConfigRefreshTask = nil
-    }
+  func resetModeSettings(
+    _ mode: WorkspaceInteractionMode,
+    didResolve: @escaping @MainActor (StoredModelSettings) -> Void
+  ) {
+    enqueueSettingsMutation(.resetMode(mode), for: selectedModel, didResolve: didResolve)
   }
 
   func loadModel() {
@@ -451,8 +430,7 @@ final class ModelRuntimeController {
         updateModelAvailability(false, for: managedModel.id)
         if managedModel.id == selectedModelID {
           downloadState = .idle
-          invalidateGenerationConfigRefresh()
-          modelGenerationConfigPreset = nil
+          await refreshResolvedSettings(for: managedModel)
         }
       } catch is CancellationError {
       } catch {
@@ -504,10 +482,33 @@ final class ModelRuntimeController {
     modelAvailabilitySnapshot[modelID] = isDownloaded
   }
 
-  private func invalidateGenerationConfigRefresh() {
-    generationConfigRevision &+= 1
-    generationConfigRefreshTask?.cancel()
-    generationConfigRefreshTask = nil
+  private func enqueueSettingsMutation(
+    _ mutation: ModelSettingsMutation,
+    for model: ManagedModel,
+    didResolve: (@MainActor (StoredModelSettings) -> Void)? = nil
+  ) {
+    let predecessor = settingsMutationTask
+    settingsMutationTask = Task { [weak self, modelSettingsStore] in
+      await predecessor?.value
+      guard !Task.isCancelled else { return }
+      do {
+        let settings = try await modelSettingsStore.apply(mutation, for: model)
+        guard let self, selectedModelID == model.id else { return }
+        selectedModeSettings = settings.modeSettings
+        modelContextTokenLimit = settings.contextTokenLimit
+        didResolve?(settings)
+      } catch {
+        self?.onError?(error.localizedDescription)
+      }
+    }
+  }
+
+  private func refreshResolvedSettings(for model: ManagedModel) async {
+    await settingsMutationTask?.value
+    let settings = await modelSettingsStore.settings(for: model)
+    guard selectedModelID == model.id else { return }
+    selectedModeSettings = settings.modeSettings
+    modelContextTokenLimit = settings.contextTokenLimit
   }
 
   private static func normalizedDownloadProgress(_ progress: Progress) -> Double? {

@@ -59,6 +59,7 @@ package struct StoredModelSettings: Codable, Equatable, Sendable {
 }
 
 private enum ModelSettingsFileCodingKeys: String, CodingKey {
+  case schemaVersion
   case modelSettings
 }
 
@@ -89,10 +90,20 @@ package enum ModelSettingsRestoreError: LocalizedError, Equatable, Sendable {
   }
 }
 
+package enum ModelSettingsMutation: Equatable, Sendable {
+  case modeSettingsChanged(from: ChatModeSettingsSet, updated: ChatModeSettingsSet)
+  case resetMode(WorkspaceInteractionMode)
+  case contextTokenLimitChanged(Int)
+  case resetContextTokenLimit
+}
+
 package protocol ModelSettingsStoring: Sendable {
   func setSelectedModelID(_ modelID: String) async
   func settings(for model: ManagedModel) async -> StoredModelSettings
-  func save(settings: StoredModelSettings, for model: ManagedModel) async throws
+  func apply(
+    _ mutation: ModelSettingsMutation,
+    for model: ManagedModel
+  ) async throws -> StoredModelSettings
 }
 
 nonisolated private struct UserDefaultsBox: @unchecked Sendable {
@@ -100,147 +111,327 @@ nonisolated private struct UserDefaultsBox: @unchecked Sendable {
 }
 
 package actor ModelSettingsStore: ModelSettingsStoring {
-  private struct SettingsFile: Codable {
-    var modelSettings: [String: StoredModelSettings]
+  private enum StoredModelSelection: Sendable {
+    case missing
+    case modelID(String)
+    case invalid(String)
+  }
 
-    init(modelSettings: [String: StoredModelSettings]) {
+  private struct PersistedModeOverrides: Codable {
+    var chat: ModeSettingsOverride?
+    var agent: ModeSettingsOverride?
+
+    var hasValues: Bool {
+      chat?.hasValues == true || agent?.hasValues == true
+    }
+  }
+
+  private struct PersistedModelSettings: Codable {
+    var modeOverrides: PersistedModeOverrides?
+    var contextTokenLimitOverride: Int?
+
+    init(
+      modeOverrides: PersistedModeOverrides? = nil,
+      contextTokenLimitOverride: Int? = nil
+    ) {
+      self.modeOverrides = modeOverrides
+      self.contextTokenLimitOverride = contextTokenLimitOverride
+    }
+
+    init(legacy settings: StoredModelSettings) {
+      modeOverrides = PersistedModeOverrides(
+        chat: ModeSettingsOverride(
+          systemPrompt: settings.modeSettings.chat.systemPrompt,
+          generationSettings: GenerationSettingsOverride(
+            overriding: settings.modeSettings.chat.generationSettings,
+            includeMinP: false
+          )
+        ),
+        agent: ModeSettingsOverride(
+          systemPrompt: settings.modeSettings.agent.systemPrompt,
+          generationSettings: GenerationSettingsOverride(
+            overriding: settings.modeSettings.agent.generationSettings,
+            includeMinP: false
+          )
+        )
+      )
+      contextTokenLimitOverride = settings.contextTokenLimit
+    }
+
+    var overrides: ModelSettingsOverrides {
+      ModelSettingsOverrides(
+        chat: modeOverrides?.chat,
+        agent: modeOverrides?.agent,
+        contextTokenLimit: contextTokenLimitOverride
+      )
+    }
+
+    var hasValues: Bool {
+      modeOverrides?.hasValues == true || contextTokenLimitOverride != nil
+    }
+  }
+
+  private struct SettingsFile: Codable {
+    static let schemaVersion = 2
+
+    var modelSettings: [String: PersistedModelSettings]
+    let requiresMigration: Bool
+
+    init(modelSettings: [String: PersistedModelSettings]) {
       self.modelSettings = modelSettings
+      requiresMigration = false
     }
 
     init(from decoder: Decoder) throws {
       let container = try decoder.container(keyedBy: ModelSettingsFileCodingKeys.self)
-      modelSettings = try container.decodeIfPresent(
-        [String: StoredModelSettings].self,
-        forKey: .modelSettings,
-        default: [:]
-      )
+      switch try container.decodeIfPresent(Int.self, forKey: .schemaVersion) {
+      case nil:
+        let legacy = try container.decodeIfPresent(
+          [String: StoredModelSettings].self,
+          forKey: .modelSettings,
+          default: [:]
+        )
+        modelSettings = legacy.mapValues(PersistedModelSettings.init(legacy:))
+        requiresMigration = true
+      case Self.schemaVersion:
+        modelSettings = try container.decodeIfPresent(
+          [String: PersistedModelSettings].self,
+          forKey: .modelSettings,
+          default: [:]
+        )
+        requiresMigration = false
+      case .some(let schemaVersion):
+        throw DecodingError.dataCorruptedError(
+          forKey: .schemaVersion,
+          in: container,
+          debugDescription: "Unsupported model settings schema version \(schemaVersion)."
+        )
+      }
+    }
+
+    func encode(to encoder: Encoder) throws {
+      var container = encoder.container(keyedBy: ModelSettingsFileCodingKeys.self)
+      try container.encode(Self.schemaVersion, forKey: .schemaVersion)
+      try container.encode(modelSettings, forKey: .modelSettings)
     }
   }
 
   private let userDefaultsBox: UserDefaultsBox
   private let settingsURL: URL
   private let selectedModelKey = "selectedModelID"
-  private let generationConfigPresetProvider:
-    @Sendable (ManagedModel) -> ChatGenerationConfigPreset?
+  private let generationConfigProvider: @Sendable (ManagedModel) -> GenerationSettingsOverride?
+  private var settingsMutationTask: Task<Void, Never>?
 
   package init(
     userDefaults: UserDefaults = .standard,
     settingsURL: URL = LocalModelDirectory.defaultBaseURL
       .deletingLastPathComponent()
-      .appending(path: "model-settings.json", directoryHint: .notDirectory),
-    generationConfigPresetProvider:
-      @escaping @Sendable (ManagedModel) ->
-      ChatGenerationConfigPreset? = {
-        LocalModelDirectory.readGenerationConfigPreset(from: $0.localDirectoryURL)
-      }
+      .appending(path: "model-settings.json", directoryHint: .notDirectory)
   ) {
     self.userDefaultsBox = UserDefaultsBox(userDefaults: userDefaults)
     self.settingsURL = settingsURL
-    self.generationConfigPresetProvider = generationConfigPresetProvider
+    self.generationConfigProvider = {
+      LocalModelDirectory.readGenerationConfigPreset(from: $0.localDirectoryURL)
+    }
+  }
+
+  init(
+    userDefaults: UserDefaults,
+    settingsURL: URL,
+    generationConfigProvider:
+      @escaping @Sendable (ManagedModel) ->
+      GenerationSettingsOverride?
+  ) {
+    self.userDefaultsBox = UserDefaultsBox(userDefaults: userDefaults)
+    self.settingsURL = settingsURL
+    self.generationConfigProvider = generationConfigProvider
   }
 
   package func setSelectedModelID(_ modelID: String) async {
-    userDefaultsBox.userDefaults.set(modelID, forKey: selectedModelKey)
+    let userDefaultsBox = userDefaultsBox
+    let selectedModelKey = selectedModelKey
+    await Task.detached(priority: .utility) {
+      userDefaultsBox.userDefaults.set(modelID, forKey: selectedModelKey)
+    }.value
   }
 
   package func settings(for model: ManagedModel) async -> StoredModelSettings {
-    guard let stored = readSettingsFile().modelSettings[model.id] else {
-      return defaultSettings(for: model)
-    }
-
-    return stored
+    await settingsMutationTask?.value
+    let settingsFile = await readSettingsFile()
+    let generationConfig = await generationConfig(for: model)
+    return resolvedSettings(
+      for: model,
+      persisted: settingsFile.modelSettings[model.id],
+      generationConfig: generationConfig
+    )
   }
 
   package func restoreConfiguration(
     availableModels: [ManagedModel]
-  ) async throws -> RestoredModelConfiguration? {
-    let storedSelection = userDefaultsBox.userDefaults.object(forKey: selectedModelKey)
-    let storedModelID: String?
-    if let storedSelection {
-      guard let modelID = storedSelection as? String, !modelID.isEmpty else {
-        throw ModelSettingsRestoreError.invalidSelectedModel(String(describing: storedSelection))
+  ) async throws -> RestoredModelConfiguration {
+    await settingsMutationTask?.value
+    let userDefaultsBox = userDefaultsBox
+    let selectedModelKey = selectedModelKey
+    let storedSelection = await Task.detached(priority: .utility) {
+      guard let value = userDefaultsBox.userDefaults.object(forKey: selectedModelKey) else {
+        return StoredModelSelection.missing
       }
-      storedModelID = modelID
-    } else {
+      guard let modelID = value as? String, !modelID.isEmpty else {
+        return StoredModelSelection.invalid(String(describing: value))
+      }
+      return StoredModelSelection.modelID(modelID)
+    }.value
+    let storedModelID: String?
+    switch storedSelection {
+    case .missing:
       storedModelID = nil
+    case .modelID(let modelID):
+      storedModelID = modelID
+    case .invalid(let description):
+      throw ModelSettingsRestoreError.invalidSelectedModel(description)
     }
 
-    let settingsFile = try readSettingsFileIfPresent()
-    guard storedModelID != nil || settingsFile != nil else {
-      return nil
+    let settingsFile = try await readSettingsFileIfPresent()
+    if let settingsFile, settingsFile.requiresMigration {
+      try await write(settingsFile)
     }
-
     let modelID = storedModelID ?? ManagedModelCatalog.defaultModelID
     guard let model = availableModels.first(where: { $0.id == modelID }) else {
       throw ModelSettingsRestoreError.invalidSelectedModel(modelID)
     }
-    let settings = settingsFile?.modelSettings[model.id] ?? defaultSettings(for: model)
+    let settings = resolvedSettings(
+      for: model,
+      persisted: settingsFile?.modelSettings[model.id],
+      generationConfig: await generationConfig(for: model)
+    )
     return RestoredModelConfiguration(model: model, settings: settings)
   }
 
-  /// Layers the model's own `generation_config.json` sampling preset onto the built-in
-  /// defaults when the user has not saved per-model settings. Chat mode adopts the full
-  /// preset (the model authors' recommendation). Agent mode adopts only the nucleus/top-k
-  /// shape and keeps its conservative, loop-resistant temperature and penalties, since the
-  /// recommended temperature (~1.0 for Gemma) would make tool calling unreliable.
-  package static func applyingGenerationConfigPreset(
-    _ preset: ChatGenerationConfigPreset?,
-    to modeSettings: ChatModeSettingsSet
-  ) -> ChatModeSettingsSet {
-    guard let preset else {
-      return modeSettings
+  package func apply(
+    _ mutation: ModelSettingsMutation,
+    for model: ManagedModel
+  ) async throws -> StoredModelSettings {
+    let predecessor = settingsMutationTask
+    let operation = Task { [self] in
+      await predecessor?.value
+      return try await applyMutation(mutation, for: model)
     }
-    var updated = modeSettings
-    updated.chat.generationSettings = preset.applying(to: updated.chat.generationSettings)
-    let agentSamplingShape = ChatGenerationConfigPreset(topP: preset.topP, topK: preset.topK)
-    updated.agent.generationSettings = agentSamplingShape.applying(
-      to: updated.agent.generationSettings)
-    return updated
+    settingsMutationTask = Task {
+      _ = try? await operation.value
+    }
+    return try await operation.value
   }
 
-  package func save(settings: StoredModelSettings, for model: ManagedModel) async throws {
-    var file = readSettingsFile()
-    file.modelSettings[model.id] = settings
+  private func applyMutation(
+    _ mutation: ModelSettingsMutation,
+    for model: ManagedModel
+  ) async throws -> StoredModelSettings {
+    var file = try await readSettingsFileIfPresent() ?? SettingsFile(modelSettings: [:])
+    var persisted = file.modelSettings[model.id] ?? PersistedModelSettings()
+    var modeOverrides = persisted.modeOverrides ?? PersistedModeOverrides()
 
-    try FileManager.default.createDirectory(
-      at: settingsURL.deletingLastPathComponent(),
-      withIntermediateDirectories: true
+    switch mutation {
+    case .modeSettingsChanged(let previous, let updated):
+      if previous.chat != updated.chat {
+        var chat = modeOverrides.chat ?? ModeSettingsOverride()
+        chat.recordChanges(
+          from: previous.chat,
+          to: updated.chat
+        )
+        modeOverrides.chat = chat.hasValues ? chat : nil
+      }
+      if previous.agent != updated.agent {
+        var agent = modeOverrides.agent ?? ModeSettingsOverride()
+        agent.recordChanges(
+          from: previous.agent,
+          to: updated.agent
+        )
+        modeOverrides.agent = agent.hasValues ? agent : nil
+      }
+    case .resetMode(.chat):
+      modeOverrides.chat = nil
+    case .resetMode(.agent):
+      modeOverrides.agent = nil
+    case .contextTokenLimitChanged(let contextTokenLimit):
+      persisted.contextTokenLimitOverride = contextTokenLimit
+    case .resetContextTokenLimit:
+      persisted.contextTokenLimitOverride = nil
+    }
+
+    persisted.modeOverrides = modeOverrides.hasValues ? modeOverrides : nil
+    if persisted.hasValues {
+      file.modelSettings[model.id] = persisted
+    } else {
+      file.modelSettings.removeValue(forKey: model.id)
+    }
+    try await write(file)
+    return resolvedSettings(
+      for: model,
+      persisted: file.modelSettings[model.id],
+      generationConfig: await generationConfig(for: model)
     )
+  }
 
+  private func resolvedSettings(
+    for model: ManagedModel,
+    persisted: PersistedModelSettings?,
+    generationConfig: GenerationSettingsOverride?
+  ) -> StoredModelSettings {
+    ModelSettingsResolver.settings(
+      for: model,
+      generationConfig: generationConfig,
+      userOverrides: persisted?.overrides ?? ModelSettingsOverrides()
+    )
+  }
+
+  private func generationConfig(for model: ManagedModel) async -> GenerationSettingsOverride? {
+    let generationConfigProvider = generationConfigProvider
+    return await Task.detached(priority: .utility) {
+      generationConfigProvider(model)
+    }.value
+  }
+
+  private func write(_ file: SettingsFile) async throws {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     let data = try encoder.encode(file)
-    try data.write(to: settingsURL, options: .atomic)
+    let settingsURL = settingsURL
+    try await Task.detached(priority: .utility) {
+      try FileManager.default.createDirectory(
+        at: settingsURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      try data.write(to: settingsURL, options: .atomic)
+    }.value
   }
 
-  private func defaultSettings(for model: ManagedModel) -> StoredModelSettings {
-    StoredModelSettings(
-      modeSettings: Self.applyingGenerationConfigPreset(
-        generationConfigPresetProvider(model),
-        to: model.defaultModeSettings
-      ),
-      contextTokenLimit: model.defaultContextTokenLimit
-    )
-  }
-
-  private func readSettingsFile() -> SettingsFile {
+  private func readSettingsFile() async -> SettingsFile {
     do {
-      return try readSettingsFileIfPresent() ?? SettingsFile(modelSettings: [:])
+      return try await readSettingsFileIfPresent() ?? SettingsFile(modelSettings: [:])
     } catch {
       return SettingsFile(modelSettings: [:])
     }
   }
 
-  private func readSettingsFileIfPresent() throws -> SettingsFile? {
-    guard FileManager.default.fileExists(atPath: settingsURL.path(percentEncoded: false)) else {
-      return nil
-    }
-
-    let data: Data
+  private func readSettingsFileIfPresent() async throws -> SettingsFile? {
+    let settingsURL = settingsURL
+    let data: Data?
     do {
-      data = try Data(contentsOf: settingsURL)
+      data = try await Task.detached(priority: .utility) {
+        guard
+          FileManager.default.fileExists(
+            atPath: settingsURL.path(percentEncoded: false)
+          )
+        else {
+          return nil
+        }
+        return try Data(contentsOf: settingsURL)
+      }.value
     } catch {
       throw ModelSettingsRestoreError.unreadableSettings(error.localizedDescription)
+    }
+    guard let data else {
+      return nil
     }
 
     do {

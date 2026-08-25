@@ -116,6 +116,16 @@ struct MLXRuntimeConfigurationTests {
   }
 
   @Test
+  func minPFlowsIntoMLXGenerationParameters() {
+    var settings = ChatGenerationSettings.chatDefault
+    settings.minP = 0.08
+
+    let parameters = MLXChatRuntime.generateParameters(from: settings)
+
+    #expect(parameters.minP == 0.08)
+  }
+
+  @Test
   func legacyMaxKVSizeDoesNotLimitMLXGeneration() throws {
     let data = Data(
       """

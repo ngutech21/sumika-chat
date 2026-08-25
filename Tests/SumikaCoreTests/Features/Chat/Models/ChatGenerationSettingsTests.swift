@@ -5,6 +5,35 @@ import Testing
 
 struct ChatGenerationSettingsTests {
   @Test
+  func minPDefaultsToDisabledAndPersistsOnlyWhenEnabled() throws {
+    let legacyData = Data(
+      """
+      {
+        "temperature": 0.2,
+        "topP": 0.8,
+        "topK": 10,
+        "maxTokens": 256
+      }
+      """.utf8)
+
+    let legacySettings = try JSONDecoder().decode(ChatGenerationSettings.self, from: legacyData)
+    #expect(legacySettings.minP == 0)
+
+    let legacyEncoding = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(legacySettings)) as? [String: Any]
+    )
+    #expect(legacyEncoding["minP"] == nil)
+
+    var enabledSettings = legacySettings
+    enabledSettings.minP = 0.1
+    let decoded = try JSONDecoder().decode(
+      ChatGenerationSettings.self,
+      from: JSONEncoder().encode(enabledSettings)
+    )
+    #expect(decoded.minP == 0.1)
+  }
+
+  @Test
   func decodingMissingRepetitionPenaltyUsesNeutralDefault() throws {
     let data = Data(
       """

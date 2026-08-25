@@ -5,7 +5,6 @@ package struct ModelManagementState: Equatable, Sendable {
   package let downloadState: ModelDownloadState
   package let modelState: ModelLoadState
   package let modelContextTokenLimit: Int
-  package let modelGenerationConfigPreset: ChatGenerationConfigPreset?
   package let deletingModelID: ManagedModel.ID?
   package let canPerformSelectedModelAction: Bool
 

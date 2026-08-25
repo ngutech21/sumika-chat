@@ -81,26 +81,28 @@ enum AppLaunchConfiguration {
     }
 
     let modelSettingsStore = ModelSettingsStore()
-    let restoration: Result<Sumika.Configuration, Error>
+    let configuration: Sumika.Configuration
+    let restorationError: Error?
     do {
       let restored = try await modelSettingsStore.restoreConfiguration(
         availableModels: ManagedModelCatalog.models
       )
-      let configuration =
-        restored.map {
-          Sumika.Configuration(
-            initialModel: $0.model,
-            initialModelSettings: $0.settings
-          )
-        } ?? Sumika.Configuration()
-      restoration = .success(configuration)
+      configuration = Sumika.Configuration(
+        initialModel: restored.model,
+        initialModelSettings: restored.settings
+      )
+      restorationError = nil
     } catch {
-      restoration = .failure(error)
+      let fallbackModel = ManagedModelCatalog.defaultModel
+      configuration = Sumika.Configuration(
+        initialModel: fallbackModel,
+        initialModelSettings: await modelSettingsStore.settings(for: fallbackModel)
+      )
+      restorationError = error
     }
 
-    let configuration = try? restoration.get()
     let appState = makeConfiguredAppState(
-      configuration: configuration ?? Sumika.Configuration(),
+      configuration: configuration,
       modelDownloader: MLXRuntimeComposition.makeModelDownloader(),
       runtime: mlxEnvironment.runtime,
       turnTracer: mlxEnvironment.turnTracer,
@@ -108,17 +110,15 @@ enum AppLaunchConfiguration {
     )
     await appState.waitForStartup()
 
-    switch restoration {
-    case .success:
+    guard let restorationError else {
       return .ready(appState)
-    case .failure(let error):
-      return .recovered(
-        appState,
-        message:
-          "Saved model configuration could not be restored. Sumika started with defaults. "
-          + error.localizedDescription
-      )
     }
+    return .recovered(
+      appState,
+      message:
+        "Saved model configuration could not be restored. Sumika started with defaults. "
+        + restorationError.localizedDescription
+    )
   }
 
   @MainActor

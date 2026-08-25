@@ -2,6 +2,7 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
   package var temperature: Double
   package var topP: Double
   package var topK: Int
+  package var minP: Double
   package var maxTokens: Int
   package var repetitionPenalty: Double
   /// How many recent tokens the repetition/presence penalties look back over.
@@ -19,6 +20,7 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     topP: Double,
     topK: Int,
     maxTokens: Int,
+    minP: Double = 0,
     repetitionPenalty: Double = 1,
     repetitionContextSize: Int = 20,
     presencePenalty: Double = 0,
@@ -27,6 +29,7 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     self.temperature = temperature
     self.topP = topP
     self.topK = topK
+    self.minP = minP
     self.maxTokens = maxTokens
     self.repetitionPenalty = repetitionPenalty
     self.repetitionContextSize = repetitionContextSize
@@ -38,6 +41,7 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     case temperature
     case topP
     case topK
+    case minP
     case maxTokens
     case repetitionPenalty
     case repetitionContextSize
@@ -50,6 +54,7 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     temperature = try container.decodeIfPresent(Double.self, forKey: .temperature, default: 1)
     topP = try container.decodeIfPresent(Double.self, forKey: .topP, default: 1)
     topK = try container.decodeIfPresent(Int.self, forKey: .topK, default: 0)
+    minP = try container.decodeIfPresent(Double.self, forKey: .minP, default: 0)
     maxTokens = try container.decodeIfPresent(Int.self, forKey: .maxTokens, default: 2048)
     repetitionPenalty = try container.decodeIfPresent(
       Double.self,
@@ -78,6 +83,9 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     try container.encode(temperature, forKey: .temperature)
     try container.encode(topP, forKey: .topP)
     try container.encode(topK, forKey: .topK)
+    if minP != 0 {
+      try container.encode(minP, forKey: .minP)
+    }
     try container.encode(maxTokens, forKey: .maxTokens)
     try container.encode(repetitionPenalty, forKey: .repetitionPenalty)
     try container.encode(repetitionContextSize, forKey: .repetitionContextSize)
@@ -92,11 +100,9 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     maxTokens: 2048
   )
 
-  /// Agent-mode sampling is tuned to resist the tool-call loops small local models
-  /// fall into. Temperature is non-zero (greedy/argmax makes a looping model repeat
-  /// deterministically with no escape), a moderate presence penalty discourages
-  /// re-emitting the same call, and the penalty window is widened to actually span a
-  /// prior tool call. topP/topK match the Gemma generation_config recommendation.
+  /// The app fallback for agent mode keeps a non-zero temperature, a moderate presence
+  /// penalty, and a wider penalty window to reduce deterministic tool-call loops. Model
+  /// configuration and family profiles may replace individual sampling fields.
   package static let agentDefault = ChatGenerationSettings(
     temperature: 0.3,
     topP: 0.95,

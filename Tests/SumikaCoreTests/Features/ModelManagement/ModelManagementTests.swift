@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import SumikaTestSupport
 import Testing
@@ -6,6 +7,253 @@ import Testing
 
 @Suite(TemporaryDirectoryTrait(named: "sumika-model-management-tests"))
 struct ModelManagementTests {
+  @Test
+  func generationConfigReadDoesNotBlockOtherStoreOperations() async throws {
+    let providerStarted = DispatchSemaphore(value: 0)
+    let releaseProvider = DispatchSemaphore(value: 0)
+    let store = ModelSettingsStore(
+      userDefaults: makeUserDefaults(),
+      settingsURL: try temporarySettingsURL(),
+      generationConfigProvider: { _ in
+        providerStarted.signal()
+        _ = releaseProvider.wait(timeout: .now() + 2)
+        return nil
+      }
+    )
+    let settingsTask = Task {
+      await store.settings(for: ManagedModelCatalog.defaultModel)
+    }
+    defer { releaseProvider.signal() }
+    let didStartProvider = await Task.detached {
+      waitForSemaphore(providerStarted, timeout: .now() + 1)
+    }.value
+    try #require(didStartProvider)
+
+    try await withTestTimeout(.milliseconds(250)) {
+      await store.setSelectedModelID("replacement-model")
+    }
+
+    releaseProvider.signal()
+    _ = await settingsTask.value
+  }
+
+  @Test
+  func settingsStorePersistsOnlyChangedFieldsAsSchemaV2Overrides() async throws {
+    let settingsURL = try temporarySettingsURL()
+    let model = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
+    let generationConfig = GenerationSettingsOverride(
+      temperature: 1,
+      topP: 0.95,
+      topK: 64,
+      presencePenalty: 1.5
+    )
+    let store = ModelSettingsStore(
+      userDefaults: makeUserDefaults(),
+      settingsURL: settingsURL,
+      generationConfigProvider: { _ in generationConfig }
+    )
+    let before = await store.settings(for: model)
+    var previousSnapshot = before.modeSettings
+    previousSnapshot.chat.generationSettings.topK = 7
+    var after = previousSnapshot
+    after.chat.generationSettings.temperature = 0
+    after.chat.generationSettings.topK = 64
+
+    let updated = try await store.apply(
+      .modeSettingsChanged(from: previousSnapshot, updated: after),
+      for: model
+    )
+
+    #expect(updated.modeSettings.chat.generationSettings.temperature == 0)
+    #expect(updated.modeSettings.chat.generationSettings.topP == 0.95)
+    #expect(updated.modeSettings.chat.generationSettings.presencePenalty == 1.5)
+
+    let object = try #require(
+      JSONSerialization.jsonObject(with: Data(contentsOf: settingsURL)) as? [String: Any]
+    )
+    #expect(object["schemaVersion"] as? Int == 2)
+    let modelSettings = try #require(object["modelSettings"] as? [String: Any])
+    let persisted = try #require(modelSettings[model.id] as? [String: Any])
+    let modeOverrides = try #require(persisted["modeOverrides"] as? [String: Any])
+    let chat = try #require(modeOverrides["chat"] as? [String: Any])
+    let generation = try #require(chat["generationSettings"] as? [String: Any])
+    #expect(generation["temperature"] as? Double == 0)
+    #expect(generation["topK"] as? Int == 64)
+    #expect(generation["topP"] == nil)
+    #expect(modeOverrides["agent"] == nil)
+
+    let reloadedStore = ModelSettingsStore(
+      userDefaults: makeUserDefaults(),
+      settingsURL: settingsURL,
+      generationConfigProvider: { _ in generationConfig }
+    )
+    #expect(await reloadedStore.settings(for: model) == updated)
+  }
+
+  @Test
+  func settingsStoreMigratesSchemaV1SnapshotsAsExplicitOverrides() async throws {
+    let settingsURL = try temporarySettingsURL()
+    let model = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
+    let legacySettings = StoredModelSettings(
+      modeSettings: ChatModeSettingsSet(
+        chat: ChatModeSettings(
+          systemPrompt: "Legacy chat prompt",
+          generationSettings: ChatGenerationSettings(
+            temperature: 0.2,
+            topP: 0.3,
+            topK: 4,
+            maxTokens: 500,
+            repetitionPenalty: 1.1,
+            repetitionContextSize: 42,
+            presencePenalty: 0.4,
+            reasoningEnabled: false
+          )
+        ),
+        agent: ChatModeSettings(
+          systemPrompt: "Legacy agent prompt",
+          generationSettings: ChatGenerationSettings(
+            temperature: 0.5,
+            topP: 0.6,
+            topK: 7,
+            maxTokens: 800,
+            repetitionPenalty: 1.2,
+            repetitionContextSize: 84,
+            presencePenalty: 0.8,
+            reasoningEnabled: true
+          )
+        )
+      ),
+      contextTokenLimit: 12_345
+    )
+    try FileManager.default.createDirectory(
+      at: settingsURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try JSONEncoder().encode(
+      LegacyModelSettingsFile(modelSettings: [model.id: legacySettings])
+    ).write(to: settingsURL, options: .atomic)
+    let store = ModelSettingsStore(
+      userDefaults: makeUserDefaults(),
+      settingsURL: settingsURL,
+      generationConfigProvider: { _ in
+        GenerationSettingsOverride(
+          temperature: 1.8,
+          topP: 0.99,
+          topK: 99,
+          repetitionPenalty: 1.9,
+          presencePenalty: 1.9
+        )
+      }
+    )
+
+    let restored = try await store.restoreConfiguration(
+      availableModels: ManagedModelCatalog.models
+    )
+    #expect(restored.settings == legacySettings)
+
+    let object = try #require(
+      JSONSerialization.jsonObject(with: Data(contentsOf: settingsURL)) as? [String: Any]
+    )
+    #expect(object["schemaVersion"] as? Int == 2)
+    let reloaded = ModelSettingsStore(
+      userDefaults: makeUserDefaults(),
+      settingsURL: settingsURL,
+      generationConfigProvider: { _ in
+        GenerationSettingsOverride(temperature: 1.9, topP: 0.1, topK: 1)
+      }
+    )
+    #expect(await reloaded.settings(for: model) == legacySettings)
+  }
+
+  @Test
+  func settingsStoreDecodesPartialSchemaV2ModeOverrides() async throws {
+    let settingsURL = try temporarySettingsURL()
+    let model = ManagedModelCatalog.defaultModel
+    try FileManager.default.createDirectory(
+      at: settingsURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try Data(
+      """
+      {
+        "schemaVersion": 2,
+        "modelSettings": {
+          "\(model.id)": {
+            "modeOverrides": {
+              "chat": { "systemPrompt": "Only this field is custom." }
+            }
+          }
+        }
+      }
+      """.utf8
+    ).write(to: settingsURL, options: .atomic)
+    let store = ModelSettingsStore(
+      userDefaults: makeUserDefaults(),
+      settingsURL: settingsURL,
+      generationConfigProvider: { _ in nil }
+    )
+
+    let settings = await store.settings(for: model)
+
+    #expect(settings.modeSettings.chat.systemPrompt == "Only this field is custom.")
+    #expect(settings.modeSettings.chat.generationSettings.temperature == 1)
+    #expect(settings.modeSettings.chat.generationSettings.topP == 0.95)
+    #expect(settings.modeSettings.agent.systemPrompt == ChatPromptDefaults.agentSystemPrompt)
+  }
+
+  @Test
+  func modeAndContextResetsRemoveOnlyTheirOwnOverrides() async throws {
+    let settingsURL = try temporarySettingsURL()
+    let model = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
+    let store = ModelSettingsStore(
+      userDefaults: makeUserDefaults(),
+      settingsURL: settingsURL,
+      generationConfigProvider: { _ in nil }
+    )
+    let recommended = await store.settings(for: model)
+    var chatEdited = recommended.modeSettings
+    chatEdited.chat.generationSettings.temperature = 0.2
+    let afterChat = try await store.apply(
+      .modeSettingsChanged(from: recommended.modeSettings, updated: chatEdited),
+      for: model
+    )
+    var agentEdited = afterChat.modeSettings
+    agentEdited.agent.generationSettings.topK = 9
+    _ = try await store.apply(
+      .modeSettingsChanged(from: afterChat.modeSettings, updated: agentEdited),
+      for: model
+    )
+    _ = try await store.apply(.contextTokenLimitChanged(12_345), for: model)
+
+    let afterChatReset = try await store.apply(.resetMode(.chat), for: model)
+    #expect(afterChatReset.modeSettings.chat == recommended.modeSettings.chat)
+    #expect(afterChatReset.modeSettings.agent.generationSettings.topK == 9)
+    #expect(afterChatReset.contextTokenLimit == 12_345)
+
+    let explicitlyDefaultContext = try await store.apply(
+      .contextTokenLimitChanged(model.defaultContextTokenLimit),
+      for: model
+    )
+    #expect(explicitlyDefaultContext.contextTokenLimit == model.defaultContextTokenLimit)
+    let explicitDefaultObject = try #require(
+      JSONSerialization.jsonObject(with: Data(contentsOf: settingsURL)) as? [String: Any]
+    )
+    let explicitDefaultModels = try #require(
+      explicitDefaultObject["modelSettings"] as? [String: Any]
+    )
+    let explicitDefaultSettings = try #require(
+      explicitDefaultModels[model.id] as? [String: Any]
+    )
+    #expect(
+      explicitDefaultSettings["contextTokenLimitOverride"] as? Int
+        == model.defaultContextTokenLimit
+    )
+
+    let afterContextReset = try await store.apply(.resetContextTokenLimit, for: model)
+    #expect(afterContextReset.contextTokenLimit == model.defaultContextTokenLimit)
+    #expect(afterContextReset.modeSettings.agent.generationSettings.topK == 9)
+  }
+
   @Test
   func catalogGroupsModelsByPrimaryUserGoal() {
     let modelsByGroup = Dictionary(grouping: ManagedModelCatalog.models, by: \.group)
@@ -55,6 +303,36 @@ struct ModelManagementTests {
   }
 
   @Test
+  func catalogAssignsVersionedFamilyProfilesAcrossQuantizations() {
+    let profilesByID = Dictionary(
+      uniqueKeysWithValues: ManagedModelCatalog.models.compactMap { model in
+        model.generationProfile.map { (model.id, $0) }
+      }
+    )
+
+    for modelID in [
+      "gemma4-e4b-qat-4bit",
+      "gemma4-12b-qat-4bit",
+      "gemma4-26b-qat-4bit",
+      "gemma4-31b-qat-4bit",
+    ] {
+      #expect(profilesByID[modelID] == .gemma4)
+    }
+    for modelID in [
+      "qwen3.6-35b-a3b-4bit",
+      "qwen3.6-35b-a3b-optiq-4bit",
+      "qwen3.6-35b-a3b-8bit",
+      "qwen3.6-27B-4bit",
+      "Qwen3.6-27B-OptiQ-4bit",
+      "qwen3.6-27B-8bit",
+      "qwen3.6-40B-8bit-heretic",
+    ] {
+      #expect(profilesByID[modelID] == .qwen36)
+    }
+    #expect(profilesByID["qwen3.8-27B-OptiQ-4bit"] == .qwen38)
+  }
+
+  @Test
   func supportsWorkspaceToolsTracksToolCallingPolicyEnabledFlag() {
     #expect(ManagedModelCatalog.defaultModel.supportsWorkspaceTools)
 
@@ -81,13 +359,13 @@ struct ModelManagementTests {
   }
 
   @Test
-  func settingsStoreUsesQwen36ModeDefaultsWhenNoSettingsAreSaved() async throws {
+  func settingsStoreUsesQwen36ProfileWhenNoSettingsAreSaved() async throws {
     let model = try #require(ManagedModelCatalog.model(id: "qwen3.6-35b-a3b-8bit"))
     let store = ModelSettingsStore(
       userDefaults: makeUserDefaults(),
       settingsURL: try temporarySettingsURL(),
-      generationConfigPresetProvider: { _ in
-        ChatGenerationConfigPreset(temperature: 1, topP: 0.95, topK: 20)
+      generationConfigProvider: { _ in
+        GenerationSettingsOverride(temperature: 1, topP: 0.95, topK: 20)
       }
     )
 
@@ -95,17 +373,17 @@ struct ModelManagementTests {
     let chat = settings.modeSettings.chat.generationSettings
     let agent = settings.modeSettings.agent.generationSettings
 
-    #expect(chat.temperature == 1)
-    #expect(chat.topP == 0.95)
-    #expect(chat.topK == 20)
-    #expect(chat.maxTokens == 32_768)
-    #expect(chat.presencePenalty == 0.3)
+    #expect(chat.temperature == 0.7)
+    #expect(chat.topP == 0.9)
+    #expect(chat.topK == 0)
+    #expect(chat.maxTokens == 2048)
+    #expect(chat.presencePenalty == 0)
     #expect(chat.repetitionPenalty == 1)
     #expect(agent.temperature == 0.6)
     #expect(agent.topP == 0.95)
     #expect(agent.topK == 20)
-    #expect(agent.maxTokens == 32_768)
-    #expect(agent.presencePenalty == 0.3)
+    #expect(agent.maxTokens == 8192)
+    #expect(agent.presencePenalty == 0)
     #expect(agent.repetitionPenalty == 1)
   }
 
@@ -122,16 +400,16 @@ struct ModelManagementTests {
         chat: ChatModeSettings(
           systemPrompt: "Use short conversational answers.",
           generationSettings: ChatGenerationSettings(
-            temperature: 1.1, topP: 0.9, topK: 30, maxTokens: 768)),
+            temperature: 1.1, topP: 0.9, topK: 30, maxTokens: 768, minP: 0.17)),
         agent: ChatModeSettings(
           systemPrompt: "Use short coding steps.",
           generationSettings: ChatGenerationSettings(
-            temperature: 0.4, topP: 0.8, topK: 20, maxTokens: 512))
+            temperature: 0.4, topP: 0.8, topK: 20, maxTokens: 512, minP: 0.08))
       ),
       contextTokenLimit: 32_768
     )
 
-    try await store.save(settings: settings, for: model)
+    try await persist(settings, for: model, in: store)
 
     let reloadedStore = ModelSettingsStore(
       userDefaults: makeUserDefaults(),
@@ -141,18 +419,26 @@ struct ModelManagementTests {
   }
 
   @Test
-  func restoreConfigurationReturnsNilWhenNoConfigurationExists() async throws {
+  func restoreConfigurationResolvesDefaultModelWhenNoConfigurationExists() async throws {
     let store = ModelSettingsStore(
       userDefaults: makeUserDefaults(),
       settingsURL: try temporarySettingsURL(),
-      generationConfigPresetProvider: { _ in nil }
+      generationConfigProvider: { _ in nil }
     )
 
     let restored = try await store.restoreConfiguration(
       availableModels: ManagedModelCatalog.models
     )
 
-    #expect(restored == nil)
+    #expect(restored.model == ManagedModelCatalog.defaultModel)
+    #expect(
+      restored.settings
+        == ModelSettingsResolver.settings(
+          for: ManagedModelCatalog.defaultModel,
+          generationConfig: nil,
+          userOverrides: ModelSettingsOverrides()
+        )
+    )
   }
 
   @Test
@@ -178,16 +464,14 @@ struct ModelManagementTests {
       settingsURL: settingsURL
     )
     await store.setSelectedModelID(model.id)
-    try await store.save(settings: settings, for: model)
+    try await persist(settings, for: model, in: store)
 
     let reloadedStore = ModelSettingsStore(
       userDefaults: makeUserDefaults(suiteName: userDefaultsSuiteName),
       settingsURL: settingsURL
     )
-    let restored = try #require(
-      try await reloadedStore.restoreConfiguration(
-        availableModels: ManagedModelCatalog.models
-      )
+    let restored = try await reloadedStore.restoreConfiguration(
+      availableModels: ManagedModelCatalog.models
     )
 
     #expect(restored.model == model)
@@ -205,7 +489,7 @@ struct ModelManagementTests {
     let store = ModelSettingsStore(
       userDefaults: makeUserDefaults(),
       settingsURL: settingsURL,
-      generationConfigPresetProvider: { _ in nil }
+      generationConfigProvider: { _ in nil }
     )
 
     await #expect(throws: ModelSettingsRestoreError.self) {
@@ -220,7 +504,7 @@ struct ModelManagementTests {
     let store = ModelSettingsStore(
       userDefaults: userDefaults,
       settingsURL: try temporarySettingsURL(),
-      generationConfigPresetProvider: { _ in nil }
+      generationConfigProvider: { _ in nil }
     )
 
     await #expect(throws: ModelSettingsRestoreError.self) {
@@ -239,16 +523,19 @@ struct ModelManagementTests {
     let store = ModelSettingsStore(
       userDefaults: makeUserDefaults(),
       settingsURL: settingsURL,
-      generationConfigPresetProvider: { _ in nil }
+      generationConfigProvider: { _ in nil }
     )
 
     let settings = await store.settings(for: ManagedModelCatalog.defaultModel)
+    let expected = ModelSettingsResolver.settings(
+      for: ManagedModelCatalog.defaultModel,
+      generationConfig: nil,
+      userOverrides: ModelSettingsOverrides()
+    )
 
-    #expect(settings.modeSettings == ManagedModelCatalog.defaultModel.defaultModeSettings)
+    #expect(settings == expected)
     #expect(settings.modeSettings.chat.systemPrompt == ChatPromptDefaults.chatSystemPrompt)
-    #expect(settings.modeSettings.chat.generationSettings == .chatDefault)
     #expect(settings.modeSettings.agent.systemPrompt == ChatPromptDefaults.agentSystemPrompt)
-    #expect(settings.modeSettings.agent.generationSettings == .agentDefault)
     #expect(settings.contextTokenLimit == ManagedModelCatalog.defaultModel.defaultContextTokenLimit)
   }
 
@@ -285,8 +572,8 @@ struct ModelManagementTests {
       contextTokenLimit: 131_072
     )
 
-    async let firstSave: Void = store.save(settings: firstSettings, for: firstModel)
-    async let secondSave: Void = store.save(settings: secondSettings, for: secondModel)
+    async let firstSave: Void = persist(firstSettings, for: firstModel, in: store)
+    async let secondSave: Void = persist(secondSettings, for: secondModel, in: store)
     _ = try await (firstSave, secondSave)
 
     let reloadedStore = ModelSettingsStore(
@@ -313,4 +600,31 @@ struct ModelManagementTests {
       .appending(path: UUID().uuidString, directoryHint: .isDirectory)
       .appending(path: "model-settings.json", directoryHint: .notDirectory)
   }
+
+  private func persist(
+    _ settings: StoredModelSettings,
+    for model: ManagedModel,
+    in store: ModelSettingsStore
+  ) async throws {
+    let previous = await store.settings(for: model)
+    _ = try await store.apply(
+      .modeSettingsChanged(from: previous.modeSettings, updated: settings.modeSettings),
+      for: model
+    )
+    _ = try await store.apply(
+      .contextTokenLimitChanged(settings.contextTokenLimit),
+      for: model
+    )
+  }
+}
+
+private func waitForSemaphore(
+  _ semaphore: DispatchSemaphore,
+  timeout: DispatchTime
+) -> Bool {
+  semaphore.wait(timeout: timeout) == .success
+}
+
+private struct LegacyModelSettingsFile: Encodable {
+  let modelSettings: [String: StoredModelSettings]
 }

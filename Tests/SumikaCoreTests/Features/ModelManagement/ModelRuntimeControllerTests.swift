@@ -59,7 +59,7 @@ struct ModelRuntimeControllerTests {
   func contextTokenLimitChangesThroughExplicitAction() async {
     let controller = await makeController()
 
-    controller.setContextTokenLimit(12_288)
+    controller.updateContextTokenLimit(12_288)
 
     #expect(controller.state.modelContextTokenLimit == 12_288)
   }
@@ -124,6 +124,39 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
+  func downloadCompletionReResolvesSettingsForFutureSessions() async throws {
+    let model = ManagedModelCatalog.defaultModel
+    let store = RuntimeFakeModelSettingsStore()
+    let initial = StoredModelSettings(
+      modeSettings: model.defaultModeSettings,
+      contextTokenLimit: model.defaultContextTokenLimit
+    )
+    var refreshedModeSettings = model.defaultModeSettings
+    refreshedModeSettings.chat.generationSettings.temperature = 0.42
+    let refreshed = StoredModelSettings(
+      modeSettings: refreshedModeSettings,
+      contextTokenLimit: 12_288
+    )
+    store.settingsByModelID[model.id] = initial
+    let downloader = RuntimeControllerFakeModelDownloader {
+      store.settingsByModelID[model.id] = refreshed
+    }
+    let controller = await makeController(
+      initialSettings: initial,
+      modelSettingsStore: store,
+      modelDownloader: downloader
+    )
+
+    controller.downloadSelectedModel()
+
+    try await waitUntil {
+      controller.downloadState == .downloaded
+        && controller.selectedModeSettings == refreshed.modeSettings
+    }
+    #expect(controller.modelContextTokenLimit == refreshed.contextTokenLimit)
+  }
+
+  @Test
   func downloadSelectedModelPublishesIntermediateProgress() async throws {
     let downloader = RuntimeControllerFakeModelDownloader(progressFractions: [0.25, 1])
     let controller = await makeController(modelDownloader: downloader)
@@ -153,10 +186,10 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
-  func saveSelectedModelSettingsPersistsCurrentRuntimeSettings() async throws {
+  func typedSettingsMutationsPersistCurrentRuntimeSettings() async throws {
     let store = RuntimeFakeModelSettingsStore()
     let controller = await makeController(modelSettingsStore: store)
-    controller.modelContextTokenLimit = 12_288
+    controller.updateContextTokenLimit(12_288)
     let generationSettings = ChatGenerationSettings(
       temperature: 0.3,
       topP: 0.85,
@@ -172,12 +205,42 @@ struct ModelRuntimeControllerTests {
       agent: sharedModeSettings
     )
 
-    controller.saveSelectedModelSettings(modeSettings: modeSettings)
+    controller.updateModeSettings(
+      from: controller.selectedModeSettings,
+      to: modeSettings
+    )
 
     try await waitUntil { store.savedSettingsByModelID[controller.selectedModel.id] != nil }
     let savedSettings = store.savedSettingsByModelID[controller.selectedModel.id]
     #expect(savedSettings?.modeSettings == modeSettings)
     #expect(savedSettings?.contextTokenLimit == 12_288)
+  }
+
+  @Test
+  func resetModeSettingsUsesResolvedRecommendationInsteadOfCatalogDefaults() async throws {
+    let model = ManagedModelCatalog.defaultModel
+    let recommendation = ModelSettingsResolver.recommendedSettings(
+      for: model,
+      generationConfig: nil
+    )
+    #expect(recommendation.modeSettings.chat != model.defaultModeSettings.chat)
+    var customized = recommendation
+    customized.modeSettings.chat.generationSettings.temperature = 0.12
+    let store = RuntimeFakeModelSettingsStore()
+    store.settingsByModelID[model.id] = customized
+    let controller = await makeController(
+      initialSettings: customized,
+      modelSettingsStore: store
+    )
+    var resetSettings: StoredModelSettings?
+
+    controller.resetModeSettings(.chat) { settings in
+      resetSettings = settings
+    }
+
+    try await waitUntil { resetSettings != nil }
+    #expect(resetSettings?.modeSettings.chat == recommendation.modeSettings.chat)
+    #expect(resetSettings?.modeSettings.agent == customized.modeSettings.agent)
   }
 
   @Test
@@ -395,8 +458,6 @@ struct ModelRuntimeControllerTests {
     let selectedModelPath = controller.modelPath
     let selectedModeSettings = controller.selectedModeSettings
     controller.downloadState = .downloaded
-    controller.modelGenerationConfigPreset = ChatGenerationConfigPreset(temperature: 0.7)
-
     controller.deleteModel(model)
 
     try await waitUntil {
@@ -409,7 +470,6 @@ struct ModelRuntimeControllerTests {
     #expect(controller.selectedModeSettings == selectedModeSettings)
     #expect(store.settingsByModelID[model.id] == customSettings)
     #expect(controller.downloadState == .idle)
-    #expect(controller.modelGenerationConfigPreset == nil)
   }
 
   @Test
@@ -653,6 +713,7 @@ struct ModelRuntimeControllerTests {
 private final class RuntimeFakeModelSettingsStore: ModelSettingsStoring, @unchecked Sendable {
   var persistedSelectedModelID: ManagedModel.ID?
   var settingsByModelID: [String: StoredModelSettings] = [:]
+  var recommendedSettingsByModelID: [String: StoredModelSettings] = [:]
   var savedSettingsByModelID: [String: StoredModelSettings] = [:]
 
   func setSelectedModelID(_ modelID: String) async {
@@ -660,15 +721,35 @@ private final class RuntimeFakeModelSettingsStore: ModelSettingsStoring, @unchec
   }
 
   func settings(for model: ManagedModel) async -> StoredModelSettings {
-    settingsByModelID[model.id]
-      ?? StoredModelSettings(
-        modeSettings: model.defaultModeSettings,
-        contextTokenLimit: model.defaultContextTokenLimit
-      )
+    settingsByModelID[model.id] ?? resolvedRecommendation(for: model)
   }
 
-  func save(settings: StoredModelSettings, for model: ManagedModel) async throws {
-    savedSettingsByModelID[model.id] = settings
+  func apply(
+    _ mutation: ModelSettingsMutation,
+    for model: ManagedModel
+  ) async throws -> StoredModelSettings {
+    var updated = await settings(for: model)
+    switch mutation {
+    case .modeSettingsChanged(_, let modeSettings):
+      updated.modeSettings = modeSettings
+    case .resetMode(let mode):
+      updated.modeSettings[mode] = resolvedRecommendation(for: model).modeSettings[mode]
+    case .contextTokenLimitChanged(let contextTokenLimit):
+      updated.contextTokenLimit = contextTokenLimit
+    case .resetContextTokenLimit:
+      updated.contextTokenLimit = resolvedRecommendation(for: model).contextTokenLimit
+    }
+    settingsByModelID[model.id] = updated
+    savedSettingsByModelID[model.id] = updated
+    return updated
+  }
+
+  private func resolvedRecommendation(for model: ManagedModel) -> StoredModelSettings {
+    recommendedSettingsByModelID[model.id]
+      ?? ModelSettingsResolver.recommendedSettings(
+        for: model,
+        generationConfig: nil
+      )
   }
 }
 
@@ -676,10 +757,16 @@ private final class RuntimeControllerFakeModelDownloader: ModelDownloading, @unc
   var downloadedModelID: String?
   private let progressFractions: [Double]
   private let error: Error?
+  private let onDownload: (@MainActor @Sendable () -> Void)?
 
-  init(progressFractions: [Double] = [1], error: Error? = nil) {
+  init(
+    progressFractions: [Double] = [1],
+    error: Error? = nil,
+    onDownload: (@MainActor @Sendable () -> Void)? = nil
+  ) {
     self.progressFractions = progressFractions
     self.error = error
+    self.onDownload = onDownload
   }
 
   func download(
@@ -696,6 +783,7 @@ private final class RuntimeControllerFakeModelDownloader: ModelDownloading, @unc
     if let error {
       throw error
     }
+    await onDownload?()
     return model.localDirectoryURL
   }
 }

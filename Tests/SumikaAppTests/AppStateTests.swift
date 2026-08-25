@@ -220,6 +220,155 @@ struct AppStateTests {
   }
 
   @Test
+  func existingSessionKeepsItsSnapshotWhileNewSessionUsesResolvedModelSettings() async throws {
+    let model = ManagedModelCatalog.defaultModel
+    let workspaceID = UUID()
+    let existingSessionID = UUID()
+    let existingSnapshot = testModeSettings(
+      systemPrompt: "Existing session snapshot",
+      generationSettings: ChatGenerationSettings(
+        temperature: 0.2,
+        topP: 0.4,
+        topK: 8,
+        maxTokens: 512
+      )
+    )
+    let resolvedModeSettings = testModeSettings(
+      systemPrompt: "Current model recommendation",
+      generationSettings: ChatGenerationSettings(
+        temperature: 0.7,
+        topP: 0.9,
+        topK: 20,
+        maxTokens: 2048
+      )
+    )
+    let resolvedSettings = StoredModelSettings(
+      modeSettings: resolvedModeSettings,
+      contextTokenLimit: model.defaultContextTokenLimit
+    )
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [
+        ChatSession(
+          id: existingSessionID,
+          selectedModelID: model.id,
+          modeSettings: existingSnapshot
+        )
+      ]
+    )
+    let modelSettingsStore = InMemoryModelSettingsStore(
+      settingsByModelID: [model.id: resolvedSettings]
+    )
+    let browserToolService = HTMLPreviewBrowserToolService()
+    let turnTracer = NoopTurnTracer()
+    let sumika = AppLaunchConfiguration.makeSumika(
+      configuration: Sumika.Configuration(
+        initialModel: model,
+        initialModelSettings: resolvedSettings
+      ),
+      modelSettingsStore: modelSettingsStore,
+      runtime: AppStateTestRuntime(),
+      browserToolService: browserToolService,
+      skillCatalog: try testSkillCatalog(),
+      turnTracer: turnTracer
+    )
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspaceID,
+          activeSessionID: existingSessionID
+        )
+      ),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      appBehaviorSettingsStore: InMemoryAppBehaviorSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
+      browserToolService: browserToolService,
+      sumika: sumika,
+      turnTracer: turnTracer
+    )
+
+    try await waitUntil { !appState.workspaceState.isLoading }
+    #expect(appState.chatFeatureState.activateSelectedConversation())
+    #expect(appState.modelManagementState.modeSettings == existingSnapshot)
+
+    let newSessionID = try #require(appState.createSession(in: workspaceID))
+    let newSession = try #require(
+      appState.workspaceState.activeWorkspace?.sessions.first { $0.id == newSessionID }
+    )
+    #expect(newSession.modeSettings == resolvedModeSettings)
+  }
+
+  @Test
+  func recommendedModeResetReplacesOnlySelectedModeInExistingSession() async throws {
+    let model = ManagedModelCatalog.defaultModel
+    let workspaceID = UUID()
+    let sessionID = UUID()
+    var snapshot = model.defaultModeSettings
+    snapshot.chat.systemPrompt = "Custom chat prompt"
+    snapshot.chat.generationSettings.temperature = 0.2
+    snapshot.agent.systemPrompt = "Keep custom agent prompt"
+    snapshot.agent.generationSettings.temperature = 0.4
+    var recommendedModeSettings = model.defaultModeSettings
+    recommendedModeSettings.chat.generationSettings.temperature = 0.73
+    recommendedModeSettings.chat.generationSettings.topP = 0.88
+    let resolvedSettings = StoredModelSettings(
+      modeSettings: recommendedModeSettings,
+      contextTokenLimit: model.defaultContextTokenLimit
+    )
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [
+        ChatSession(
+          id: sessionID,
+          selectedModelID: model.id,
+          modeSettings: snapshot
+        )
+      ]
+    )
+    let modelSettingsStore = InMemoryModelSettingsStore(
+      settingsByModelID: [model.id: resolvedSettings]
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspaceID,
+        activeSessionID: sessionID
+      )
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: modelSettingsStore,
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil { !appState.workspaceState.isLoading }
+    #expect(appState.chatFeatureState.activateSelectedConversation())
+
+    appState.modelManagementState.useRecommendedSettings(for: .chat)
+
+    try await waitUntil {
+      appState.modelManagementState.modeSettings.chat == recommendedModeSettings.chat
+    }
+    #expect(appState.modelManagementState.modeSettings.agent == snapshot.agent)
+    let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
+      library.workspaces.first?
+        .sessions.first(where: { $0.id == sessionID })?
+        .modeSettings.chat == recommendedModeSettings.chat
+    }
+    let savedSession = try #require(
+      savedLibrary.workspaces.first?.sessions.first { $0.id == sessionID }
+    )
+    #expect(savedSession.modeSettings.agent == snapshot.agent)
+  }
+
+  @Test
   func updatingContextLimitPersistsCurrentModeSettings() async throws {
     let modelSettingsStore = InMemoryModelSettingsStore()
     let appState = AppState(
@@ -2018,20 +2167,48 @@ private actor SlowSaveWorkspaceStore: WorkspaceStoring {
 }
 
 private actor InMemoryModelSettingsStore: ModelSettingsStoring {
-  private var settingsByModelID: [ManagedModel.ID: StoredModelSettings] = [:]
+  private var settingsByModelID: [ManagedModel.ID: StoredModelSettings]
+  private let recommendedSettingsByModelID: [ManagedModel.ID: StoredModelSettings]
+
+  init(
+    settingsByModelID: [ManagedModel.ID: StoredModelSettings] = [:],
+    recommendedSettingsByModelID: [ManagedModel.ID: StoredModelSettings]? = nil
+  ) {
+    self.settingsByModelID = settingsByModelID
+    self.recommendedSettingsByModelID = recommendedSettingsByModelID ?? settingsByModelID
+  }
 
   func setSelectedModelID(_: String) async {}
 
   func settings(for model: ManagedModel) async -> StoredModelSettings {
-    settingsByModelID[model.id]
-      ?? StoredModelSettings(
-        modeSettings: model.defaultModeSettings,
-        contextTokenLimit: model.defaultContextTokenLimit
-      )
+    settingsByModelID[model.id] ?? resolvedRecommendation(for: model)
   }
 
-  func save(settings: StoredModelSettings, for model: ManagedModel) async throws {
-    settingsByModelID[model.id] = settings
+  func apply(
+    _ mutation: ModelSettingsMutation,
+    for model: ManagedModel
+  ) async throws -> StoredModelSettings {
+    var updated = await settings(for: model)
+    switch mutation {
+    case .modeSettingsChanged(_, let modeSettings):
+      updated.modeSettings = modeSettings
+    case .resetMode(let mode):
+      updated.modeSettings[mode] = resolvedRecommendation(for: model).modeSettings[mode]
+    case .contextTokenLimitChanged(let contextTokenLimit):
+      updated.contextTokenLimit = contextTokenLimit
+    case .resetContextTokenLimit:
+      updated.contextTokenLimit = resolvedRecommendation(for: model).contextTokenLimit
+    }
+    settingsByModelID[model.id] = updated
+    return updated
+  }
+
+  private func resolvedRecommendation(for model: ManagedModel) -> StoredModelSettings {
+    recommendedSettingsByModelID[model.id]
+      ?? ModelSettingsResolver.recommendedSettings(
+        for: model,
+        generationConfig: nil
+      )
   }
 }
 

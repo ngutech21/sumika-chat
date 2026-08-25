@@ -25,6 +25,10 @@ package final class ModelManagementFeature {
     conversationEngine.activeModeSettings ?? modelController.selectedModeSettings
   }
 
+  package var resolvedModeSettings: ChatModeSettingsSet {
+    modelController.selectedModeSettings
+  }
+
   package var canChangeModel: Bool {
     !conversationEngine.activity.isBusy && modelController.canPerformSelectedModelAction
   }
@@ -91,16 +95,38 @@ package final class ModelManagementFeature {
   }
 
   package func updateModeSettings(_ modeSettings: ChatModeSettingsSet) {
+    let previous = self.modeSettings
+    guard previous != modeSettings else { return }
     _ = conversationEngine.updateModeSettings(modeSettings)
-    modelController.saveSelectedModelSettings(modeSettings: modeSettings)
+    modelController.updateModeSettings(from: previous, to: modeSettings)
   }
 
   package func updateContextTokenLimit(_ limit: Int) {
     guard state.modelContextTokenLimit != limit else {
       return
     }
-    modelController.setContextTokenLimit(limit)
-    modelController.saveSelectedModelSettings(modeSettings: modeSettings)
+    modelController.updateContextTokenLimit(limit)
+  }
+
+  package func useRecommendedSettings(for mode: WorkspaceInteractionMode) {
+    let workspaceIDBeforeReset = conversationEngine.activeWorkspaceID
+    let sessionIDBeforeReset = conversationEngine.activeSessionID
+    let settingsBeforeReset = modeSettings
+    modelController.resetModeSettings(mode) { [weak self] settings in
+      guard let self else { return }
+      guard
+        conversationEngine.activeWorkspaceID == workspaceIDBeforeReset,
+        conversationEngine.activeSessionID == sessionIDBeforeReset
+      else { return }
+      guard modeSettings[mode] == settingsBeforeReset[mode] else { return }
+      var updated = modeSettings
+      updated[mode] = settings.modeSettings[mode]
+      _ = conversationEngine.updateModeSettings(updated)
+    }
+  }
+
+  package func resetContextTokenLimit() {
+    modelController.resetContextTokenLimit()
   }
 
   func handleModelRuntimeError(_ message: String) {

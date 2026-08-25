@@ -134,7 +134,8 @@ struct ModelsView: View {
               }
             ),
             canChangeContextTokenLimit: state.modelState == .notLoaded,
-            generationConfigPreset: state.modelGenerationConfigPreset
+            onUseRecommendedSettings: modelManagementState.useRecommendedSettings,
+            onResetContextTokenLimit: modelManagementState.resetContextTokenLimit
           )
         } label: {
           HStack(spacing: 12) {

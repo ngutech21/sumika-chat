@@ -174,6 +174,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
       temperature: Float(settings.temperature),
       topP: Float(settings.topP),
       topK: settings.topK,
+      minP: Float(settings.minP),
       repetitionPenalty: mlxRepetitionPenalty(from: settings),
       repetitionContextSize: settings.repetitionContextSize,
       presencePenalty: Float(settings.presencePenalty),

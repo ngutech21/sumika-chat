@@ -34,6 +34,14 @@ struct LocalModelDirectoryTests {
   }
 
   @Test
+  func readContextTokenLimitIgnoresBooleanValues() throws {
+    let modelDirectory = try makeTemporaryModelDirectory(
+      configJSON: #"{"max_position_embeddings":true,"text_config":{"max_seq_len":8192}}"#)
+
+    #expect(LocalModelDirectory.readContextTokenLimit(from: modelDirectory) == 8192)
+  }
+
+  @Test
   func readGenerationConfigPresetReadsKnownSamplingKeys() throws {
     let modelDirectory = try makeTemporaryModelDirectory(
       generationConfigJSON: """
@@ -41,7 +49,9 @@ struct LocalModelDirectoryTests {
           "temperature": 0.7,
           "top_p": 0.95,
           "top_k": 64,
-          "repetition_penalty": 1.1
+          "min_p": 0.1,
+          "repetition_penalty": 1.1,
+          "presence_penalty": 1.5
         }
         """
     )
@@ -51,20 +61,72 @@ struct LocalModelDirectoryTests {
     #expect(preset.temperature == 0.7)
     #expect(preset.topP == 0.95)
     #expect(preset.topK == 64)
+    #expect(preset.minP == 0.1)
     #expect(preset.repetitionPenalty == 1.1)
+    #expect(preset.presencePenalty == 1.5)
+  }
+
+  @Test
+  func readGenerationConfigPresetIgnoresInvalidFieldsIndividually() throws {
+    let modelDirectory = try makeTemporaryModelDirectory(
+      generationConfigJSON: """
+        {
+          "temperature": -1,
+          "top_p": 0.9,
+          "top_k": -20,
+          "min_p": 2,
+          "repetition_penalty": 0,
+          "presence_penalty": 4
+        }
+        """
+    )
+
+    let preset = try #require(LocalModelDirectory.readGenerationConfigPreset(from: modelDirectory))
+
+    #expect(preset.temperature == nil)
+    #expect(preset.topP == 0.9)
+    #expect(preset.topK == nil)
+    #expect(preset.minP == nil)
+    #expect(preset.repetitionPenalty == nil)
+    #expect(preset.presencePenalty == nil)
+  }
+
+  @Test
+  func readGenerationConfigPresetIgnoresBooleanNumericFields() throws {
+    let modelDirectory = try makeTemporaryModelDirectory(
+      generationConfigJSON: """
+        {
+          "temperature": true,
+          "top_p": 0.9,
+          "top_k": false,
+          "min_p": true,
+          "repetition_penalty": true,
+          "presence_penalty": false
+        }
+        """
+    )
+
+    let preset = try #require(LocalModelDirectory.readGenerationConfigPreset(from: modelDirectory))
+
+    #expect(preset.temperature == nil)
+    #expect(preset.topP == 0.9)
+    #expect(preset.topK == nil)
+    #expect(preset.minP == nil)
+    #expect(preset.repetitionPenalty == nil)
+    #expect(preset.presencePenalty == nil)
   }
 
   @Test
   func readGenerationConfigPresetReturnsNilWhenNoSamplingKeysExist() throws {
     let modelDirectory = try makeTemporaryModelDirectory(
-      generationConfigJSON: #"{"do_sample":true}"#)
+      generationConfigJSON: #"{"do_sample":true,"eos_token_id":1,"max_new_tokens":999}"#)
 
     #expect(LocalModelDirectory.readGenerationConfigPreset(from: modelDirectory) == nil)
   }
 
   @Test
   func generationConfigPresetAppliesOnlyPresentFields() {
-    let preset = ChatGenerationConfigPreset(topP: 0.9, repetitionPenalty: 1.2)
+    let preset = GenerationSettingsOverride(topP: 0.9, repetitionPenalty: 1.2)
     let settings = ChatGenerationSettings(
       temperature: 0.1,
       topP: 0.5,
@@ -79,39 +141,6 @@ struct LocalModelDirectoryTests {
     #expect(updated.topK == 20)
     #expect(updated.maxTokens == 512)
     #expect(updated.repetitionPenalty == 1.2)
-  }
-
-  @Test
-  func applyingGenerationConfigPresetLayersChatFullyButKeepsAgentTemperature() {
-    // Mirrors the Gemma generation_config.json (temp 1.0, top_k 64, top_p 0.95).
-    let preset = ChatGenerationConfigPreset(temperature: 1.0, topP: 0.95, topK: 64)
-
-    let updated = ModelSettingsStore.applyingGenerationConfigPreset(
-      preset,
-      to: .defaultSettings
-    )
-
-    // Chat adopts the model's full recommended sampling.
-    #expect(updated.chat.generationSettings.temperature == 1.0)
-    #expect(updated.chat.generationSettings.topP == 0.95)
-    #expect(updated.chat.generationSettings.topK == 64)
-
-    // Agent keeps its conservative temperature but adopts the model's nucleus/top-k shape.
-    #expect(
-      updated.agent.generationSettings.temperature
-        == ChatGenerationSettings.agentDefault.temperature)
-    #expect(updated.agent.generationSettings.topP == 0.95)
-    #expect(updated.agent.generationSettings.topK == 64)
-    #expect(
-      updated.agent.generationSettings.presencePenalty
-        == ChatGenerationSettings.agentDefault.presencePenalty)
-  }
-
-  @Test
-  func applyingGenerationConfigPresetIsNoOpWhenPresetMissing() {
-    #expect(
-      ModelSettingsStore.applyingGenerationConfigPreset(nil, to: .defaultSettings)
-        == ChatModeSettingsSet.defaultSettings)
   }
 
   private func makeTemporaryModelDirectory(configJSON: String) throws -> URL {
