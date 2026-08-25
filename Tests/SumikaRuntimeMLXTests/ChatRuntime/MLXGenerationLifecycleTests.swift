@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 
 @testable import SumikaRuntimeMLX
@@ -143,7 +144,8 @@ struct MLXGenerationLifecycleTests {
     MLXDebugTraceStore(
       fileURL: FileManager.default.temporaryDirectory
         .appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        .appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory)
+        .appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory),
+      isEnabled: { false }
     )
   }
 
@@ -152,19 +154,34 @@ struct MLXGenerationLifecycleTests {
     operation: @escaping @Sendable (MLXChatRuntime) async -> Void
   ) async throws {
     let recorder = MLXLifecycleDrainRecorder()
+    let gate = MLXLifecycleDrainGate()
+    let debugTraceStore = MLXDebugTraceStore(
+      fileURL: FileManager.default.temporaryDirectory
+        .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        .appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory),
+      memorySnapshotSource: MLXMemorySnapshotSource {
+        recorder.record(.memorySnapshot)
+        return MLXMemorySnapshot(
+          activeMemoryBytes: 1,
+          cacheMemoryBytes: 2,
+          peakMemoryBytes: 3
+        )
+      },
+      isEnabled: { true }
+    )
     let runtime = MLXChatRuntime(
       memoryCacheClearer: MLXMemoryCacheClearer { reason in
-        await recorder.record(.memoryClear(reason))
+        recorder.record(.memoryClear(reason))
       },
-      debugTraceStore: temporaryDebugTraceStore()
+      debugTraceStore: debugTraceStore
     )
     let task = Task<Void, Never> {
       while !Task.isCancelled {
         try? await Task.sleep(for: .milliseconds(10))
       }
-      await recorder.record(.taskCancelled)
-      await recorder.waitUntilAllowedToFinish()
-      await recorder.record(.taskFinished)
+      recorder.record(.taskCancelled)
+      await gate.waitUntilAllowedToFinish()
+      recorder.record(.taskFinished)
     }
     await runtime.registerActiveGenerationForTesting(id: MLXGenerationID(rawValue: 1), task: task)
 
@@ -177,16 +194,23 @@ struct MLXGenerationLifecycleTests {
     }
 
     try await waitUntilAsync {
-      await recorder.events.contains(.taskCancelled)
+      recorder.events.contains(.taskCancelled)
     }
-    #expect(await recorder.events == [.taskCancelled])
+    #expect(recorder.events == [.taskCancelled])
 
-    await recorder.allowTaskToFinish()
+    await gate.allowTaskToFinish()
     try await withTestTimeout(.seconds(5)) {
       await lifecycleTask.value
     }
 
-    #expect(await recorder.events == [.taskCancelled, .taskFinished, .memoryClear(reason)])
+    #expect(
+      recorder.events == [
+        .taskCancelled,
+        .taskFinished,
+        .memorySnapshot,
+        .memoryClear(reason),
+        .memorySnapshot,
+      ])
   }
 
   private func waitUntilAsync(
@@ -214,24 +238,28 @@ struct MLXGenerationLifecycleTests {
     }
   }
 
-  private enum MLXLifecycleDrainEvent: Equatable {
+  private enum MLXLifecycleDrainEvent: Equatable, Sendable {
     case taskCancelled
     case taskFinished
+    case memorySnapshot
     case memoryClear(MLXMemoryClearReason)
   }
 
-  private actor MLXLifecycleDrainRecorder {
-    private var recordedEvents: [MLXLifecycleDrainEvent] = []
+  private final class MLXLifecycleDrainRecorder: Sendable {
+    private let recordedEvents = Mutex<[MLXLifecycleDrainEvent]>([])
+
+    nonisolated var events: [MLXLifecycleDrainEvent] {
+      recordedEvents.withLock { $0 }
+    }
+
+    nonisolated func record(_ event: MLXLifecycleDrainEvent) {
+      recordedEvents.withLock { $0.append(event) }
+    }
+  }
+
+  private actor MLXLifecycleDrainGate {
     private var shouldFinish = false
     private var finishContinuation: CheckedContinuation<Void, Never>?
-
-    var events: [MLXLifecycleDrainEvent] {
-      recordedEvents
-    }
-
-    func record(_ event: MLXLifecycleDrainEvent) {
-      recordedEvents.append(event)
-    }
 
     func waitUntilAllowedToFinish() async {
       if shouldFinish {

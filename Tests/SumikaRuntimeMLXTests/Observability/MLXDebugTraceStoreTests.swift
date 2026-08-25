@@ -2,6 +2,7 @@ import Foundation
 import MLXLMCommon
 import SumikaCore
 import SumikaTestSupport
+import Synchronization
 import Testing
 
 @testable import SumikaRuntimeMLX
@@ -19,6 +20,184 @@ struct MLXDebugTraceStoreTests {
     )
 
     #expect(!FileManager.default.fileExists(atPath: fileURL.path(percentEncoded: false)))
+  }
+
+  @Test
+  func disabledMemoryTracingDoesNotCreateScopeOrInvokeSnapshotSource() async throws {
+    let fileURL = try temporaryTraceFileURL()
+    let probe = MLXMemorySnapshotProbe(
+      snapshots: [
+        MLXMemorySnapshot(activeMemoryBytes: 1, cacheMemoryBytes: 2, peakMemoryBytes: 3)
+      ]
+    )
+    let store = MLXDebugTraceStore(
+      fileURL: fileURL,
+      memorySnapshotSource: MLXMemorySnapshotSource(probe.capture),
+      isEnabled: { false }
+    )
+
+    let scope = await store.beginMemoryScope(phase: .modelLoadBefore)
+    await store.recordMemorySnapshot(
+      phase: .modelLoadAfter,
+      scope: scope,
+      modelLoadOutcome: .loaded
+    )
+
+    #expect(scope == nil)
+    #expect(probe.invocationCount == 0)
+    #expect(!FileManager.default.fileExists(atPath: fileURL.path(percentEncoded: false)))
+  }
+
+  @Test
+  func disablingMemoryTracingDuringScopeSkipsFollowUpCaptureAndDelta() async throws {
+    let fileURL = try temporaryTraceFileURL()
+    let probe = MLXMemorySnapshotProbe(
+      snapshots: [
+        MLXMemorySnapshot(activeMemoryBytes: 1, cacheMemoryBytes: 2, peakMemoryBytes: 3),
+        MLXMemorySnapshot(activeMemoryBytes: 4, cacheMemoryBytes: 5, peakMemoryBytes: 6),
+      ]
+    )
+    let enablement = MLXTraceEnablementProbe(isEnabled: true)
+    let store = MLXDebugTraceStore(
+      fileURL: fileURL,
+      memorySnapshotSource: MLXMemorySnapshotSource(probe.capture),
+      isEnabled: { enablement.isEnabled }
+    )
+
+    let scope = try #require(await store.beginMemoryScope(phase: .generationStart))
+    enablement.setEnabled(false)
+    await store.recordMemorySnapshot(
+      phase: .generationTerminal,
+      scope: scope,
+      runtimeStreamOutcome: .completed
+    )
+
+    let objects = try traceObjects(at: fileURL)
+    #expect(probe.invocationCount == 1)
+    #expect(objects.count == 1)
+    #expect(objects.first?["memoryPhase"] as? String == "generation_start")
+    #expect(objects.first?["baselineMemoryPhase"] == nil)
+    #expect(objects.first?["activeMemoryDeltaBytes"] == nil)
+  }
+
+  @Test
+  func memoryTraceRecordsStableFieldsAndSignedDeltas() async throws {
+    let fileURL = try temporaryTraceFileURL()
+    let probe = MLXMemorySnapshotProbe(
+      snapshots: [
+        MLXMemorySnapshot(
+          activeMemoryBytes: 100,
+          cacheMemoryBytes: 40,
+          peakMemoryBytes: 150
+        ),
+        MLXMemorySnapshot(
+          activeMemoryBytes: 130,
+          cacheMemoryBytes: 10,
+          peakMemoryBytes: 180
+        ),
+      ]
+    )
+    let store = MLXDebugTraceStore(
+      fileURL: fileURL,
+      memorySnapshotSource: MLXMemorySnapshotSource(probe.capture),
+      isEnabled: { true }
+    )
+    let turnID = UUID()
+    let generationID = UUID()
+    let metadata = TurnTraceMetadata(
+      turnID: turnID,
+      generationID: generationID,
+      tracer: store,
+      toolLoopIteration: 2,
+      interactionMode: .agent
+    )
+
+    let scope = try #require(
+      await store.beginMemoryScope(
+        phase: .modelLoadBefore,
+        generationID: generationID,
+        traceMetadata: metadata
+      )
+    )
+    await store.recordMemorySnapshot(
+      phase: .modelLoadAfter,
+      scope: scope,
+      durationMs: 25,
+      modelLoadOutcome: .loaded
+    )
+
+    let objects = try traceObjects(at: fileURL)
+    #expect(objects.count == 2)
+    let start = try #require(objects.first)
+    let end = try #require(objects.last)
+
+    #expect(start["kind"] as? String == "turn_trace")
+    #expect(start["phase"] as? String == "runtime_memory")
+    #expect(start["memoryPhase"] as? String == "model_load_before")
+    #expect(start["memoryScopeID"] as? String == scope.id.uuidString)
+    #expect(start["turnID"] as? String == turnID.uuidString)
+    #expect(start["generationID"] as? String == generationID.uuidString)
+    #expect(start["toolLoopIteration"] as? Int == 2)
+    #expect(start["interactionMode"] as? String == "agent")
+    #expect(start["activeMemoryBytes"] as? Int == 100)
+    #expect(start["cacheMemoryBytes"] as? Int == 40)
+    #expect(start["peakMemoryBytes"] as? Int == 150)
+    #expect(start["baselineMemoryPhase"] == nil)
+    #expect(start["activeMemoryDeltaBytes"] == nil)
+
+    #expect(end["phase"] as? String == "runtime_memory")
+    #expect(end["memoryPhase"] as? String == "model_load_after")
+    #expect(end["memoryScopeID"] as? String == scope.id.uuidString)
+    #expect(end["baselineMemoryPhase"] as? String == "model_load_before")
+    #expect(end["activeMemoryBytes"] as? Int == 130)
+    #expect(end["cacheMemoryBytes"] as? Int == 10)
+    #expect(end["peakMemoryBytes"] as? Int == 180)
+    #expect(end["activeMemoryDeltaBytes"] as? Int == 30)
+    #expect(end["cacheMemoryDeltaBytes"] as? Int == -30)
+    #expect(end["peakMemoryDeltaBytes"] as? Int == 30)
+    #expect(end["modelLoadOutcome"] as? String == "loaded")
+    #expect(end["durationMs"] as? Double == 25)
+    #expect(probe.invocationCount == 2)
+  }
+
+  @Test
+  func memoryTraceRecordsFailedModelLoadOutcome() async throws {
+    let fileURL = try temporaryTraceFileURL()
+    let probe = MLXMemorySnapshotProbe(
+      snapshots: [
+        MLXMemorySnapshot(activeMemoryBytes: 10, cacheMemoryBytes: 20, peakMemoryBytes: 30),
+        MLXMemorySnapshot(activeMemoryBytes: 11, cacheMemoryBytes: 19, peakMemoryBytes: 31),
+      ]
+    )
+    let store = MLXDebugTraceStore(
+      fileURL: fileURL,
+      memorySnapshotSource: MLXMemorySnapshotSource(probe.capture),
+      isEnabled: { true }
+    )
+
+    let scope = try #require(await store.beginMemoryScope(phase: .modelLoadBefore))
+    await store.recordMemorySnapshot(
+      phase: .modelLoadAfter,
+      scope: scope,
+      modelLoadOutcome: .failed
+    )
+
+    let end = try #require(traceObjects(at: fileURL).last)
+    #expect(end["memoryPhase"] as? String == "model_load_after")
+    #expect(end["modelLoadOutcome"] as? String == "failed")
+  }
+
+  @Test
+  func memoryTracePhaseRawValuesStayStable() {
+    #expect(MLXMemoryTracePhase.modelLoadBefore.rawValue == "model_load_before")
+    #expect(MLXMemoryTracePhase.modelLoadAfter.rawValue == "model_load_after")
+    #expect(MLXMemoryTracePhase.generationStart.rawValue == "generation_start")
+    #expect(
+      MLXMemoryTracePhase.generationFirstOutput.rawValue == "generation_first_output"
+    )
+    #expect(MLXMemoryTracePhase.generationTerminal.rawValue == "generation_terminal")
+    #expect(MLXMemoryTracePhase.cacheClearBefore.rawValue == "cache_clear_before")
+    #expect(MLXMemoryTracePhase.cacheClearAfter.rawValue == "cache_clear_after")
   }
 
   @Test
@@ -563,5 +742,49 @@ struct MLXDebugTraceStoreTests {
     try scopedTemporaryDirectory()
       .appending(path: UUID().uuidString, directoryHint: .isDirectory)
       .appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory)
+  }
+
+  private func traceObjects(at fileURL: URL) throws -> [[String: Any]] {
+    let data = try Data(contentsOf: fileURL)
+    let lines = try #require(String(data: data, encoding: .utf8)?.split(separator: "\n"))
+    return try lines.map { line in
+      try #require(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+    }
+  }
+
+  private final class MLXMemorySnapshotProbe: Sendable {
+    private let state: Mutex<(snapshots: [MLXMemorySnapshot], invocationCount: Int)>
+
+    init(snapshots: [MLXMemorySnapshot]) {
+      self.state = Mutex((snapshots: snapshots, invocationCount: 0))
+    }
+
+    var invocationCount: Int {
+      state.withLock { $0.invocationCount }
+    }
+
+    nonisolated func capture() -> MLXMemorySnapshot {
+      state.withLock { state in
+        let snapshot = state.snapshots[min(state.invocationCount, state.snapshots.count - 1)]
+        state.invocationCount += 1
+        return snapshot
+      }
+    }
+  }
+
+  private final class MLXTraceEnablementProbe: Sendable {
+    private let state: Mutex<Bool>
+
+    init(isEnabled: Bool) {
+      self.state = Mutex(isEnabled)
+    }
+
+    nonisolated var isEnabled: Bool {
+      state.withLock { $0 }
+    }
+
+    nonisolated func setEnabled(_ isEnabled: Bool) {
+      state.withLock { $0 = isEnabled }
+    }
   }
 }

@@ -291,6 +291,159 @@ struct MLXModelStreamProcessorTests {
     }
   }
 
+  @Test(arguments: MLXMemoryTraceStreamScenario.allCases)
+  func memoryTraceRecordsOneTerminalSnapshotBeforeCleanup(
+    scenario: MLXMemoryTraceStreamScenario
+  ) async throws {
+    let traceID = UUID()
+    let (debugTraceStore, fileURL) = memoryTracingStore()
+    let memoryTraceScope = try #require(
+      await debugTraceStore.beginMemoryScope(
+        phase: .generationStart,
+        generationID: traceID
+      )
+    )
+    let stream = modelStream(
+      from: memoryTraceSource(for: scenario),
+      traceID: traceID,
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: debugTraceStore,
+      memoryTraceScope: memoryTraceScope,
+      markCompleted: { _ in },
+      markCancelled: { _ in },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
+    )
+
+    var didThrow = false
+    do {
+      try await drainModelStream(stream)
+    } catch {
+      didThrow = true
+    }
+
+    #expect(didThrow == scenario.expectsError)
+    let rows = try memoryTraceRows(at: fileURL)
+    let firstOutputRows = rows.filter {
+      $0["memoryPhase"] as? String == MLXMemoryTracePhase.generationFirstOutput.rawValue
+    }
+    let terminalRows = rows.filter {
+      $0["memoryPhase"] as? String == MLXMemoryTracePhase.generationTerminal.rawValue
+    }
+    #expect(firstOutputRows.count == 1)
+    #expect(terminalRows.count == 1)
+    #expect(terminalRows.first?["runtimeStreamOutcome"] as? String == scenario.outcome.rawValue)
+
+    let terminalIndex = try #require(
+      rows.firstIndex {
+        $0["memoryPhase"] as? String == MLXMemoryTracePhase.generationTerminal.rawValue
+      }
+    )
+    let clearBeforeIndex = rows.firstIndex {
+      $0["memoryPhase"] as? String == MLXMemoryTracePhase.cacheClearBefore.rawValue
+    }
+    let clearAfterIndex = rows.firstIndex {
+      $0["memoryPhase"] as? String == MLXMemoryTracePhase.cacheClearAfter.rawValue
+    }
+    if scenario.clearsMemory {
+      let clearBeforeIndex = try #require(clearBeforeIndex)
+      let clearAfterIndex = try #require(clearAfterIndex)
+      #expect(terminalIndex < clearBeforeIndex)
+      #expect(clearBeforeIndex < clearAfterIndex)
+    } else {
+      #expect(clearBeforeIndex == nil)
+      #expect(clearAfterIndex == nil)
+    }
+  }
+
+  @Test
+  func memoryTraceDoesNotTreatInfoAsFirstOutput() async throws {
+    let traceID = UUID()
+    let (debugTraceStore, fileURL) = memoryTracingStore()
+    let memoryTraceScope = try #require(
+      await debugTraceStore.beginMemoryScope(
+        phase: .generationStart,
+        generationID: traceID
+      )
+    )
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.info(completionInfo()))
+      continuation.finish()
+    }
+    let stream = modelStream(
+      from: source,
+      traceID: traceID,
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: debugTraceStore,
+      memoryTraceScope: memoryTraceScope,
+      markCompleted: { _ in },
+      markCancelled: { _ in }
+    )
+
+    try await drainModelStream(stream)
+
+    let rows = try memoryTraceRows(at: fileURL)
+    #expect(
+      !rows.contains {
+        $0["memoryPhase"] as? String == MLXMemoryTracePhase.generationFirstOutput.rawValue
+      })
+    #expect(
+      rows.filter {
+        $0["memoryPhase"] as? String == MLXMemoryTracePhase.generationTerminal.rawValue
+      }.count == 1)
+  }
+
+  @Test
+  func memoryTraceTreatsRejectedToolCallAsFirstOutput() async throws {
+    let traceID = UUID()
+    let (debugTraceStore, fileURL) = memoryTracingStore()
+    let memoryTraceScope = try #require(
+      await debugTraceStore.beginMemoryScope(
+        phase: .generationStart,
+        generationID: traceID
+      )
+    )
+    let rejection = RejectedToolCall(
+      reason: .invalidArguments,
+      format: .json,
+      toolName: "write_file",
+      callID: "rejected-call",
+      rawText: "{}",
+      detail: "The function arguments were not a JSON object."
+    )
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.rejectedToolCall(rejection))
+      continuation.finish()
+    }
+    let stream = modelStream(
+      from: source,
+      traceID: traceID,
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: debugTraceStore,
+      memoryTraceScope: memoryTraceScope,
+      markCompleted: { _ in },
+      markCancelled: { _ in },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
+    )
+
+    do {
+      try await drainModelStream(stream)
+      Issue.record("Expected rejected tool call to fail the stream.")
+    } catch is RejectedToolCallError {}
+
+    let rows = try memoryTraceRows(at: fileURL)
+    #expect(
+      rows.filter {
+        $0["memoryPhase"] as? String == MLXMemoryTracePhase.generationFirstOutput.rawValue
+      }.count == 1)
+    #expect(
+      rows.filter {
+        $0["memoryPhase"] as? String == MLXMemoryTracePhase.generationTerminal.rawValue
+      }.count == 1)
+  }
+
   @Test
   func modelStreamMarksConsumerTerminationAsDownstreamTerminated() async throws {
     let recorder = MLXStreamInvalidationRecorder()
@@ -305,6 +458,14 @@ struct MLXModelStreamProcessorTests {
   @Test
   func modelStreamPlanCancelsUpstreamTaskWhenConsumerTerminates() async throws {
     let recorder = MLXStreamInvalidationRecorder()
+    let traceID = UUID()
+    let (debugTraceStore, fileURL) = memoryTracingStore()
+    let memoryTraceScope = try #require(
+      await debugTraceStore.beginMemoryScope(
+        phase: .generationStart,
+        generationID: traceID
+      )
+    )
     let source = AsyncThrowingStream<Generation, Error> { continuation in
       let task = Task {
         try? await Task.sleep(for: .seconds(5))
@@ -317,10 +478,11 @@ struct MLXModelStreamProcessorTests {
     }
     var plan: MLXModelStreamPlan? = MLXModelStreamProcessor.modelStreamPlan(
       from: source,
-      traceID: UUID(),
+      traceID: traceID,
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
-      debugTraceStore: temporaryDebugTraceStore(),
+      debugTraceStore: debugTraceStore,
+      memoryTraceScope: memoryTraceScope,
       markCompleted: { _ in },
       markCancelled: { reason in
         await recorder.record(reason)
@@ -353,6 +515,17 @@ struct MLXModelStreamProcessorTests {
       let firstReason = await recorder.firstReason
       return upstreamTask.isCancelled && firstReason == .downstreamTerminated
     }
+    try await withTestTimeout(.seconds(5)) {
+      await upstreamTask.value
+    }
+
+    let terminalRows = try memoryTraceRows(at: fileURL).filter {
+      $0["memoryPhase"] as? String == MLXMemoryTracePhase.generationTerminal.rawValue
+    }
+    #expect(terminalRows.count == 1)
+    #expect(
+      terminalRows.first?["runtimeStreamOutcome"] as? String
+        == RuntimeStreamOutcome.downstreamTerminated.rawValue)
   }
 
   @Test
@@ -1643,6 +1816,7 @@ struct MLXModelStreamProcessorTests {
     cacheTrace: MLXSessionCacheTrace,
     debugTraceStore: MLXDebugTraceStore,
     runtimeCacheDiagnostics: MLXRuntimeCacheDiagnostics? = nil,
+    memoryTraceScope: MLXMemoryTraceScope? = nil,
     markCompleted: @escaping @Sendable (String) async -> Void,
     markCompletedSnapshot: @escaping @Sendable (MLXCompletedAssistantSnapshot) async -> Void = {
       _ in
@@ -1662,6 +1836,7 @@ struct MLXModelStreamProcessorTests {
       cacheTrace: cacheTrace,
       debugTraceStore: debugTraceStore,
       runtimeCacheDiagnostics: runtimeCacheDiagnostics,
+      memoryTraceScope: memoryTraceScope,
       markCompleted: { assistant in
         await markCompleted(assistant.visibleContent)
         await markCompletedSnapshot(assistant)
@@ -1773,6 +1948,96 @@ struct MLXModelStreamProcessorTests {
     return (stream, invalidationRecorder, memoryClearRecorder)
   }
 
+  private nonisolated func memoryTraceSource(
+    for scenario: MLXMemoryTraceStreamScenario
+  ) -> AsyncThrowingStream<Generation, Error> {
+    AsyncThrowingStream { continuation in
+      switch scenario {
+      case .completed:
+        continuation.yield(.chunk("first"))
+        continuation.yield(.chunk(" second"))
+        continuation.yield(
+          .info(
+            GenerateCompletionInfo(
+              promptTokenCount: 8,
+              generationTokenCount: 2,
+              promptTime: 0.1,
+              generationTime: 0.1
+            )))
+        continuation.finish()
+      case .cancelled:
+        continuation.yield(.chunk("partial"))
+        continuation.yield(
+          .info(
+            GenerateCompletionInfo(
+              promptTokenCount: 8,
+              generationTokenCount: 1,
+              promptTime: 0.1,
+              generationTime: 0.1,
+              stopReason: .cancelled
+            )))
+        continuation.finish()
+      case .failed:
+        continuation.yield(.chunk("partial"))
+        continuation.finish(throwing: MLXTestStreamError())
+      case .outputLimit:
+        continuation.yield(.chunk("partial"))
+        continuation.yield(
+          .info(
+            GenerateCompletionInfo(
+              promptTokenCount: 8,
+              generationTokenCount: 2_048,
+              promptTime: 0.1,
+              generationTime: 1,
+              stopReason: .length
+            )))
+        continuation.finish()
+      case .interrupted:
+        continuation.yield(.chunk("partial"))
+        continuation.finish()
+      case .toolCallBoundary:
+        continuation.yield(
+          .toolCall(
+            MLXLMCommon.ToolCall(
+              function: .init(name: "read_file", arguments: ["path": "README.md"])
+            )))
+        continuation.finish()
+      }
+    }
+  }
+
+  private nonisolated func memoryTracingStore() -> (MLXDebugTraceStore, URL) {
+    let fileURL = FileManager.default.temporaryDirectory
+      .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+      .appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory)
+    return (
+      MLXDebugTraceStore(
+        fileURL: fileURL,
+        memorySnapshotSource: MLXMemorySnapshotSource {
+          MLXMemorySnapshot(
+            activeMemoryBytes: 1,
+            cacheMemoryBytes: 2,
+            peakMemoryBytes: 3
+          )
+        },
+        isEnabled: { true }
+      ),
+      fileURL
+    )
+  }
+
+  private nonisolated func memoryTraceRows(at fileURL: URL) throws -> [[String: Any]] {
+    let data = try Data(contentsOf: fileURL)
+    let lines = try #require(String(data: data, encoding: .utf8)?.split(separator: "\n"))
+    return try lines.compactMap { line in
+      let object = try #require(
+        JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+      )
+      return object["phase"] as? String == TurnTracePhase.runtimeMemory.rawValue
+        ? object : nil
+    }
+  }
+
   private func completionInfo() -> GenerateCompletionInfo {
     GenerateCompletionInfo(
       promptTokenCount: 8,
@@ -1786,7 +2051,8 @@ struct MLXModelStreamProcessorTests {
     MLXDebugTraceStore(
       fileURL: FileManager.default.temporaryDirectory
         .appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        .appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory)
+        .appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory),
+      isEnabled: { false }
     )
   }
 
@@ -1934,4 +2200,48 @@ struct MLXModelStreamProcessorTests {
 
   private struct MLXStreamWaitTimeoutError: Error {}
 
+}
+
+enum MLXMemoryTraceStreamScenario: CaseIterable, Sendable {
+  case completed
+  case cancelled
+  case failed
+  case outputLimit
+  case interrupted
+  case toolCallBoundary
+
+  var outcome: RuntimeStreamOutcome {
+    switch self {
+    case .completed:
+      .completed
+    case .cancelled:
+      .cancelled
+    case .failed:
+      .failed
+    case .outputLimit:
+      .outputLimit
+    case .interrupted:
+      .interrupted
+    case .toolCallBoundary:
+      .toolCallBoundary
+    }
+  }
+
+  var expectsError: Bool {
+    switch self {
+    case .cancelled, .failed, .interrupted:
+      true
+    case .completed, .outputLimit, .toolCallBoundary:
+      false
+    }
+  }
+
+  var clearsMemory: Bool {
+    switch self {
+    case .failed, .outputLimit, .interrupted:
+      true
+    case .completed, .cancelled, .toolCallBoundary:
+      false
+    }
+  }
 }

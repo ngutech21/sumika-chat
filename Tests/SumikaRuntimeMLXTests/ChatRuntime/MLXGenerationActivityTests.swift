@@ -172,7 +172,8 @@ struct MLXGenerationActivityTests {
     MLXDebugTraceStore(
       fileURL: FileManager.default.temporaryDirectory
         .appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        .appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory)
+        .appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory),
+      isEnabled: { false }
     )
   }
 }

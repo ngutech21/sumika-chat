@@ -79,6 +79,7 @@ package enum TurnTracePhase: String, Codable, CaseIterable, Equatable, Sendable 
   case runtimePrefill = "runtime_prefill"
   case runtimeDecode = "runtime_decode"
   case runtimePartialDecode = "runtime_partial_decode"
+  case runtimeMemory = "runtime_memory"
   case toolParse = "tool_parse"
   case toolExecute = "tool_execute"
   case uiFlush = "ui_flush"

@@ -378,12 +378,60 @@ is marked with `generatedTokenCountIsEstimate: true`; structured tool parsing
 can buffer provider syntax, so this running value is intentionally not presented
 as an exact MLX counter.
 
+The same JSONL stream uses additive `turn_trace` rows with
+`phase: runtime_memory` for event-based MLX memory snapshots. These rows contain
+`memoryScopeID`, `memoryPhase`, exact active/cache/peak byte counts, and, for a
+follow-up snapshot, `baselineMemoryPhase` plus signed byte deltas. The stable
+memory phases and their pairing rules are:
+
+- `model_load_before` / `model_load_after` share one scope. The baseline is
+  captured after active generation has drained and the existing memory policy
+  has been applied, immediately before the model factory call. The after row is
+  recorded after successful runtime-state assignment or on the error path before
+  rethrowing, with `modelLoadOutcome: loaded` or `failed`.
+- `generation_start` is the scope baseline and is captured immediately before
+  generation activity starts, so upstream prefill cannot precede it.
+  `generation_first_output` is emitted once for the first text chunk, native
+  tool call, or rejected tool call; completion `.info` by itself is not output.
+  `generation_terminal` is emitted exactly once with `runtimeStreamOutcome` for
+  completed, cancelled, failed, output-limit, interrupted, tool-call-boundary,
+  and downstream-terminated paths. Both follow-up deltas use
+  `generation_start`, not the previous snapshot, as their baseline.
+- `cache_clear_before` / `cache_clear_after` share one scope and carry the
+  existing `memoryClearReason`. The clear-duration timer stops before the after
+  snapshot, so snapshot overhead is excluded from the existing
+  `memory_clear.durationMs` value.
+
+The terminal generation snapshot is ordered before cache/session invalidation,
+`Memory.clearCache()`, session completion, and stream-continuation completion.
+Cleanup therefore remains visible as its own later cache-clear scope. Snapshot
+capture does not poll and never resets MLX counters. `activeMemoryBytes` is
+memory in active MLX arrays, while `cacheMemoryBytes` is MLX's reusable buffer
+pool. `peakMemoryBytes` is MLX's process-global high-water mark for active
+memory since process start. Its signed delta means an increase in that global
+high-water mark, not a peak local to the scope; a zero delta does not mean that
+the scope allocated no temporary memory.
+
+`SUMIKA_DEBUG_TRACE` is the sole enablement source. With tracing disabled, the
+memory scope guard returns before calling `Memory.snapshot()`, creating a UUID
+or timestamp, calculating a delta, or appending a trace row; follow-up calls
+also return before those operations when their scope is missing or tracing has
+become disabled. The snapshot source is closure-backed and lazy, so constructing
+the trace store never captures memory.
+
 `./script/build_and_run.sh --trace` writes each app run to a separate
 `~/Library/Application Support/Sumika/debug/traces/<timestamp>-<UUID>-mlx-trace.jsonl`
 file. `SUMIKA_DEBUG_TRACE_FILE` and `SUMIKA_DEBUG_TRACE_BASENAME` remain available
 for callers that require an explicit path. The performance-report script uses
 the most recently modified manual run trace or legacy `mlx-trace.jsonl` when no
 trace path is supplied.
+
+`script/trace_performance_report.swift` preserves these rows in the ordered
+top-level `memorySnapshots` JSON collection with exact byte values. Its Markdown
+memory table renders MiB values and signed MiB deltas. Model-load and run-wide
+manual clear/unload rows have no generation ID and remain visible when
+`--limit` is applied; generation-linked rows are retained only for the retained
+generations.
 
 Active MLX generation holds a user-initiated process activity request from
 before upstream stream creation through its terminal runtime event. For a

@@ -84,6 +84,27 @@ struct GenerationReport: Codable {
   var firstRowIndex: Int
 }
 
+struct MemorySnapshotReport: Codable {
+  var timestamp: String?
+  var memoryScopeID: String
+  var memoryPhase: String
+  var baselineMemoryPhase: String?
+  var turnID: String?
+  var generationID: String?
+  var toolLoopIteration: Int?
+  var interactionMode: String?
+  var modelLoadOutcome: String?
+  var runtimeStreamOutcome: String?
+  var memoryClearReason: String?
+  var durationMs: Double
+  var activeMemoryBytes: Int
+  var cacheMemoryBytes: Int
+  var peakMemoryBytes: Int
+  var activeMemoryDeltaBytes: Int?
+  var cacheMemoryDeltaBytes: Int?
+  var peakMemoryDeltaBytes: Int?
+}
+
 struct PerformanceReport: Codable {
   var timestamp: String
   var gitCommit: String?
@@ -94,6 +115,7 @@ struct PerformanceReport: Codable {
   var rowCount: Int
   var generationCount: Int
   var generations: [GenerationReport]
+  var memorySnapshots: [MemorySnapshotReport]
 }
 
 func usage() -> Never {
@@ -196,6 +218,42 @@ func boolValue(_ dictionary: [String: Any], _ key: String) -> Bool? {
     return value.boolValue
   }
   return nil
+}
+
+func memorySnapshotReport(_ object: [String: Any]) -> MemorySnapshotReport? {
+  guard
+    value(object, "kind", as: String.self) == "turn_trace",
+    value(object, "phase", as: String.self) == "runtime_memory",
+    let memoryScopeID = value(object, "memoryScopeID", as: String.self),
+    let memoryPhase = value(object, "memoryPhase", as: String.self),
+    let durationMs = doubleValue(object, "durationMs"),
+    let activeMemoryBytes = intValue(object, "activeMemoryBytes"),
+    let cacheMemoryBytes = intValue(object, "cacheMemoryBytes"),
+    let peakMemoryBytes = intValue(object, "peakMemoryBytes")
+  else {
+    return nil
+  }
+
+  return MemorySnapshotReport(
+    timestamp: value(object, "timestamp", as: String.self),
+    memoryScopeID: memoryScopeID,
+    memoryPhase: memoryPhase,
+    baselineMemoryPhase: value(object, "baselineMemoryPhase", as: String.self),
+    turnID: value(object, "turnID", as: String.self),
+    generationID: value(object, "generationID", as: String.self),
+    toolLoopIteration: intValue(object, "toolLoopIteration"),
+    interactionMode: value(object, "interactionMode", as: String.self),
+    modelLoadOutcome: value(object, "modelLoadOutcome", as: String.self),
+    runtimeStreamOutcome: value(object, "runtimeStreamOutcome", as: String.self),
+    memoryClearReason: value(object, "memoryClearReason", as: String.self),
+    durationMs: durationMs,
+    activeMemoryBytes: activeMemoryBytes,
+    cacheMemoryBytes: cacheMemoryBytes,
+    peakMemoryBytes: peakMemoryBytes,
+    activeMemoryDeltaBytes: intValue(object, "activeMemoryDeltaBytes"),
+    cacheMemoryDeltaBytes: intValue(object, "cacheMemoryDeltaBytes"),
+    peakMemoryDeltaBytes: intValue(object, "peakMemoryDeltaBytes")
+  )
 }
 
 func timestampForFileName(_ date: Date = Date()) -> String {
@@ -366,6 +424,7 @@ func markdown(_ report: PerformanceReport) -> String {
 
   appendToolLoopTTFTComparison(to: &lines, generations: report.generations)
   appendDecodeStateIntervals(to: &lines, generations: report.generations)
+  appendMemorySnapshots(to: &lines, snapshots: report.memorySnapshots)
 
   lines.append("")
   return lines.joined(separator: "\n")
@@ -497,6 +556,58 @@ func appendToolLoopTTFTComparison(to lines: inout [String], generations: [Genera
   }
 }
 
+func appendMemorySnapshots(
+  to lines: inout [String],
+  snapshots: [MemorySnapshotReport]
+) {
+  guard !snapshots.isEmpty else {
+    return
+  }
+
+  lines.append(contentsOf: [
+    "",
+    "## MLX Memory Snapshots",
+    "",
+    "`Global peak` is MLX's process-global high-water mark; its delta is the increase in that global counter.",
+    "",
+    "| Phase | Scope | Generation | Outcome / reason | Active MiB | Delta active MiB | Cache MiB | Delta cache MiB | Global peak MiB | Delta peak MiB |",
+    "|---|---|---|---|---:|---:|---:|---:|---:|---:|",
+  ])
+
+  for snapshot in snapshots {
+    let outcomeAndReason = [
+      snapshot.modelLoadOutcome.map { "model=\($0)" },
+      snapshot.runtimeStreamOutcome.map { "stream=\($0)" },
+      snapshot.memoryClearReason.map { "clear=\($0)" },
+    ].compactMap { $0 }.joined(separator: ", ")
+    lines.append(
+      [
+        snapshot.memoryPhase,
+        String(snapshot.memoryScopeID.prefix(8)),
+        snapshot.generationID.map { String($0.prefix(8)) } ?? "run-wide",
+        outcomeAndReason.isEmpty ? "-" : outcomeAndReason,
+        formattedMemoryMiB(snapshot.activeMemoryBytes),
+        formattedMemoryDeltaMiB(snapshot.activeMemoryDeltaBytes),
+        formattedMemoryMiB(snapshot.cacheMemoryBytes),
+        formattedMemoryDeltaMiB(snapshot.cacheMemoryDeltaBytes),
+        formattedMemoryMiB(snapshot.peakMemoryBytes),
+        formattedMemoryDeltaMiB(snapshot.peakMemoryDeltaBytes),
+      ].joined(separator: " | ").wrappedTableRow()
+    )
+  }
+}
+
+func formattedMemoryMiB(_ bytes: Int) -> String {
+  String(format: "%.2f", Double(bytes) / 1_048_576)
+}
+
+func formattedMemoryDeltaMiB(_ bytes: Int?) -> String {
+  guard let bytes else {
+    return "-"
+  }
+  return String(format: "%+.2f", Double(bytes) / 1_048_576)
+}
+
 func formatted(_ value: Double?) -> String {
   guard let value else {
     return "-"
@@ -562,6 +673,7 @@ let traceText = try String(contentsOf: traceURL, encoding: .utf8)
 let rows = traceText.split(separator: "\n", omittingEmptySubsequences: true)
 var reportsByGenerationID: [String: GenerationReport] = [:]
 var generationOrder: [String] = []
+var memorySnapshots: [MemorySnapshotReport] = []
 
 for (rowIndex, row) in rows.enumerated() {
   guard
@@ -569,6 +681,11 @@ for (rowIndex, row) in rows.enumerated() {
     let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
     let kind = value(object, "kind", as: String.self)
   else {
+    continue
+  }
+
+  if let memorySnapshot = memorySnapshotReport(object) {
+    memorySnapshots.append(memorySnapshot)
     continue
   }
 
@@ -682,6 +799,13 @@ var generations = generationOrder.compactMap { generationID -> GenerationReport?
 if let limit, generations.count > limit {
   generations = Array(generations.suffix(limit))
 }
+let retainedGenerationIDs = Set(generations.map(\.generationID))
+memorySnapshots = memorySnapshots.filter { snapshot in
+  guard let generationID = snapshot.generationID else {
+    return true
+  }
+  return retainedGenerationIDs.contains(generationID)
+}
 
 let now = Date()
 let report = PerformanceReport(
@@ -693,7 +817,8 @@ let report = PerformanceReport(
   tracePath: traceURL.path(percentEncoded: false),
   rowCount: rows.count,
   generationCount: generations.count,
-  generations: generations
+  generations: generations,
+  memorySnapshots: memorySnapshots
 )
 
 let encoder = JSONEncoder()

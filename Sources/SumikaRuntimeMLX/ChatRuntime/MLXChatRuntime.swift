@@ -69,36 +69,51 @@ final actor MLXChatRuntime: ChatModelRuntime {
     configureMLXMemory()
 
     let tokenizerLoader = makeHuggingFaceTokenizerLoader()
+    let memoryTraceScope = await debugTraceStore.beginMemoryScope(phase: .modelLoadBefore)
 
-    let container =
-      if configuration.supportsImageInput {
-        try await VLMModelFactory.shared.loadContainer(
-          from: configuration.localModelDirectory,
-          using: tokenizerLoader
-        )
-      } else {
-        try await LLMModelFactory.shared.loadContainer(
-          from: configuration.localModelDirectory,
-          using: tokenizerLoader
-        )
-      }
+    do {
+      let container =
+        if configuration.supportsImageInput {
+          try await VLMModelFactory.shared.loadContainer(
+            from: configuration.localModelDirectory,
+            using: tokenizerLoader
+          )
+        } else {
+          try await LLMModelFactory.shared.loadContainer(
+            from: configuration.localModelDirectory,
+            using: tokenizerLoader
+          )
+        }
 
-    runtimeCacheDiagnostics =
-      if MLXDebugTraceStore.isEnabled {
-        await MLXRuntimeCacheDiagnostics.install(on: container)
-      } else {
-        nil
-      }
-    modelContainer = container
-    loadedModelSupportsImageInput = configuration.supportsImageInput
-    loadedReasoningTraceFormat = configuration.reasoningTraceFormat
-    loadedModelPreservesHistoricalReasoning =
-      configuration.supportsHistoricalReasoningPreservation
-    loadedModelReasoningEffort = configuration.reasoningEffort
-    loadedThinkingBudgetPolicy = configuration.thinkingBudgetPolicy
-    contextTokenLimit = configuration.contextTokenLimit
-    lastRuntimeCacheDebugSnapshot = nil
-    invalidateCachedSession(reason: .modelChanged)
+      runtimeCacheDiagnostics =
+        if MLXDebugTraceStore.isEnabled {
+          await MLXRuntimeCacheDiagnostics.install(on: container)
+        } else {
+          nil
+        }
+      modelContainer = container
+      loadedModelSupportsImageInput = configuration.supportsImageInput
+      loadedReasoningTraceFormat = configuration.reasoningTraceFormat
+      loadedModelPreservesHistoricalReasoning =
+        configuration.supportsHistoricalReasoningPreservation
+      loadedModelReasoningEffort = configuration.reasoningEffort
+      loadedThinkingBudgetPolicy = configuration.thinkingBudgetPolicy
+      contextTokenLimit = configuration.contextTokenLimit
+      lastRuntimeCacheDebugSnapshot = nil
+      invalidateCachedSession(reason: .modelChanged)
+      await debugTraceStore.recordMemorySnapshot(
+        phase: .modelLoadAfter,
+        scope: memoryTraceScope,
+        modelLoadOutcome: .loaded
+      )
+    } catch {
+      await debugTraceStore.recordMemorySnapshot(
+        phase: .modelLoadAfter,
+        scope: memoryTraceScope,
+        modelLoadOutcome: .failed
+      )
+      throw error
+    }
   }
 
   func unload() async {
@@ -194,6 +209,8 @@ final actor MLXChatRuntime: ChatModelRuntime {
     return updatedSnapshot
   }
 
+  // Ordered stream setup keeps the memory baseline adjacent to upstream stream creation.
+  // swiftlint:disable:next function_body_length
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
@@ -311,6 +328,11 @@ final actor MLXChatRuntime: ChatModelRuntime {
       cachePlan: cachePlan,
       traceID: traceID
     )
+    let memoryTraceScope = await debugTraceStore.beginMemoryScope(
+      phase: .generationStart,
+      generationID: traceID,
+      traceMetadata: traceMetadata
+    )
     let startedGeneration = generationActivity.start {
       cachePlan.session.streamDetails(to: cachePlan.streamMessages)
     }
@@ -348,6 +370,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
       runtimeCacheDiagnostics: runtimeCacheDiagnostics,
       generationProgressTracer: generationProgressTracer,
       generationStartedAt: startedGeneration.startedAt,
+      memoryTraceScope: memoryTraceScope,
       generationActivityLease: startedGeneration.activityLease,
       applicationStateSnapshotProvider: applicationStateSnapshotProvider,
       thinkingBudgetTrace: thinkingBudgetPlan.trace,

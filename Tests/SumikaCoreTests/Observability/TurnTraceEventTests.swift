@@ -14,6 +14,7 @@ struct TurnTraceEventTests {
     #expect(TurnTracePhase.runtimePrefill.rawValue == "runtime_prefill")
     #expect(TurnTracePhase.runtimeDecode.rawValue == "runtime_decode")
     #expect(TurnTracePhase.runtimePartialDecode.rawValue == "runtime_partial_decode")
+    #expect(TurnTracePhase.runtimeMemory.rawValue == "runtime_memory")
     #expect(TurnTracePhase.toolParse.rawValue == "tool_parse")
     #expect(TurnTracePhase.toolExecute.rawValue == "tool_execute")
     #expect(TurnTracePhase.uiFlush.rawValue == "ui_flush")

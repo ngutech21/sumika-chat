@@ -18,14 +18,27 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
   }
 
   private let fileURL: URL
+  private let memorySnapshotSource: MLXMemorySnapshotSource
+  private let isEnabledProvider: @Sendable () -> Bool
   private let maxFieldCharacters = 80_000
 
-  init() {
+  init(
+    memorySnapshotSource: MLXMemorySnapshotSource = .live,
+    isEnabled: @escaping @Sendable () -> Bool = { MLXDebugTraceStore.isEnabled }
+  ) {
     self.fileURL = Self.defaultFileURL()
+    self.memorySnapshotSource = memorySnapshotSource
+    self.isEnabledProvider = isEnabled
   }
 
-  init(fileURL: URL) {
+  init(
+    fileURL: URL,
+    memorySnapshotSource: MLXMemorySnapshotSource = .live,
+    isEnabled: @escaping @Sendable () -> Bool = { MLXDebugTraceStore.isEnabled }
+  ) {
     self.fileURL = fileURL
+    self.memorySnapshotSource = memorySnapshotSource
+    self.isEnabledProvider = isEnabled
   }
 
   func traceRequest(
@@ -38,7 +51,7 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     thinkingBudget: MLXThinkingBudgetTrace? = nil,
     interactionMode: WorkspaceInteractionMode? = nil
   ) async {
-    guard Self.isEnabled else {
+    guard tracingIsEnabled else {
       return
     }
 
@@ -88,7 +101,7 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     thinkingBudget: MLXThinkingBudgetTrace? = nil,
     thinkingBudgetOutcome: MLXThinkingBudgetOutcome
   ) async {
-    guard Self.isEnabled else {
+    guard tracingIsEnabled else {
       return
     }
 
@@ -128,7 +141,7 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     generationActivityRequest: GenerationActivityRequest,
     estimateTokenCount: @Sendable (String) -> Int
   ) async {
-    guard Self.isEnabled else {
+    guard tracingIsEnabled else {
       return
     }
 
@@ -152,7 +165,7 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
   }
 
   func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
-    guard Self.isEnabled else {
+    guard tracingIsEnabled else {
       return
     }
 
@@ -160,7 +173,7 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
   }
 
   func recordRuntimePrefillTrace(_ runtimeTrace: MLXRuntimePrefillTrace) async {
-    guard Self.isEnabled else {
+    guard tracingIsEnabled else {
       return
     }
 
@@ -186,6 +199,113 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
       trace["cacheTypes"] = diagnostics.cacheTypes
     }
     append(trace)
+  }
+
+  func beginMemoryScope(
+    phase: MLXMemoryTracePhase,
+    generationID: UUID? = nil,
+    traceMetadata: TurnTraceMetadata? = nil,
+    memoryClearReason: MLXMemoryClearReason? = nil
+  ) -> MLXMemoryTraceScope? {
+    guard tracingIsEnabled else {
+      return nil
+    }
+
+    let snapshot = memorySnapshotSource.capture()
+    let scope = MLXMemoryTraceScope(
+      id: UUID(),
+      baselinePhase: phase,
+      baselineSnapshot: snapshot,
+      startedAt: Date(),
+      turnID: traceMetadata?.turnID,
+      generationID: generationID ?? traceMetadata?.generationID,
+      toolLoopIteration: traceMetadata?.toolLoopIteration,
+      interactionMode: traceMetadata?.interactionMode,
+      memoryClearReason: memoryClearReason?.rawValue
+    )
+    append(
+      memoryTraceObject(
+        phase: phase,
+        scope: scope,
+        snapshot: snapshot,
+        delta: nil,
+        durationMs: 0
+      )
+    )
+    return scope
+  }
+
+  func recordMemorySnapshot(
+    phase: MLXMemoryTracePhase,
+    scope: MLXMemoryTraceScope?,
+    durationMs: Double? = nil,
+    modelLoadOutcome: MLXModelLoadOutcome? = nil,
+    runtimeStreamOutcome: RuntimeStreamOutcome? = nil
+  ) {
+    guard tracingIsEnabled, let scope else {
+      return
+    }
+    if phase == .generationTerminal,
+      !scope.claimTerminalSnapshot()
+    {
+      return
+    }
+
+    let snapshot = memorySnapshotSource.capture()
+    let delta = scope.baselineSnapshot.delta(to: snapshot)
+    append(
+      memoryTraceObject(
+        phase: phase,
+        scope: scope,
+        snapshot: snapshot,
+        delta: delta,
+        durationMs: durationMs ?? Date().timeIntervalSince(scope.startedAt) * 1000,
+        modelLoadOutcome: modelLoadOutcome,
+        runtimeStreamOutcome: runtimeStreamOutcome
+      )
+    )
+  }
+
+  private var tracingIsEnabled: Bool {
+    isEnabledProvider()
+  }
+
+  private func memoryTraceObject(
+    phase: MLXMemoryTracePhase,
+    scope: MLXMemoryTraceScope,
+    snapshot: MLXMemorySnapshot,
+    delta: MLXMemorySnapshotDelta?,
+    durationMs: Double,
+    modelLoadOutcome: MLXModelLoadOutcome? = nil,
+    runtimeStreamOutcome: RuntimeStreamOutcome? = nil
+  ) -> [String: Any] {
+    var trace = turnTraceObject(
+      from: TurnTraceEvent(
+        turnID: scope.turnID,
+        generationID: scope.generationID,
+        phase: .runtimeMemory,
+        durationMs: durationMs,
+        toolLoopIteration: scope.toolLoopIteration,
+        memoryClearReason: scope.memoryClearReason,
+        interactionMode: scope.interactionMode,
+        runtimeStreamOutcome: runtimeStreamOutcome
+      )
+    )
+    trace["memoryScopeID"] = scope.id.uuidString
+    trace["memoryPhase"] = phase.rawValue
+    trace["activeMemoryBytes"] = snapshot.activeMemoryBytes
+    trace["cacheMemoryBytes"] = snapshot.cacheMemoryBytes
+    trace["peakMemoryBytes"] = snapshot.peakMemoryBytes
+    if let delta {
+      trace["baselineMemoryPhase"] = scope.baselinePhase.rawValue
+      trace["activeMemoryDeltaBytes"] = delta.activeMemoryBytes
+      trace["cacheMemoryDeltaBytes"] = delta.cacheMemoryBytes
+      trace["peakMemoryDeltaBytes"] = delta.peakMemoryBytes
+    }
+    if let modelLoadOutcome {
+      trace["modelLoadOutcome"] = modelLoadOutcome.rawValue
+    }
+    return trace
   }
 
   private func turnTraceObject(from event: TurnTraceEvent) -> [String: Any] {
