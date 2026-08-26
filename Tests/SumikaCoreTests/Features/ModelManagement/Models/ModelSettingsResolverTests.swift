@@ -87,6 +87,53 @@ struct ModelSettingsResolverTests {
   }
 
   @Test
+  func mtpOverrideAppliesOnlyToModelsWithADrafter() throws {
+    let supported = try #require(
+      ManagedModelCatalog.model(id: "Qwen3.6-27B-OptiQ-4bit")
+    )
+    let unsupported = ManagedModelCatalog.defaultModel
+    let overrides = ModelSettingsOverrides(
+      chat: ModeSettingsOverride(
+        generationSettings: GenerationSettingsOverride(isMTPEnabled: true)
+      )
+    )
+
+    let supportedSettings = ModelSettingsResolver.settings(
+      for: supported,
+      generationConfig: nil,
+      userOverrides: overrides
+    )
+    let unsupportedSettings = ModelSettingsResolver.settings(
+      for: unsupported,
+      generationConfig: nil,
+      userOverrides: overrides
+    )
+
+    #expect(supportedSettings.modeSettings.chat.generationSettings.isMTPEnabled)
+    #expect(supportedSettings.modeSettings.chat.generationSettings.temperature == 0)
+    #expect(!unsupportedSettings.modeSettings.chat.generationSettings.isMTPEnabled)
+    #expect(
+      unsupportedSettings.modeSettings.chat.generationSettings.temperature
+        == unsupported.defaultModeSettings.chat.generationSettings.temperature
+    )
+  }
+
+  @Test
+  func temperatureOverrideAppliesAfterDisablingMTP() {
+    var mtpSettings = ChatGenerationSettings.chatDefault
+    mtpSettings.temperature = 0.8
+    mtpSettings.isMTPEnabled = true
+
+    let settings = GenerationSettingsOverride(
+      temperature: 0.8,
+      isMTPEnabled: false
+    ).applying(to: mtpSettings)
+
+    #expect(!settings.isMTPEnabled)
+    #expect(settings.temperature == 0.8)
+  }
+
+  @Test
   func familyProfilesOverrideTheirRecommendedSamplerFields() throws {
     let generationConfig = GenerationSettingsOverride(
       temperature: 1.4,

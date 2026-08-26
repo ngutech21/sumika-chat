@@ -91,6 +91,50 @@ struct ModelManagementTests {
   }
 
   @Test
+  func settingsStorePersistsExplicitMTPActivationPerMode() async throws {
+    let settingsURL = try temporarySettingsURL()
+    let model = try #require(
+      ManagedModelCatalog.model(id: "Qwen3.6-27B-OptiQ-4bit")
+    )
+    let store = ModelSettingsStore(
+      userDefaults: makeUserDefaults(),
+      settingsURL: settingsURL,
+      generationConfigProvider: { _ in nil }
+    )
+    let before = await store.settings(for: model)
+    var edited = before.modeSettings
+    edited.agent.generationSettings.isMTPEnabled = true
+
+    let updated = try await store.apply(
+      .modeSettingsChanged(from: before.modeSettings, updated: edited),
+      for: model
+    )
+
+    #expect(updated.modeSettings.agent.generationSettings.isMTPEnabled)
+    #expect(updated.modeSettings.agent.generationSettings.temperature == 0)
+    #expect(!updated.modeSettings.chat.generationSettings.isMTPEnabled)
+
+    let object = try #require(
+      JSONSerialization.jsonObject(with: Data(contentsOf: settingsURL)) as? [String: Any]
+    )
+    let models = try #require(object["modelSettings"] as? [String: Any])
+    let agentGeneration = try persistedGenerationSettings(
+      modelID: model.id,
+      mode: "agent",
+      in: models
+    )
+    #expect(agentGeneration["isMTPEnabled"] as? Bool == true)
+    #expect(agentGeneration["temperature"] as? Double == 0)
+
+    let reloadedStore = ModelSettingsStore(
+      userDefaults: makeUserDefaults(),
+      settingsURL: settingsURL,
+      generationConfigProvider: { _ in nil }
+    )
+    #expect(await reloadedStore.settings(for: model) == updated)
+  }
+
+  @Test
   func settingsStoreMigratesSchemaV1SnapshotsAsExplicitOverrides() async throws {
     let settingsURL = try temporarySettingsURL()
     let model = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))

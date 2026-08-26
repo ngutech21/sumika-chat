@@ -413,7 +413,8 @@ struct MLXDebugTraceStoreTests {
       repetitionPenalty: 1.05,
       repetitionContextSize: 512,
       presencePenalty: 0.35,
-      reasoningSelection: .on
+      reasoningSelection: .on,
+      isMTPEnabled: true
     )
 
     await store.traceRequest(
@@ -448,6 +449,8 @@ struct MLXDebugTraceStoreTests {
     #expect(tracedSettings["effectiveReasoningSelection"] as? String == "medium")
     #expect(tracedSettings["reasoningEffort"] as? String == "medium")
     #expect(tracedSettings["repetitionContextSize"] as? Int == 512)
+    #expect(tracedSettings["mtpEnabled"] as? Bool == true)
+    #expect(tracedSettings["temperature"] as? Double == 0)
     #expect(object["interactionMode"] as? String == "chat")
     #expect(object["mtpDrafterLoaded"] as? Bool == true)
     #expect(object["speculativeDecodingMode"] as? String == "mtp")
