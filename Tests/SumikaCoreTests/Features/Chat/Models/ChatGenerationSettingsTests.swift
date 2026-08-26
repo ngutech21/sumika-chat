@@ -89,6 +89,44 @@ struct ChatGenerationSettingsTests {
   }
 
   @Test
+  func mtpActivationIsExplicitAndAlwaysUsesGreedyTemperature() throws {
+    var settings = ChatGenerationSettings(
+      temperature: 0.8,
+      topP: 0.9,
+      topK: 20,
+      maxTokens: 256,
+      isMTPEnabled: true
+    )
+
+    #expect(settings.isMTPEnabled)
+    #expect(settings.temperature == 0)
+
+    settings.temperature = 1.2
+    #expect(settings.temperature == 0)
+
+    let encoded = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any]
+    )
+    #expect(encoded["isMTPEnabled"] as? Bool == true)
+    #expect(encoded["temperature"] as? Double == 0)
+
+    settings.isMTPEnabled = false
+    settings.temperature = 0.6
+    #expect(settings.temperature == 0.6)
+
+    let legacyGreedySettings = try JSONDecoder().decode(
+      ChatGenerationSettings.self,
+      from: Data("{\"temperature\":0}".utf8)
+    )
+    #expect(!legacyGreedySettings.isMTPEnabled)
+    let legacyEncoding = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(legacyGreedySettings))
+        as? [String: Any]
+    )
+    #expect(legacyEncoding["isMTPEnabled"] == nil)
+  }
+
+  @Test
   func decodingMissingRepetitionPenaltyUsesNeutralDefault() throws {
     let data = Data(
       """

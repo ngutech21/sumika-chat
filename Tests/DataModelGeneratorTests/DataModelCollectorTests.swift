@@ -12,6 +12,9 @@ struct DataModelCollectorTests {
       public struct ChatSessionState: Equatable {
         public var turns: [ChatTurn]
         public var activeTurn: ChatTurn.ID?
+        public var observedCount: Int {
+          didSet {}
+        }
         public var computed: String { "value" }
         private var hidden: HiddenModel
       }
@@ -70,6 +73,7 @@ struct DataModelCollectorTests {
       session.properties == [
         DataModelProperty(name: "turns", type: "[ChatTurn]", isStored: true),
         DataModelProperty(name: "activeTurn", type: "ChatTurn.ID?", isStored: true),
+        DataModelProperty(name: "observedCount", type: "Int", isStored: true),
       ])
 
     let payload = try #require(models.first { $0.name == "ChatTurnItem" })

@@ -52,21 +52,21 @@ struct MLXRuntimeConfigurationTests {
   }
 
   @Test
-  func mtpRequiresLoadedDrafterAndGreedyTemperature() {
+  func mtpRequiresLoadedDrafterAndExplicitActivation() {
     #expect(
       MLXSpeculativeDecodingMode.resolve(
         hasLoadedMTPDrafter: true,
-        temperature: 0
+        isMTPEnabled: true
       ) == .mtp)
     #expect(
       MLXSpeculativeDecodingMode.resolve(
         hasLoadedMTPDrafter: true,
-        temperature: 0.6
+        isMTPEnabled: false
       ) == .none)
     #expect(
       MLXSpeculativeDecodingMode.resolve(
         hasLoadedMTPDrafter: false,
-        temperature: 0
+        isMTPEnabled: true
       ) == .none)
   }
 
