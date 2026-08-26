@@ -89,6 +89,7 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
       "reasoningEnabled": settings.reasoningEnabled,
       "reasoningSelection": settings.reasoningSelection.persistenceValue,
       "effectiveReasoningSelection": resolvedReasoningSelection.persistenceValue,
+      "mtpEnabled": settings.isMTPEnabled,
     ]
     if let reasoningEffort = resolvedReasoningSelection.effort {
       settingsTrace["reasoningEffort"] = reasoningEffort.rawValue
