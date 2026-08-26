@@ -158,13 +158,32 @@ struct ModelRuntimeControllerTests {
 
   @Test
   func downloadSelectedModelPublishesIntermediateProgress() async throws {
-    let downloader = RuntimeControllerFakeModelDownloader(progressFractions: [0.25, 1])
+    let (reportedProgress, reportedProgressContinuation) = AsyncStream<Double>.makeStream()
+    let (progressRelease, progressReleaseContinuation) = AsyncStream<Void>.makeStream()
+    defer {
+      reportedProgressContinuation.finish()
+      progressReleaseContinuation.finish()
+    }
+    let downloader = RuntimeControllerFakeModelDownloader(
+      progressFractions: [0.25, 1],
+      onProgress: { fraction in
+        reportedProgressContinuation.yield(fraction)
+        if fraction == 0.25 {
+          _ = await progressRelease.first { _ in true }
+        }
+      }
+    )
     let controller = await makeController(modelDownloader: downloader)
 
     controller.downloadSelectedModel()
 
-    try await waitUntil { controller.downloadState == .downloading(progress: 0.25) }
+    let intermediateProgress = try await withTestTimeout {
+      await reportedProgress.first { $0 == 0.25 }
+    }
+    #expect(intermediateProgress == 0.25)
+    #expect(controller.downloadState == .downloading(progress: 0.25))
 
+    progressReleaseContinuation.yield()
     try await waitUntil { controller.downloadState == .downloaded }
   }
 
@@ -757,15 +776,18 @@ private final class RuntimeControllerFakeModelDownloader: ModelDownloading, @unc
   var downloadedModelID: String?
   private let progressFractions: [Double]
   private let error: Error?
+  private let onProgress: (@Sendable (Double) async -> Void)?
   private let onDownload: (@MainActor @Sendable () -> Void)?
 
   init(
     progressFractions: [Double] = [1],
     error: Error? = nil,
-    onDownload: (@MainActor @Sendable () -> Void)? = nil
+    onDownload: (@MainActor @Sendable () -> Void)? = nil,
+    onProgress: (@Sendable (Double) async -> Void)? = nil
   ) {
     self.progressFractions = progressFractions
     self.error = error
+    self.onProgress = onProgress
     self.onDownload = onDownload
   }
 
@@ -778,6 +800,7 @@ private final class RuntimeControllerFakeModelDownloader: ModelDownloading, @unc
       let progress = Progress(totalUnitCount: 100)
       progress.completedUnitCount = Int64(fraction * 100)
       await progressHandler(progress)
+      await onProgress?(fraction)
       try await Task.sleep(for: .milliseconds(20))
     }
     if let error {
