@@ -284,7 +284,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     }
     let speculativeDecodingMode = MLXSpeculativeDecodingMode.resolve(
       hasLoadedMTPDrafter: speculativeDecoding != nil,
-      temperature: generateParameters.temperature
+      isMTPEnabled: settings.isMTPEnabled
     )
     let additionalContext = generationInput.additionalContext
     let systemPrompt = promptPlan.stableInstructions
