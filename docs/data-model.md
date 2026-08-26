@@ -380,6 +380,7 @@ Properties:
 
 Properties:
 
+- `isMTPEnabled: Bool`
 - `maxTokens: Int`
 - `minP: Double`
 - `presencePenalty: Double`

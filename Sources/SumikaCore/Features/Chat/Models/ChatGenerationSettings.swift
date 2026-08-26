@@ -1,5 +1,11 @@
 package struct ChatGenerationSettings: Codable, Equatable, Sendable {
-  package var temperature: Double
+  package var temperature: Double {
+    didSet {
+      if isMTPEnabled, temperature != 0 {
+        temperature = 0
+      }
+    }
+  }
   package var topP: Double
   package var topK: Int
   package var minP: Double
@@ -14,6 +20,13 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
   /// content without penalising the structural JSON tokens every tool call needs.
   package var presencePenalty: Double
   package var reasoningSelection: ReasoningSelection
+  package var isMTPEnabled: Bool {
+    didSet {
+      if isMTPEnabled, temperature != 0 {
+        temperature = 0
+      }
+    }
+  }
 
   package var reasoningEnabled: Bool {
     reasoningSelection.isEnabled
@@ -28,9 +41,10 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     repetitionPenalty: Double = 1,
     repetitionContextSize: Int = 20,
     presencePenalty: Double = 0,
-    reasoningSelection: ReasoningSelection = .on
+    reasoningSelection: ReasoningSelection = .on,
+    isMTPEnabled: Bool = false
   ) {
-    self.temperature = temperature
+    self.temperature = isMTPEnabled ? 0 : temperature
     self.topP = topP
     self.topK = topK
     self.minP = minP
@@ -39,6 +53,7 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     self.repetitionContextSize = repetitionContextSize
     self.presencePenalty = presencePenalty
     self.reasoningSelection = reasoningSelection
+    self.isMTPEnabled = isMTPEnabled
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -52,11 +67,22 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     case presencePenalty
     case reasoningSelection
     case reasoningEnabled
+    case isMTPEnabled
   }
 
   package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    temperature = try container.decodeIfPresent(Double.self, forKey: .temperature, default: 1)
+    let decodedMTPEnabled = try container.decodeIfPresent(
+      Bool.self,
+      forKey: .isMTPEnabled,
+      default: false
+    )
+    let decodedTemperature = try container.decodeIfPresent(
+      Double.self,
+      forKey: .temperature,
+      default: 1
+    )
+    temperature = decodedMTPEnabled ? 0 : decodedTemperature
     topP = try container.decodeIfPresent(Double.self, forKey: .topP, default: 1)
     topK = try container.decodeIfPresent(Int.self, forKey: .topK, default: 0)
     minP = try container.decodeIfPresent(Double.self, forKey: .minP, default: 0)
@@ -89,6 +115,7 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
           default: true
         ) ? .on : .off
     }
+    isMTPEnabled = decodedMTPEnabled
   }
 
   package func encode(to encoder: Encoder) throws {
@@ -104,6 +131,9 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     try container.encode(repetitionContextSize, forKey: .repetitionContextSize)
     try container.encode(presencePenalty, forKey: .presencePenalty)
     try container.encode(reasoningSelection, forKey: .reasoningSelection)
+    if isMTPEnabled {
+      try container.encode(true, forKey: .isMTPEnabled)
+    }
   }
 
   package static let chatDefault = ChatGenerationSettings(
