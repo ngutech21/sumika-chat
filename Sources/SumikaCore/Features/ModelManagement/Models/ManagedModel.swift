@@ -407,7 +407,7 @@ package enum ManagedModelCatalog {
       recommendation: .recommended,
       requiresLargeMemory: true,
       stability: .stable,
-      supportsImageInput: true,
+      supportsImageInput: false,
       usesBundledMTPDrafter: true,
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,

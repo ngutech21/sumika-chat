@@ -33,7 +33,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ngutech21/mlx-swift-lm",
       "state" : {
-        "revision" : "c3dcb8d4b05906633c0b505fb555c5d7ea189a6b"
+        "revision" : "2c542b03e704ab388865f453d37e554b4bc4cab7"
       }
     },
     {

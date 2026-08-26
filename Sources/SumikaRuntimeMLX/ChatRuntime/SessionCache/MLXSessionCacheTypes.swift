@@ -15,9 +15,9 @@ enum MLXSpeculativeDecodingMode: String, Equatable, Sendable {
 
   static func resolve(
     hasLoadedMTPDrafter: Bool,
-    temperature: Float
+    isMTPEnabled: Bool
   ) -> Self {
-    hasLoadedMTPDrafter && temperature == 0 ? .mtp : .none
+    hasLoadedMTPDrafter && isMTPEnabled ? .mtp : .none
   }
 
   func configuration(

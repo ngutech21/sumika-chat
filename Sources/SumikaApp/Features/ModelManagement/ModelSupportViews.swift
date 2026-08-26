@@ -307,6 +307,16 @@ struct ModelAdvancedSettings: View {
         }
         .pickerStyle(.segmented)
 
+        if model.usesBundledMTPDrafter {
+          VStack(alignment: .leading, spacing: 4) {
+            Toggle("MTP Speculative Decoding", isOn: selectedMTPEnabled)
+              .accessibilityIdentifier("model-settings-mtp-toggle")
+            Text("Uses the model's MTP drafter. Temperature is fixed at 0 while enabled.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+        }
+
         VStack(alignment: .leading, spacing: 6) {
           Label("\(selectedMode.displayName) System Prompt", systemImage: "text.quote")
           TextField("System Prompt", text: selectedSystemPrompt, axis: .vertical)
@@ -329,6 +339,8 @@ struct ModelAdvancedSettings: View {
             .monospacedDigit()
           }
           Slider(value: selectedTemperature, in: 0...2, step: 0.1)
+            .disabled(selectedGenerationSettings.wrappedValue.isMTPEnabled)
+            .accessibilityIdentifier("model-settings-temperature-slider")
         }
 
         Stepper(value: selectedMaxTokens, in: 128...32_768, step: 128) {
@@ -470,6 +482,13 @@ struct ModelAdvancedSettings: View {
     Binding(
       get: { selectedGenerationSettings.wrappedValue.temperature },
       set: { selectedGenerationSettings.wrappedValue.temperature = $0 }
+    )
+  }
+
+  private var selectedMTPEnabled: Binding<Bool> {
+    Binding(
+      get: { selectedGenerationSettings.wrappedValue.isMTPEnabled },
+      set: { selectedGenerationSettings.wrappedValue.isMTPEnabled = $0 }
     )
   }
 
