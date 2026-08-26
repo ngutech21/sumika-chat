@@ -422,12 +422,52 @@ func markdown(_ report: PerformanceReport) -> String {
     lines.append(row.joined(separator: " | ").wrappedTableRow())
   }
 
+  appendUIFlushes(to: &lines, generations: report.generations)
   appendToolLoopTTFTComparison(to: &lines, generations: report.generations)
   appendDecodeStateIntervals(to: &lines, generations: report.generations)
   appendMemorySnapshots(to: &lines, snapshots: report.memorySnapshots)
 
   lines.append("")
   return lines.joined(separator: "\n")
+}
+
+func appendUIFlushes(
+  to lines: inout [String],
+  generations: [GenerationReport]
+) {
+  guard !generations.isEmpty else {
+    return
+  }
+
+  lines.append(contentsOf: [
+    "",
+    "## UI Flushes",
+    "",
+    "Only visible Core `uiFlush` events are included; thinking flushes remain Debug signposts.",
+    "",
+    "| Generation | Decode ms | Visible flushes | Flushes / decode s | Total ms | Average ms |",
+    "|---|---:|---:|---:|---:|---:|",
+  ])
+
+  for generation in generations {
+    let flushesPerDecodeSecond = generation.decodeMs.flatMap { decodeMs in
+      decodeMs > 0 ? Double(generation.uiFlushCount) / decodeMs * 1_000 : nil
+    }
+    let averageMs =
+      generation.uiFlushCount > 0
+      ? generation.uiFlushMs / Double(generation.uiFlushCount)
+      : nil
+    lines.append(
+      [
+        String(generation.generationID.prefix(8)),
+        formatted(generation.decodeMs),
+        String(generation.uiFlushCount),
+        formatted(flushesPerDecodeSecond),
+        formatted(generation.uiFlushMs),
+        formatted(averageMs),
+      ].joined(separator: " | ").wrappedTableRow()
+    )
+  }
 }
 
 func appendDecodeStateIntervals(

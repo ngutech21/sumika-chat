@@ -927,6 +927,17 @@ extension NativeChatTranscriptCoordinator {
       return
     }
 
+    #if DEBUG
+      let streamingCommitInterval = ChatDiagnostics.beginInterval(
+        "Transcript streaming commit",
+        category: .transcript,
+        metadata: ChatDiagnostics.Metadata("rowCount=\(committingRowIDs.count)")
+      )
+      defer {
+        ChatDiagnostics.endInterval(streamingCommitInterval)
+      }
+    #endif
+
     // These values belong to the previous visible layout. Only measurements
     // produced by the latest rowsByID models in this commit may be promoted.
     for rowID in committingRowIDs {

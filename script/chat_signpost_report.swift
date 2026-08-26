@@ -10,6 +10,7 @@ let knownMetadataKeys: Set<String> = [
   "batchChars",
   "batchTokenEvents",
   "cacheEntries",
+  "channel",
   "contentLengthBucket",
   "currentRows",
   "deleted",
@@ -93,6 +94,8 @@ func usage() -> Never {
 
     options:
       --last <duration>       log window for /usr/bin/log show, default 20m
+      --start <timestamp>     exact log start passed to /usr/bin/log show
+      --end <timestamp>       exact log end; requires --start
       --predicate <filter>    log predicate, default subsystem == "\(defaultSubsystem)"
       --input <path>          read JSON output from log show instead of invoking log show
       --output-dir <path>     directory for reports, default .perf/signposts
@@ -156,13 +159,24 @@ func gitValue(_ arguments: [String]) -> String? {
   return text?.isEmpty == false ? text : nil
 }
 
-func runLogShow(last: String, predicate: String) throws -> Data {
+func runLogShow(
+  last: String,
+  start: String?,
+  end: String?,
+  predicate: String
+) throws -> Data {
   let process = Process()
   process.executableURL = URL(filePath: "/usr/bin/log")
-  process.arguments = [
-    "show",
-    "--last",
-    last,
+  var arguments = ["show"]
+  if let start {
+    arguments += ["--start", start]
+    if let end {
+      arguments += ["--end", end]
+    }
+  } else {
+    arguments += ["--last", last]
+  }
+  arguments += [
     "--info",
     "--signpost",
     "--style",
@@ -170,6 +184,7 @@ func runLogShow(last: String, predicate: String) throws -> Data {
     "--predicate",
     predicate,
   ]
+  process.arguments = arguments
 
   let output = Pipe()
   let errorOutput = Pipe()
@@ -177,9 +192,8 @@ func runLogShow(last: String, predicate: String) throws -> Data {
   process.standardError = errorOutput
 
   try process.run()
-  process.waitUntilExit()
-
   let data = output.fileHandleForReading.readDataToEndOfFile()
+  process.waitUntilExit()
   guard process.terminationStatus == 0 else {
     let errorData = errorOutput.fileHandleForReading.readDataToEndOfFile()
     let errorText = String(data: errorData, encoding: .utf8) ?? "unknown log show error"
@@ -477,8 +491,10 @@ func contextKeys(for name: String) -> [String] {
     ["rowKind", "contentLengthBucket", "reason"]
   case "Transcript height invalidation":
     ["reason", "rowCount", "rows"]
+  case "Transcript streaming commit":
+    ["rowCount"]
   case "Generation visible UI flush", "Generation thinking UI flush":
-    ["batchTokenEvents", "batchChars", "visibleChars", "thinkingChars"]
+    ["reason"]
   case "Generation stream reply":
     ["messageCount", "attachmentCount", "mode"]
   default:
@@ -597,6 +613,8 @@ func markdown(_ report: SignpostReport) -> String {
 }
 
 var last = "20m"
+var start: String?
+var end: String?
 var predicate = defaultPredicate
 var inputURL: URL?
 var outputDirectory = URL(filePath: ".perf/signposts", directoryHint: .isDirectory)
@@ -615,6 +633,14 @@ while index < arguments.count {
     index += 1
     guard index < arguments.count else { usage() }
     last = arguments[index]
+  case "--start":
+    index += 1
+    guard index < arguments.count else { usage() }
+    start = arguments[index]
+  case "--end":
+    index += 1
+    guard index < arguments.count else { usage() }
+    end = arguments[index]
   case "--predicate":
     index += 1
     guard index < arguments.count else { usage() }
@@ -645,14 +671,22 @@ while index < arguments.count {
   index += 1
 }
 
+if end != nil, start == nil {
+  usage()
+}
+
 let source: String
 let logData: Data
 if let inputURL {
   source = inputURL.path(percentEncoded: false)
   logData = try Data(contentsOf: inputURL)
 } else {
-  source = "/usr/bin/log show --last \(last)"
-  logData = try runLogShow(last: last, predicate: predicate)
+  if let start {
+    source = "/usr/bin/log show --start \(start)\(end.map { " --end \($0)" } ?? "")"
+  } else {
+    source = "/usr/bin/log show --last \(last)"
+  }
+  logData = try runLogShow(last: last, start: start, end: end, predicate: predicate)
 }
 
 let objects = try parseLogObjects(from: logData)

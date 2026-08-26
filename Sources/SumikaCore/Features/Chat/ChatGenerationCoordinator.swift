@@ -1,5 +1,73 @@
 import Foundation
 
+private enum StreamingFlushReason: String {
+  case timeInterval = "time_interval"
+  case characterLimit = "character_limit"
+  case thinkingCompleted = "thinking_completed"
+  case toolCall = "tool_call"
+  case completed
+  case outputLimit = "output_limit"
+  case streamExit = "stream_exit"
+}
+
+private struct StreamingFlushBatch {
+  let content: String
+  let eventCount: Int
+
+  var characterCount: Int {
+    content.count
+  }
+}
+
+private struct StreamingChunkBuffer {
+  private(set) var content = ""
+  private(set) var eventCount = 0
+  private var lastFlushDate: Date
+  private let flushInterval: TimeInterval
+  private let characterLimit: Int
+
+  init(startDate: Date, flushInterval: TimeInterval, characterLimit: Int) {
+    lastFlushDate = startDate
+    self.flushInterval = flushInterval
+    self.characterLimit = characterLimit
+  }
+
+  var isEmpty: Bool {
+    content.isEmpty
+  }
+
+  mutating func append(_ chunk: String) {
+    content += chunk
+    eventCount += 1
+  }
+
+  func automaticFlushReason(at timestamp: Date) -> StreamingFlushReason? {
+    if content.count >= characterLimit {
+      return .characterLimit
+    }
+    if timestamp.timeIntervalSince(lastFlushDate) >= flushInterval {
+      return .timeInterval
+    }
+    return nil
+  }
+
+  mutating func drain(at timestamp: Date) -> StreamingFlushBatch? {
+    guard !content.isEmpty else {
+      return nil
+    }
+    let batch = StreamingFlushBatch(content: content, eventCount: eventCount)
+    content = ""
+    eventCount = 0
+    lastFlushDate = timestamp
+    return batch
+  }
+
+  mutating func discard() {
+    content = ""
+    eventCount = 0
+  }
+}
+
 enum ChatGenerationError: LocalizedError, Equatable, Sendable {
   case streamInterrupted
   case emptyModelResponse
@@ -44,30 +112,35 @@ struct ChatGenerationCoordinator {
   private let turnTracer: any TurnTracing
   private let streamingFlushInterval: TimeInterval
   private let streamingFlushCharacterLimit: Int
+  private let streamingNow: () -> Date
 
   init(
     runtimeOperations: RuntimeOperationCoordinator,
     turnTracer: any TurnTracing = NoopTurnTracer(),
     streamingFlushInterval: TimeInterval = 0.05,
-    streamingFlushCharacterLimit: Int = 240
+    streamingFlushCharacterLimit: Int = 240,
+    streamingNow: @escaping () -> Date = Date.init
   ) {
     self.runtimeOperations = runtimeOperations
     self.turnTracer = turnTracer
     self.streamingFlushInterval = streamingFlushInterval
     self.streamingFlushCharacterLimit = streamingFlushCharacterLimit
+    self.streamingNow = streamingNow
   }
 
   init(
     runtime: any ChatModelRuntime,
     turnTracer: any TurnTracing = NoopTurnTracer(),
     streamingFlushInterval: TimeInterval,
-    streamingFlushCharacterLimit: Int
+    streamingFlushCharacterLimit: Int,
+    streamingNow: @escaping () -> Date = Date.init
   ) {
     self.init(
       runtimeOperations: RuntimeOperationCoordinator(runtime: runtime),
       turnTracer: turnTracer,
       streamingFlushInterval: streamingFlushInterval,
-      streamingFlushCharacterLimit: streamingFlushCharacterLimit
+      streamingFlushCharacterLimit: streamingFlushCharacterLimit,
+      streamingNow: streamingNow
     )
   }
 
@@ -159,44 +232,50 @@ struct ChatGenerationCoordinator {
       updateRuntimeCacheDebugSnapshot: updateRuntimeCacheDebugSnapshot
     )
 
-    var bufferedChunk = ""
-    var bufferedThinkingChunk = ""
-    var bufferedChunkEventCount = 0
-    var bufferedThinkingChunkEventCount = 0
     var generatedContent = ""
     var generatedThinkingContentLength = 0
     var nativeToolCalls: [ChatRuntimeToolCall] = []
-    var lastFlushDate = Date()
-    var lastThinkingFlushDate = Date()
+    let streamingStartDate = streamingNow()
+    var visibleBuffer = StreamingChunkBuffer(
+      startDate: streamingStartDate,
+      flushInterval: streamingFlushInterval,
+      characterLimit: streamingFlushCharacterLimit
+    )
+    var thinkingBuffer = StreamingChunkBuffer(
+      startDate: streamingStartDate,
+      flushInterval: streamingFlushInterval,
+      characterLimit: streamingFlushCharacterLimit
+    )
+    var lastEventDate = streamingStartDate
     var didComplete = false
     var outputLimit: ChatGenerationOutputLimit?
     var shouldFlushBufferedChunksOnExit = true
 
-    func flushBufferedChunks() {
-      guard !bufferedChunk.isEmpty else {
+    func flushBufferedChunks(at timestamp: Date, reason: StreamingFlushReason) {
+      guard !visibleBuffer.isEmpty else {
         return
       }
       guard !Task.isCancelled else {
-        bufferedChunk = ""
-        bufferedChunkEventCount = 0
+        visibleBuffer.discard()
+        return
+      }
+      guard let batch = visibleBuffer.drain(at: timestamp) else {
         return
       }
 
       let startedAt = Date()
-      let batchCharacterCount = bufferedChunk.count
-      let batchEventCount = bufferedChunkEventCount
       #if DEBUG
         ChatDiagnostics.measure(
           "Generation visible UI flush",
           category: .generation,
           metadata: ChatDiagnostics.Metadata(
-            "batchTokenEvents=\(batchEventCount) batchChars=\(batchCharacterCount) visibleChars=\(generatedContent.count) thinkingChars=\(generatedThinkingContentLength)"
+            "channel=visible reason=\(reason.rawValue) batchTokenEvents=\(batch.eventCount) batchChars=\(batch.characterCount) visibleChars=\(generatedContent.count) thinkingChars=\(generatedThinkingContentLength)"
           )
         ) {
-          appendChunk(bufferedChunk)
+          appendChunk(batch.content)
         }
       #else
-        appendChunk(bufferedChunk)
+        appendChunk(batch.content)
       #endif
       let durationMs = Date().timeIntervalSince(startedAt) * 1000
       Task {
@@ -212,55 +291,41 @@ struct ChatGenerationCoordinator {
           )
         )
       }
-      bufferedChunk = ""
-      bufferedChunkEventCount = 0
-      lastFlushDate = Date()
     }
 
-    func flushBufferedThinkingChunks() {
-      guard !bufferedThinkingChunk.isEmpty else {
+    func flushBufferedThinkingChunks(at timestamp: Date, reason: StreamingFlushReason) {
+      guard !thinkingBuffer.isEmpty else {
         return
       }
       guard !Task.isCancelled else {
-        bufferedThinkingChunk = ""
-        bufferedThinkingChunkEventCount = 0
+        thinkingBuffer.discard()
+        return
+      }
+      guard let batch = thinkingBuffer.drain(at: timestamp) else {
         return
       }
 
-      let batchCharacterCount = bufferedThinkingChunk.count
-      let batchEventCount = bufferedThinkingChunkEventCount
       #if DEBUG
         ChatDiagnostics.measure(
           "Generation thinking UI flush",
           category: .generation,
           metadata: ChatDiagnostics.Metadata(
-            "batchTokenEvents=\(batchEventCount) batchChars=\(batchCharacterCount) visibleChars=\(generatedContent.count) thinkingChars=\(generatedThinkingContentLength)"
+            "channel=thinking reason=\(reason.rawValue) batchTokenEvents=\(batch.eventCount) batchChars=\(batch.characterCount) visibleChars=\(generatedContent.count) thinkingChars=\(generatedThinkingContentLength)"
           )
         ) {
-          appendThinkingChunk(bufferedThinkingChunk)
+          appendThinkingChunk(batch.content)
         }
       #else
-        appendThinkingChunk(bufferedThinkingChunk)
+        appendThinkingChunk(batch.content)
       #endif
-      bufferedThinkingChunk = ""
-      bufferedThinkingChunkEventCount = 0
-      lastThinkingFlushDate = Date()
-    }
-
-    func shouldFlushBufferedChunks() -> Bool {
-      bufferedChunk.count >= streamingFlushCharacterLimit
-        || Date().timeIntervalSince(lastFlushDate) >= streamingFlushInterval
-    }
-
-    func shouldFlushBufferedThinkingChunks() -> Bool {
-      bufferedThinkingChunk.count >= streamingFlushCharacterLimit
-        || Date().timeIntervalSince(lastThinkingFlushDate) >= streamingFlushInterval
     }
 
     defer {
-      if shouldFlushBufferedChunksOnExit {
-        flushBufferedThinkingChunks()
-        flushBufferedChunks()
+      if shouldFlushBufferedChunksOnExit,
+        !thinkingBuffer.isEmpty || !visibleBuffer.isEmpty
+      {
+        flushBufferedThinkingChunks(at: lastEventDate, reason: .streamExit)
+        flushBufferedChunks(at: lastEventDate, reason: .streamExit)
       }
     }
 
@@ -268,48 +333,47 @@ struct ChatGenerationCoordinator {
       for try await event in stream {
         try Task.checkCancellation()
         try await runtimeOperations.checkCurrentOperation(operationID)
+        let eventDate = streamingNow()
+        lastEventDate = eventDate
         switch event {
         case .chunk(let chunk):
           generatedContent += chunk
-          bufferedChunk += chunk
-          bufferedChunkEventCount += 1
-          if shouldFlushBufferedChunks() {
-            flushBufferedChunks()
+          visibleBuffer.append(chunk)
+          if let reason = visibleBuffer.automaticFlushReason(at: eventDate) {
+            flushBufferedChunks(at: eventDate, reason: reason)
           }
         case .thinkingChunk(let chunk):
-          bufferedThinkingChunk += chunk
-          bufferedThinkingChunkEventCount += 1
+          thinkingBuffer.append(chunk)
           generatedThinkingContentLength += chunk.count
-          if shouldFlushBufferedThinkingChunks() {
-            flushBufferedThinkingChunks()
+          if let reason = thinkingBuffer.automaticFlushReason(at: eventDate) {
+            flushBufferedThinkingChunks(at: eventDate, reason: reason)
           }
         case .thinkingCompleted:
-          flushBufferedThinkingChunks()
+          flushBufferedThinkingChunks(at: eventDate, reason: .thinkingCompleted)
+          flushBufferedChunks(at: eventDate, reason: .thinkingCompleted)
           completeThinking()
         case .toolCall(let toolCall):
-          flushBufferedThinkingChunks()
-          flushBufferedChunks()
+          flushBufferedThinkingChunks(at: eventDate, reason: .toolCall)
+          flushBufferedChunks(at: eventDate, reason: .toolCall)
           nativeToolCalls.append(toolCall)
         case .completed(let metrics):
-          flushBufferedThinkingChunks()
-          flushBufferedChunks()
+          flushBufferedThinkingChunks(at: eventDate, reason: .completed)
+          flushBufferedChunks(at: eventDate, reason: .completed)
           try await runtimeOperations.checkCurrentOperation(operationID)
           ChatDiagnostics.measure("Generation metrics update", category: .generation) {
             updateGenerationMetrics(metrics)
           }
           didComplete = true
         case .outputLimitReached(let limit):
-          flushBufferedThinkingChunks()
-          flushBufferedChunks()
+          flushBufferedThinkingChunks(at: eventDate, reason: .outputLimit)
+          flushBufferedChunks(at: eventDate, reason: .outputLimit)
           outputLimit = limit
         }
       }
     } catch is CancellationError {
       shouldFlushBufferedChunksOnExit = false
-      bufferedChunk = ""
-      bufferedThinkingChunk = ""
-      bufferedChunkEventCount = 0
-      bufferedThinkingChunkEventCount = 0
+      visibleBuffer.discard()
+      thinkingBuffer.discard()
       throw CancellationError()
     }
 

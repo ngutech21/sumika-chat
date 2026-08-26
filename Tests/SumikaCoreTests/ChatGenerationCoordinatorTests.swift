@@ -78,24 +78,31 @@ struct ChatGenerationCoordinatorTests {
 
   @Test
   func regularAssistantStreamingThrowsWhenRuntimeEndsWithoutCompletion() async throws {
-    let runtime = InterruptedStreamingRuntime(chunks: ["partial"])
+    let runtime = InterruptedEventRuntime(events: [
+      .thinkingChunk("reasoning"),
+      .chunk("partial"),
+    ])
+    let clock = StreamingTestClock(milliseconds: [0, 10, 20])
     let coordinator = ChatGenerationCoordinator(
       runtime: runtime,
-      streamingFlushInterval: 0,
-      streamingFlushCharacterLimit: 1
+      streamingFlushInterval: 3600,
+      streamingFlushCharacterLimit: 1_000,
+      streamingNow: clock.now
     )
-    var chunks: [String] = []
+    var observations: [String] = []
 
     await #expect(throws: ChatGenerationError.streamInterrupted) {
       try await coordinator.streamAssistantReplyResult(
         transcript: ModelPromptProjection(),
         promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
         settings: .agentDefault,
-        appendChunk: { chunks.append($0) },
+        appendChunk: { observations.append("visible:\($0)") },
+        appendThinkingChunk: { observations.append("thinking:\($0)") },
         updateGenerationMetrics: { _ in })
     }
 
-    #expect(chunks == ["partial"])
+    #expect(observations == ["thinking:reasoning", "visible:partial"])
+    #expect(clock.readCount == 3)
   }
 
   @Test
@@ -219,6 +226,74 @@ struct ChatGenerationCoordinatorTests {
   }
 
   @Test
+  func toolCallFlushesThinkingThenVisibleContentBeforeReturningBoundary() async throws {
+    let toolCall = ChatRuntimeToolCall(
+      name: "list_files",
+      arguments: ["path": .string(".")]
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [
+        [
+          .thinkingChunk("Inspect first."),
+          .chunk("I will inspect the project."),
+          .toolCall(toolCall),
+        ]
+      ],
+      automaticallyCompletes: false
+    )
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 3600,
+      streamingFlushCharacterLimit: 1_000
+    )
+    var observations: [String] = []
+
+    let result = try await coordinator.streamAssistantReplyResult(
+      transcript: ModelPromptProjection(),
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Use tools."),
+      settings: .agentDefault,
+      appendChunk: { observations.append("visible:\($0)") },
+      appendThinkingChunk: { observations.append("thinking:\($0)") },
+      updateGenerationMetrics: { _ in }
+    )
+
+    #expect(observations == ["thinking:Inspect first.", "visible:I will inspect the project."])
+    #expect(result.nativeToolCalls == [toolCall])
+  }
+
+  @Test
+  func outputLimitFlushesThinkingThenVisibleContentBeforeReturningBoundary() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [
+        [
+          .thinkingChunk("Concluding."),
+          .chunk("Partial answer."),
+          .outputLimitReached(ChatGenerationOutputLimit(discardedToolProtocolTail: false)),
+        ]
+      ],
+      automaticallyCompletes: false
+    )
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 3600,
+      streamingFlushCharacterLimit: 1_000
+    )
+    var observations: [String] = []
+
+    let result = try await coordinator.streamAssistantReplyResult(
+      transcript: ModelPromptProjection(),
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
+      settings: .agentDefault,
+      appendChunk: { observations.append("visible:\($0)") },
+      appendThinkingChunk: { observations.append("thinking:\($0)") },
+      updateGenerationMetrics: { _ in }
+    )
+
+    #expect(observations == ["thinking:Concluding.", "visible:Partial answer."])
+    #expect(result.termination == .outputLimit(discardedToolProtocolTail: false))
+  }
+
+  @Test
   func regularAssistantStreamingStillFlushesIncrementally() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello", " world"])
     let coordinator = ChatGenerationCoordinator(
@@ -236,6 +311,113 @@ struct ChatGenerationCoordinatorTests {
       updateGenerationMetrics: { _ in })
 
     #expect(chunks == ["hello", " world"])
+  }
+
+  @Test
+  func explicitStreamingCadenceUsesInjectedEventTimestamps() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [[.chunk("a"), .chunk("b"), .completed(nil)]],
+      automaticallyCompletes: false
+    )
+    let clock = StreamingTestClock(milliseconds: [0, 49, 51, 51])
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 0.05,
+      streamingFlushCharacterLimit: 1_000,
+      streamingNow: clock.now
+    )
+    var chunks: [String] = []
+
+    _ = try await coordinator.streamAssistantReplyResult(
+      transcript: ModelPromptProjection(),
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
+      settings: .agentDefault,
+      appendChunk: { chunks.append($0) },
+      updateGenerationMetrics: { _ in }
+    )
+
+    #expect(chunks == ["ab"])
+    #expect(clock.readCount == 4)
+  }
+
+  @Test
+  func defaultStreamingCadenceFlushesAt50Milliseconds() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [[.chunk("a"), .chunk("b"), .chunk("c"), .completed(nil)]],
+      automaticallyCompletes: false
+    )
+    let clock = StreamingTestClock(milliseconds: [0, 49, 99, 101, 101])
+    let coordinator = ChatGenerationCoordinator(
+      runtimeOperations: RuntimeOperationCoordinator(runtime: runtime),
+      streamingNow: clock.now
+    )
+    var chunks: [String] = []
+
+    _ = try await coordinator.streamAssistantReplyResult(
+      transcript: ModelPromptProjection(),
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
+      settings: .agentDefault,
+      appendChunk: { chunks.append($0) },
+      updateGenerationMetrics: { _ in }
+    )
+
+    #expect(chunks == ["ab", "c"])
+    #expect(clock.readCount == 5)
+  }
+
+  @Test
+  func candidate100MillisecondCadenceBatchesEventsUntilBoundary() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [[.chunk("a"), .chunk("b"), .chunk("c"), .completed(nil)]],
+      automaticallyCompletes: false
+    )
+    let clock = StreamingTestClock(milliseconds: [0, 49, 99, 101, 101])
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 0.10,
+      streamingFlushCharacterLimit: 1_000,
+      streamingNow: clock.now
+    )
+    var chunks: [String] = []
+
+    _ = try await coordinator.streamAssistantReplyResult(
+      transcript: ModelPromptProjection(),
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
+      settings: .agentDefault,
+      appendChunk: { chunks.append($0) },
+      updateGenerationMetrics: { _ in }
+    )
+
+    #expect(chunks == ["abc"])
+    #expect(clock.readCount == 5)
+  }
+
+  @Test
+  func characterLimitFlushesBeforeCadenceWithoutCompletionDuplication() async throws {
+    let content = String(repeating: "x", count: 240)
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [[.chunk(content), .completed(nil)]],
+      automaticallyCompletes: false
+    )
+    let clock = StreamingTestClock(milliseconds: [0, 10, 10])
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 0.10,
+      streamingFlushCharacterLimit: 240,
+      streamingNow: clock.now
+    )
+    var chunks: [String] = []
+
+    _ = try await coordinator.streamAssistantReplyResult(
+      transcript: ModelPromptProjection(),
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
+      settings: .agentDefault,
+      appendChunk: { chunks.append($0) },
+      updateGenerationMetrics: { _ in }
+    )
+
+    #expect(chunks == [content])
+    #expect(clock.readCount == 3)
   }
 
   @Test
@@ -266,11 +448,13 @@ struct ChatGenerationCoordinatorTests {
   }
 
   @Test
-  func thinkingCompletionFlushesThinkingBeforePublishingTheBoundary() async throws {
+  func thinkingCompletionFlushesThinkingThenVisibleContentBeforePublishingTheBoundary() async throws
+  {
     let runtime = ChatSessionFakeChatModelRuntime(
       eventTurns: [
         [
           .thinkingChunk("Reasoning"),
+          .chunk("Preface. "),
           .thinkingCompleted,
           .chunk("Visible answer."),
           .completed(nil),
@@ -298,6 +482,7 @@ struct ChatGenerationCoordinatorTests {
     #expect(
       observations == [
         "thinking:Reasoning",
+        "visible:Preface. ",
         "thinking-completed",
         "visible:Visible answer.",
         "generation-completed",
@@ -307,27 +492,40 @@ struct ChatGenerationCoordinatorTests {
   @Test
   func generationCompletionDoesNotConfirmUnclosedThinking() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(
-      eventTurns: [[.thinkingChunk("Partial reasoning"), .completed(nil)]],
+      eventTurns: [
+        [
+          .thinkingChunk("Partial reasoning"),
+          .chunk("Visible answer."),
+          .completed(nil),
+        ]
+      ],
       automaticallyCompletes: false
     )
     let coordinator = ChatGenerationCoordinator(
       runtime: runtime,
-      streamingFlushInterval: 0,
-      streamingFlushCharacterLimit: 1
+      streamingFlushInterval: 3600,
+      streamingFlushCharacterLimit: 1_000
     )
     var thinkingCompletionCount = 0
+    var observations: [String] = []
 
     _ = try await coordinator.streamAssistantReplyResult(
       transcript: ModelPromptProjection(),
       promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
       settings: .agentDefault,
-      appendChunk: { _ in },
-      appendThinkingChunk: { _ in },
+      appendChunk: { observations.append("visible:\($0)") },
+      appendThinkingChunk: { observations.append("thinking:\($0)") },
       completeThinking: { thinkingCompletionCount += 1 },
-      updateGenerationMetrics: { _ in }
+      updateGenerationMetrics: { _ in observations.append("generation-completed") }
     )
 
     #expect(thinkingCompletionCount == 0)
+    #expect(
+      observations == [
+        "thinking:Partial reasoning",
+        "visible:Visible answer.",
+        "generation-completed",
+      ])
   }
 
   @Test
@@ -414,6 +612,7 @@ struct ChatGenerationCoordinatorTests {
       streamingFlushCharacterLimit: 100
     )
     var chunks: [String] = []
+    var thinkingChunks: [String] = []
 
     let generationTask = Task {
       try await coordinator.streamAssistantReplyResult(
@@ -422,10 +621,11 @@ struct ChatGenerationCoordinatorTests {
         promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
         settings: .agentDefault,
         appendChunk: { chunks.append($0) },
+        appendThinkingChunk: { thinkingChunks.append($0) },
         updateGenerationMetrics: { _ in })
     }
 
-    try await waitUntilAsync { await runtime.yieldedChunkCount == 1 }
+    try await waitUntilAsync { await runtime.yieldedEventCount == 2 }
     await runtimeOperations.setCurrentOperation(UUID())
     await runtime.releaseStream()
 
@@ -433,6 +633,7 @@ struct ChatGenerationCoordinatorTests {
       try await generationTask.value
     }
     #expect(chunks.isEmpty)
+    #expect(thinkingChunks.isEmpty)
   }
 
   private func waitUntilAsync(
@@ -446,6 +647,62 @@ struct ChatGenerationCoordinatorTests {
       }
       try await Task.sleep(for: .milliseconds(10))
     }
+  }
+}
+
+private actor InterruptedEventRuntime: ChatModelRuntime {
+  private let events: [ChatModelStreamEvent]
+
+  init(events: [ChatModelStreamEvent]) {
+    self.events = events
+  }
+
+  func load(configuration: ChatModelConfiguration) async throws {
+    _ = configuration
+  }
+
+  func unload() async {}
+  func clearContext() async {}
+
+  func streamReply(
+    for transcript: ModelPromptProjection,
+    attachments: [ChatAttachment],
+    promptPlan: ChatRuntimePromptPlan,
+    settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = transcript
+    _ = attachments
+    _ = promptPlan
+    _ = settings
+    _ = interactionMode
+
+    return AsyncThrowingStream { continuation in
+      for event in events {
+        continuation.yield(event)
+      }
+      continuation.finish()
+    }
+  }
+}
+
+@MainActor
+private final class StreamingTestClock {
+  private let dates: [Date]
+  private var index = 0
+
+  init(milliseconds: [Double]) {
+    dates = milliseconds.map { Date(timeIntervalSince1970: $0 / 1_000) }
+  }
+
+  var readCount: Int {
+    index
+  }
+
+  func now() -> Date {
+    precondition(index < dates.count, "Streaming test clock exhausted")
+    defer { index += 1 }
+    return dates[index]
   }
 }
 
@@ -521,7 +778,7 @@ private actor RuntimeCacheSnapshotRuntime: ChatModelRuntime {
 private actor OperationLaneControlledRuntime: ChatModelRuntime {
   private var streamContinuation: CheckedContinuation<Void, Never>?
   private var didReleaseStream = false
-  private(set) var yieldedChunkCount = 0
+  private(set) var yieldedEventCount = 0
 
   func load(configuration: ChatModelConfiguration) async throws {
     _ = configuration
@@ -544,8 +801,10 @@ private actor OperationLaneControlledRuntime: ChatModelRuntime {
 
     return AsyncThrowingStream { continuation in
       let task = Task {
+        continuation.yield(.thinkingChunk("reasoning"))
+        recordYieldedEvent()
         continuation.yield(.chunk("first"))
-        recordYieldedChunk()
+        recordYieldedEvent()
         await waitForStreamRelease()
         guard !Task.isCancelled else {
           continuation.finish(throwing: CancellationError())
@@ -568,8 +827,8 @@ private actor OperationLaneControlledRuntime: ChatModelRuntime {
     streamContinuation = nil
   }
 
-  private func recordYieldedChunk() {
-    yieldedChunkCount += 1
+  private func recordYieldedEvent() {
+    yieldedEventCount += 1
   }
 
   private func waitForStreamRelease() async {
