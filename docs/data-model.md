@@ -13,9 +13,10 @@ flowchart TD
   AssistantTurnMessage --> AssistantDeliveryStatus
   AssistantTurnMessage --> AssistantModelProjectionPolicy
   AssistantTurnMessage --> ChatGenerationMetrics
+  ChatGenerationSettings --> ReasoningSelection
   ChatModeSettings --> ChatGenerationSettings
   ChatModeSettingsSet --> ChatModeSettings
-  ChatModelConfiguration --> ModelReasoningEffort
+  ChatModelConfiguration --> ModelReasoningCapability
   ChatModelConfiguration --> ReasoningTraceFormat
   ChatModelConfiguration --> ThinkingBudgetPolicy
   ChatSession --> ChatModeSettingsSet
@@ -49,7 +50,7 @@ flowchart TD
   ManagedModel --> ManagedModelGroup
   ManagedModel --> ManagedModelRecommendation
   ManagedModel --> ManagedModelStability
-  ManagedModel --> ModelReasoningEffort
+  ManagedModel --> ModelReasoningCapability
   ManagedModel --> ReasoningTraceFormat
   ManagedModel --> ThinkingBudgetPolicy
   ManagedModel --> ToolCallingPolicy
@@ -66,6 +67,7 @@ flowchart TD
   ModelManagementState --> ModelDownloadState
   ModelManagementState --> ModelLoadState
   ModelPromptProjection -. derives .-> ModelContextEntry
+  ModelReasoningCapability --> ReasoningEffort
   NoopTurnTracer --> TurnTracing
   ProjectedModelContextEntry --> ModelContextRole
   RawToolCallRequest --> ChatSession
@@ -73,6 +75,7 @@ flowchart TD
   RawToolCallRequest --> ToolName
   RawToolCallRequest --> Workspace
   ReadKey --> WorkspaceRelativePath
+  ReasoningSelection --> ReasoningEffort
   RecoveryHint --> WorkspaceRelativePath
   RuntimeApplicationStateSnapshot --> ApplicationActivationState
   RuntimeApplicationStateSnapshot --> ApplicationOcclusionState
@@ -366,12 +369,16 @@ Properties:
 - `maxTokens: Int`
 - `minP: Double`
 - `presencePenalty: Double`
-- `reasoningEnabled: Bool`
+- `reasoningSelection: ReasoningSelection`
 - `repetitionContextSize: Int`
 - `repetitionPenalty: Double`
 - `temperature: Double`
 - `topK: Int`
 - `topP: Double`
+
+Relations:
+
+- `ReasoningSelection`
 
 ### ChatModeSettings
 
@@ -413,7 +420,7 @@ Properties:
 
 - `contextTokenLimit: Int?`
 - `localModelDirectory: URL`
-- `reasoningEffort: ModelReasoningEffort?`
+- `reasoningCapability: ModelReasoningCapability`
 - `reasoningTraceFormat: ReasoningTraceFormat`
 - `supportsHistoricalReasoningPreservation: Bool`
 - `supportsImageInput: Bool`
@@ -421,7 +428,7 @@ Properties:
 
 Relations:
 
-- `ModelReasoningEffort`
+- `ModelReasoningCapability`
 - `ReasoningTraceFormat`
 - `ThinkingBudgetPolicy`
 
@@ -812,7 +819,7 @@ Properties:
 - `id: String`
 - `localDirectoryName: String`
 - `maxToolLoopIterations: Int`
-- `reasoningEffort: ModelReasoningEffort?`
+- `reasoningCapability: ModelReasoningCapability`
 - `reasoningTraceFormat: ReasoningTraceFormat`
 - `recommendation: ManagedModelRecommendation`
 - `requiresLargeMemory: Bool`
@@ -828,7 +835,7 @@ Relations:
 - `ManagedModelGroup`
 - `ManagedModelRecommendation`
 - `ManagedModelStability`
-- `ModelReasoningEffort`
+- `ModelReasoningCapability`
 - `ReasoningTraceFormat`
 - `ThinkingBudgetPolicy`
 - `ToolCallingPolicy`
@@ -1036,18 +1043,21 @@ Relations:
 
 - `ModelContextEntry`
 
-### ModelReasoningEffort
+### ModelReasoningCapability
 
 - Kind: `enum`
 - Source: `Sources/SumikaCore/Features/ModelManagement/Models/ManagedModel.swift`
-- Conforms to: `Equatable`, `Sendable`, `String`
-- Summary: Catalog-owned chat-template reasoning effort. Models without an explicit value keep their template default.
+- Conforms to: `Equatable`, `Sendable`
+- Summary: Catalog-owned reasoning controls. Selectable options are ordered for display.
 
 Cases:
 
-- `low`
-- `medium`
-- `xhigh`
+- `selectableEffort(supported: [ReasoningEffort], defaultValue: ReasoningEffort)`
+- `toggle`
+
+Relations:
+
+- `ReasoningEffort`
 
 ### NoopTurnTracer
 
@@ -1134,6 +1144,36 @@ Properties:
 Relations:
 
 - `WorkspaceRelativePath`
+
+### ReasoningEffort
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ManagedModel.swift`
+- Conforms to: `CaseIterable`, `Codable`, `Equatable`, `Hashable`, `Sendable`, `String`
+- Summary: A chat-template reasoning effort persisted as a stable string.
+
+Cases:
+
+- `low`
+- `medium`
+- `xhigh`
+
+### ReasoningSelection
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ManagedModel.swift`
+- Conforms to: `Codable`, `Equatable`, `Hashable`, `Sendable`
+- Summary: The per-mode user selection. `.on` keeps binary reasoning models independent from models that expose a concrete effort level.
+
+Cases:
+
+- `effort(ReasoningEffort)`
+- `off`
+- `on`
+
+Relations:
+
+- `ReasoningEffort`
 
 ### ReasoningTraceFormat
 

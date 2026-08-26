@@ -319,10 +319,12 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
 - For explicitly supported Qwen models, Sumika's local MLX adapter renders
   provider `reasoningContent` exactly once as
   `<think>\n...\n</think>\n\n` before the visible assistant content and supplies
-  `preserve_thinking: true`. `enable_thinking` continues to reflect the user's
-  `reasoningEnabled` setting independently. A catalog-owned `reasoningEffort` is
-  supplied as `reasoning_effort` only while reasoning is enabled; the Qwen3.8
-  entry pins it to `medium`, while other entries keep their template default.
+  `preserve_thinking: true`. `enable_thinking` reflects the current session's
+  `ReasoningSelection`. Models with a binary capability use `off` or `on`;
+  Qwen 3.8 exposes `off`, `low`, `medium`, and `xhigh`, with `medium` as the
+  per-mode session default. A selected effort is supplied as `reasoning_effort`
+  only while reasoning is enabled. The Composer and runtime consume the catalog
+  capability instead of knowing model IDs or template keys.
   Unsupported models receive neither the historical reasoning projection nor the
   preservation flag. Tool-result continuations and dirty rebuilds use the same
   canonical provider snapshots.
@@ -369,9 +371,10 @@ projection while replaying it to MLX as native structured tool-call metadata.
 
 ## MLX Debug Trace
 
-When `SUMIKA_DEBUG_TRACE=1`, each `mlx_request` records the effective generation
-settings, including `presencePenalty`, `reasoningEnabled`, and
-`repetitionContextSize`. The first decoded chunk and every 128 decoded chunks
+When `SUMIKA_DEBUG_TRACE=1`, each `mlx_request` records the generation settings,
+including `presencePenalty`, the persisted `reasoningSelection`, derived
+`reasoningEnabled`, effective selection and optional effective `reasoningEffort`,
+and `repetitionContextSize`. The first decoded chunk and every 128 decoded chunks
 afterward emit a `runtime_partial_decode` `turn_trace` row. Its
 `generatedTokenCount` is re-tokenized from the raw output accumulated so far and
 is marked with `generatedTokenCountIsEstimate: true`; structured tool parsing

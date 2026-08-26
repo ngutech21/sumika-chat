@@ -5,7 +5,8 @@ import SwiftUI
 struct ChatComposerOptions: View {
   struct Configuration {
     let interactionMode: WorkspaceInteractionMode
-    let reasoningEnabled: Bool
+    let reasoningSelection: ReasoningSelection
+    let reasoningCapability: ModelReasoningCapability
     let toolApprovalPolicy: ToolApprovalPolicy
     let canChangeReasoning: Bool
     let canEnableAutomaticToolApproval: Bool
@@ -13,7 +14,7 @@ struct ChatComposerOptions: View {
     let statuses: [MCPServerStatus]
     let selectedServerIDs: [UUID]
     let canChangeMCPSelection: Bool
-    let onSetReasoningEnabled: (Bool) -> Void
+    let onSetReasoningSelection: (ReasoningSelection) -> Void
     let onEnableAutomaticToolApproval: () -> Void
     let onDisableAutomaticToolApproval: () -> Void
     let onSelectServerIDs: ([UUID]) -> Void
@@ -99,12 +100,22 @@ struct ChatComposerOptions: View {
     .frame(width: 320)
   }
 
+  @ViewBuilder
   private var reasoningRow: some View {
+    switch configuration.reasoningCapability {
+    case .toggle:
+      reasoningToggle
+    case .selectableEffort(let supported, _):
+      reasoningEffortPicker(supported: supported)
+    }
+  }
+
+  private var reasoningToggle: some View {
     Toggle(
       isOn: Binding(
-        get: { configuration.reasoningEnabled },
+        get: { configuration.reasoningSelection.isEnabled },
         set: { isEnabled in
-          configuration.onSetReasoningEnabled(isEnabled)
+          configuration.onSetReasoningSelection(isEnabled ? .on : .off)
         }
       )
     ) {
@@ -118,8 +129,46 @@ struct ChatComposerOptions: View {
     .controlSize(.small)
     .disabled(!configuration.canChangeReasoning)
     .accessibilityLabel("Reasoning")
-    .accessibilityValue(configuration.reasoningEnabled ? "On" : "Off")
+    .accessibilityValue(configuration.reasoningSelection.isEnabled ? "On" : "Off")
     .accessibilityIdentifier("chat.reasoningToggle")
+  }
+
+  private func reasoningEffortPicker(
+    supported: [ReasoningEffort]
+  ) -> some View {
+    HStack(spacing: 8) {
+      optionLabel(
+        title: "Reasoning",
+        description: "Choose how much reasoning the model uses.",
+        systemImage: "lightbulb"
+      )
+
+      Spacer(minLength: 8)
+
+      Picker("Reasoning", selection: reasoningSelectionBinding) {
+        Text("Off").tag(ReasoningSelection.off)
+        ForEach(supported, id: \.self) { effort in
+          Text(reasoningEffortTitle(effort)).tag(ReasoningSelection.effort(effort))
+        }
+      }
+      .labelsHidden()
+      .pickerStyle(.menu)
+      .controlSize(.small)
+      .fixedSize()
+      .accessibilityLabel("Reasoning")
+      .accessibilityValue(reasoningAccessibilityValue)
+      .accessibilityIdentifier("chat.reasoningLevelPicker")
+    }
+    .disabled(!configuration.canChangeReasoning)
+  }
+
+  private var reasoningSelectionBinding: Binding<ReasoningSelection> {
+    Binding(
+      get: { configuration.reasoningSelection },
+      set: { selection in
+        configuration.onSetReasoningSelection(selection)
+      }
+    )
   }
 
   private var agentOptions: some View {
@@ -272,7 +321,7 @@ struct ChatComposerOptions: View {
   }
 
   private var accessibilityValue: String {
-    let reasoning = configuration.reasoningEnabled ? "Reasoning on" : "Reasoning off"
+    let reasoning = reasoningAccessibilityValue
     guard configuration.interactionMode == .agent else {
       return reasoning
     }
@@ -283,6 +332,28 @@ struct ChatComposerOptions: View {
     let count = configuration.selectedServerIDs.count
     let servers = count == 1 ? "1 MCP server selected" : "\(count) MCP servers selected"
     return "\(reasoning), \(approval), \(servers)"
+  }
+
+  private var reasoningAccessibilityValue: String {
+    switch configuration.reasoningSelection {
+    case .off:
+      "Reasoning off"
+    case .on:
+      "Reasoning on"
+    case .effort(let effort):
+      "Reasoning \(reasoningEffortTitle(effort))"
+    }
+  }
+
+  private func reasoningEffortTitle(_ effort: ReasoningEffort) -> String {
+    switch effort {
+    case .low:
+      "Low"
+    case .medium:
+      "Medium"
+    case .xhigh:
+      "XHigh"
+    }
   }
 
   private func statusText(for server: MCPServerConfig) -> String {

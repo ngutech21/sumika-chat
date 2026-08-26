@@ -876,7 +876,7 @@ struct ConversationEngineToolLoopTests {
       repetitionPenalty: 1.2,
       repetitionContextSize: 77,
       presencePenalty: 0.42,
-      reasoningEnabled: false
+      reasoningSelection: .off
     )
     let workspace = try makeWorkspace(
       sessionID: sessionID,

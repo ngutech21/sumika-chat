@@ -52,12 +52,12 @@ struct MLXSessionCachePolicyTests {
     ])
     let supported = try MLXHistoryRenderer.generationInput(
       from: transcript,
-      reasoningEnabled: false,
+      reasoningSelection: .off,
       supportsHistoricalReasoningPreservation: true
     ).additionalContext
     let unsupported = try MLXHistoryRenderer.generationInput(
       from: transcript,
-      reasoningEnabled: false,
+      reasoningSelection: .off,
       supportsHistoricalReasoningPreservation: false
     ).additionalContext
 
@@ -85,34 +85,35 @@ struct MLXSessionCachePolicyTests {
   }
 
   @Test
-  func qwenReasoningEffortChangeForcesAdditionalContextRebuild() throws {
+  func qwenReasoningLevelChangeForcesAdditionalContextRebuild() throws {
     let transcript = ModelPromptProjection(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "Hello")
     ])
-    let templateDefault = try MLXHistoryRenderer.generationInput(
-      from: transcript
-    ).additionalContext
-    let medium = try MLXHistoryRenderer.generationInput(
+    let low = try MLXHistoryRenderer.generationInput(
       from: transcript,
-      reasoningEffort: .medium
+      reasoningSelection: .effort(.low)
     ).additionalContext
-    let templateDefaultIdentity = MLXSessionCachePolicy.cacheIdentity(
+    let xhigh = try MLXHistoryRenderer.generationInput(
+      from: transcript,
+      reasoningSelection: .effort(.xhigh)
+    ).additionalContext
+    let lowIdentity = MLXSessionCachePolicy.cacheIdentity(
       systemPrompt: "Stable",
       settings: .agentDefault,
       projectionMode: .fullHistory,
-      additionalContext: templateDefault
+      additionalContext: low
     )
-    let mediumIdentity = MLXSessionCachePolicy.cacheIdentity(
+    let xhighIdentity = MLXSessionCachePolicy.cacheIdentity(
       systemPrompt: "Stable",
       settings: .agentDefault,
       projectionMode: .fullHistory,
-      additionalContext: medium
+      additionalContext: xhigh
     )
 
     #expect(
       MLXSessionCachePolicy.identityMismatchReason(
-        cached: templateDefaultIdentity,
-        current: mediumIdentity
+        cached: lowIdentity,
+        current: xhighIdentity
       ) == .additionalContextChanged)
   }
 
@@ -400,7 +401,7 @@ struct MLXSessionCachePolicyTests {
   @Test
   func cacheIdentityChangesForReasoningSetting() {
     var changedReasoning = ChatGenerationSettings.agentDefault
-    changedReasoning.reasoningEnabled = false
+    changedReasoning.reasoningSelection = .off
     let base = MLXSessionCachePolicy.cacheIdentity(
       systemPrompt: "Use concise coding steps.",
       settings: .agentDefault,

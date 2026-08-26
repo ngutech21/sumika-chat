@@ -16,7 +16,7 @@
         "generationSettings" : {
           "maxTokens" : 8192,
           "presencePenalty" : 0.5,
-          "reasoningEnabled" : true,
+          "reasoningSelection" : "on",
           "repetitionContextSize" : 256,
           "repetitionPenalty" : 1,
           "temperature" : 0.3,
@@ -29,7 +29,7 @@
         "generationSettings" : {
           "maxTokens" : 2048,
           "presencePenalty" : 0,
-          "reasoningEnabled" : true,
+          "reasoningSelection" : "on",
           "repetitionContextSize" : 20,
           "repetitionPenalty" : 1,
           "temperature" : 1,

@@ -413,14 +413,17 @@ extension ConversationEngine {
     notifySessionDidChange()
   }
 
-  func setReasoningEnabled(_ isEnabled: Bool) {
+  func setReasoningSelection(_ selection: ReasoningSelection) {
+    let resolvedSelection = conversationModelState.selectedModel.reasoningCapability.resolving(
+      selection
+    )
     guard hasActiveConversation, canChangeInteractionMode,
-      chatSession.generationSettings.reasoningEnabled != isEnabled
+      chatSession.generationSettings.reasoningSelection != resolvedSelection
     else {
       return
     }
 
-    chatSession.generationSettings.reasoningEnabled = isEnabled
+    chatSession.generationSettings.reasoningSelection = resolvedSelection
     errorMessage = nil
     invalidateModelContextDebugDocument()
     clearRuntimeContextForReuse()

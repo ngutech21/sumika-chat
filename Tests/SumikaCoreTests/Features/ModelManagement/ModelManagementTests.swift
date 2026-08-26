@@ -38,7 +38,7 @@ struct ModelManagementTests {
   }
 
   @Test
-  func settingsStorePersistsOnlyChangedFieldsAsSchemaV2Overrides() async throws {
+  func settingsStorePersistsOnlyChangedFieldsAsSchemaV3Overrides() async throws {
     let settingsURL = try temporarySettingsURL()
     let model = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
     let generationConfig = GenerationSettingsOverride(
@@ -71,7 +71,7 @@ struct ModelManagementTests {
     let object = try #require(
       JSONSerialization.jsonObject(with: Data(contentsOf: settingsURL)) as? [String: Any]
     )
-    #expect(object["schemaVersion"] as? Int == 2)
+    #expect(object["schemaVersion"] as? Int == 3)
     let modelSettings = try #require(object["modelSettings"] as? [String: Any])
     let persisted = try #require(modelSettings[model.id] as? [String: Any])
     let modeOverrides = try #require(persisted["modeOverrides"] as? [String: Any])
@@ -106,7 +106,7 @@ struct ModelManagementTests {
             repetitionPenalty: 1.1,
             repetitionContextSize: 42,
             presencePenalty: 0.4,
-            reasoningEnabled: false
+            reasoningSelection: .off
           )
         ),
         agent: ChatModeSettings(
@@ -119,7 +119,7 @@ struct ModelManagementTests {
             repetitionPenalty: 1.2,
             repetitionContextSize: 84,
             presencePenalty: 0.8,
-            reasoningEnabled: true
+            reasoningSelection: .on
           )
         )
       ),
@@ -154,7 +154,7 @@ struct ModelManagementTests {
     let object = try #require(
       JSONSerialization.jsonObject(with: Data(contentsOf: settingsURL)) as? [String: Any]
     )
-    #expect(object["schemaVersion"] as? Int == 2)
+    #expect(object["schemaVersion"] as? Int == 3)
     let reloaded = ModelSettingsStore(
       userDefaults: makeUserDefaults(),
       settingsURL: settingsURL,
@@ -199,6 +199,79 @@ struct ModelManagementTests {
     #expect(settings.modeSettings.chat.generationSettings.temperature == 1)
     #expect(settings.modeSettings.chat.generationSettings.topP == 0.95)
     #expect(settings.modeSettings.agent.systemPrompt == ChatPromptDefaults.agentSystemPrompt)
+  }
+
+  @Test
+  func settingsStoreMigratesSchemaV2ReasoningBooleansPerModelAndMode() async throws {
+    let settingsURL = try temporarySettingsURL()
+    let qwen = try #require(ManagedModelCatalog.model(id: "qwen3.8-27B-OptiQ-4bit"))
+    let binary = ManagedModelCatalog.defaultModel
+    try FileManager.default.createDirectory(
+      at: settingsURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try Data(
+      """
+      {
+        "schemaVersion": 2,
+        "modelSettings": {
+          "\(qwen.id)": {
+            "modeOverrides": {
+              "chat": { "generationSettings": { "reasoningEnabled": true } },
+              "agent": { "generationSettings": { "reasoningEnabled": false } }
+            }
+          },
+          "\(binary.id)": {
+            "modeOverrides": {
+              "chat": { "generationSettings": { "reasoningEnabled": true } },
+              "agent": { "generationSettings": { "reasoningEnabled": false } }
+            }
+          }
+        }
+      }
+      """.utf8
+    ).write(to: settingsURL, options: .atomic)
+    let userDefaults = makeUserDefaults()
+    let store = ModelSettingsStore(
+      userDefaults: userDefaults,
+      settingsURL: settingsURL,
+      generationConfigProvider: { _ in nil }
+    )
+    await store.setSelectedModelID(qwen.id)
+
+    let restored = try await store.restoreConfiguration(
+      availableModels: ManagedModelCatalog.models
+    )
+    let binarySettings = await store.settings(for: binary)
+
+    #expect(restored.model == qwen)
+    #expect(
+      restored.settings.modeSettings.chat.generationSettings.reasoningSelection
+        == .effort(.medium)
+    )
+    #expect(restored.settings.modeSettings.agent.generationSettings.reasoningSelection == .off)
+    #expect(binarySettings.modeSettings.chat.generationSettings.reasoningSelection == .on)
+    #expect(binarySettings.modeSettings.agent.generationSettings.reasoningSelection == .off)
+
+    let object = try #require(
+      JSONSerialization.jsonObject(with: Data(contentsOf: settingsURL)) as? [String: Any]
+    )
+    #expect(object["schemaVersion"] as? Int == 3)
+    let models = try #require(object["modelSettings"] as? [String: Any])
+    let qwenGeneration = try persistedGenerationSettings(
+      modelID: qwen.id,
+      mode: "chat",
+      in: models
+    )
+    let binaryGeneration = try persistedGenerationSettings(
+      modelID: binary.id,
+      mode: "chat",
+      in: models
+    )
+    #expect(qwenGeneration["reasoningSelection"] as? String == "medium")
+    #expect(binaryGeneration["reasoningSelection"] as? String == "on")
+    #expect(qwenGeneration["reasoningEnabled"] == nil)
+    #expect(binaryGeneration["reasoningEnabled"] == nil)
   }
 
   @Test
@@ -291,15 +364,19 @@ struct ModelManagementTests {
   }
 
   @Test
-  func catalogPinsMediumReasoningEffortOnlyForQwen38() throws {
+  func catalogExposesSelectableReasoningEffortOnlyForQwen38() throws {
     let qwen38 = try #require(ManagedModelCatalog.model(id: "qwen3.8-27B-OptiQ-4bit"))
 
-    #expect(qwen38.reasoningEffort == .medium)
+    #expect(
+      qwen38.reasoningCapability
+        == .selectableEffort(supported: [.low, .medium, .xhigh], defaultValue: .medium)
+    )
     #expect(
       ManagedModelCatalog.models
         .filter { $0.id != qwen38.id }
-        .allSatisfy { $0.reasoningEffort == nil }
+        .allSatisfy { $0.reasoningCapability == .toggle }
     )
+    #expect(ManagedModelCatalog.models.allSatisfy { $0.reasoningCapability.hasValidOptions })
   }
 
   @Test
@@ -584,6 +661,17 @@ struct ModelManagementTests {
 
   private func makeUserDefaultsSuiteName() -> String {
     "sumika-tests-\(UUID().uuidString)"
+  }
+
+  private func persistedGenerationSettings(
+    modelID: String,
+    mode: String,
+    in models: [String: Any]
+  ) throws -> [String: Any] {
+    let model = try #require(models[modelID] as? [String: Any])
+    let overrides = try #require(model["modeOverrides"] as? [String: Any])
+    let modeSettings = try #require(overrides[mode] as? [String: Any])
+    return try #require(modeSettings["generationSettings"] as? [String: Any])
   }
 
   private func makeUserDefaults(suiteName: String? = nil) -> UserDefaults {

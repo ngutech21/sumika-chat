@@ -5,7 +5,7 @@ package struct ChatComposerSessionState: Equatable, Sendable {
   package var interactionMode: WorkspaceInteractionMode
   package var toolApprovalPolicy: ToolApprovalPolicy
   package var selectedMCPServerIDs: [UUID]
-  package var reasoningEnabled: Bool
+  package var reasoningSelection: ReasoningSelection
   package var todoState: TodoState?
 
   package init(
@@ -13,14 +13,14 @@ package struct ChatComposerSessionState: Equatable, Sendable {
     interactionMode: WorkspaceInteractionMode = .chat,
     toolApprovalPolicy: ToolApprovalPolicy = .manual,
     selectedMCPServerIDs: [UUID] = [],
-    reasoningEnabled: Bool = true,
+    reasoningSelection: ReasoningSelection = .on,
     todoState: TodoState? = nil
   ) {
     self.pendingAttachments = pendingAttachments
     self.interactionMode = interactionMode
     self.toolApprovalPolicy = toolApprovalPolicy
     self.selectedMCPServerIDs = selectedMCPServerIDs
-    self.reasoningEnabled = reasoningEnabled
+    self.reasoningSelection = reasoningSelection
     self.todoState = todoState
   }
 
@@ -43,7 +43,7 @@ package struct ChatComposerSessionState: Equatable, Sendable {
       interactionMode: session.interactionMode,
       toolApprovalPolicy: session.toolApprovalPolicy,
       selectedMCPServerIDs: session.selectedMCPServerIDs,
-      reasoningEnabled: session.generationSettings.reasoningEnabled,
+      reasoningSelection: session.generationSettings.reasoningSelection,
       todoState: visibleTodoState
     )
   }

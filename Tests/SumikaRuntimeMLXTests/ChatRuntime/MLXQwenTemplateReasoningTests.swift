@@ -53,7 +53,7 @@ nonisolated final class MLXQwenTemplateReasoningTests: XCTestCase {
       from: ModelPromptProjection(entries: [
         try ModelFacingPromptRenderer.userPromptEntry(prompt: "Explain it")
       ]),
-      reasoningEnabled: true,
+      reasoningSelection: .on,
       supportsHistoricalReasoningPreservation: true
     ).additionalContext
 
@@ -128,7 +128,7 @@ nonisolated final class MLXQwenTemplateReasoningTests: XCTestCase {
       from: ModelPromptProjection(entries: [
         try ModelFacingPromptRenderer.userPromptEntry(prompt: "Continue")
       ]),
-      reasoningEnabled: false,
+      reasoningSelection: .off,
       supportsHistoricalReasoningPreservation: true
     ).additionalContext
     XCTAssertEqual(reasoningDisabledContext["enable_thinking"] as? Bool, false)

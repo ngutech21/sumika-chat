@@ -7,7 +7,7 @@ struct GenerationSettingsOverride: Codable, Equatable, Sendable {
   var repetitionPenalty: Double?
   var repetitionContextSize: Int?
   var presencePenalty: Double?
-  var reasoningEnabled: Bool?
+  var reasoningSelection: ReasoningSelection?
 
   init(
     temperature: Double? = nil,
@@ -18,7 +18,7 @@ struct GenerationSettingsOverride: Codable, Equatable, Sendable {
     repetitionPenalty: Double? = nil,
     repetitionContextSize: Int? = nil,
     presencePenalty: Double? = nil,
-    reasoningEnabled: Bool? = nil
+    reasoningSelection: ReasoningSelection? = nil
   ) {
     self.temperature = temperature
     self.topP = topP
@@ -28,7 +28,7 @@ struct GenerationSettingsOverride: Codable, Equatable, Sendable {
     self.repetitionPenalty = repetitionPenalty
     self.repetitionContextSize = repetitionContextSize
     self.presencePenalty = presencePenalty
-    self.reasoningEnabled = reasoningEnabled
+    self.reasoningSelection = reasoningSelection
   }
 
   init(overriding settings: ChatGenerationSettings, includeMinP: Bool = true) {
@@ -40,13 +40,13 @@ struct GenerationSettingsOverride: Codable, Equatable, Sendable {
     repetitionPenalty = settings.repetitionPenalty
     repetitionContextSize = settings.repetitionContextSize
     presencePenalty = settings.presencePenalty
-    reasoningEnabled = settings.reasoningEnabled
+    reasoningSelection = settings.reasoningSelection
   }
 
   var hasValues: Bool {
     temperature != nil || topP != nil || topK != nil || minP != nil || maxTokens != nil
       || repetitionPenalty != nil || repetitionContextSize != nil || presencePenalty != nil
-      || reasoningEnabled != nil
+      || reasoningSelection != nil
   }
 
   func applying(to settings: ChatGenerationSettings) -> ChatGenerationSettings {
@@ -59,7 +59,7 @@ struct GenerationSettingsOverride: Codable, Equatable, Sendable {
     if let repetitionPenalty { updated.repetitionPenalty = repetitionPenalty }
     if let repetitionContextSize { updated.repetitionContextSize = repetitionContextSize }
     if let presencePenalty { updated.presencePenalty = presencePenalty }
-    if let reasoningEnabled { updated.reasoningEnabled = reasoningEnabled }
+    if let reasoningSelection { updated.reasoningSelection = reasoningSelection }
     return updated
   }
 
@@ -91,9 +91,66 @@ struct GenerationSettingsOverride: Codable, Equatable, Sendable {
     if previous.presencePenalty != updated.presencePenalty {
       presencePenalty = updated.presencePenalty
     }
-    if previous.reasoningEnabled != updated.reasoningEnabled {
-      reasoningEnabled = updated.reasoningEnabled
+    if previous.reasoningSelection != updated.reasoningSelection {
+      reasoningSelection = updated.reasoningSelection
     }
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case temperature
+    case topP
+    case topK
+    case minP
+    case maxTokens
+    case repetitionPenalty
+    case repetitionContextSize
+    case presencePenalty
+    case reasoningSelection
+    case reasoningEnabled
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    temperature = try container.decodeIfPresent(Double.self, forKey: .temperature)
+    topP = try container.decodeIfPresent(Double.self, forKey: .topP)
+    topK = try container.decodeIfPresent(Int.self, forKey: .topK)
+    minP = try container.decodeIfPresent(Double.self, forKey: .minP)
+    maxTokens = try container.decodeIfPresent(Int.self, forKey: .maxTokens)
+    repetitionPenalty = try container.decodeIfPresent(
+      Double.self,
+      forKey: .repetitionPenalty
+    )
+    repetitionContextSize = try container.decodeIfPresent(
+      Int.self,
+      forKey: .repetitionContextSize
+    )
+    presencePenalty = try container.decodeIfPresent(Double.self, forKey: .presencePenalty)
+    if let selection = try container.decodeIfPresent(
+      ReasoningSelection.self,
+      forKey: .reasoningSelection
+    ) {
+      reasoningSelection = selection
+    } else if let isEnabled = try container.decodeIfPresent(
+      Bool.self,
+      forKey: .reasoningEnabled
+    ) {
+      reasoningSelection = isEnabled ? .on : .off
+    } else {
+      reasoningSelection = nil
+    }
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encodeIfPresent(temperature, forKey: .temperature)
+    try container.encodeIfPresent(topP, forKey: .topP)
+    try container.encodeIfPresent(topK, forKey: .topK)
+    try container.encodeIfPresent(minP, forKey: .minP)
+    try container.encodeIfPresent(maxTokens, forKey: .maxTokens)
+    try container.encodeIfPresent(repetitionPenalty, forKey: .repetitionPenalty)
+    try container.encodeIfPresent(repetitionContextSize, forKey: .repetitionContextSize)
+    try container.encodeIfPresent(presencePenalty, forKey: .presencePenalty)
+    try container.encodeIfPresent(reasoningSelection, forKey: .reasoningSelection)
   }
 }
 
@@ -213,6 +270,9 @@ enum ModelSettingsResolver {
     if let contextTokenLimit = userOverrides.contextTokenLimit {
       settings.contextTokenLimit = contextTokenLimit
     }
+    settings.modeSettings = settings.modeSettings.resolvingReasoningSelections(
+      for: model.reasoningCapability
+    )
     return settings
   }
 
@@ -233,6 +293,10 @@ enum ModelSettingsResolver {
       modeSettings.agent.generationSettings = profile.agentOverride.applying(
         to: modeSettings.agent.generationSettings)
     }
+    modeSettings.chat.generationSettings.reasoningSelection =
+      model.reasoningCapability.defaultSelection
+    modeSettings.agent.generationSettings.reasoningSelection =
+      model.reasoningCapability.defaultSelection
     return StoredModelSettings(
       modeSettings: modeSettings,
       contextTokenLimit: model.defaultContextTokenLimit

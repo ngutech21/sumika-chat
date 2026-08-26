@@ -58,7 +58,10 @@ package struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     self.interactionMode = interactionMode
     self.toolApprovalPolicy = toolApprovalPolicy
     self.selectedMCPServerIDs = Self.uniqueIDsPreservingOrder(selectedMCPServerIDs)
-    self.modeSettings = modeSettings
+    self.modeSettings = Self.resolvingReasoningSelections(
+      in: modeSettings,
+      selectedModelID: selectedModelID
+    )
     self.todoState = todoState
     self.createdAt = createdAt
     self.updatedAt = updatedAt
@@ -118,6 +121,10 @@ package struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       forKey: .modeSettings,
       default: .defaultSettings
     )
+    modeSettings = Self.resolvingReasoningSelections(
+      in: modeSettings,
+      selectedModelID: selectedModelID
+    )
     todoState = try container.decodeIfPresent(TodoState.self, forKey: .todoState)
     createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt, default: Date())
     updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt, default: createdAt)
@@ -168,5 +175,15 @@ package struct ChatSession: Codable, Identifiable, Equatable, Sendable {
   private static func uniqueIDsPreservingOrder(_ serverIDs: [UUID]) -> [UUID] {
     var seen = Set<UUID>()
     return serverIDs.filter { seen.insert($0).inserted }
+  }
+
+  private static func resolvingReasoningSelections(
+    in modeSettings: ChatModeSettingsSet,
+    selectedModelID: ManagedModel.ID
+  ) -> ChatModeSettingsSet {
+    let capability =
+      ManagedModelCatalog.model(id: selectedModelID)?.reasoningCapability
+      ?? ModelReasoningCapability.toggle
+    return modeSettings.resolvingReasoningSelections(for: capability)
   }
 }

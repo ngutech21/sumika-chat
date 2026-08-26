@@ -124,6 +124,15 @@ package actor ModelSettingsStore: ModelSettingsStoring {
     var hasValues: Bool {
       chat?.hasValues == true || agent?.hasValues == true
     }
+
+    mutating func resolveReasoningSelections(for capability: ModelReasoningCapability) {
+      if let selection = chat?.generationSettings.reasoningSelection {
+        chat?.generationSettings.reasoningSelection = capability.resolving(selection)
+      }
+      if let selection = agent?.generationSettings.reasoningSelection {
+        agent?.generationSettings.reasoningSelection = capability.resolving(selection)
+      }
+    }
   }
 
   private struct PersistedModelSettings: Codable {
@@ -169,10 +178,14 @@ package actor ModelSettingsStore: ModelSettingsStoring {
     var hasValues: Bool {
       modeOverrides?.hasValues == true || contextTokenLimitOverride != nil
     }
+
+    mutating func resolveReasoningSelections(for capability: ModelReasoningCapability) {
+      modeOverrides?.resolveReasoningSelections(for: capability)
+    }
   }
 
   private struct SettingsFile: Codable {
-    static let schemaVersion = 2
+    static let schemaVersion = 3
 
     var modelSettings: [String: PersistedModelSettings]
     let requiresMigration: Bool
@@ -192,6 +205,13 @@ package actor ModelSettingsStore: ModelSettingsStoring {
           default: [:]
         )
         modelSettings = legacy.mapValues(PersistedModelSettings.init(legacy:))
+        requiresMigration = true
+      case 2:
+        modelSettings = try container.decodeIfPresent(
+          [String: PersistedModelSettings].self,
+          forKey: .modelSettings,
+          default: [:]
+        )
         requiresMigration = true
       case Self.schemaVersion:
         modelSettings = try container.decodeIfPresent(
@@ -213,6 +233,14 @@ package actor ModelSettingsStore: ModelSettingsStoring {
       var container = encoder.container(keyedBy: ModelSettingsFileCodingKeys.self)
       try container.encode(Self.schemaVersion, forKey: .schemaVersion)
       try container.encode(modelSettings, forKey: .modelSettings)
+    }
+
+    mutating func resolveReasoningSelections(availableModels: [ManagedModel]) {
+      for model in availableModels where modelSettings[model.id] != nil {
+        modelSettings[model.id]?.resolveReasoningSelections(
+          for: model.reasoningCapability
+        )
+      }
     }
   }
 
@@ -291,9 +319,12 @@ package actor ModelSettingsStore: ModelSettingsStoring {
       throw ModelSettingsRestoreError.invalidSelectedModel(description)
     }
 
-    let settingsFile = try await readSettingsFileIfPresent()
-    if let settingsFile, settingsFile.requiresMigration {
-      try await write(settingsFile)
+    var settingsFile = try await readSettingsFileIfPresent()
+    if settingsFile?.requiresMigration == true {
+      settingsFile?.resolveReasoningSelections(availableModels: availableModels)
+      if let settingsFile {
+        try await write(settingsFile)
+      }
     }
     let modelID = storedModelID ?? ManagedModelCatalog.defaultModelID
     guard let model = availableModels.first(where: { $0.id == modelID }) else {
@@ -328,6 +359,7 @@ package actor ModelSettingsStore: ModelSettingsStoring {
   ) async throws -> StoredModelSettings {
     var file = try await readSettingsFileIfPresent() ?? SettingsFile(modelSettings: [:])
     var persisted = file.modelSettings[model.id] ?? PersistedModelSettings()
+    persisted.resolveReasoningSelections(for: model.reasoningCapability)
     var modeOverrides = persisted.modeOverrides ?? PersistedModeOverrides()
 
     switch mutation {

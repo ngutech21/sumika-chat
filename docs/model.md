@@ -53,6 +53,7 @@ classDiagram
     supportsImageInput: Bool
     reasoningTraceFormat: ReasoningTraceFormat
     supportsHistoricalReasoningPreservation: Bool
+    reasoningCapability: ModelReasoningCapability
     defaultModeSettings: ChatModeSettingsSet
     defaultContextTokenLimit: Int
     maxToolLoopIterations: Int
@@ -84,7 +85,27 @@ classDiagram
     repetitionPenalty: Double
     repetitionContextSize: Int
     presencePenalty: Double
-    reasoningEnabled: Bool
+    reasoningSelection: ReasoningSelection
+  }
+
+  class ReasoningEffort {
+    <<enum>>
+    low
+    medium
+    xhigh
+  }
+
+  class ReasoningSelection {
+    <<enum>>
+    off
+    on
+    effort(ReasoningEffort)
+  }
+
+  class ModelReasoningCapability {
+    <<enum>>
+    toggle
+    selectableEffort(supported, defaultValue)
   }
 
   class ChatModeSettingsSet {
@@ -596,9 +617,13 @@ classDiagram
 
   ManagedModel --> ManagedModelStability
   ManagedModel --> ToolCallingPolicy
+  ManagedModel --> ModelReasoningCapability
   ManagedModel --> ChatModeSettingsSet
   ChatModeSettingsSet --> ChatModeSettings
   ChatModeSettings --> ChatGenerationSettings
+  ChatGenerationSettings --> ReasoningSelection
+  ReasoningSelection --> ReasoningEffort
+  ModelReasoningCapability --> ReasoningEffort
 
   ChatTurn "1" --> "*" ChatTurnItem : append-only membership
   ChatTurn --> ChatTurnStatus

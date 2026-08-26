@@ -96,6 +96,35 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
+  func selectingQwen38PublishesMediumReasoningDefaultsForBothModes() async throws {
+    let qwen = try #require(ManagedModelCatalog.model(id: "qwen3.8-27B-OptiQ-4bit"))
+    let qwenSettings = ModelSettingsResolver.recommendedSettings(
+      for: qwen,
+      generationConfig: nil
+    )
+    let store = RuntimeFakeModelSettingsStore()
+    store.settingsByModelID[qwen.id] = qwenSettings
+    let controller = await makeController(
+      initialModelID: ManagedModelCatalog.defaultModelID,
+      modelSettingsStore: store
+    )
+    var publishedSettings: StoredModelSettings?
+    controller.onModelDidChange = { publishedSettings = $0 }
+
+    controller.selectModel(qwen)
+
+    try await waitUntil { publishedSettings == qwenSettings }
+    #expect(
+      publishedSettings?.modeSettings.chat.generationSettings.reasoningSelection
+        == .effort(.medium)
+    )
+    #expect(
+      publishedSettings?.modeSettings.agent.generationSettings.reasoningSelection
+        == .effort(.medium)
+    )
+  }
+
+  @Test
   func selectingModelRefreshesSelectedModelAvailability() async throws {
     let selectedModel = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
     let store = RuntimeFakeModelSettingsStore()
@@ -333,7 +362,10 @@ struct ModelRuntimeControllerTests {
     try await waitUntil { controller.modelState == .ready }
 
     let configuration = await runtime.loadedConfiguration
-    #expect(configuration?.reasoningEffort == .medium)
+    #expect(
+      configuration?.reasoningCapability
+        == .selectableEffort(supported: [.low, .medium, .xhigh], defaultValue: .medium)
+    )
     #expect(configuration?.thinkingBudgetPolicy == .hardLimitImmediate)
   }
 

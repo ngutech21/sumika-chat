@@ -13,7 +13,11 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
   /// Preferred over a high repetition penalty for tool loops: it discourages repeated
   /// content without penalising the structural JSON tokens every tool call needs.
   package var presencePenalty: Double
-  package var reasoningEnabled: Bool
+  package var reasoningSelection: ReasoningSelection
+
+  package var reasoningEnabled: Bool {
+    reasoningSelection.isEnabled
+  }
 
   package init(
     temperature: Double,
@@ -24,7 +28,7 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     repetitionPenalty: Double = 1,
     repetitionContextSize: Int = 20,
     presencePenalty: Double = 0,
-    reasoningEnabled: Bool = true
+    reasoningSelection: ReasoningSelection = .on
   ) {
     self.temperature = temperature
     self.topP = topP
@@ -34,7 +38,7 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     self.repetitionPenalty = repetitionPenalty
     self.repetitionContextSize = repetitionContextSize
     self.presencePenalty = presencePenalty
-    self.reasoningEnabled = reasoningEnabled
+    self.reasoningSelection = reasoningSelection
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -46,6 +50,7 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     case repetitionPenalty
     case repetitionContextSize
     case presencePenalty
+    case reasoningSelection
     case reasoningEnabled
   }
 
@@ -71,11 +76,19 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
       forKey: .presencePenalty,
       default: 0
     )
-    reasoningEnabled = try container.decodeIfPresent(
-      Bool.self,
-      forKey: .reasoningEnabled,
-      default: true
-    )
+    if let selection = try container.decodeIfPresent(
+      ReasoningSelection.self,
+      forKey: .reasoningSelection
+    ) {
+      reasoningSelection = selection
+    } else {
+      reasoningSelection =
+        try container.decodeIfPresent(
+          Bool.self,
+          forKey: .reasoningEnabled,
+          default: true
+        ) ? .on : .off
+    }
   }
 
   package func encode(to encoder: Encoder) throws {
@@ -90,7 +103,7 @@ package struct ChatGenerationSettings: Codable, Equatable, Sendable {
     try container.encode(repetitionPenalty, forKey: .repetitionPenalty)
     try container.encode(repetitionContextSize, forKey: .repetitionContextSize)
     try container.encode(presencePenalty, forKey: .presencePenalty)
-    try container.encode(reasoningEnabled, forKey: .reasoningEnabled)
+    try container.encode(reasoningSelection, forKey: .reasoningSelection)
   }
 
   package static let chatDefault = ChatGenerationSettings(

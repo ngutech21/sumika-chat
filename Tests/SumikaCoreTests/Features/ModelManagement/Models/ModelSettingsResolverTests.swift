@@ -4,6 +4,49 @@ import Testing
 
 struct ModelSettingsResolverTests {
   @Test
+  func reasoningSelectionsResolveAgainstModelCapability() throws {
+    let qwen = try #require(ManagedModelCatalog.model(id: "qwen3.8-27B-OptiQ-4bit"))
+    let binary = ManagedModelCatalog.defaultModel
+
+    let qwenDefaults = ModelSettingsResolver.recommendedSettings(
+      for: qwen,
+      generationConfig: nil
+    )
+    let binaryDefaults = ModelSettingsResolver.recommendedSettings(
+      for: binary,
+      generationConfig: nil
+    )
+    let binaryWithEffortOverride = ModelSettingsResolver.settings(
+      for: binary,
+      generationConfig: nil,
+      userOverrides: ModelSettingsOverrides(
+        chat: ModeSettingsOverride(
+          generationSettings: GenerationSettingsOverride(
+            reasoningSelection: .effort(.xhigh)
+          )
+        )
+      )
+    )
+
+    #expect(
+      qwenDefaults.modeSettings.chat.generationSettings.reasoningSelection
+        == .effort(.medium)
+    )
+    #expect(
+      qwenDefaults.modeSettings.agent.generationSettings.reasoningSelection
+        == .effort(.medium)
+    )
+    #expect(binaryDefaults.modeSettings.chat.generationSettings.reasoningSelection == .on)
+    #expect(binaryWithEffortOverride.modeSettings.chat.generationSettings.reasoningSelection == .on)
+
+    let futureCapability = ModelReasoningCapability.selectableEffort(
+      supported: [.medium],
+      defaultValue: .medium
+    )
+    #expect(futureCapability.resolving(.effort(.xhigh)) == .effort(.medium))
+  }
+
+  @Test
   func userOverridesWinFieldByFieldIncludingExplicitZero() throws {
     let model = try #require(ManagedModelCatalog.model(id: "qwen3.6-35b-a3b-optiq-4bit"))
     let userOverrides = ModelSettingsOverrides(
@@ -87,8 +130,12 @@ struct ModelSettingsResolverTests {
       for: qwen38,
       generationConfig: generationConfig
     ).modeSettings
-    #expect(qwen38Settings.chat.generationSettings == qwen36Settings.chat.generationSettings)
-    #expect(qwen38Settings.agent.generationSettings == qwen36Settings.agent.generationSettings)
+    var qwen38ChatSampling = qwen38Settings.chat.generationSettings
+    qwen38ChatSampling.reasoningSelection = .on
+    var qwen38AgentSampling = qwen38Settings.agent.generationSettings
+    qwen38AgentSampling.reasoningSelection = .on
+    #expect(qwen38ChatSampling == qwen36Settings.chat.generationSettings)
+    #expect(qwen38AgentSampling == qwen36Settings.agent.generationSettings)
 
     for settings in [gemmaSettings, qwen36Settings, qwen38Settings] {
       #expect(settings.chat.generationSettings.minP == 0.12)

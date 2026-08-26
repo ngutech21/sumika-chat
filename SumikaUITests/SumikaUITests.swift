@@ -424,6 +424,58 @@ final class SumikaUITests: XCTestCase {
   }
 
   @MainActor
+  func testQwenReasoningLevelPickerPersistsSelectionsPerMode() throws {
+    let fixture = try launchFixture(modelID: "qwen3.8-27B-OptiQ-4bit")
+    let application = try launchApp(fixture: fixture)
+    defer { application.terminate() }
+
+    let options = application.buttons["chat.sessionOptions"]
+    XCTAssertTrue(options.waitForExistence(timeout: 10))
+    XCTAssertEqual(options.value as? String, "Reasoning Medium")
+    options.click()
+
+    let picker = application.descendants(matching: .any)["chat.reasoningLevelPicker"]
+    XCTAssertTrue(picker.waitForExistence(timeout: 5))
+    XCTAssertEqual(picker.value as? String, "Reasoning Medium")
+    XCTAssertFalse(application.switches["chat.reasoningToggle"].exists)
+    picker.click()
+    let low = application.menuItems["Low"]
+    XCTAssertTrue(low.waitForExistence(timeout: 5))
+    low.click()
+    XCTAssertTrue(
+      waitUntil(timeout: 10) {
+        options.value as? String == "Reasoning Low"
+      }
+    )
+
+    application.typeKey(.escape, modifierFlags: [])
+    try selectAgentMode(in: application)
+    XCTAssertEqual(
+      options.value as? String, "Reasoning Medium, Auto-approve off, 0 MCP servers selected")
+    options.click()
+    XCTAssertTrue(picker.waitForExistence(timeout: 5))
+    picker.click()
+    let xhigh = application.menuItems["XHigh"]
+    XCTAssertTrue(xhigh.waitForExistence(timeout: 5))
+    xhigh.click()
+    XCTAssertTrue(
+      waitUntil(timeout: 10) {
+        (options.value as? String)?.contains("Reasoning XHigh") == true
+      }
+    )
+
+    application.typeKey(.escape, modifierFlags: [])
+    try selectChatMode(in: application)
+    XCTAssertEqual(options.value as? String, "Reasoning Low")
+    XCTAssertTrue(
+      waitUntil(timeout: 10) {
+        persistedReasoningSelections(in: fixture.storageRoot) == ("low", "xhigh")
+      },
+      "Chat and Agent reasoning levels should persist independently on the session."
+    )
+  }
+
+  @MainActor
   func testSessionOptionsConfirmAndExposeAutomaticApproval() throws {
     let fixture = try launchFixture()
     let application = try launchApp(fixture: fixture)
@@ -782,6 +834,38 @@ final class SumikaUITests: XCTestCase {
       ),
       "Qwen should retain its ChatSession and prefill only the structured tool-result delta."
     )
+  }
+
+  private func persistedReasoningSelections(
+    in storageRoot: URL
+  ) -> (chat: String?, agent: String?) {
+    let sessionsURL =
+      storageRoot
+      .appending(path: "WorkspaceLibrary", directoryHint: .isDirectory)
+      .appending(path: "sessions", directoryHint: .isDirectory)
+    guard
+      let sessionURL = try? FileManager.default.contentsOfDirectory(
+        at: sessionsURL,
+        includingPropertiesForKeys: nil
+      ).first(where: { $0.pathExtension == "json" }),
+      let data = try? Data(contentsOf: sessionURL),
+      let session = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let modeSettings = session["modeSettings"] as? [String: Any]
+    else {
+      return (nil, nil)
+    }
+
+    func selection(for mode: String) -> String? {
+      guard
+        let settings = modeSettings[mode] as? [String: Any],
+        let generation = settings["generationSettings"] as? [String: Any]
+      else {
+        return nil
+      }
+      return generation["reasoningSelection"] as? String
+    }
+
+    return (selection(for: "chat"), selection(for: "agent"))
   }
 
   private func launchFixture(

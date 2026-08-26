@@ -5,6 +5,61 @@ import Testing
 
 struct ChatGenerationSettingsTests {
   @Test
+  func reasoningSelectionsRoundTripAsStableStrings() throws {
+    let selections: [(ReasoningSelection, String)] = [
+      (.off, "off"),
+      (.on, "on"),
+      (.effort(.low), "low"),
+      (.effort(.medium), "medium"),
+      (.effort(.xhigh), "xhigh"),
+    ]
+
+    for (selection, expectedValue) in selections {
+      let settings = ChatGenerationSettings(
+        temperature: 0.2,
+        topP: 0.8,
+        topK: 10,
+        maxTokens: 256,
+        reasoningSelection: selection
+      )
+      let data = try JSONEncoder().encode(settings)
+      let object = try #require(
+        JSONSerialization.jsonObject(with: data) as? [String: Any]
+      )
+      let decoded = try JSONDecoder().decode(ChatGenerationSettings.self, from: data)
+
+      #expect(object["reasoningSelection"] as? String == expectedValue)
+      #expect(object["reasoningEnabled"] == nil)
+      #expect(decoded.reasoningSelection == selection)
+      #expect(decoded.reasoningEnabled == selection.isEnabled)
+    }
+
+    let effortData = try JSONEncoder().encode(ReasoningEffort.xhigh)
+    #expect(String(bytes: effortData, encoding: .utf8) == "\"xhigh\"")
+    #expect(try JSONDecoder().decode(ReasoningEffort.self, from: effortData) == .xhigh)
+  }
+
+  @Test
+  func legacyReasoningBooleanAndUnknownSelectionDecodeWithoutDroppingSettings() throws {
+    let enabled = try JSONDecoder().decode(
+      ChatGenerationSettings.self,
+      from: Data("{\"reasoningEnabled\":true}".utf8)
+    )
+    let disabled = try JSONDecoder().decode(
+      ChatGenerationSettings.self,
+      from: Data("{\"reasoningEnabled\":false}".utf8)
+    )
+    let unknown = try JSONDecoder().decode(
+      ChatGenerationSettings.self,
+      from: Data("{\"reasoningSelection\":\"future-level\"}".utf8)
+    )
+
+    #expect(enabled.reasoningSelection == .on)
+    #expect(disabled.reasoningSelection == .off)
+    #expect(unknown.reasoningSelection == .on)
+  }
+
+  @Test
   func minPDefaultsToDisabledAndPersistsOnlyWhenEnabled() throws {
     let legacyData = Data(
       """

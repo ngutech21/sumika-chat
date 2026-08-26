@@ -52,6 +52,36 @@ struct MLXRuntimeConfigurationTests {
   }
 
   @Test
+  func everyReasoningLevelUsesTheSameBudgetIdentityPerMode() throws {
+    let levels: [ReasoningSelection] = [
+      .effort(.low),
+      .effort(.medium),
+      .effort(.xhigh),
+    ]
+
+    for mode in [WorkspaceInteractionMode.chat, .agent] {
+      let traces = levels.map { selection in
+        MLXThinkingBudgetPlanner.trace(
+          policy: .hardLimitImmediate,
+          reasoningEnabled: selection.isEnabled,
+          interactionMode: mode
+        )
+      }
+      let first = try #require(traces.first)
+
+      #expect(traces.allSatisfy { $0 == first })
+      switch mode {
+      case .chat:
+        #expect(first.maximumTokenCount == 1_024)
+        #expect(first.minimumAnswerTokenCount == 512)
+      case .agent:
+        #expect(first.maximumTokenCount == 2_048)
+        #expect(first.minimumAnswerTokenCount == 1_024)
+      }
+    }
+  }
+
+  @Test
   func reasoningOffLeavesQwenUnbudgetedAndUnsupportedQwenFailsPreflight() async throws {
     let tokenizer = ThinkingBudgetTestTokenizer()
     let state = MLXThinkingBudgetEnforcementState()

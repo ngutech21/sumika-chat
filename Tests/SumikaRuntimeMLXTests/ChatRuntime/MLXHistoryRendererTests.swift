@@ -203,12 +203,12 @@ struct MLXHistoryRendererTests {
 
     let supported = try MLXHistoryRenderer.generationInput(
       from: transcript,
-      reasoningEnabled: false,
+      reasoningSelection: .off,
       supportsHistoricalReasoningPreservation: true
     )
     let unsupported = try MLXHistoryRenderer.generationInput(
       from: transcript,
-      reasoningEnabled: false,
+      reasoningSelection: .off,
       supportsHistoricalReasoningPreservation: false
     )
 
@@ -253,29 +253,28 @@ struct MLXHistoryRendererTests {
   }
 
   @Test
-  func qwenReasoningEffortIsSuppliedOnlyWhileReasoningIsEnabled() throws {
+  func reasoningSelectionProjectsEnableThinkingAndOptionalEffort() throws {
     let transcript = ModelPromptProjection(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "Solve it")
     ])
 
-    let medium = try MLXHistoryRenderer.generationInput(
-      from: transcript,
-      reasoningEnabled: true,
-      reasoningEffort: .medium
-    )
-    let disabled = try MLXHistoryRenderer.generationInput(
-      from: transcript,
-      reasoningEnabled: false,
-      reasoningEffort: .medium
-    )
-    let templateDefault = try MLXHistoryRenderer.generationInput(
-      from: transcript,
-      reasoningEnabled: true
-    )
+    let selections: [(ReasoningSelection, Bool, String?)] = [
+      (.off, false, nil),
+      (.on, true, nil),
+      (.effort(.low), true, "low"),
+      (.effort(.medium), true, "medium"),
+      (.effort(.xhigh), true, "xhigh"),
+    ]
 
-    #expect(medium.additionalContext["reasoning_effort"] as? String == "medium")
-    #expect(disabled.additionalContext["reasoning_effort"] == nil)
-    #expect(templateDefault.additionalContext["reasoning_effort"] == nil)
+    for (selection, expectedEnabled, expectedEffort) in selections {
+      let input = try MLXHistoryRenderer.generationInput(
+        from: transcript,
+        reasoningSelection: selection
+      )
+
+      #expect(input.additionalContext["enable_thinking"] as? Bool == expectedEnabled)
+      #expect(input.additionalContext["reasoning_effort"] as? String == expectedEffort)
+    }
   }
 
   @Test

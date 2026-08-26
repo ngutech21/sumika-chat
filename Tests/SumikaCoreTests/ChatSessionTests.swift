@@ -5,6 +5,58 @@ import Testing
 
 struct ChatSessionTests {
   @Test
+  func newQwen38SessionMaterializesMediumForBothModes() {
+    let session = ChatSession(
+      selectedModelID: "qwen3.8-27B-OptiQ-4bit",
+      modeSettings: .defaultSettings
+    )
+
+    #expect(session.modeSettings.chat.generationSettings.reasoningSelection == .effort(.medium))
+    #expect(session.modeSettings.agent.generationSettings.reasoningSelection == .effort(.medium))
+  }
+
+  @Test
+  func legacyReasoningBooleansMigrateUsingSelectedModelCapability() throws {
+    let qwen = try JSONDecoder().decode(
+      ChatSession.self,
+      from: legacySessionData(
+        modelID: "qwen3.8-27B-OptiQ-4bit",
+        chatReasoning: "\"reasoningEnabled\": true",
+        agentReasoning: "\"reasoningEnabled\": false"
+      )
+    )
+    let binary = try JSONDecoder().decode(
+      ChatSession.self,
+      from: legacySessionData(
+        modelID: ManagedModelCatalog.defaultModelID,
+        chatReasoning: "\"reasoningEnabled\": true",
+        agentReasoning: "\"reasoningEnabled\": false"
+      )
+    )
+    let unknownQwenLevel = try JSONDecoder().decode(
+      ChatSession.self,
+      from: legacySessionData(
+        modelID: "qwen3.8-27B-OptiQ-4bit",
+        chatReasoning: "\"reasoningSelection\": \"future-level\"",
+        agentReasoning: "\"reasoningSelection\": \"low\""
+      )
+    )
+
+    #expect(qwen.modeSettings.chat.generationSettings.reasoningSelection == .effort(.medium))
+    #expect(qwen.modeSettings.agent.generationSettings.reasoningSelection == .off)
+    #expect(binary.modeSettings.chat.generationSettings.reasoningSelection == .on)
+    #expect(binary.modeSettings.agent.generationSettings.reasoningSelection == .off)
+    #expect(
+      unknownQwenLevel.modeSettings.chat.generationSettings.reasoningSelection
+        == .effort(.medium)
+    )
+    #expect(
+      unknownQwenLevel.modeSettings.agent.generationSettings.reasoningSelection
+        == .effort(.low)
+    )
+  }
+
+  @Test
   func activeModeSettingsFollowInteractionMode() {
     var session = ChatSession(
       modeSettings: ChatModeSettingsSet(
@@ -250,6 +302,24 @@ struct ChatSessionTests {
     #expect(session.toolCalls == [record])
     #expect(session.toolCallRecord(id: record.id) == record)
   }
+}
+
+private func legacySessionData(
+  modelID: String,
+  chatReasoning: String,
+  agentReasoning: String
+) -> Data {
+  Data(
+    """
+    {
+      "selectedModelID": "\(modelID)",
+      "modeSettings": {
+        "chat": { "generationSettings": { \(chatReasoning) } },
+        "agent": { "generationSettings": { \(agentReasoning) } }
+      }
+    }
+    """.utf8
+  )
 }
 
 private func makeToolCallRecord(

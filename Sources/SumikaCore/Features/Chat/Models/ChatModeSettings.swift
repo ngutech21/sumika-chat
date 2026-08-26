@@ -113,6 +113,19 @@ package struct ChatModeSettingsSet: Codable, Equatable, Sendable {
     }
   }
 
+  package func resolvingReasoningSelections(
+    for capability: ModelReasoningCapability
+  ) -> ChatModeSettingsSet {
+    var resolved = self
+    resolved.chat.generationSettings.reasoningSelection = capability.resolving(
+      resolved.chat.generationSettings.reasoningSelection
+    )
+    resolved.agent.generationSettings.reasoningSelection = capability.resolving(
+      resolved.agent.generationSettings.reasoningSelection
+    )
+    return resolved
+  }
+
   package static let defaultSettings = ChatModeSettingsSet(
     chat: ChatModeSettings(
       systemPrompt: ChatPromptDefaults.chatSystemPrompt,

@@ -46,6 +46,7 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     history: [(role: String, content: String)],
     prompt: String,
     settings: ChatGenerationSettings,
+    effectiveReasoningSelection: ReasoningSelection? = nil,
     contextTokenLimit: Int?,
     imageAttachments: [ChatAttachment] = [],
     thinkingBudget: MLXThinkingBudgetTrace? = nil,
@@ -56,7 +57,8 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     }
 
     let truncatedPrompt = truncated(prompt)
-    let settingsTrace: [String: Any] = [
+    let resolvedReasoningSelection = effectiveReasoningSelection ?? settings.reasoningSelection
+    var settingsTrace: [String: Any] = [
       "maxTokens": settings.maxTokens,
       "temperature": settings.temperature,
       "topP": settings.topP,
@@ -65,7 +67,12 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
       "repetitionContextSize": settings.repetitionContextSize,
       "presencePenalty": settings.presencePenalty,
       "reasoningEnabled": settings.reasoningEnabled,
+      "reasoningSelection": settings.reasoningSelection.persistenceValue,
+      "effectiveReasoningSelection": resolvedReasoningSelection.persistenceValue,
     ]
+    if let reasoningEffort = resolvedReasoningSelection.effort {
+      settingsTrace["reasoningEffort"] = reasoningEffort.rawValue
+    }
     var request: [String: Any] = [
       "id": id.uuidString,
       "timestamp": timestamp(),

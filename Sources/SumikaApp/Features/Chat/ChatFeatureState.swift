@@ -133,9 +133,9 @@ final class ChatFeatureState {
     handleInteractionModeSelection?(mode)
   }
 
-  func setReasoningEnabled(_ isEnabled: Bool) {
+  func setReasoningSelection(_ selection: ReasoningSelection) {
     performIntent {
-      try conversation.setReasoningEnabled(isEnabled)
+      try conversation.setReasoningSelection(selection)
     }
   }
 

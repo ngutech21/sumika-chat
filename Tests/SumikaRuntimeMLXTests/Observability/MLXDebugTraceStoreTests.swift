@@ -361,7 +361,7 @@ struct MLXDebugTraceStoreTests {
       repetitionPenalty: 1.05,
       repetitionContextSize: 512,
       presencePenalty: 0.35,
-      reasoningEnabled: false
+      reasoningSelection: .on
     )
 
     await store.traceRequest(
@@ -369,6 +369,7 @@ struct MLXDebugTraceStoreTests {
       history: [],
       prompt: "Prompt",
       settings: settings,
+      effectiveReasoningSelection: .effort(.medium),
       contextTokenLimit: nil,
       thinkingBudget: MLXThinkingBudgetTrace(
         policy: .qwen36ImmediateV1,
@@ -388,7 +389,10 @@ struct MLXDebugTraceStoreTests {
     let tracedSettings = try #require(object["settings"] as? [String: Any])
 
     #expect(tracedSettings["presencePenalty"] as? Double == 0.35)
-    #expect(tracedSettings["reasoningEnabled"] as? Bool == false)
+    #expect(tracedSettings["reasoningEnabled"] as? Bool == true)
+    #expect(tracedSettings["reasoningSelection"] as? String == "on")
+    #expect(tracedSettings["effectiveReasoningSelection"] as? String == "medium")
+    #expect(tracedSettings["reasoningEffort"] as? String == "medium")
     #expect(tracedSettings["repetitionContextSize"] as? Int == 512)
     #expect(object["interactionMode"] as? String == "chat")
     let budget = try #require(object["thinkingBudget"] as? [String: Any])

@@ -7,7 +7,7 @@ package struct ChatModelConfiguration: Equatable, Sendable {
   package let supportsImageInput: Bool
   package let reasoningTraceFormat: ReasoningTraceFormat
   package let supportsHistoricalReasoningPreservation: Bool
-  package let reasoningEffort: ModelReasoningEffort?
+  package let reasoningCapability: ModelReasoningCapability
   package let thinkingBudgetPolicy: ThinkingBudgetPolicy
 
   package init(
@@ -16,7 +16,7 @@ package struct ChatModelConfiguration: Equatable, Sendable {
     supportsImageInput: Bool = false,
     reasoningTraceFormat: ReasoningTraceFormat = .none,
     supportsHistoricalReasoningPreservation: Bool = false,
-    reasoningEffort: ModelReasoningEffort? = nil,
+    reasoningCapability: ModelReasoningCapability = .toggle,
     thinkingBudgetPolicy: ThinkingBudgetPolicy = .unmanaged
   ) {
     self.localModelDirectory = localModelDirectory
@@ -24,7 +24,7 @@ package struct ChatModelConfiguration: Equatable, Sendable {
     self.supportsImageInput = supportsImageInput
     self.reasoningTraceFormat = reasoningTraceFormat
     self.supportsHistoricalReasoningPreservation = supportsHistoricalReasoningPreservation
-    self.reasoningEffort = reasoningEffort
+    self.reasoningCapability = reasoningCapability
     self.thinkingBudgetPolicy = thinkingBudgetPolicy
   }
 }

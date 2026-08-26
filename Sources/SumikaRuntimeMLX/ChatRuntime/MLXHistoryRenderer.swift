@@ -71,9 +71,8 @@ enum MLXHistoryRenderer {
   static func generationInput(
     from transcript: ModelPromptProjection,
     images: [UserInput.Image] = [],
-    reasoningEnabled: Bool = true,
-    supportsHistoricalReasoningPreservation: Bool = false,
-    reasoningEffort: ModelReasoningEffort? = nil
+    reasoningSelection: ReasoningSelection = .on,
+    supportsHistoricalReasoningPreservation: Bool = false
   ) throws -> MLXGenerationInput {
     guard let segments = ProviderPromptProjection.generationSegments(from: transcript) else {
       throw MLXChatRuntimeError.missingUserMessage
@@ -86,9 +85,8 @@ enum MLXHistoryRenderer {
       supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation
     )
     let additionalContext = chatTemplateAdditionalContext(
-      reasoningEnabled: reasoningEnabled,
-      supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation,
-      reasoningEffort: reasoningEffort
+      reasoningSelection: reasoningSelection,
+      supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation
     )
 
     return MLXGenerationInput(
@@ -179,17 +177,16 @@ enum MLXHistoryRenderer {
   }
 
   private static func chatTemplateAdditionalContext(
-    reasoningEnabled: Bool,
-    supportsHistoricalReasoningPreservation: Bool,
-    reasoningEffort: ModelReasoningEffort?
+    reasoningSelection: ReasoningSelection,
+    supportsHistoricalReasoningPreservation: Bool
   ) -> [String: any Sendable] {
     var additionalContext: [String: any Sendable] = [
-      "enable_thinking": reasoningEnabled
+      "enable_thinking": reasoningSelection.isEnabled
     ]
     if supportsHistoricalReasoningPreservation {
       additionalContext["preserve_thinking"] = true
     }
-    if reasoningEnabled, let reasoningEffort {
+    if let reasoningEffort = reasoningSelection.effort {
       additionalContext["reasoning_effort"] = reasoningEffort.rawValue
     }
     return additionalContext

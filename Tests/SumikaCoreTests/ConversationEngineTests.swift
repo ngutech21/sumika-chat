@@ -550,11 +550,13 @@ struct ConversationEngineTests {
   }
 
   @Test
-  func setReasoningEnabledMutatesOnlyActiveModeSettings() {
+  func setReasoningSelectionMutatesOnlyActiveModeSettingsAndClearsRuntimeContext() async throws {
+    let runtime = CountingClearContextRuntime()
     let engine = ConversationEngine(
-      runtime: ChatSessionFakeChatModelRuntime(),
+      runtime: runtime,
       modelPath: "/tmp/model",
       chatSession: ChatSession(
+        selectedModelID: "qwen3.8-27B-OptiQ-4bit",
         modeSettings: ChatModeSettingsSet(
           chat: ChatModeSettings(
             systemPrompt: "Chat mode prompt",
@@ -563,7 +565,7 @@ struct ConversationEngineTests {
               topP: 1,
               topK: 0,
               maxTokens: 256,
-              reasoningEnabled: true
+              reasoningSelection: .effort(.medium)
             )
           ),
           agent: ChatModeSettings(
@@ -573,7 +575,7 @@ struct ConversationEngineTests {
               topP: 1,
               topK: 0,
               maxTokens: 256,
-              reasoningEnabled: true
+              reasoningSelection: .effort(.medium)
             )
           )
         ),
@@ -581,11 +583,34 @@ struct ConversationEngineTests {
       )
     )
 
-    engine.setReasoningEnabled(false)
+    engine.setReasoningSelection(.effort(.low))
 
-    #expect(!engine.chatSession.modeSettings.chat.generationSettings.reasoningEnabled)
-    #expect(engine.chatSession.modeSettings.agent.generationSettings.reasoningEnabled)
-    #expect(!engine.composerSessionState.reasoningEnabled)
+    try await waitUntilAsync { await runtime.clearContextCount == 1 }
+    #expect(
+      engine.chatSession.modeSettings.chat.generationSettings.reasoningSelection
+        == .effort(.low)
+    )
+    #expect(
+      engine.chatSession.modeSettings.agent.generationSettings.reasoningSelection
+        == .effort(.medium)
+    )
+    #expect(engine.composerSessionState.reasoningSelection == .effort(.low))
+  }
+
+  @Test
+  func setReasoningSelectionFallsBackToBinaryCapability() {
+    var session = ChatSession()
+    session.generationSettings.reasoningSelection = .off
+    let engine = ConversationEngine(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model",
+      chatSession: session
+    )
+
+    engine.setReasoningSelection(.effort(.xhigh))
+
+    #expect(engine.chatSession.generationSettings.reasoningSelection == .on)
+    #expect(engine.composerSessionState.reasoningSelection == .on)
   }
 
   @Test

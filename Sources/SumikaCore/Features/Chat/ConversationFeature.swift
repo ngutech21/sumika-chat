@@ -148,9 +148,9 @@ package final class ConversationFeature {
     engine.setInteractionMode(mode)
   }
 
-  package func setReasoningEnabled(_ isEnabled: Bool) throws {
+  package func setReasoningSelection(_ selection: ReasoningSelection) throws {
     try requireIdleConversation()
-    engine.setReasoningEnabled(isEnabled)
+    engine.setReasoningSelection(selection)
   }
 
   package func enableAutomaticToolApproval() throws {

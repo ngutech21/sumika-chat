@@ -15,7 +15,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
   private var loadedModelSupportsImageInput = false
   private var loadedReasoningTraceFormat: ReasoningTraceFormat = .none
   private var loadedModelPreservesHistoricalReasoning = false
-  private var loadedModelReasoningEffort: ModelReasoningEffort?
+  private var loadedModelReasoningCapability: ModelReasoningCapability = .toggle
   private var loadedThinkingBudgetPolicy: ThinkingBudgetPolicy = .unmanaged
   private var cachedSession: CachedMLXSession?
   private var pendingCacheInvalidationReason: MLXSessionInvalidationReason?
@@ -96,7 +96,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
       loadedReasoningTraceFormat = configuration.reasoningTraceFormat
       loadedModelPreservesHistoricalReasoning =
         configuration.supportsHistoricalReasoningPreservation
-      loadedModelReasoningEffort = configuration.reasoningEffort
+      loadedModelReasoningCapability = configuration.reasoningCapability
       loadedThinkingBudgetPolicy = configuration.thinkingBudgetPolicy
       contextTokenLimit = configuration.contextTokenLimit
       lastRuntimeCacheDebugSnapshot = nil
@@ -126,7 +126,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     loadedModelSupportsImageInput = false
     loadedReasoningTraceFormat = .none
     loadedModelPreservesHistoricalReasoning = false
-    loadedModelReasoningEffort = nil
+    loadedModelReasoningCapability = .toggle
     loadedThinkingBudgetPolicy = .unmanaged
     contextTokenLimit = nil
     lastRuntimeCacheDebugSnapshot = nil
@@ -240,13 +240,15 @@ final actor MLXChatRuntime: ChatModelRuntime {
     let imageInputs = try MLXHistoryRenderer.imageInputs(
       from: imageAttachments, attachmentStore: attachmentStore)
     let projectionMode = MLXHistoryRenderer.runtimeProjectionMode
+    let effectiveReasoningSelection = loadedModelReasoningCapability.resolving(
+      settings.reasoningSelection
+    )
     let generationInput = try MLXHistoryRenderer.generationInput(
       from: transcript,
       images: imageInputs,
-      reasoningEnabled: settings.reasoningEnabled,
+      reasoningSelection: effectiveReasoningSelection,
       supportsHistoricalReasoningPreservation:
-        loadedModelPreservesHistoricalReasoning,
-      reasoningEffort: loadedModelReasoningEffort
+        loadedModelPreservesHistoricalReasoning
     )
     let generateParameters = Self.generateParameters(from: settings)
     let additionalContext = generationInput.additionalContext
@@ -271,6 +273,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
       modelContainer: modelContainer,
       generateParameters: generateParameters,
       settings: settings,
+      effectiveReasoningSelection: effectiveReasoningSelection,
       interactionMode: interactionMode,
       traceID: traceID,
       systemPrompt: systemPrompt,
@@ -311,6 +314,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
       history: history,
       prompt: finalPrompt,
       settings: settings,
+      effectiveReasoningSelection: effectiveReasoningSelection,
       imageAttachments: imageAttachments,
       thinkingBudget: thinkingBudgetPlan.trace,
       interactionMode: interactionMode
@@ -363,7 +367,8 @@ final actor MLXChatRuntime: ChatModelRuntime {
     )
     let streamPlan = MLXModelStreamProcessor.modelStreamPlan(
       from: startedGeneration.stream,
-      reasoningTraceFormat: settings.reasoningEnabled ? loadedReasoningTraceFormat : .none,
+      reasoningTraceFormat: effectiveReasoningSelection.isEnabled
+        ? loadedReasoningTraceFormat : .none,
       traceID: traceID,
       traceMetadata: traceMetadata,
       cacheTrace: cachePlan.trace,
@@ -470,6 +475,7 @@ extension MLXChatRuntime {
     modelContainer: ModelContainer,
     generateParameters: GenerateParameters,
     settings: ChatGenerationSettings,
+    effectiveReasoningSelection: ReasoningSelection,
     interactionMode: WorkspaceInteractionMode?,
     traceID: UUID,
     systemPrompt: String,
@@ -479,13 +485,13 @@ extension MLXChatRuntime {
   ) async throws -> MLXThinkingBudgetPlan {
     let attemptedTrace = MLXThinkingBudgetPlanner.trace(
       policy: loadedThinkingBudgetPolicy,
-      reasoningEnabled: settings.reasoningEnabled,
+      reasoningEnabled: effectiveReasoningSelection.isEnabled,
       interactionMode: interactionMode
     )
     do {
       return try await MLXThinkingBudgetPlanner.makePlan(
         policy: loadedThinkingBudgetPolicy,
-        reasoningEnabled: settings.reasoningEnabled,
+        reasoningEnabled: effectiveReasoningSelection.isEnabled,
         interactionMode: interactionMode,
         modelContainer: modelContainer,
         generateParameters: generateParameters
@@ -497,6 +503,7 @@ extension MLXChatRuntime {
         history: history,
         prompt: finalPrompt,
         settings: settings,
+        effectiveReasoningSelection: effectiveReasoningSelection,
         imageAttachments: imageAttachments,
         thinkingBudget: attemptedTrace,
         interactionMode: interactionMode
@@ -521,6 +528,7 @@ extension MLXChatRuntime {
     history: [Chat.Message],
     prompt: String,
     settings: ChatGenerationSettings,
+    effectiveReasoningSelection: ReasoningSelection,
     imageAttachments: [ChatAttachment],
     thinkingBudget: MLXThinkingBudgetTrace,
     interactionMode: WorkspaceInteractionMode?
@@ -544,6 +552,7 @@ extension MLXChatRuntime {
       history: traceHistory,
       prompt: prompt,
       settings: settings,
+      effectiveReasoningSelection: effectiveReasoningSelection,
       contextTokenLimit: contextTokenLimit,
       imageAttachments: imageAttachments,
       thinkingBudget: thinkingBudget,

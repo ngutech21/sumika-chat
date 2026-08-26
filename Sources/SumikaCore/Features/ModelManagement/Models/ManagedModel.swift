@@ -23,12 +23,113 @@ package enum ReasoningTraceFormat: Equatable, Sendable {
   case qwenThinkTags
 }
 
-/// Catalog-owned chat-template reasoning effort. Models without an explicit value
-/// keep their template default.
-package enum ModelReasoningEffort: String, Equatable, Sendable {
+/// A chat-template reasoning effort persisted as a stable string.
+package enum ReasoningEffort: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
   case low
   case medium
   case xhigh
+}
+
+/// The per-mode user selection. `.on` keeps binary reasoning models independent
+/// from models that expose a concrete effort level.
+package enum ReasoningSelection: Codable, Equatable, Hashable, Sendable {
+  case off
+  // swiftlint:disable:next identifier_name
+  case on
+  case effort(ReasoningEffort)
+
+  package var isEnabled: Bool {
+    self != .off
+  }
+
+  package var effort: ReasoningEffort? {
+    guard case .effort(let effort) = self else {
+      return nil
+    }
+    return effort
+  }
+
+  package var persistenceValue: String {
+    switch self {
+    case .off:
+      "off"
+    case .on:
+      "on"
+    case .effort(let effort):
+      effort.rawValue
+    }
+  }
+
+  package init(from decoder: Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    let value = try? container.decode(String.self)
+    switch value {
+    case "off":
+      self = .off
+    case "on":
+      self = .on
+    case ReasoningEffort.low.rawValue:
+      self = .effort(.low)
+    case ReasoningEffort.medium.rawValue:
+      self = .effort(.medium)
+    case ReasoningEffort.xhigh.rawValue:
+      self = .effort(.xhigh)
+    default:
+      // Model-aware normalization maps this legacy/default-on value to the
+      // selected model's capability default.
+      self = .on
+    }
+  }
+
+  package func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(persistenceValue)
+  }
+}
+
+/// Catalog-owned reasoning controls. Selectable options are ordered for display.
+package enum ModelReasoningCapability: Equatable, Sendable {
+  case toggle
+  case selectableEffort(supported: [ReasoningEffort], defaultValue: ReasoningEffort)
+
+  package var defaultSelection: ReasoningSelection {
+    switch self {
+    case .toggle:
+      .on
+    case .selectableEffort(_, let defaultValue):
+      .effort(defaultValue)
+    }
+  }
+
+  package var hasValidOptions: Bool {
+    switch self {
+    case .toggle:
+      true
+    case .selectableEffort(let supported, let defaultValue):
+      !supported.isEmpty
+        && Set(supported).count == supported.count
+        && supported.contains(defaultValue)
+    }
+  }
+
+  package func resolving(_ selection: ReasoningSelection) -> ReasoningSelection {
+    switch (self, selection) {
+    case (.toggle, .off):
+      .off
+    case (.toggle, .on), (.toggle, .effort):
+      .on
+    case (.selectableEffort, .off):
+      .off
+    case (.selectableEffort(_, let defaultValue), .on):
+      .effort(defaultValue)
+    case (.selectableEffort(let supported, let defaultValue), .effort(let effort)):
+      if supported.contains(effort) {
+        .effort(effort)
+      } else {
+        .effort(defaultValue)
+      }
+    }
+  }
 }
 
 /// Catalog-owned policy for hard thinking limits. This is runtime configuration,
@@ -72,7 +173,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
   package let supportsImageInput: Bool
   package let reasoningTraceFormat: ReasoningTraceFormat
   package let supportsHistoricalReasoningPreservation: Bool
-  package let reasoningEffort: ModelReasoningEffort?
+  package let reasoningCapability: ModelReasoningCapability
   package let thinkingBudgetPolicy: ThinkingBudgetPolicy
   let generationProfile: ModelGenerationProfile?
   package let defaultModeSettings: ChatModeSettingsSet
@@ -94,7 +195,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     supportsImageInput: Bool,
     reasoningTraceFormat: ReasoningTraceFormat = .none,
     supportsHistoricalReasoningPreservation: Bool = false,
-    reasoningEffort: ModelReasoningEffort? = nil,
+    reasoningCapability: ModelReasoningCapability = .toggle,
     thinkingBudgetPolicy: ThinkingBudgetPolicy = .unmanaged,
     generationProfile: ModelGenerationProfile? = nil,
     defaultModeSettings: ChatModeSettingsSet,
@@ -115,7 +216,8 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     self.supportsImageInput = supportsImageInput
     self.reasoningTraceFormat = reasoningTraceFormat
     self.supportsHistoricalReasoningPreservation = supportsHistoricalReasoningPreservation
-    self.reasoningEffort = reasoningEffort
+    precondition(reasoningCapability.hasValidOptions)
+    self.reasoningCapability = reasoningCapability
     self.thinkingBudgetPolicy = thinkingBudgetPolicy
     self.generationProfile = generationProfile
     self.defaultModeSettings = defaultModeSettings
@@ -344,7 +446,10 @@ package enum ManagedModelCatalog {
       supportsImageInput: true,
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
-      reasoningEffort: .medium,
+      reasoningCapability: .selectableEffort(
+        supported: [.low, .medium, .xhigh],
+        defaultValue: .medium
+      ),
       thinkingBudgetPolicy: .hardLimitImmediate,
       generationProfile: .qwen38,
       defaultModeSettings: .defaultSettings,

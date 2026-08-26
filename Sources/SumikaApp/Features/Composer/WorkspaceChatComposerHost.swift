@@ -41,17 +41,19 @@ struct WorkspaceChatComposerHost: View {
     let presentation = chatState.composer
     let composerState = presentation.session
     let isGenerating = presentation.isGenerating
+    let selectedComposerModel = composerSelectedModel(from: localDownloadedModels)
 
     ChatComposer(
       attachments: composerState.pendingAttachments,
       availableModels: localDownloadedModels,
-      selectedModel: composerSelectedModel(from: localDownloadedModels),
+      selectedModel: selectedComposerModel,
       modelState: modelState.modelState,
       interactionMode: composerState.interactionMode,
       skillCatalog: presentation.skillCatalog,
       sessionOptionsConfiguration: ChatComposerOptions.Configuration(
         interactionMode: composerState.interactionMode,
-        reasoningEnabled: composerState.reasoningEnabled,
+        reasoningSelection: composerState.reasoningSelection,
+        reasoningCapability: selectedComposerModel.reasoningCapability,
         toolApprovalPolicy: composerState.toolApprovalPolicy,
         canChangeReasoning: presentation.canChangeInteractionMode,
         canEnableAutomaticToolApproval: presentation.canEnableAutomaticToolApproval,
@@ -59,7 +61,7 @@ struct WorkspaceChatComposerHost: View {
         statuses: mcpServerStatuses,
         selectedServerIDs: composerState.selectedMCPServerIDs,
         canChangeMCPSelection: presentation.canChangeMCPServerSelection,
-        onSetReasoningEnabled: chatState.setReasoningEnabled,
+        onSetReasoningSelection: chatState.setReasoningSelection,
         onEnableAutomaticToolApproval: chatState.enableAutomaticToolApproval,
         onDisableAutomaticToolApproval: chatState.disableAutomaticToolApproval,
         onSelectServerIDs: onSelectMCPServerIDs
