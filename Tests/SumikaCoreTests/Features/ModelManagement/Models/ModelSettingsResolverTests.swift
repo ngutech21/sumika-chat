@@ -166,9 +166,11 @@ struct ModelSettingsResolverTests {
     #expect(qwen36Settings.chat.generationSettings.temperature == 0.7)
     #expect(qwen36Settings.chat.generationSettings.topP == 0.9)
     #expect(qwen36Settings.chat.generationSettings.topK == 0)
+    #expect(qwen36Settings.chat.generationSettings.maxTokens == 32_768)
     #expect(qwen36Settings.agent.generationSettings.temperature == 0.6)
     #expect(qwen36Settings.agent.generationSettings.topP == 0.95)
     #expect(qwen36Settings.agent.generationSettings.topK == 20)
+    #expect(qwen36Settings.agent.generationSettings.maxTokens == 32_768)
     #expect(qwen36Settings.chat.generationSettings.presencePenalty == 0)
     #expect(qwen36Settings.agent.generationSettings.presencePenalty == 0)
 
