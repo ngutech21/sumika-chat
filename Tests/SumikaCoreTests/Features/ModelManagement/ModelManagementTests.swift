@@ -454,12 +454,17 @@ struct ModelManagementTests {
   }
 
   @Test
-  func bundledMTPDrafterIsEnabledOnlyForTheApprovedCatalogModel() {
+  func bundledMTPDrafterIsEnabledOnlyForApprovedCatalogModels() {
     let enabledModelIDs = ManagedModelCatalog.models
       .filter(\.usesBundledMTPDrafter)
       .map(\.id)
 
-    #expect(enabledModelIDs == ["Qwen3.6-27B-OptiQ-4bit"])
+    #expect(
+      enabledModelIDs == [
+        "qwen3.6-35b-a3b-optiq-4bit",
+        "Qwen3.6-27B-OptiQ-4bit",
+      ]
+    )
   }
 
   @Test
