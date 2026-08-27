@@ -336,6 +336,7 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
+      usesBundledMTPDrafter: true,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,
       generationProfile: .qwen36,
