@@ -240,7 +240,13 @@ enum ModelGenerationProfile: Equatable, Sendable {
     case .gemma4:
       GenerationSettingsOverride(temperature: 1, topP: 0.95, topK: 64)
     case .qwen36, .qwen38:
-      GenerationSettingsOverride(temperature: 0.7, topP: 0.9, topK: 0, presencePenalty: 0)
+      GenerationSettingsOverride(
+        temperature: 0.7,
+        topP: 0.9,
+        topK: 0,
+        maxTokens: 32_768,
+        presencePenalty: 0
+      )
     }
   }
 
@@ -249,7 +255,13 @@ enum ModelGenerationProfile: Equatable, Sendable {
     case .gemma4:
       GenerationSettingsOverride(temperature: 0.7, topP: 0.9, topK: 0)
     case .qwen36, .qwen38:
-      GenerationSettingsOverride(temperature: 0.6, topP: 0.95, topK: 20, presencePenalty: 0)
+      GenerationSettingsOverride(
+        temperature: 0.6,
+        topP: 0.95,
+        topK: 20,
+        maxTokens: 32_768,
+        presencePenalty: 0
+      )
     }
   }
 }
