@@ -8,6 +8,7 @@ struct GenerationSettingsOverride: Codable, Equatable, Sendable {
   var repetitionContextSize: Int?
   var presencePenalty: Double?
   var reasoningSelection: ReasoningSelection?
+  var isMTPEnabled: Bool?
 
   init(
     temperature: Double? = nil,
@@ -18,7 +19,8 @@ struct GenerationSettingsOverride: Codable, Equatable, Sendable {
     repetitionPenalty: Double? = nil,
     repetitionContextSize: Int? = nil,
     presencePenalty: Double? = nil,
-    reasoningSelection: ReasoningSelection? = nil
+    reasoningSelection: ReasoningSelection? = nil,
+    isMTPEnabled: Bool? = nil
   ) {
     self.temperature = temperature
     self.topP = topP
@@ -29,6 +31,7 @@ struct GenerationSettingsOverride: Codable, Equatable, Sendable {
     self.repetitionContextSize = repetitionContextSize
     self.presencePenalty = presencePenalty
     self.reasoningSelection = reasoningSelection
+    self.isMTPEnabled = isMTPEnabled
   }
 
   init(overriding settings: ChatGenerationSettings, includeMinP: Bool = true) {
@@ -41,16 +44,18 @@ struct GenerationSettingsOverride: Codable, Equatable, Sendable {
     repetitionContextSize = settings.repetitionContextSize
     presencePenalty = settings.presencePenalty
     reasoningSelection = settings.reasoningSelection
+    isMTPEnabled = settings.isMTPEnabled
   }
 
   var hasValues: Bool {
     temperature != nil || topP != nil || topK != nil || minP != nil || maxTokens != nil
       || repetitionPenalty != nil || repetitionContextSize != nil || presencePenalty != nil
-      || reasoningSelection != nil
+      || reasoningSelection != nil || isMTPEnabled != nil
   }
 
   func applying(to settings: ChatGenerationSettings) -> ChatGenerationSettings {
     var updated = settings
+    if let isMTPEnabled { updated.isMTPEnabled = isMTPEnabled }
     if let temperature { updated.temperature = temperature }
     if let topP { updated.topP = topP }
     if let topK { updated.topK = topK }
@@ -94,6 +99,9 @@ struct GenerationSettingsOverride: Codable, Equatable, Sendable {
     if previous.reasoningSelection != updated.reasoningSelection {
       reasoningSelection = updated.reasoningSelection
     }
+    if previous.isMTPEnabled != updated.isMTPEnabled {
+      isMTPEnabled = updated.isMTPEnabled
+    }
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -107,6 +115,7 @@ struct GenerationSettingsOverride: Codable, Equatable, Sendable {
     case presencePenalty
     case reasoningSelection
     case reasoningEnabled
+    case isMTPEnabled
   }
 
   init(from decoder: Decoder) throws {
@@ -138,6 +147,7 @@ struct GenerationSettingsOverride: Codable, Equatable, Sendable {
     } else {
       reasoningSelection = nil
     }
+    isMTPEnabled = try container.decodeIfPresent(Bool.self, forKey: .isMTPEnabled)
   }
 
   func encode(to encoder: Encoder) throws {
@@ -151,6 +161,7 @@ struct GenerationSettingsOverride: Codable, Equatable, Sendable {
     try container.encodeIfPresent(repetitionContextSize, forKey: .repetitionContextSize)
     try container.encodeIfPresent(presencePenalty, forKey: .presencePenalty)
     try container.encodeIfPresent(reasoningSelection, forKey: .reasoningSelection)
+    try container.encodeIfPresent(isMTPEnabled, forKey: .isMTPEnabled)
   }
 }
 
@@ -240,7 +251,13 @@ enum ModelGenerationProfile: Equatable, Sendable {
     case .gemma4:
       GenerationSettingsOverride(temperature: 1, topP: 0.95, topK: 64)
     case .qwen36, .qwen38:
-      GenerationSettingsOverride(temperature: 0.7, topP: 0.9, topK: 0, presencePenalty: 0)
+      GenerationSettingsOverride(
+        temperature: 0.7,
+        topP: 0.9,
+        topK: 0,
+        maxTokens: 32_768,
+        presencePenalty: 0
+      )
     }
   }
 
@@ -249,7 +266,13 @@ enum ModelGenerationProfile: Equatable, Sendable {
     case .gemma4:
       GenerationSettingsOverride(temperature: 0.7, topP: 0.9, topK: 0)
     case .qwen36, .qwen38:
-      GenerationSettingsOverride(temperature: 0.6, topP: 0.95, topK: 20, presencePenalty: 0)
+      GenerationSettingsOverride(
+        temperature: 0.6,
+        topP: 0.95,
+        topK: 20,
+        maxTokens: 32_768,
+        presencePenalty: 0
+      )
     }
   }
 }
@@ -261,10 +284,16 @@ enum ModelSettingsResolver {
     userOverrides: ModelSettingsOverrides
   ) -> StoredModelSettings {
     var settings = recommendedSettings(for: model, generationConfig: generationConfig)
-    if let chat = userOverrides.chat {
+    if var chat = userOverrides.chat {
+      if !model.usesBundledMTPDrafter {
+        chat.generationSettings.isMTPEnabled = nil
+      }
       settings.modeSettings.chat = chat.applying(to: settings.modeSettings.chat)
     }
-    if let agent = userOverrides.agent {
+    if var agent = userOverrides.agent {
+      if !model.usesBundledMTPDrafter {
+        agent.generationSettings.isMTPEnabled = nil
+      }
       settings.modeSettings.agent = agent.applying(to: settings.modeSettings.agent)
     }
     if let contextTokenLimit = userOverrides.contextTokenLimit {
@@ -272,6 +301,9 @@ enum ModelSettingsResolver {
     }
     settings.modeSettings = settings.modeSettings.resolvingReasoningSelections(
       for: model.reasoningCapability
+    )
+    settings.modeSettings = settings.modeSettings.resolvingMTPAvailability(
+      model.usesBundledMTPDrafter
     )
     return settings
   }

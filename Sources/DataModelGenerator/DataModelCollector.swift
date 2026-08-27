@@ -112,7 +112,7 @@ private final class DeclarationVisitor: SyntaxVisitor {
         return DataModelProperty(
           name: identifier.identifier.text,
           type: normalizedType(type),
-          isStored: binding.accessorBlock == nil
+          isStored: binding.accessorBlock.isStoredProperty
         )
       }
       .filter(\.isStored)
@@ -159,6 +159,18 @@ private final class DeclarationVisitor: SyntaxVisitor {
         type: normalizedType(parameter.type.description)
       )
     }
+  }
+}
+
+extension Optional where Wrapped == AccessorBlockSyntax {
+  fileprivate var isStoredProperty: Bool {
+    guard let self else { return true }
+    guard case .accessors(let accessors) = self.accessors else { return false }
+    return !accessors.isEmpty
+      && accessors.allSatisfy { accessor in
+        accessor.accessorSpecifier.text == "willSet"
+          || accessor.accessorSpecifier.text == "didSet"
+      }
   }
 }
 

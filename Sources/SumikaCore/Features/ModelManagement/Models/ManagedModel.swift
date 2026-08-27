@@ -171,6 +171,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
   package let stability: ManagedModelStability
   package let toolCallingPolicy: ToolCallingPolicy
   package let supportsImageInput: Bool
+  package let usesBundledMTPDrafter: Bool
   package let reasoningTraceFormat: ReasoningTraceFormat
   package let supportsHistoricalReasoningPreservation: Bool
   package let reasoningCapability: ModelReasoningCapability
@@ -193,6 +194,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     stability: ManagedModelStability,
     toolCallingPolicy: ToolCallingPolicy = .nativeMLX,
     supportsImageInput: Bool,
+    usesBundledMTPDrafter: Bool = false,
     reasoningTraceFormat: ReasoningTraceFormat = .none,
     supportsHistoricalReasoningPreservation: Bool = false,
     reasoningCapability: ModelReasoningCapability = .toggle,
@@ -214,6 +216,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     self.stability = stability
     self.toolCallingPolicy = toolCallingPolicy
     self.supportsImageInput = supportsImageInput
+    self.usesBundledMTPDrafter = usesBundledMTPDrafter
     self.reasoningTraceFormat = reasoningTraceFormat
     self.supportsHistoricalReasoningPreservation = supportsHistoricalReasoningPreservation
     precondition(reasoningCapability.hasValidOptions)
@@ -404,7 +407,8 @@ package enum ManagedModelCatalog {
       recommendation: .recommended,
       requiresLargeMemory: true,
       stability: .stable,
-      supportsImageInput: true,
+      supportsImageInput: false,
+      usesBundledMTPDrafter: true,
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,

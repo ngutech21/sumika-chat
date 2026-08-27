@@ -58,7 +58,7 @@ package struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     self.interactionMode = interactionMode
     self.toolApprovalPolicy = toolApprovalPolicy
     self.selectedMCPServerIDs = Self.uniqueIDsPreservingOrder(selectedMCPServerIDs)
-    self.modeSettings = Self.resolvingReasoningSelections(
+    self.modeSettings = Self.resolvingModelCapabilities(
       in: modeSettings,
       selectedModelID: selectedModelID
     )
@@ -121,7 +121,7 @@ package struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       forKey: .modeSettings,
       default: .defaultSettings
     )
-    modeSettings = Self.resolvingReasoningSelections(
+    modeSettings = Self.resolvingModelCapabilities(
       in: modeSettings,
       selectedModelID: selectedModelID
     )
@@ -177,13 +177,14 @@ package struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     return serverIDs.filter { seen.insert($0).inserted }
   }
 
-  private static func resolvingReasoningSelections(
+  private static func resolvingModelCapabilities(
     in modeSettings: ChatModeSettingsSet,
     selectedModelID: ManagedModel.ID
   ) -> ChatModeSettingsSet {
-    let capability =
-      ManagedModelCatalog.model(id: selectedModelID)?.reasoningCapability
-      ?? ModelReasoningCapability.toggle
-    return modeSettings.resolvingReasoningSelections(for: capability)
+    let model = ManagedModelCatalog.model(id: selectedModelID)
+    return
+      modeSettings
+      .resolvingReasoningSelections(for: model?.reasoningCapability ?? .toggle)
+      .resolvingMTPAvailability(model?.usesBundledMTPDrafter == true)
   }
 }
