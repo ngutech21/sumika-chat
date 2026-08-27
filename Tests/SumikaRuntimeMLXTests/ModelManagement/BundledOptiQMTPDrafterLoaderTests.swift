@@ -3,6 +3,7 @@ import MLX
 import MLXLLM
 import MLXLMCommon
 import MLXNN
+import MLXVLM
 import Testing
 
 @testable import SumikaRuntimeMLX
@@ -207,8 +208,8 @@ nonisolated struct BundledOptiQMTPDrafterLoaderTests {
     }
   }
 
-  @Test("sidecar requires the Qwen 3.5 model type")
-  func sidecarRequiresQwen35ModelType() async throws {
+  @Test("sidecar accepts the Qwen 3.5 MoE model type")
+  func sidecarAcceptsQwen35MoEModelType() async throws {
     try await withTemporaryModelDirectory { modelDirectory in
       try bundledConfiguration(
         mtpFile: "optiq/mtp.safetensors",
@@ -218,13 +219,19 @@ nonisolated struct BundledOptiQMTPDrafterLoaderTests {
         atomically: true,
         encoding: .utf8
       )
+      let sidecar = modelDirectory.appendingPathComponent("optiq/mtp.safetensors")
+      try FileManager.default.createDirectory(
+        at: sidecar.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      try Data().write(to: sidecar)
       let target = makeValidationTarget(modelDirectory: modelDirectory)
 
       do {
         _ = try await BundledOptiQMTPDrafterLoader.load(for: target)
-        Issue.record("Expected the bundled MTP loader to reject qwen3_5_moe")
+        Issue.record("Expected the bundled MTP loader to reject the non-Qwen target")
       } catch let error as BundledOptiQMTPDrafterLoaderError {
-        guard case .invalidConfiguration = error else {
+        guard case .incompatibleTarget = error else {
           Issue.record("Unexpected loader error: \(error)")
           return
         }
@@ -383,6 +390,41 @@ nonisolated struct BundledOptiQMTPDrafterLoaderTests {
   }
 
   @Test(
+    "configured MoE sidecar loads for a VLM target",
+    .enabled(if: bundledMTPHasBundledMetalLibrary)
+  )
+  func configuredMoESidecarLoadsForVLMTarget() async throws {
+    try await Device.withDefaultDevice(.cpu) {
+      try await Stream.withNewDefaultStream(device: .cpu) {
+        try await withTemporaryModelDirectory { modelDirectory in
+          let configuration = bundledConfiguration(
+            mtpFile: "optiq/mtp.safetensors",
+            modelType: "qwen3_5_moe",
+            includesVisionConfiguration: true
+          )
+          try configuration.write(
+            to: modelDirectory.appendingPathComponent("config.json"),
+            atomically: true,
+            encoding: .utf8
+          )
+          try writeSyntheticSidecar(
+            configuration: configuration,
+            to: modelDirectory.appendingPathComponent("optiq/mtp.safetensors")
+          )
+
+          let target = try makeVLMTarget(modelDirectory: modelDirectory)
+          let container = try await BundledOptiQMTPDrafterLoader.load(for: target)
+          let isVLMDrafter = await container.perform { context in
+            context.model is MLXVLM.Qwen35VLMNextNDraftModel
+          }
+
+          #expect(isVLMDrafter)
+        }
+      }
+    }
+  }
+
+  @Test(
     "declared tensor count must match the sidecar",
     .enabled(if: bundledMTPHasBundledMetalLibrary)
   )
@@ -484,12 +526,28 @@ nonisolated private func makeTarget(modelDirectory: URL) throws -> ModelContaine
   try Device.withDefaultDevice(.cpu) {
     try Stream.withNewDefaultStream(device: .cpu) {
       let configuration = try JSONDecoder().decode(
-        Qwen35Configuration.self,
+        MLXLLM.Qwen35Configuration.self,
         from: Data(tinyQwenConfiguration.utf8)
       )
       return makeTargetContainer(
         modelDirectory: modelDirectory,
-        model: Qwen35Model(configuration)
+        model: MLXLLM.Qwen35Model(configuration)
+      )
+    }
+  }
+}
+
+nonisolated private func makeVLMTarget(modelDirectory: URL) throws -> ModelContainer {
+  try Device.withDefaultDevice(.cpu) {
+    try Stream.withNewDefaultStream(device: .cpu) {
+      let data = try Data(contentsOf: modelDirectory.appendingPathComponent("config.json"))
+      let configuration = try JSONDecoder().decode(
+        MLXVLM.Qwen35Configuration.self,
+        from: data
+      )
+      return makeTargetContainer(
+        modelDirectory: modelDirectory,
+        model: MLXVLM.Qwen35MoE(configuration)
       )
     }
   }
@@ -537,10 +595,10 @@ nonisolated private func writeSyntheticSidecar(
   omitting omittedKey: String? = nil
 ) throws {
   let qwenConfiguration = try JSONDecoder().decode(
-    Qwen35Configuration.self,
+    MLXLLM.Qwen35Configuration.self,
     from: Data(configuration.utf8)
   )
-  let model = Qwen35MTPDraftModel(qwenConfiguration, preconvertedNorms: false)
+  let model = MLXLLM.Qwen35MTPDraftModel(qwenConfiguration, preconvertedNorms: false)
   quantize(model: model) { path, _ in
     path.contains(".self_attn.") || path.contains(".mlp.")
       ? (groupSize: 64, bits: 4, mode: .affine)
@@ -642,9 +700,41 @@ nonisolated private func bundledConfiguration(
   groupSize: Int = 64,
   mode: String = "affine",
   prequantized: Bool = true,
-  tensorCount: Int? = nil
+  tensorCount: Int? = nil,
+  includesVisionConfiguration: Bool = false
 ) -> String {
   let tensorCountEntry = tensorCount.map { "\"mtp_tensor_count\": \($0)," } ?? ""
+  let textModelType = modelType == "qwen3_5_moe" ? "qwen3_5_moe_text" : "qwen3_5"
+  let moeConfiguration =
+    modelType == "qwen3_5_moe"
+    ? """
+    ,
+    "num_experts": 2,
+    "num_experts_per_tok": 1,
+    "decoder_sparse_step": 1,
+    "shared_expert_intermediate_size": 64,
+    "moe_intermediate_size": 64,
+    "norm_topk_prob": true
+    """
+    : ""
+  let visionConfiguration =
+    includesVisionConfiguration
+    ? """
+    ,
+    "vision_config": {
+      "model_type": "qwen3_5_moe",
+      "depth": 1,
+      "hidden_size": 64,
+      "intermediate_size": 64,
+      "out_hidden_size": 64,
+      "num_heads": 1,
+      "patch_size": 2,
+      "spatial_merge_size": 1,
+      "temporal_patch_size": 1,
+      "num_position_embeddings": 16
+    }
+    """
+    : ""
   return """
     {
       "model_type": "\(modelType)",
@@ -657,7 +747,7 @@ nonisolated private func bundledConfiguration(
         "prequantized": \(prequantized)
       },
       "text_config": {
-        "model_type": "qwen3_5",
+        "model_type": "\(textModelType)",
         "hidden_size": 64,
         "num_hidden_layers": 1,
         "intermediate_size": 64,
@@ -672,8 +762,8 @@ nonisolated private func bundledConfiguration(
         "head_dim": 64,
         "full_attention_interval": 1,
         "mtp_num_hidden_layers": 1,
-        "mtp_use_dedicated_embeddings": false
-      }
+        "mtp_use_dedicated_embeddings": false\(moeConfiguration)
+      }\(visionConfiguration)
     }
     """
 }
