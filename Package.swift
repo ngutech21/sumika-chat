@@ -164,6 +164,7 @@ let package = Package(
         .product(name: "MLXLLM", package: "mlx-swift-lm"),
         .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
         .product(name: "MLXNN", package: "mlx-swift"),
+        .product(name: "MLXVLM", package: "mlx-swift-lm"),
       ],
       swiftSettings: appConcurrencyChecking
     ),
