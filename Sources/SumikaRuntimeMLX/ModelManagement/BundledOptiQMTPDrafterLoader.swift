@@ -3,6 +3,7 @@ import MLX
 import MLXLLM
 import MLXLMCommon
 import MLXNN
+import MLXVLM
 
 enum BundledOptiQMTPDrafterLoaderError: LocalizedError {
   case invalidConfiguration(String)
@@ -27,7 +28,7 @@ enum BundledOptiQMTPDrafterLoaderError: LocalizedError {
       "Unsupported bundled OptiQ MTP quantization: bits=\(bits), group_size=\(groupSize), "
         + "mode=\(mode), prequantized=\(prequantized)"
     case .incompatibleTarget(let type):
-      "Bundled OptiQ MTP requires an MLXLLM.Qwen35Model target, got \(type)"
+      "Bundled OptiQ MTP requires a Qwen 3.5 text or VLM target, got \(type)"
     case .invalidMTPFile(let url, let detail):
       "Invalid bundled OptiQ MTP file at \(url.path): \(detail)"
     case .tensorCountMismatch(let expected, let actual):
@@ -46,7 +47,7 @@ enum BundledOptiQMTPDrafterLoader {
     let modelDirectory = try await target.modelDirectory
     let configurationURL = modelDirectory.appendingPathComponent("config.json")
     let data = try await readConfiguration(at: configurationURL)
-    let (configuration, qwenConfiguration) = try decodeConfiguration(data)
+    let configuration = try decodeConfiguration(data)
     try Task.checkCancellation()
     try validateQuantization(configuration.quantization)
     let resolvedModelDirectory = modelDirectory.standardizedFileURL.resolvingSymlinksInPath()
@@ -55,13 +56,12 @@ enum BundledOptiQMTPDrafterLoader {
       modelDirectory: modelDirectory,
       resolvedModelDirectory: resolvedModelDirectory
     )
-    try await validateTarget(target)
+    let model = try await makeDrafter(configurationData: data, target: target)
     try Task.checkCancellation()
     let (weights, metadata) = try loadMTPWeights(at: resolvedMTPURL)
     try Task.checkCancellation()
     try validateWeights(weights, expectedCount: configuration.mtpTensorCount)
 
-    let model = Qwen35MTPDraftModel(qwenConfiguration, preconvertedNorms: false)
     let sanitizedWeights = model.sanitize(weights: weights, metadata: metadata)
     quantize(model: model) { path, _ in
       sanitizedWeights["\(path).scales"] == nil
@@ -103,7 +103,7 @@ enum BundledOptiQMTPDrafterLoader {
 
   private static func decodeConfiguration(
     _ data: Data
-  ) throws -> (BundledOptiQMTPConfiguration, Qwen35Configuration) {
+  ) throws -> BundledOptiQMTPConfiguration {
     let configuration: BundledOptiQMTPConfiguration
     do {
       configuration = try JSONDecoder.json5().decode(
@@ -115,21 +115,15 @@ enum BundledOptiQMTPDrafterLoader {
         "Unable to decode config.json: \(error.localizedDescription)"
       )
     }
-    guard configuration.modelType == "qwen3_5" else {
+    guard
+      configuration.modelType == "qwen3_5"
+        || configuration.modelType == "qwen3_5_moe"
+    else {
       throw BundledOptiQMTPDrafterLoaderError.invalidConfiguration(
-        "Expected model_type qwen3_5, got \(configuration.modelType)"
+        "Expected model_type qwen3_5 or qwen3_5_moe, got \(configuration.modelType)"
       )
     }
-    do {
-      return (
-        configuration,
-        try JSONDecoder.json5().decode(Qwen35Configuration.self, from: data)
-      )
-    } catch {
-      throw BundledOptiQMTPDrafterLoaderError.invalidConfiguration(
-        "Unable to decode Qwen configuration: \(error.localizedDescription)"
-      )
-    }
+    return configuration
   }
 
   private static func validateQuantization(
@@ -200,15 +194,44 @@ enum BundledOptiQMTPDrafterLoader {
     return resolvedMTPURL
   }
 
-  private static func validateTarget(_ target: ModelContainer) async throws {
-    let incompatibleTargetType = await target.perform { context -> String? in
-      guard context.model is Qwen35Model else {
-        return String(reflecting: type(of: context.model))
+  private static func makeDrafter(
+    configurationData: Data,
+    target: ModelContainer
+  ) async throws -> any MTPDrafterModel {
+    let targetKind = await target.perform { context -> BundledOptiQMTPDrafterTarget in
+      switch context.model {
+      case is MLXLLM.Qwen35Model:
+        .text
+      case is MLXVLM.Qwen35:
+        .vlm
+      default:
+        .incompatible(String(reflecting: type(of: context.model)))
       }
-      return nil
     }
-    if let incompatibleTargetType {
-      throw BundledOptiQMTPDrafterLoaderError.incompatibleTarget(incompatibleTargetType)
+
+    do {
+      switch targetKind {
+      case .text:
+        let configuration = try JSONDecoder.json5().decode(
+          MLXLLM.Qwen35Configuration.self,
+          from: configurationData
+        )
+        return MLXLLM.Qwen35MTPDraftModel(configuration, preconvertedNorms: false)
+      case .vlm:
+        let configuration = try JSONDecoder.json5().decode(
+          MLXVLM.Qwen35Configuration.self,
+          from: configurationData
+        )
+        return MLXVLM.Qwen35VLMNextNDraftModel(configuration, preconvertedNorms: false)
+      case .incompatible(let type):
+        throw BundledOptiQMTPDrafterLoaderError.incompatibleTarget(type)
+      }
+    } catch let error as BundledOptiQMTPDrafterLoaderError {
+      throw error
+    } catch {
+      throw BundledOptiQMTPDrafterLoaderError.invalidConfiguration(
+        "Unable to decode Qwen configuration: \(error.localizedDescription)"
+      )
     }
   }
 
@@ -239,6 +262,12 @@ enum BundledOptiQMTPDrafterLoader {
       )
     }
   }
+}
+
+private enum BundledOptiQMTPDrafterTarget: Sendable {
+  case text
+  case vlm
+  case incompatible(String)
 }
 
 private struct BundledOptiQMTPConfiguration: Decodable {
