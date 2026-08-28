@@ -2159,6 +2159,11 @@ struct AppKitChatTranscriptDiffPlanTests {
       identifier: NativeTranscriptCellKind.assistantMessage.reuseIdentifier,
       kind: .assistantMessage
     )
+    // The standalone cell has no table column to constrain its fitting width.
+    // Match the explicit width used by the production height measurer.
+    cell.translatesAutoresizingMaskIntoConstraints = false
+    let widthConstraint = cell.widthAnchor.constraint(equalToConstant: width)
+    widthConstraint.isActive = true
     var cache = NativeTranscriptHeightCache()
 
     for row in rows {
