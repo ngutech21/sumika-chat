@@ -24,7 +24,7 @@ let package = Package(
     .library(name: "SumikaApp", targets: ["SumikaApp"]),
   ],
   dependencies: [
-    .package(url: "https://github.com/ngutech21/anydoc-swift.git", exact: "0.1.3"),
+    .package(url: "https://github.com/ngutech21/anydoc-swift.git", exact: "0.1.4"),
     .package(url: "https://github.com/apple/swift-crypto.git", "3.0.0"..<"5.0.0"),
     .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", exact: "0.12.1"),
     .package(url: "https://github.com/scinfu/SwiftSoup.git", from: "2.13.5"),
