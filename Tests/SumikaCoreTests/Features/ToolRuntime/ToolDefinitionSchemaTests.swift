@@ -55,6 +55,22 @@ struct ToolDefinitionSchemaTests {
   }
 
   @Test
+  func workspaceFileAndSearchDefinitionsExcludeChatAttachments() {
+    let definitions = [
+      ToolDefinition.readFile,
+      .showFile,
+      .listFiles,
+      .globFiles,
+      .searchFiles,
+    ]
+
+    for definition in definitions {
+      #expect(definition.description.contains("chat attachments"))
+      #expect(definition.description.contains("workspace"))
+    }
+  }
+
+  @Test
   func writeAndEditDefinitionsExposeSemanticContracts() {
     let writeDefinition = ToolDefinition.writeFile
     let editDefinition = ToolDefinition.editFile

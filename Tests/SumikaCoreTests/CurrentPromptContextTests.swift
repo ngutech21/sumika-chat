@@ -27,7 +27,7 @@ struct CurrentPromptContextSelectorTests {
       Issue.record("Expected attached file context block.")
       return
     }
-    #expect(attachedFile.path == WorkspaceRelativePath(rawValue: "Foo.swift"))
+    #expect(attachedFile.attachmentID == attachment.id)
     #expect(attachedFile.displayName == "Foo.swift")
     #expect(!attachedFile.contentHash.isEmpty)
     #expect(attachedFile.excerpt?.text == "let value = 1")
@@ -37,7 +37,6 @@ struct CurrentPromptContextSelectorTests {
 
   @Test
   func attachedFileTakesPrecedenceOverActiveFocusedFile() throws {
-    let attachedPath = WorkspaceRelativePath(rawValue: "Attached.swift")
     let focusedPath = WorkspaceRelativePath(rawValue: "Focused.swift")
     let state = FocusedFileState(
       activePath: focusedPath,
@@ -53,7 +52,7 @@ struct CurrentPromptContextSelectorTests {
       ]
     )
     let attachment = makeTextChatAttachment(
-      displayName: attachedPath.rawValue,
+      displayName: "Attached.swift",
       content: "let attached = true"
     )
 
@@ -70,7 +69,8 @@ struct CurrentPromptContextSelectorTests {
       Issue.record("Expected attached file context to take precedence.")
       return
     }
-    #expect(attachedFile.path == attachedPath)
+    #expect(attachedFile.attachmentID == attachment.id)
+    #expect(attachedFile.displayName == "Attached.swift")
     #expect(selection.blocks.values.count == 1)
   }
 
@@ -103,8 +103,8 @@ struct CurrentPromptContextSelectorTests {
       Issue.record("Expected attached file context blocks.")
       return
     }
-    #expect(firstContext.path == WorkspaceRelativePath(rawValue: "First.swift"))
-    #expect(secondContext.path == WorkspaceRelativePath(rawValue: "Second.swift"))
+    #expect(firstContext.attachmentID == first.id)
+    #expect(secondContext.attachmentID == second.id)
   }
 
   @Test
@@ -323,7 +323,7 @@ struct CurrentPromptContextSelectorTests {
   }
 
   @Test
-  func ambiguousRecentFilesProduceAmbiguousRecentFilesBlock() throws {
+  func legacyAttachmentPathsAreNotPresentedAsAmbiguousWorkspaceFiles() throws {
     let firstPath = WorkspaceRelativePath(rawValue: "index.html")
     let secondPath = WorkspaceRelativePath(rawValue: "style.css")
     let state = FocusedFileState(
@@ -340,14 +340,7 @@ struct CurrentPromptContextSelectorTests {
       budget: .focusedFileDefault
     )
 
-    guard case .selected(let selection) = context,
-      case .ambiguousRecentFiles(let ambiguousFiles) = selection.blocks.values[0]
-    else {
-      Issue.record("Expected ambiguous recent files context block.")
-      return
-    }
-    #expect(selection.truncation == .none)
-    #expect(ambiguousFiles.paths.values == [firstPath, secondPath])
+    #expect(context == .empty(.focusedFileDefault))
   }
 
   @Test
@@ -364,9 +357,9 @@ struct CurrentPromptContextSelectorTests {
 
 struct CurrentPromptContextRendererTests {
   @Test
-  func rendersAttachedFileContextStably() throws {
+  func rendersCompleteDOCXMarkdownAsNonWorkspaceAttachment() throws {
     let attachment = makeTextChatAttachment(
-      displayName: "Foo.swift",
+      displayName: "report.docx",
       content: "let value = 1"
     )
     let context = CurrentPromptContextSelector().selectContext(
@@ -380,20 +373,22 @@ struct CurrentPromptContextRendererTests {
 
     #expect(rendered.count == 1)
     #expect(rendered.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
-    #expect(rendered[0].contains("Attached file: Foo.swift"))
+    #expect(rendered[0].contains("Chat attachment: report.docx"))
     #expect(rendered[0].contains("Content hash:"))
-    #expect(rendered[0].contains("Attached content excerpt:"))
+    #expect(rendered[0].contains("Complete DOCX-derived Markdown:"))
     #expect(rendered[0].contains("let value = 1"))
-    #expect(rendered[0].contains("Attached context:") == false)
-    #expect(rendered[0].contains("File: Foo.swift") == false)
+    #expect(rendered[0].contains("not a workspace path"))
+    #expect(rendered[0].contains("Attached file:") == false)
+    #expect(rendered[0].contains("Attached content excerpt:") == false)
     #expect(
       rendered[0]
         == """
-        Attached file: Foo.swift
+        Chat attachment: report.docx
+        Source: chat attachment, not a workspace path.
         Content hash: 5eefe8717fb3aae43f2029837446312dd248d2d3564cd48adebc866067bf03e7
-        Attached content excerpt:
+        Complete DOCX-derived Markdown:
         let value = 1
-        Explicit file paths in the user request or tool call take precedence.
+        Use this content directly. Do not call workspace file/search tools (read_file, show_file, list_files, glob_files, or search_files) for this attachment.
         """)
   }
 
@@ -421,7 +416,7 @@ struct CurrentPromptContextRendererTests {
     }
     #expect(selection.budget.maxCharacters == ContextBudget.focusedFileDefault.maxCharacters)
     #expect(selection.truncation == .none)
-    #expect(attachedFile.path == WorkspaceRelativePath(rawValue: "Foo.swift"))
+    #expect(attachedFile.attachmentID == attachment.id)
     #expect(attachedFile.displayName == "Foo.swift")
     #expect(!attachedFile.contentHash.isEmpty)
     #expect(attachedFile.excerpt?.text == "let value = 1")
@@ -445,9 +440,34 @@ struct CurrentPromptContextRendererTests {
     let rendered = CurrentPromptContextRenderer.renderSupportingContext(context)
 
     #expect(rendered.count == 1)
-    #expect(rendered[0].contains("Attached file: Empty.swift"))
-    #expect(rendered[0].contains("Attached content excerpt:") == false)
-    #expect(rendered[0].contains("Attached file is empty."))
+    #expect(rendered[0].contains("Chat attachment: Empty.swift"))
+    #expect(rendered[0].contains("Complete attached text:") == false)
+    #expect(rendered[0].contains("Attached content is empty."))
+    #expect(rendered[0].contains("Do not call workspace file/search tools"))
+  }
+
+  @Test
+  func rendersTruncatedDOCXMarkdownAsIncompleteAndNonRetrievableByWorkspaceTools() throws {
+    let budget = try #require(ContextBudget.checked(maxCharacters: 6))
+    let attachment = makeTextChatAttachment(
+      displayName: "report.docx",
+      content: "0123456789"
+    )
+    let context = CurrentPromptContextSelector().selectContext(
+      mode: .agent,
+      focusedFileState: .empty,
+      attachments: [attachment],
+      budget: budget
+    )
+
+    let rendered = CurrentPromptContextRenderer.renderSupportingContext(context)
+
+    #expect(rendered.count == 1)
+    #expect(rendered[0].contains("DOCX-derived Markdown excerpt (incomplete):"))
+    #expect(rendered[0].contains("Complete DOCX-derived Markdown:") == false)
+    #expect(rendered[0].contains("012345"))
+    #expect(rendered[0].contains("Workspace file/search tools cannot retrieve the rest."))
+    #expect(rendered[0].contains("Do not call read_file"))
   }
 
   @Test
@@ -527,7 +547,7 @@ struct CurrentPromptContextRendererTests {
   @Test
   func compactReuseRequestFallsBackToFullRenderingForNonReadFileSources() throws {
     let path = WorkspaceRelativePath(rawValue: "Sources/App.swift")
-    for source in [FocusedPathSource.writeFile, .editFile, .attachment] {
+    for source in [FocusedPathSource.writeFile, .editFile] {
       let state = FocusedFileState(
         activePath: path,
         recentPaths: [
@@ -558,20 +578,23 @@ struct CurrentPromptContextRendererTests {
   }
 
   @Test
-  func rendersAmbiguousRecentFilesWithoutClaimingActiveFile() throws {
+  func rendersLegacyFocusedAttachmentWithoutWorkspacePathInstructions() throws {
+    let path = WorkspaceRelativePath(rawValue: "report.docx")
     let state = FocusedFileState(
-      activePath: nil,
+      activePath: path,
       recentPaths: [
         FocusedPath(
-          path: WorkspaceRelativePath(rawValue: "index.html"),
+          path: path,
           source: .attachment,
-          confidence: .ambiguous
-        ),
-        FocusedPath(
-          path: WorkspaceRelativePath(rawValue: "style.css"),
-          source: .attachment,
-          confidence: .ambiguous
-        ),
+          confidence: .active
+        )
+      ],
+      snapshots: [
+        path: FocusedFileSnapshot(
+          contentHash: "hash",
+          excerpt: "# Converted document",
+          fullContentAvailable: true
+        )
       ]
     )
     let context = CurrentPromptContextSelector().selectContext(
@@ -583,10 +606,12 @@ struct CurrentPromptContextRendererTests {
     let rendered = CurrentPromptContextRenderer.renderSupportingContext(context)
 
     #expect(rendered.count == 1)
-    #expect(rendered[0].contains("Recent files are ambiguous:"))
+    #expect(rendered[0].contains("Legacy chat attachment: report.docx"))
+    #expect(rendered[0].contains("not a workspace path"))
+    #expect(rendered[0].contains("Complete known attachment content:"))
+    #expect(rendered[0].contains("# Converted document"))
+    #expect(rendered[0].contains("Do not call workspace file/search tools"))
     #expect(rendered[0].contains("Current focused file:") == false)
-    #expect(rendered[0].contains("- index.html"))
-    #expect(rendered[0].contains("- style.css"))
   }
 
   @Test

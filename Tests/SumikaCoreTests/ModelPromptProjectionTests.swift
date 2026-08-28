@@ -65,6 +65,89 @@ struct ModelPromptProjectionTests {
   }
 
   @Test
+  func currentPromptContextCodablePreservesAttachmentIdentityWithoutWorkspacePath() throws {
+    let attachmentID = try #require(UUID(uuidString: "CCCCCCCC-0000-0000-0000-00000000000A"))
+    let attachment = makeTextChatAttachment(
+      id: attachmentID,
+      displayName: "report.docx",
+      content: "# Report"
+    )
+    let currentPromptContext = ChatModelContextBuilder().currentPromptContext(
+      mode: .agent,
+      focusedFileState: .empty,
+      attachments: [attachment]
+    )
+
+    let data = try JSONEncoder().encode(currentPromptContext)
+    let decoded = try JSONDecoder().decode(CurrentPromptContext.self, from: data)
+
+    #expect(decoded == currentPromptContext)
+    guard case .selected(let selection) = decoded,
+      case .attachedFile(let attachedFile) = selection.blocks.values[0]
+    else {
+      Issue.record("Expected decoded typed attachment context.")
+      return
+    }
+    #expect(attachedFile.attachmentID == attachmentID)
+    #expect(attachedFile.displayName == "report.docx")
+
+    let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let selected = try #require(object["selected"] as? [String: Any])
+    let blocks = try #require(selected["blocks"] as? [[String: Any]])
+    let encodedAttachment = try #require(blocks.first?["attachedFile"] as? [String: Any])
+    #expect(encodedAttachment["attachmentID"] as? String == attachmentID.uuidString)
+    #expect(encodedAttachment["path"] == nil)
+  }
+
+  @Test
+  func legacyAttachedFilePathDecodesAsAttachmentWithoutReencodingWorkspacePath() throws {
+    let data = Data(
+      """
+      {
+        "kind": "selected",
+        "selected": {
+          "blocks": [
+            {
+              "kind": "attachedFile",
+              "attachedFile": {
+                "path": "report.docx",
+                "displayName": "report.docx",
+                "contentHash": "hash",
+                "excerpt": {
+                  "text": "# Report",
+                  "truncated": false
+                },
+                "isEmpty": false
+              }
+            }
+          ],
+          "budget": 4000,
+          "truncation": "none"
+        }
+      }
+      """.utf8)
+
+    let decoded = try JSONDecoder().decode(CurrentPromptContext.self, from: data)
+    guard case .selected(let selection) = decoded,
+      case .attachedFile(let attachedFile) = selection.blocks.values[0]
+    else {
+      Issue.record("Expected decoded legacy attachment context.")
+      return
+    }
+    #expect(attachedFile.attachmentID == nil)
+    #expect(attachedFile.displayName == "report.docx")
+    let rendered = try #require(
+      CurrentPromptContextRenderer.renderSupportingContext(decoded).first
+    )
+    #expect(rendered.contains("Complete DOCX-derived Markdown:"))
+    #expect(rendered.contains("not a workspace path"))
+
+    let reencoded = try JSONEncoder().encode(decoded)
+    let reencodedText = try #require(String(data: reencoded, encoding: .utf8))
+    #expect(reencodedText.contains("\"path\"") == false)
+  }
+
+  @Test
   func focusedFilePromptContextDecodeRequiresCompletenessMetadata() {
     let data = Data(
       """

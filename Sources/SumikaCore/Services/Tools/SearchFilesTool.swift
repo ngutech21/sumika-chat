@@ -42,7 +42,7 @@ nonisolated extension ToolDefinition {
   package static let searchFiles = ToolDefinition(
     name: .searchFiles,
     description:
-      "Search text contents of workspace files. Use this to locate symbols, strings, errors, or relevant code before reading or editing files.",
+      "Search text in workspace files; chat attachments are unavailable. Use to locate symbols, strings, errors, or code before reading or editing.",
     parameters: [
       ToolParameterDefinition(
         name: "pattern",

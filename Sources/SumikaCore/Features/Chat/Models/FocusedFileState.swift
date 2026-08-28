@@ -65,6 +65,7 @@ package enum FocusedPathSource: String, Codable, Equatable, Sendable {
   case readFile
   case writeFile
   case editFile
+  /// Decode-only compatibility for sessions that treated attachment names as workspace paths.
   case attachment
 }
 

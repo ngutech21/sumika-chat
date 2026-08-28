@@ -534,43 +534,26 @@ actor DelayedClearContextRuntime: ChatModelRuntime {
   }
 }
 
-final class BlockingFirstAttachmentLoader: ChatAttachmentLoading, @unchecked Sendable {
-  private let lock = NSLock()
-  private let firstLoadRelease = DispatchSemaphore(value: 0)
-  private var _startedCount = 0
-  private var _completedCount = 0
-
-  var startedCount: Int {
-    lock.lock()
-    defer { lock.unlock() }
-    return _startedCount
-  }
-
-  var completedCount: Int {
-    lock.lock()
-    defer { lock.unlock() }
-    return _completedCount
-  }
+actor BlockingFirstAttachmentLoader: ChatAttachmentLoading {
+  private var firstLoadContinuation: CheckedContinuation<Void, Never>?
+  private(set) var startedCount = 0
+  private(set) var completedCount = 0
 
   func loadAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment]
-  ) throws -> [ChatAttachment] {
+  ) async throws -> [ChatAttachment] {
     _ = existingAttachments
-    lock.lock()
-    _startedCount += 1
-    let callNumber = _startedCount
-    lock.unlock()
+    startedCount += 1
+    let callNumber = startedCount
 
     if callNumber == 1 {
-      guard firstLoadRelease.wait(timeout: .now() + .seconds(2)) == .success else {
-        throw TestWaitTimeoutError()
+      await withCheckedContinuation { continuation in
+        firstLoadContinuation = continuation
       }
     }
 
-    lock.lock()
-    _completedCount += 1
-    lock.unlock()
+    completedCount += 1
 
     guard let url = urls.first else {
       return []
@@ -584,7 +567,8 @@ final class BlockingFirstAttachmentLoader: ChatAttachmentLoading, @unchecked Sen
   }
 
   func releaseFirstLoad() {
-    firstLoadRelease.signal()
+    firstLoadContinuation?.resume()
+    firstLoadContinuation = nil
   }
 }
 
@@ -594,7 +578,7 @@ struct FixtureAttachmentLoader: ChatAttachmentLoading {
   func loadAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment]
-  ) throws -> [ChatAttachment] {
+  ) async throws -> [ChatAttachment] {
     _ = urls
     _ = existingAttachments
     return attachments

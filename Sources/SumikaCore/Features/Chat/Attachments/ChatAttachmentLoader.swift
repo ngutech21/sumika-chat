@@ -1,121 +1,259 @@
 import Foundation
 
+package protocol DocumentMarkdownConverting: Sendable {
+  func markdown(from data: Data, fileExtension: String) async throws -> String
+}
+
 package protocol ChatAttachmentLoading: Sendable {
   func loadAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment]
-  ) throws -> [ChatAttachment]
+  ) async throws -> [ChatAttachment]
+}
+
+struct AttachmentFileAccess: Sendable {
+  private let startAccessingSecurityScopedResource: @Sendable (URL) -> Bool
+  private let stopAccessingSecurityScopedResource: @Sendable (URL) -> Void
+  private let fileSize: @Sendable (URL) throws -> Int?
+  private let loadData: @Sendable (URL) throws -> Data
+
+  init(
+    startAccessingSecurityScopedResource: @escaping @Sendable (URL) -> Bool,
+    stopAccessingSecurityScopedResource: @escaping @Sendable (URL) -> Void,
+    fileSize: @escaping @Sendable (URL) throws -> Int?,
+    readData: @escaping @Sendable (URL) throws -> Data
+  ) {
+    self.startAccessingSecurityScopedResource = startAccessingSecurityScopedResource
+    self.stopAccessingSecurityScopedResource = stopAccessingSecurityScopedResource
+    self.fileSize = fileSize
+    self.loadData = readData
+  }
+
+  static let live = AttachmentFileAccess(
+    startAccessingSecurityScopedResource: { url in
+      #if canImport(Darwin)
+        url.startAccessingSecurityScopedResource()
+      #else
+        false
+      #endif
+    },
+    stopAccessingSecurityScopedResource: { url in
+      #if canImport(Darwin)
+        url.stopAccessingSecurityScopedResource()
+      #endif
+    },
+    fileSize: { url in
+      try url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+    },
+    readData: { url in
+      try Data(contentsOf: url)
+    }
+  )
+
+  func readData(from url: URL, maximumBytes: Int) async throws -> Data {
+    try Task.checkCancellation()
+    let readTask = Task.detached(priority: .userInitiated) {
+      try Task.checkCancellation()
+      let didStartSecurityScope = startAccessingSecurityScopedResource(url)
+      defer {
+        if didStartSecurityScope {
+          stopAccessingSecurityScopedResource(url)
+        }
+      }
+
+      let fileName = url.lastPathComponent
+      guard let sourceByteSize = try fileSize(url) else {
+        throw ChatAttachmentError.fileSizeUnavailable(fileName)
+      }
+      guard sourceByteSize <= maximumBytes else {
+        throw ChatAttachmentError.fileTooLarge(fileName, maximumBytes)
+      }
+
+      let data = try loadData(url)
+      try Task.checkCancellation()
+      guard data.count <= maximumBytes else {
+        throw ChatAttachmentError.fileTooLarge(fileName, maximumBytes)
+      }
+      return data
+    }
+    return try await withTaskCancellationHandler {
+      let data = try await readTask.value
+      try Task.checkCancellation()
+      return data
+    } onCancel: {
+      readTask.cancel()
+    }
+  }
 }
 
 package struct ChatAttachmentLoader: ChatAttachmentLoading {
   private let attachmentStore: ChatAttachmentStore
+  private let documentMarkdownConverter: (any DocumentMarkdownConverting)?
+  private let fileAccess: AttachmentFileAccess
 
-  package init(attachmentStore: ChatAttachmentStore = ChatAttachmentStore()) {
+  package init(
+    attachmentStore: ChatAttachmentStore = ChatAttachmentStore(),
+    documentMarkdownConverter: (any DocumentMarkdownConverting)? = nil
+  ) {
+    self.init(
+      attachmentStore: attachmentStore,
+      documentMarkdownConverter: documentMarkdownConverter,
+      fileAccess: .live
+    )
+  }
+
+  init(
+    attachmentStore: ChatAttachmentStore = ChatAttachmentStore(),
+    documentMarkdownConverter: (any DocumentMarkdownConverting)? = nil,
+    fileAccess: AttachmentFileAccess
+  ) {
     self.attachmentStore = attachmentStore
+    self.documentMarkdownConverter = documentMarkdownConverter
+    self.fileAccess = fileAccess
   }
 
   package func loadAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment]
-  ) throws -> [ChatAttachment] {
+  ) async throws -> [ChatAttachment] {
     let remainingSlots = ChatAttachmentLimits.maxAttachmentCount - existingAttachments.count
     guard urls.count <= remainingSlots else {
       throw ChatAttachmentError.tooManyFiles(ChatAttachmentLimits.maxAttachmentCount)
     }
 
     let existingNames = Set(existingAttachments.map(\.displayName))
-    return try urls.compactMap { url -> ChatAttachment? in
+    var attachments: [ChatAttachment] = []
+    for url in urls {
+      try Task.checkCancellation()
       guard !existingNames.contains(url.lastPathComponent) else {
-        return nil
+        continue
       }
 
-      return try readTextAttachment(from: url)
+      attachments.append(try await readAttachment(from: url))
     }
+    return attachments
   }
 
-  private func readTextAttachment(from url: URL) throws -> ChatAttachment {
-    try withSecurityScopedAccess(to: url) {
-      let fileName = url.lastPathComponent
-      let fileExtension = url.pathExtension.lowercased()
-      if ChatAttachmentLimits.supportedImageFileExtensions.contains(fileExtension) {
-        return try readImageAttachment(from: url)
-      }
-
-      guard ChatAttachmentLimits.supportedTextFileExtensions.contains(fileExtension) else {
-        throw ChatAttachmentError.unsupportedFileType(fileName)
-      }
-
-      let fileSize = try fileSize(for: url)
-      guard fileSize <= ChatAttachmentLimits.maxTextFileBytes else {
-        throw ChatAttachmentError.fileTooLarge(fileName, ChatAttachmentLimits.maxTextFileBytes)
-      }
-
-      let data = try Data(contentsOf: url)
-      guard let content = String(data: data, encoding: .utf8) else {
-        throw ChatAttachmentError.unreadableText(fileName)
-      }
-      let id = AttachmentID()
-      _ = try attachmentStore.storeFile(from: url, id: id, displayName: fileName)
-
-      return ChatAttachment(
-        id: id,
-        displayName: fileName,
-        payload: .text(
-          TextAttachmentPayload(
-            content: content,
-            byteSize: fileSize,
-            contentSHA256: ChatAttachmentStore.contentSHA256(for: data)
-          )
-        )
-      )
-    }
-  }
-
-  private func readImageAttachment(from url: URL) throws -> ChatAttachment {
+  private func readAttachment(from url: URL) async throws -> ChatAttachment {
     let fileName = url.lastPathComponent
     let fileExtension = url.pathExtension.lowercased()
-    let fileSize = try fileSize(for: url)
-    guard fileSize <= ChatAttachmentLimits.maxImageFileBytes else {
-      throw ChatAttachmentError.fileTooLarge(fileName, ChatAttachmentLimits.maxImageFileBytes)
+    if ChatAttachmentLimits.supportedImageFileExtensions.contains(fileExtension) {
+      return try await readImageAttachment(from: url)
+    }
+    if ChatAttachmentLimits.supportedTextFileExtensions.contains(fileExtension) {
+      return try await readTextAttachment(from: url)
+    }
+    if ChatAttachmentLimits.supportedDocumentFileExtensions.contains(fileExtension),
+      let documentMarkdownConverter
+    {
+      return try await readDocumentAttachment(
+        from: url,
+        fileExtension: fileExtension,
+        converter: documentMarkdownConverter
+      )
+    }
+    throw ChatAttachmentError.unsupportedFileType(fileName)
+  }
+
+  private func readTextAttachment(from url: URL) async throws -> ChatAttachment {
+    let fileName = url.lastPathComponent
+    let data = try await fileAccess.readData(
+      from: url,
+      maximumBytes: ChatAttachmentLimits.maxTextFileBytes
+    )
+    guard let content = String(data: data, encoding: .utf8) else {
+      throw ChatAttachmentError.unreadableText(fileName)
+    }
+    return try await storeTextAttachment(
+      content: content,
+      originalData: data,
+      fileName: fileName
+    )
+  }
+
+  private func readDocumentAttachment(
+    from url: URL,
+    fileExtension: String,
+    converter: any DocumentMarkdownConverting
+  ) async throws -> ChatAttachment {
+    let fileName = url.lastPathComponent
+    let data = try await fileAccess.readData(
+      from: url,
+      maximumBytes: ChatAttachmentLimits.maxDocumentFileBytes
+    )
+    try Task.checkCancellation()
+
+    let markdown: String
+    do {
+      markdown = try await converter.markdown(from: data, fileExtension: fileExtension)
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      throw ChatAttachmentError.documentConversionFailed(fileName)
     }
 
-    let imageData = try Data(contentsOf: url)
+    try Task.checkCancellation()
+    guard markdown.utf8.count <= ChatAttachmentLimits.maxConvertedDocumentBytes else {
+      throw ChatAttachmentError.convertedDocumentTooLarge(
+        fileName,
+        ChatAttachmentLimits.maxConvertedDocumentBytes
+      )
+    }
+
+    return try await storeTextAttachment(
+      content: markdown,
+      originalData: data,
+      fileName: fileName
+    )
+  }
+
+  private func storeTextAttachment(
+    content: String,
+    originalData: Data,
+    fileName: String
+  ) async throws -> ChatAttachment {
+    let id = AttachmentID()
+    _ = try await attachmentStore.storeFile(
+      data: originalData,
+      id: id,
+      displayName: fileName
+    )
+    return ChatAttachment(
+      id: id,
+      displayName: fileName,
+      payload: .text(
+        TextAttachmentPayload(
+          content: content,
+          byteSize: originalData.count,
+          contentSHA256: ChatAttachmentStore.contentSHA256(for: originalData)
+        )
+      )
+    )
+  }
+
+  private func readImageAttachment(from url: URL) async throws -> ChatAttachment {
+    let fileName = url.lastPathComponent
+    let fileExtension = url.pathExtension.lowercased()
+    let imageData = try await fileAccess.readData(
+      from: url,
+      maximumBytes: ChatAttachmentLimits.maxImageFileBytes
+    )
 
     let mimeType = mimeType(forExtension: fileExtension) ?? "image"
     let contentSHA256 = ChatAttachmentStore.contentSHA256(for: imageData)
     let id = AttachmentID()
-    _ = try attachmentStore.storeFile(from: url, id: id, displayName: fileName)
+    _ = try await attachmentStore.storeFile(data: imageData, id: id, displayName: fileName)
     return ChatAttachment(
       id: id,
       displayName: fileName,
       payload: .image(
         ImageAttachmentPayload(
           mimeType: mimeType,
-          byteSize: fileSize,
+          byteSize: imageData.count,
           contentSHA256: contentSHA256
         )
       )
     )
-  }
-
-  private func withSecurityScopedAccess<T>(
-    to url: URL,
-    _ body: () throws -> T
-  ) throws -> T {
-    #if canImport(Darwin)
-      let didStartSecurityScope = url.startAccessingSecurityScopedResource()
-      defer {
-        if didStartSecurityScope {
-          url.stopAccessingSecurityScopedResource()
-        }
-      }
-    #endif
-    return try body()
-  }
-
-  private func fileSize(for url: URL) throws -> Int {
-    let resourceValues = try url.resourceValues(forKeys: [.fileSizeKey])
-    return resourceValues.fileSize ?? 0
   }
 
   private func mimeType(forExtension fileExtension: String) -> String? {

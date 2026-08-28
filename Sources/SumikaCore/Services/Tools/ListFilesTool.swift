@@ -38,7 +38,7 @@ nonisolated extension ToolDefinition {
   package static let listFiles = ToolDefinition(
     name: .listFiles,
     description:
-      "List files and folders in a workspace-relative directory. Use this to explore project structure before choosing a path.",
+      "List files and folders in a workspace-relative directory; chat attachments are unavailable. Use to explore project structure before choosing a path.",
     parameters: [
       ToolParameterDefinition(
         name: "path",

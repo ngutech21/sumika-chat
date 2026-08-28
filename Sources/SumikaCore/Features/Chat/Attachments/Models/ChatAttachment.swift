@@ -150,6 +150,8 @@ package struct ImageAttachmentPayload: Codable, Equatable, Sendable {
 package enum ChatAttachmentLimits {
   package static let maxTextFileBytes = 256 * 1024
   package static let maxImageFileBytes = 20 * 1024 * 1024
+  package static let maxDocumentFileBytes = 8 * 1024 * 1024
+  package static let maxConvertedDocumentBytes = 256 * 1024
   package static let maxAttachmentCount = 8
 
   package static let supportedTextFileExtensions: Set<String> = [
@@ -161,13 +163,18 @@ package enum ChatAttachmentLimits {
   package static let supportedImageFileExtensions: Set<String> = [
     "jpeg", "jpg", "png", "webp",
   ]
+
+  package static let supportedDocumentFileExtensions: Set<String> = ["docx"]
 }
 
 package enum ChatAttachmentError: LocalizedError {
   case tooManyFiles(Int)
   case unsupportedFileType(String)
   case fileTooLarge(String, Int)
+  case fileSizeUnavailable(String)
   case unreadableText(String)
+  case documentConversionFailed(String)
+  case convertedDocumentTooLarge(String, Int)
   case missingStoredAttachment(String)
   case changedStoredAttachment(String)
 
@@ -179,8 +186,14 @@ package enum ChatAttachmentError: LocalizedError {
       "\(name) is not a supported attachment."
     case .fileTooLarge(let name, let limit):
       "\(name) is larger than \(limit / 1024) KB."
+    case .fileSizeUnavailable(let name):
+      "The size of \(name) could not be determined."
     case .unreadableText(let name):
       "\(name) is not valid UTF-8 text."
+    case .documentConversionFailed(let name):
+      "\(name) could not be converted to text."
+    case .convertedDocumentTooLarge(let name, let limit):
+      "The converted text for \(name) is larger than \(limit / 1024) KB."
     case .missingStoredAttachment(let name):
       "\(name) is no longer available."
     case .changedStoredAttachment(let name):

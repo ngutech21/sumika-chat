@@ -106,51 +106,6 @@ struct FocusedFileStateReducer: Sendable {
     return updatedState
   }
 
-  func applyingAttachments(
-    _ attachments: [ChatAttachment],
-    workspace: Workspace?,
-    to state: FocusedFileState,
-    updatedAt: Date = Date()
-  ) -> FocusedFileState {
-    guard !attachments.isEmpty else {
-      return state
-    }
-
-    let textAttachmentContexts = attachments.filter { $0.kind == .text }.map { attachment in
-      let path = attachmentPath(for: attachment, workspace: workspace)
-      return (path, attachment.content)
-    }
-    guard !textAttachmentContexts.isEmpty else {
-      return state
-    }
-
-    if textAttachmentContexts.count == 1, let first = textAttachmentContexts.first {
-      return focusing(
-        first.0,
-        source: .attachment,
-        content: first.1,
-        fullContentAvailable: true,
-        in: state,
-        updatedAt: updatedAt
-      )
-    }
-
-    var updatedState = state
-    updatedState.activePath = nil
-    for attachment in textAttachmentContexts {
-      updatedState = recordingRecent(
-        attachment.0,
-        source: .attachment,
-        confidence: .ambiguous,
-        content: attachment.1,
-        fullContentAvailable: true,
-        in: updatedState,
-        updatedAt: updatedAt
-      )
-    }
-    return updatedState
-  }
-
   private func focusing(
     _ path: WorkspaceRelativePath,
     source: FocusedPathSource,
@@ -241,14 +196,6 @@ struct FocusedFileStateReducer: Sendable {
       && input.limit == nil
       && !content.truncated
       && !content.redacted
-  }
-
-  private func attachmentPath(
-    for attachment: ChatAttachment,
-    workspace: Workspace?
-  ) -> WorkspaceRelativePath {
-    _ = workspace
-    return WorkspaceRelativePath(rawValue: attachment.displayName)
   }
 
   private static func contentHash(for content: String) -> String {

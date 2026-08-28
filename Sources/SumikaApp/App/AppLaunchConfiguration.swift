@@ -244,6 +244,9 @@ enum AppLaunchConfiguration {
         modelAvailability: modelAvailability,
         browserToolService: browserToolService,
         webAccessSettingsProvider: webAccessSettingsProvider,
+        chatAttachmentLoader: ChatAttachmentLoader(
+          documentMarkdownConverter: AnyDocDocumentMarkdownConverter()
+        ),
         skillCatalog: skillCatalog,
         turnTracer: turnTracer
       )

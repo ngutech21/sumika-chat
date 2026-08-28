@@ -116,8 +116,10 @@ struct ChatAttachmentCoordinatorTests {
   func newerLoadInvalidatesOlderResult() async throws {
     let loader = AttachmentControlledLoader()
     defer {
-      loader.resolve(at: 0, with: [])
-      loader.resolve(at: 1, with: [])
+      Task {
+        await loader.resolve(at: 0, with: [])
+        await loader.resolve(at: 1, with: [])
+      }
     }
     let coordinator = ChatAttachmentCoordinator(loader: loader)
     let firstAttachment = makeAttachment(name: "first.swift", content: "first")
@@ -129,22 +131,22 @@ struct ChatAttachmentCoordinatorTests {
       existingAttachments: [],
       onEvent: { events.append($0) }
     )
-    try await waitUntil { loader.startedCount == 1 }
+    try await waitUntil { await loader.startedCount == 1 }
 
     coordinator.addAttachments(
       from: [URL(filePath: "/tmp/second.swift")],
       existingAttachments: [],
       onEvent: { events.append($0) }
     )
-    try await waitUntil { loader.startedCount == 2 }
+    try await waitUntil { await loader.startedCount == 2 }
 
-    loader.resolve(at: 1, with: [secondAttachment])
+    await loader.resolve(at: 1, with: [secondAttachment])
     try await waitUntil {
       events == [.appendAttachments([secondAttachment])]
     }
 
-    loader.resolve(at: 0, with: [firstAttachment])
-    try await waitUntil { loader.completedCount == 2 }
+    await loader.resolve(at: 0, with: [firstAttachment])
+    try await waitUntil { await loader.completedCount == 2 }
     await Task.yield()
 
     #expect(events == [.appendAttachments([secondAttachment])])
@@ -161,84 +163,39 @@ private final class AttachmentFakeLoader: ChatAttachmentLoading, @unchecked Send
   func loadAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment]
-  ) throws -> [ChatAttachment] {
+  ) async throws -> [ChatAttachment] {
     _ = urls
     _ = existingAttachments
     return try result.get()
   }
 }
 
-private final class AttachmentControlledLoader: ChatAttachmentLoading, @unchecked Sendable {
-  private let lock = NSLock()
-  private var calls: [ControlledAttachmentLoad] = []
+private actor AttachmentControlledLoader: ChatAttachmentLoading {
+  private var calls: [CheckedContinuation<[ChatAttachment], Never>?] = []
   private var completedCalls = 0
 
-  var startedCount: Int {
-    lock.lock()
-    defer { lock.unlock() }
-    return calls.count
-  }
+  var startedCount: Int { calls.count }
 
-  var completedCount: Int {
-    lock.lock()
-    defer { lock.unlock() }
-    return completedCalls
-  }
+  var completedCount: Int { completedCalls }
 
   func loadAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment]
-  ) throws -> [ChatAttachment] {
+  ) async throws -> [ChatAttachment] {
     _ = urls
     _ = existingAttachments
-    let call = ControlledAttachmentLoad()
-    lock.lock()
-    calls.append(call)
-    lock.unlock()
-
-    try call.wait()
-    lock.lock()
-    completedCalls += 1
-    lock.unlock()
-    return call.attachments
-  }
-
-  func resolve(at index: Int, with attachments: [ChatAttachment]) {
-    let call: ControlledAttachmentLoad? = {
-      lock.lock()
-      defer { lock.unlock() }
-      guard calls.indices.contains(index) else {
-        return nil
-      }
-      return calls[index]
-    }()
-
-    call?.resolve(with: attachments)
-  }
-}
-
-private final class ControlledAttachmentLoad: @unchecked Sendable {
-  private let lock = NSLock()
-  private let semaphore = DispatchSemaphore(value: 0)
-  private var _attachments: [ChatAttachment] = []
-
-  var attachments: [ChatAttachment] {
-    lock.lock()
-    defer { lock.unlock() }
-    return _attachments
-  }
-
-  func wait() throws {
-    guard semaphore.wait(timeout: .now() + .seconds(2)) == .success else {
-      throw TestWaitTimeoutError()
+    return await withCheckedContinuation { continuation in
+      calls.append(continuation)
     }
   }
 
-  func resolve(with attachments: [ChatAttachment]) {
-    lock.lock()
-    _attachments = attachments
-    lock.unlock()
-    semaphore.signal()
+  func resolve(at index: Int, with attachments: [ChatAttachment]) {
+    guard calls.indices.contains(index), let continuation = calls[index] else {
+      return
+    }
+    calls[index] = nil
+    completedCalls += 1
+    continuation.resume(returning: attachments)
   }
 }
 
@@ -275,7 +232,7 @@ private func makeAttachment(name: String, content: String) -> ChatAttachment {
 
 private func waitUntil(
   timeout: Duration = .seconds(1),
-  condition: @escaping @MainActor () -> Bool
+  condition: @escaping @MainActor () async -> Bool
 ) async throws {
   let start = ContinuousClock.now
   while !(await condition()) {
