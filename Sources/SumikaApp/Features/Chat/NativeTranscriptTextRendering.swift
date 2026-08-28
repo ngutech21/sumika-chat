@@ -92,6 +92,10 @@ struct NativeMarkdownTableCell {
 }
 
 enum NativeTranscriptMarkdownRenderer {
+  static let bodyFontSize = NSFont.systemFontSize + 1
+  static let bodyLineSpacing: CGFloat = 3
+  static let bodyParagraphSpacing: CGFloat = 6
+
   static let inlineCodeColor = NSColor(name: "SumikaInlineCode") { appearance in
     let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     return isDark
@@ -107,8 +111,9 @@ enum NativeTranscriptMarkdownRenderer {
     let attributedString = NSMutableAttributedString(
       string: text.isEmpty ? " " : text,
       attributes: [
-        .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
+        .font: NSFont.systemFont(ofSize: bodyFontSize),
         .foregroundColor: NSColor.labelColor,
+        .paragraphStyle: paragraphStyle(spacingAfter: bodyParagraphSpacing),
       ]
     )
     applyLinks(to: attributedString, sourceText: attributedString.string)
@@ -146,7 +151,7 @@ enum NativeTranscriptMarkdownRenderer {
     spacingAfter: CGFloat = 0
   ) -> NSParagraphStyle {
     let style = NSMutableParagraphStyle()
-    style.lineSpacing = 2
+    style.lineSpacing = bodyLineSpacing
     style.paragraphSpacingBefore = spacingBefore
     style.paragraphSpacing = spacingAfter
     return style
@@ -154,8 +159,8 @@ enum NativeTranscriptMarkdownRenderer {
 
   static func listParagraphStyle(indent: CGFloat = 18) -> NSParagraphStyle {
     let style = NSMutableParagraphStyle()
-    style.lineSpacing = 2
-    style.paragraphSpacing = 2
+    style.lineSpacing = bodyLineSpacing
+    style.paragraphSpacing = 3
     style.headIndent = indent
     style.firstLineHeadIndent = 0
     return style
@@ -164,12 +169,21 @@ enum NativeTranscriptMarkdownRenderer {
   static func headingFontSize(for level: Int) -> CGFloat {
     switch level {
     case 1:
-      NSFont.systemFontSize + 4
+      bodyFontSize + 4
     case 2:
-      NSFont.systemFontSize + 2
+      bodyFontSize + 2
     default:
-      NSFont.systemFontSize + 1
+      bodyFontSize + 1
     }
+  }
+
+  static func strongFont(from font: NSFont) -> NSFont {
+    let traits = NSFontManager.shared.traits(of: font)
+    let semibold = NSFont.systemFont(ofSize: font.pointSize, weight: .semibold)
+    guard traits.contains(.italicFontMask) else {
+      return semibold
+    }
+    return NSFontManager.shared.convert(semibold, toHaveTrait: .italicFontMask)
   }
 }
 
@@ -376,7 +390,10 @@ private struct NativeSkillMentionRenderingContext {
     tooltip: String,
     paragraphStyle: NSParagraphStyle
   ) -> NSAttributedString {
-    let font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+    let font = NSFont.systemFont(
+      ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize,
+      weight: .medium
+    )
     let symbolConfiguration = NSImage.SymbolConfiguration(
       pointSize: font.pointSize,
       weight: .medium
@@ -479,7 +496,7 @@ private final class NativeTranscriptInlineAccumulator {
       appendText("\n", attributes: inlineAttributes(style: style))
 
     case let strong as Strong:
-      renderInlineChildren(of: strong, style: style.withFontTrait(.boldFontMask))
+      renderInlineChildren(of: strong, style: style.withStrongWeight())
 
     case let emphasis as Emphasis:
       renderInlineChildren(of: emphasis, style: style.withFontTrait(.italicFontMask))
@@ -549,6 +566,12 @@ private struct NativeTranscriptInlineStyle {
     return copy
   }
 
+  func withStrongWeight() -> NativeTranscriptInlineStyle {
+    var copy = self
+    copy.font = NativeTranscriptMarkdownRenderer.strongFont(from: font)
+    return copy
+  }
+
   func withLink(_ url: URL?) -> NativeTranscriptInlineStyle {
     var copy = self
     copy.linkURL = url
@@ -581,7 +604,7 @@ private final class NativeTranscriptMarkdownASTRenderer {
       appendText(
         " ",
         attributes: inlineAttributes(
-          font: .systemFont(ofSize: NSFont.systemFontSize),
+          font: .systemFont(ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize),
           paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle()
         )
       )
@@ -621,8 +644,10 @@ private final class NativeTranscriptMarkdownASTRenderer {
       renderInlineChildren(
         of: paragraph,
         style: InlineStyle(
-          font: .systemFont(ofSize: NSFont.systemFontSize),
-          paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle(spacingAfter: 3)
+          font: .systemFont(ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize),
+          paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle(
+            spacingAfter: NativeTranscriptMarkdownRenderer.bodyParagraphSpacing
+          )
         )
       )
 
@@ -652,8 +677,13 @@ private final class NativeTranscriptMarkdownASTRenderer {
       appendText(
         codeBlock.code,
         attributes: inlineAttributes(
-          font: .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
-          paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle(spacingAfter: 3)
+          font: .monospacedSystemFont(
+            ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize,
+            weight: .regular
+          ),
+          paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle(
+            spacingAfter: NativeTranscriptMarkdownRenderer.bodyParagraphSpacing
+          )
         )
       )
 
@@ -662,9 +692,11 @@ private final class NativeTranscriptMarkdownASTRenderer {
       appendText(
         "-----",
         attributes: inlineAttributes(
-          font: .systemFont(ofSize: NSFont.systemFontSize),
+          font: .systemFont(ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize),
           color: .secondaryLabelColor,
-          paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle(spacingAfter: 3)
+          paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle(
+            spacingAfter: NativeTranscriptMarkdownRenderer.bodyParagraphSpacing
+          )
         )
       )
 
@@ -713,7 +745,7 @@ private final class NativeTranscriptMarkdownASTRenderer {
         renderInlineChildren(
           of: paragraph,
           style: InlineStyle(
-            font: .systemFont(ofSize: NSFont.systemFontSize),
+            font: .systemFont(ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize),
             paragraphStyle: NativeTranscriptMarkdownRenderer.listParagraphStyle(
               indent: CGFloat(depth + 1) * 18
             )
@@ -777,8 +809,11 @@ private final class NativeTranscriptMarkdownASTRenderer {
     let cellResult = NSMutableAttributedString()
     let font: NSFont =
       isHeader
-      ? .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
-      : .systemFont(ofSize: NSFont.systemFontSize)
+      ? .systemFont(
+        ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize,
+        weight: .semibold
+      )
+      : .systemFont(ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize)
     let renderer = NativeTranscriptInlineAccumulator(
       result: cellResult,
       skillMentionContext: skillMentionContext
@@ -840,7 +875,7 @@ private final class NativeTranscriptMarkdownASTRenderer {
       appendText("\n", attributes: inlineAttributes(style: style))
 
     case let strong as Strong:
-      renderInlineChildren(of: strong, style: style.withFontTrait(.boldFontMask))
+      renderInlineChildren(of: strong, style: style.withStrongWeight())
 
     case let emphasis as Emphasis:
       renderInlineChildren(of: emphasis, style: style.withFontTrait(.italicFontMask))
@@ -868,8 +903,10 @@ private final class NativeTranscriptMarkdownASTRenderer {
   private func renderFallback(
     _ markup: Markup,
     style: InlineStyle = InlineStyle(
-      font: .systemFont(ofSize: NSFont.systemFontSize),
-      paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle(spacingAfter: 3)
+      font: .systemFont(ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize),
+      paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle(
+        spacingAfter: NativeTranscriptMarkdownRenderer.bodyParagraphSpacing
+      )
     )
   ) {
     if let plain = markup as? any PlainTextConvertibleMarkup {
@@ -889,9 +926,11 @@ private final class NativeTranscriptMarkdownASTRenderer {
     appendText(
       prefix,
       attributes: inlineAttributes(
-        font: .systemFont(ofSize: NSFont.systemFontSize),
+        font: .systemFont(ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize),
         color: .secondaryLabelColor,
-        paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle(spacingAfter: 3)
+        paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle(
+          spacingAfter: NativeTranscriptMarkdownRenderer.bodyParagraphSpacing
+        )
       )
     )
   }
@@ -901,7 +940,7 @@ private final class NativeTranscriptMarkdownASTRenderer {
     appendText(
       "\(marker) ",
       attributes: inlineAttributes(
-        font: .systemFont(ofSize: NSFont.systemFontSize),
+        font: .systemFont(ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize),
         color: .secondaryLabelColor,
         paragraphStyle: NativeTranscriptMarkdownRenderer.listParagraphStyle(
           indent: CGFloat(depth + 1) * 18
@@ -996,6 +1035,12 @@ private final class NativeTranscriptMarkdownASTRenderer {
       return copy
     }
 
+    func withStrongWeight() -> InlineStyle {
+      var copy = self
+      copy.font = NativeTranscriptMarkdownRenderer.strongFont(from: font)
+      return copy
+    }
+
     func withLink(_ url: URL?) -> InlineStyle {
       var copy = self
       copy.linkURL = url
@@ -1086,7 +1131,9 @@ enum NativeMarkdownTableMetrics {
       attributedString.length == 0
       ? NSAttributedString(
         string: " ",
-        attributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]
+        attributes: [
+          .font: NSFont.systemFont(ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize)
+        ]
       )
       : attributedString
     let rect = measuredString.boundingRect(
@@ -1103,8 +1150,14 @@ enum NativeTranscriptCodeRenderer {
     let attributedString = NSMutableAttributedString(
       string: code,
       attributes: [
-        .font: NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
+        .font: NSFont.monospacedSystemFont(
+          ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize,
+          weight: .regular
+        ),
         .foregroundColor: NSColor.labelColor,
+        .paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle(
+          spacingAfter: NativeTranscriptMarkdownRenderer.bodyParagraphSpacing
+        ),
       ]
     )
     for span in highlightedCode.spans {

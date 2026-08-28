@@ -292,8 +292,11 @@ final class NativeAssistantMessageView: NSView {
     let attributedString = NSMutableAttributedString(
       string: source,
       attributes: [
-        .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
+        .font: NSFont.systemFont(ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize),
         .foregroundColor: NSColor.labelColor,
+        .paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle(
+          spacingAfter: NativeTranscriptMarkdownRenderer.bodyParagraphSpacing
+        ),
       ]
     )
     NativeTranscriptMarkdownRenderer.applyLinks(to: attributedString, sourceText: source)
@@ -602,8 +605,14 @@ final class NativeStreamingCodeBlockView: NSStackView {
     NSAttributedString(
       string: text,
       attributes: [
-        .font: NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
+        .font: NSFont.monospacedSystemFont(
+          ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize,
+          weight: .regular
+        ),
         .foregroundColor: NSColor.labelColor,
+        .paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle(
+          spacingAfter: NativeTranscriptMarkdownRenderer.bodyParagraphSpacing
+        ),
       ]
     )
   }

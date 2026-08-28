@@ -716,7 +716,10 @@ enum NativeReusableRowViewStyle {
       code: text,
       language: nil
     )
-    label.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+    label.font = .monospacedSystemFont(
+      ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize,
+      weight: .regular
+    )
     return label
   }
 

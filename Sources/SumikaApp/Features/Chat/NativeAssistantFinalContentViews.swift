@@ -189,7 +189,7 @@ final class NativeAssistantFinalContentView: NSView {
       let codeLabel = NativeReusableRowViewStyle.textLabel("")
       codeLabel.attributedStringValue = attributedCode
       codeLabel.font = .monospacedSystemFont(
-        ofSize: NSFont.systemFontSize,
+        ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize,
         weight: .regular
       )
       let codeView = NativeCodeBlockView(

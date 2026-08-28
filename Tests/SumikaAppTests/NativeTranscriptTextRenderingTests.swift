@@ -36,6 +36,31 @@ struct NativeTranscriptTextRenderingTests {
   }
 
   @Test
+  func markdownRendererUsesReadableBodyTypographyAndSemiboldEmphasis() throws {
+    let rendered = combinedTextBlocks(
+      NativeTranscriptMarkdownRenderer.blocks(for: "Regular text with **strong emphasis**.")
+    )
+
+    #expect(
+      rendered.font(inText: "Regular text")
+        == NSFont.systemFont(ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize)
+    )
+    #expect(
+      rendered.font(inText: "strong emphasis")
+        == NSFont.systemFont(
+          ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize,
+          weight: .semibold
+        )
+    )
+    let paragraphStyle = try #require(rendered.paragraphStyle(inText: "Regular text"))
+    #expect(paragraphStyle.lineSpacing == NativeTranscriptMarkdownRenderer.bodyLineSpacing)
+    #expect(
+      paragraphStyle.paragraphSpacing
+        == NativeTranscriptMarkdownRenderer.bodyParagraphSpacing
+    )
+  }
+
+  @Test
   func markdownRendererAddsLinkAttributes() {
     let rendered = combinedTextBlocks(
       NativeTranscriptMarkdownRenderer.blocks(
@@ -211,7 +236,10 @@ struct NativeTranscriptTextRenderingTests {
     #expect(rendered.foregroundColor(inText: "Code Review") == NSColor.linkColor)
     #expect(
       rendered.font(inText: "Code Review")
-        == NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+        == NSFont.systemFont(
+          ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize,
+          weight: .medium
+        )
     )
   }
 
@@ -409,6 +437,10 @@ struct NativeTranscriptTextRenderingTests {
 
     #expect(rendered.foregroundColor(inText: "let") == NSColor.systemPink)
     #expect(rendered.foregroundColor(inText: "\"hi\"") == NSColor.systemGreen)
+    #expect(
+      rendered.paragraphStyle(inText: "let")?.lineSpacing
+        == NativeTranscriptMarkdownRenderer.bodyLineSpacing
+    )
   }
 
   @Test
@@ -636,6 +668,10 @@ extension NSAttributedString {
 
   fileprivate func font(inText text: String) -> NSFont? {
     attribute(.font, inText: text) as? NSFont
+  }
+
+  fileprivate func paragraphStyle(inText text: String) -> NSParagraphStyle? {
+    attribute(.paragraphStyle, inText: text) as? NSParagraphStyle
   }
 
   fileprivate func hasFontTrait(_ trait: NSFontTraitMask, inText text: String) -> Bool {
