@@ -934,13 +934,7 @@ struct ConversationEngineTests {
     #expect(engine.chatSession.testMessages[1].kind == .assistant)
     #expect(engine.chatSession.testMessages[1].content == "hello world")
     #expect(engine.chatSession.testMessages[1].deliveryStatus == .complete)
-    #expect(
-      engine.chatSession.focusedFileState.activePath
-        == WorkspaceRelativePath(rawValue: "source.swift"))
-    #expect(engine.chatSession.focusedFileState.recentPaths.first?.source == .attachment)
-    #expect(
-      engine.chatSession.focusedFileState.snapshots[
-        WorkspaceRelativePath(rawValue: "source.swift")]?.excerpt == "let value = 1")
+    #expect(engine.chatSession.focusedFileState == .empty)
     #expect(engine.chatSession.turns.count == 1)
     #expect(engine.chatSession.turns[0].status == .completed)
     #expect(engine.chatSession.turns[0].modelContextPolicy == .included)
@@ -955,19 +949,22 @@ struct ConversationEngineTests {
     #expect(await runtime.capturedAttachments == [[attachment]])
     #expect(
       capturedMessages.first?.contains(where: { message in
-        message.role == .user && message.content.contains("Attached file: source.swift")
+        message.role == .user && message.content.contains("Chat attachment: source.swift")
       }) == true)
     let projection = ChatModelContextBuilder().transcript(from: engine.chatSession)
     #expect(projection.entries.map(\.frozenContent.role) == [.user, .assistant])
     #expect(
       projection.entries[0].frozenContent.content.contains(
-        "Attached file: source.swift"))
+        "Chat attachment: source.swift"))
     #expect(
       projection.entries[0].frozenContent.content.contains(
-        "Attached content excerpt:"))
+        "Complete attached text:"))
     #expect(
       projection.entries[0].frozenContent.content.contains(
-        "Attached context:") == false)
+        "not a workspace path"))
+    #expect(
+      projection.entries[0].frozenContent.content.contains(
+        "Do not call workspace file/search tools"))
     #expect(
       projection.entries[0].frozenContent.content.contains(
         "Explain this"))
@@ -979,13 +976,67 @@ struct ConversationEngineTests {
         Issue.record("Expected typed attached file current prompt context.")
         return
       }
-      #expect(attachedFile.path == WorkspaceRelativePath(rawValue: "source.swift"))
+      #expect(attachedFile.attachmentID == attachment.id)
       #expect(attachedFile.displayName == "source.swift")
       #expect(attachedFile.excerpt?.text == "let value = 1")
     } else {
       Issue.record("Expected first model-facing entry to be a user prompt.")
     }
     #expect(projection.entries[1].frozenContent.content == "hello world")
+  }
+
+  @Test
+  func sentDocumentMarkdownSurvivesSessionRoundTripWithBoundedPromptContext() async throws {
+    let fullMarkdown = String(repeating: "0123456789", count: 500)
+    let attachment = makeTextChatAttachment(
+      displayName: "report.docx",
+      content: fullMarkdown,
+      byteSize: 512,
+      contentSHA256: "original-docx-hash"
+    )
+    let engine = ConversationEngine(
+      runtime: ChatSessionFakeChatModelRuntime(chunks: ["done"]),
+      modelPath: "/tmp/model",
+      chatAttachmentLoader: FixtureAttachmentLoader(attachments: [attachment])
+    )
+    engine.modelRuntime.modelState = .ready
+    engine.addAttachments(from: [URL(filePath: "/tmp/report.docx")])
+    try await waitUntil {
+      engine.composerSessionState.pendingAttachments == [attachment]
+    }
+
+    try await engine.sendMessageInTestWorkspace(prompt: "Summarize this document")
+    try await waitUntil { !engine.isGenerating }
+
+    let encodedSession = try JSONEncoder().encode(engine.chatSession)
+    let decodedSession = try JSONDecoder().decode(ChatSession.self, from: encodedSession)
+    let firstItem = try #require(decodedSession.turns.first?.items.first)
+    guard case .userMessage(let userMessage) = firstItem else {
+      Issue.record("Expected persisted user message")
+      return
+    }
+    let decodedAttachment = try #require(userMessage.attachments.first)
+    #expect(decodedAttachment.content == fullMarkdown)
+    #expect(decodedAttachment.byteSize == 512)
+    #expect(decodedAttachment.contentSHA256 == "original-docx-hash")
+
+    guard case .selected(let selection) = userMessage.promptContext,
+      case .attachedFile(let attachedFile) = selection.blocks.values.first
+    else {
+      Issue.record("Expected persisted attached-file prompt context")
+      return
+    }
+    #expect(selection.budget.maxCharacters == 4_000)
+    #expect(selection.truncation == .byCharacterBudget)
+    #expect(attachedFile.attachmentID == attachment.id)
+    #expect(attachedFile.excerpt?.text == String(fullMarkdown.prefix(4_000)))
+    #expect(attachedFile.excerpt?.truncated == true)
+    let rendered = try #require(
+      CurrentPromptContextRenderer.renderSupportingContext(userMessage.promptContext).first
+    )
+    #expect(rendered.contains("DOCX-derived Markdown excerpt (incomplete):"))
+    #expect(rendered.contains("not a workspace path"))
+    #expect(rendered.contains("Workspace file/search tools cannot retrieve the rest."))
   }
 
   @Test
@@ -2123,7 +2174,7 @@ struct ConversationEngineTests {
   @Test
   func staleAttachmentLoadDoesNotAppendAfterNewerAttachmentRequest() async throws {
     let loader = BlockingFirstAttachmentLoader()
-    defer { loader.releaseFirstLoad() }
+    defer { Task { await loader.releaseFirstLoad() } }
     let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model",
@@ -2131,15 +2182,15 @@ struct ConversationEngineTests {
     )
 
     engine.addAttachments(from: [URL(filePath: "/tmp/first.swift")])
-    try await waitUntil { loader.startedCount == 1 }
+    try await waitUntilAsync { await loader.startedCount == 1 }
 
     engine.addAttachments(from: [URL(filePath: "/tmp/second.swift")])
     try await waitUntil {
       engine.composerSessionState.pendingAttachments.map(\.displayName) == ["second.swift"]
     }
 
-    loader.releaseFirstLoad()
-    try await waitUntil { loader.completedCount == 2 }
+    await loader.releaseFirstLoad()
+    try await waitUntilAsync { await loader.completedCount == 2 }
     await Task.yield()
 
     #expect(engine.composerSessionState.pendingAttachments.map(\.displayName) == ["second.swift"])

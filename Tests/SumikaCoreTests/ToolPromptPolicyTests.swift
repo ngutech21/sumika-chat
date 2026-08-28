@@ -35,6 +35,13 @@ struct ToolPromptPolicyTests {
         "Read existing files with read_file unless their current content is already in context."))
     #expect(
       prompt.contains(
+        "Chat attachments are supplied in prompt context, not workspace paths."))
+    #expect(
+      prompt.contains(
+        "Never use read_file, show_file, list_files, glob_files, or search_files for an attachment name."
+      ))
+    #expect(
+      prompt.contains(
         "Reuse current read, list, glob, or search results unless the relevant content changed."))
     #expect(prompt.contains("Use edit_file for targeted changes to existing files."))
     #expect(prompt.contains("Multiple edit_file calls may target one file in a response"))

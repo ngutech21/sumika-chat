@@ -533,7 +533,7 @@ nonisolated extension ToolDefinition {
   package static let readFile = ToolDefinition(
     name: .readFile,
     description:
-      "Read a workspace text file into your context to inspect, explain, summarize, reason about, or edit it. Use this before editing an existing file unless the exact current content is already visible.",
+      "Read a workspace text file into context to inspect, explain, summarize, reason about, or edit it. Cannot read chat attachments; use their supplied content directly. Read before editing unless exact current content is visible.",
     parameters: [
       ToolParameterDefinition(
         name: "path",

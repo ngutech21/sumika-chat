@@ -69,20 +69,17 @@ private enum FinalResponseRecovery {
 
 @MainActor
 struct ChatTurnExecutionCoordinator {
-  private let focusedFileReducer: FocusedFileStateReducer
   private let modelContextBuilder: ChatModelContextBuilder
   private let toolPromptPolicy: ToolPromptPolicy
   private let toolFollowUpNoticePolicy: ToolFollowUpNoticePolicy
   private let turnTracer: any TurnTracing
 
   init(
-    focusedFileReducer: FocusedFileStateReducer = FocusedFileStateReducer(),
     modelContextBuilder: ChatModelContextBuilder = ChatModelContextBuilder(),
     toolPromptPolicy: ToolPromptPolicy = ToolPromptPolicy(),
     toolFollowUpNoticePolicy: ToolFollowUpNoticePolicy = ToolFollowUpNoticePolicy(),
     turnTracer: any TurnTracing = NoopTurnTracer()
   ) {
-    self.focusedFileReducer = focusedFileReducer
     self.modelContextBuilder = modelContextBuilder
     self.toolPromptPolicy = toolPromptPolicy
     self.toolFollowUpNoticePolicy = toolFollowUpNoticePolicy
@@ -97,16 +94,10 @@ struct ChatTurnExecutionCoordinator {
     attachments: [ChatAttachment],
     activatedSkills: [ActivatedSkill],
     activatedSkillMentions: [ActivatedSkillMention],
-    workspace: Workspace?,
     interactionMode: WorkspaceInteractionMode,
     conversation: ConversationEngine
   ) {
     let session = conversation.chatSession
-    let focusedEvents = focusEventsForAttachments(
-      attachments,
-      workspace: workspace,
-      focusedFileState: session.focusedFileState
-    )
     let basePromptContext = modelContextBuilder.currentPromptContext(
       mode: interactionMode,
       focusedFileState: session.focusedFileState,
@@ -114,7 +105,7 @@ struct ChatTurnExecutionCoordinator {
     )
     let currentPromptContext = basePromptContext.appendingActivatedSkills(activatedSkills)
     conversation.applyWorkflowEvents(
-      focusedEvents + [
+      [
         .turnAppended(
           ChatTurn(
             id: turnID,
@@ -1073,22 +1064,6 @@ extension ChatTurnExecutionCoordinator {
     session: ChatSession
   ) -> Int {
     session.turns.first(where: { $0.id == turnID })?.toolCallBatchCount ?? 0
-  }
-
-  private func focusEventsForAttachments(
-    _ attachments: [ChatAttachment],
-    workspace: Workspace?,
-    focusedFileState: FocusedFileState
-  ) -> [ChatWorkflowEvent] {
-    let updatedState = focusedFileReducer.applyingAttachments(
-      attachments,
-      workspace: workspace,
-      to: focusedFileState
-    )
-    guard updatedState != focusedFileState else {
-      return []
-    }
-    return [.focusedFileStateChanged(updatedState)]
   }
 
   private func traceTurnPhase(

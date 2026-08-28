@@ -314,20 +314,51 @@ package enum PromptContextBlock: Codable, Equatable, Sendable {
 }
 
 package struct AttachedFilePromptContext: Codable, Equatable, Sendable {
-  package let path: WorkspaceRelativePath
+  package let attachmentID: AttachmentID?
   package let displayName: String
   package let contentHash: String
   package let excerpt: PromptContextExcerpt?
   package let isEmpty: Bool
 
+  private enum CodingKeys: String, CodingKey {
+    case attachmentID
+    case displayName
+    case contentHash
+    case excerpt
+    case isEmpty
+    case path
+  }
+
+  package init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    attachmentID = try container.decodeIfPresent(AttachmentID.self, forKey: .attachmentID)
+    let legacyPath = try container.decodeIfPresent(WorkspaceRelativePath.self, forKey: .path)
+    displayName =
+      try container.decodeIfPresent(String.self, forKey: .displayName)
+      ?? legacyPath?.rawValue
+      ?? ""
+    contentHash = try container.decode(String.self, forKey: .contentHash)
+    excerpt = try container.decodeIfPresent(PromptContextExcerpt.self, forKey: .excerpt)
+    isEmpty = try container.decode(Bool.self, forKey: .isEmpty)
+  }
+
+  package func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encodeIfPresent(attachmentID, forKey: .attachmentID)
+    try container.encode(displayName, forKey: .displayName)
+    try container.encode(contentHash, forKey: .contentHash)
+    try container.encodeIfPresent(excerpt, forKey: .excerpt)
+    try container.encode(isEmpty, forKey: .isEmpty)
+  }
+
   private init(
-    path: WorkspaceRelativePath,
+    attachmentID: AttachmentID,
     displayName: String,
     contentHash: String,
     excerpt: PromptContextExcerpt?,
     isEmpty: Bool
   ) {
-    self.path = path
+    self.attachmentID = attachmentID
     self.displayName = displayName
     self.contentHash = contentHash
     self.excerpt = excerpt
@@ -335,14 +366,14 @@ package struct AttachedFilePromptContext: Codable, Equatable, Sendable {
   }
 
   fileprivate static func make(
-    path: WorkspaceRelativePath,
+    attachmentID: AttachmentID,
     displayName: String,
     contentHash: String,
     excerpt: PromptContextExcerpt?,
     isEmpty: Bool
   ) -> AttachedFilePromptContext {
     AttachedFilePromptContext(
-      path: path,
+      attachmentID: attachmentID,
       displayName: displayName,
       contentHash: contentHash,
       excerpt: excerpt,
@@ -516,7 +547,7 @@ internal struct CurrentPromptContextSelector: Sendable {
     }
 
     let ambiguousPaths = focusedFileState.recentPaths
-      .filter { $0.confidence == .ambiguous }
+      .filter { $0.confidence == .ambiguous && $0.source != .attachment }
       .prefix(3)
       .map(\.path)
     guard
@@ -553,7 +584,7 @@ internal struct CurrentPromptContextSelector: Sendable {
         )
       return PromptContextBlock.attachedFile(
         .make(
-          path: WorkspaceRelativePath(rawValue: input.displayName),
+          attachmentID: input.id,
           displayName: input.displayName,
           contentHash: Self.contentHash(for: input.content),
           excerpt: excerpt,
@@ -638,6 +669,7 @@ internal struct CurrentPromptContextSelector: Sendable {
     }
 
     return AttachmentContextInput(
+      id: attachment.id,
       displayName: displayName,
       content: attachment.content
     )
@@ -649,6 +681,7 @@ internal struct CurrentPromptContextSelector: Sendable {
   }
 
   private struct AttachmentContextInput {
+    let id: AttachmentID
     let displayName: String
     let content: String
   }
@@ -759,26 +792,49 @@ internal enum CurrentPromptContextRenderer {
 
   private static func renderAttachedFile(_ context: AttachedFilePromptContext) -> String {
     var lines = [
-      "Attached file: \(context.path.rawValue)"
+      "Chat attachment: \(context.displayName)",
+      "Source: chat attachment, not a workspace path.",
+      "Content hash: \(context.contentHash)",
     ]
-    if context.displayName != context.path.rawValue {
-      lines.append("Display name: \(context.displayName)")
-    }
-    lines.append("Content hash: \(context.contentHash)")
     if let excerpt = context.excerpt {
-      lines.append("Attached content excerpt:")
+      if excerpt.truncated {
+        lines.append(
+          isDOCXDisplayName(context.displayName)
+            ? "DOCX-derived Markdown excerpt (incomplete):"
+            : "Attached text excerpt (incomplete):"
+        )
+      } else {
+        lines.append(
+          isDOCXDisplayName(context.displayName)
+            ? "Complete DOCX-derived Markdown:"
+            : "Complete attached text:"
+        )
+      }
       lines.append(excerpt.text)
       if excerpt.truncated {
-        lines.append("Attached content excerpt was truncated to the current context budget.")
+        lines.append("The attachment content was truncated to the current context budget.")
+        lines.append("Workspace file/search tools cannot retrieve the rest.")
+        lines.append(
+          "Do not call read_file, show_file, list_files, glob_files, or search_files for this attachment."
+        )
+      } else {
+        lines.append(attachmentWorkspaceToolInstruction)
       }
     } else if context.isEmpty {
-      lines.append("Attached file is empty.")
+      lines.append("Attached content is empty.")
+      lines.append(attachmentWorkspaceToolInstruction)
+    } else {
+      lines.append("No attachment text is available in this prompt context.")
+      lines.append(attachmentWorkspaceToolInstruction)
     }
-    lines.append("Explicit file paths in the user request or tool call take precedence.")
     return lines.joined(separator: "\n")
   }
 
   private static func renderFullFocusedFile(_ context: FocusedFilePromptContext) -> String {
+    if context.source == .attachment {
+      return renderLegacyFocusedAttachment(context)
+    }
+
     var lines = [
       "Current focused file: \(context.path.rawValue)"
     ]
@@ -795,6 +851,38 @@ internal enum CurrentPromptContextRenderer {
     lines.append("Explicit file paths in the user request or tool call take precedence.")
     return lines.joined(separator: "\n")
   }
+
+  private static func renderLegacyFocusedAttachment(
+    _ context: FocusedFilePromptContext
+  ) -> String {
+    var lines = [
+      "Legacy chat attachment: \(context.path.rawValue)",
+      "Source: legacy chat attachment reference, not a workspace path.",
+    ]
+    if let excerpt = context.excerpt {
+      let isComplete = context.fullContentAvailable && !excerpt.truncated
+      lines.append(
+        isComplete
+          ? "Complete known attachment content:"
+          : "Known attachment content excerpt (incomplete):"
+      )
+      lines.append(excerpt.text.isEmpty ? "(empty attachment)" : excerpt.text)
+      if !isComplete {
+        lines.append("Workspace file/search tools cannot retrieve the rest.")
+      }
+    } else {
+      lines.append("No attachment text is available in this prompt context.")
+    }
+    lines.append(attachmentWorkspaceToolInstruction)
+    return lines.joined(separator: "\n")
+  }
+
+  private static func isDOCXDisplayName(_ displayName: String) -> Bool {
+    displayName.lowercased().hasSuffix(".docx")
+  }
+
+  private static let attachmentWorkspaceToolInstruction =
+    "Use this content directly. Do not call workspace file/search tools (read_file, show_file, list_files, glob_files, or search_files) for this attachment."
 
   private static func renderCompactFocusedFile(_ context: FocusedFilePromptContext) -> String {
     """

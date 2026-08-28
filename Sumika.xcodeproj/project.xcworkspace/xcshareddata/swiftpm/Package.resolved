@@ -2,6 +2,15 @@
   "originHash" : "d3925b279120c6fb191313ddd9645d5f545a7509662538c82a1600037ba16927",
   "pins" : [
     {
+      "identity" : "anydoc-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ngutech21/anydoc-swift.git",
+      "state" : {
+        "revision" : "43d336854116d1667a3a512b71c040957ec8d9f8",
+        "version" : "0.1.4"
+      }
+    },
+    {
       "identity" : "eventsource",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/mattt/EventSource.git",

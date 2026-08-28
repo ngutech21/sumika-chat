@@ -26,8 +26,8 @@ extension MLXGenerationInput {
 @Suite(TemporaryDirectoryTrait(named: "sumika-mlx-history-tests"))
 struct MLXHistoryRendererTests {
   @Test(arguments: EXIFOrientationExpectation.allCases)
-  func imageInputsNormalizeEXIFOrientation(_ expectation: EXIFOrientationExpectation) throws {
-    let fixture = try storedImageFixture(exifOrientation: expectation.rawValue)
+  func imageInputsNormalizeEXIFOrientation(_ expectation: EXIFOrientationExpectation) async throws {
+    let fixture = try await storedImageFixture(exifOrientation: expectation.rawValue)
     let storedDataBeforeProjection = try Data(contentsOf: fixture.storedURL)
     let storedHashBeforeProjection = ChatAttachmentStore.contentSHA256(
       for: storedDataBeforeProjection
@@ -59,8 +59,8 @@ struct MLXHistoryRendererTests {
   }
 
   @Test
-  func imageInputsRejectUndecodableStoredImage() throws {
-    let fixture = try storedImageFixture(
+  func imageInputsRejectUndecodableStoredImage() async throws {
+    let fixture = try await storedImageFixture(
       data: Data("not an image".utf8),
       displayName: "broken.jpg"
     )
@@ -83,8 +83,8 @@ struct MLXHistoryRendererTests {
   }
 
   @Test
-  func imageInputsRejectChangedStoredImageBeforeDecode() throws {
-    let fixture = try storedImageFixture(exifOrientation: 1)
+  func imageInputsRejectChangedStoredImageBeforeDecode() async throws {
+    let fixture = try await storedImageFixture(exifOrientation: 1)
     try Data("changed after attachment".utf8).write(to: fixture.storedURL)
 
     do {
@@ -1166,7 +1166,7 @@ struct MLXHistoryRendererTests {
     ) + input.promptMessages
   }
 
-  private func storedImageFixture(exifOrientation: Int) throws -> StoredImageFixture {
+  private func storedImageFixture(exifOrientation: Int) async throws -> StoredImageFixture {
     let directoryURL = try scopedTemporaryDirectory()
       .appending(path: UUID().uuidString, directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -1178,8 +1178,8 @@ struct MLXHistoryRendererTests {
     let data = try Data(contentsOf: sourceURL)
     let store = ChatAttachmentStore(baseURL: directoryURL.appending(path: "attachments"))
     let id = AttachmentID()
-    let storedURL = try store.storeFile(
-      from: sourceURL,
+    let storedURL = try await store.storeFile(
+      data: data,
       id: id,
       displayName: sourceURL.lastPathComponent
     )
@@ -1201,7 +1201,9 @@ struct MLXHistoryRendererTests {
     )
   }
 
-  private func storedImageFixture(data: Data, displayName: String) throws -> StoredImageFixture {
+  private func storedImageFixture(data: Data, displayName: String) async throws
+    -> StoredImageFixture
+  {
     let directoryURL = try scopedTemporaryDirectory()
       .appending(path: UUID().uuidString, directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -1209,7 +1211,7 @@ struct MLXHistoryRendererTests {
     try data.write(to: sourceURL)
     let store = ChatAttachmentStore(baseURL: directoryURL.appending(path: "attachments"))
     let id = AttachmentID()
-    let storedURL = try store.storeFile(from: sourceURL, id: id, displayName: displayName)
+    let storedURL = try await store.storeFile(data: data, id: id, displayName: displayName)
     let attachment = ChatAttachment(
       id: id,
       displayName: displayName,

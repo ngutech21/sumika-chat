@@ -40,7 +40,7 @@ nonisolated extension ToolDefinition {
   package static let globFiles = ToolDefinition(
     name: .globFiles,
     description:
-      "Find workspace files by glob pattern. Use this when the target path or file type is unknown but a filename pattern is known.",
+      "Find workspace files by glob pattern; chat attachments are unavailable. Use when the workspace path or file type is unknown but a filename pattern is known.",
     parameters: [
       ToolParameterDefinition(
         name: "pattern",

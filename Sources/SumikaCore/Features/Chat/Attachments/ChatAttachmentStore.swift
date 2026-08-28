@@ -5,29 +5,46 @@ import Foundation
 
 package struct ChatAttachmentStore: Sendable {
   package let baseURL: URL
+  private let writeFile: @Sendable (Data, URL) async throws -> Void
 
   package init(baseURL: URL = LocalAttachmentDirectory.defaultBaseURL) {
     self.baseURL = baseURL
+    self.writeFile = { data, destinationURL in
+      try await Self.writeAtomically(data, to: destinationURL)
+    }
+  }
+
+  init(
+    baseURL: URL,
+    writeFile: @escaping @Sendable (Data, URL) async throws -> Void
+  ) {
+    self.baseURL = baseURL
+    self.writeFile = writeFile
   }
 
   package func storeFile(
-    from sourceURL: URL,
+    data: Data,
     id: AttachmentID,
     displayName: String
-  ) throws -> URL {
-    let fileManager = FileManager.default
+  ) async throws -> URL {
     let directoryURL = directoryURL(for: id)
-    try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-
     let destinationURL = directoryURL.appending(
       path: storedFileName(for: displayName),
       directoryHint: .notDirectory
     )
-    if fileManager.fileExists(atPath: destinationURL.path(percentEncoded: false)) {
-      try fileManager.removeItem(at: destinationURL)
+
+    do {
+      try Task.checkCancellation()
+      try await writeFile(data, destinationURL)
+      try Task.checkCancellation()
+      return destinationURL
+    } catch {
+      await removeStoredFile(at: destinationURL, directoryURL: directoryURL)
+      if error is CancellationError {
+        throw CancellationError()
+      }
+      throw error
     }
-    try fileManager.copyItem(at: sourceURL, to: destinationURL)
-    return destinationURL
   }
 
   package func localURL(for id: AttachmentID) throws -> URL {
@@ -73,5 +90,40 @@ package struct ChatAttachmentStore: Sendable {
       .replacingOccurrences(of: ":", with: "-")
       .trimmingCharacters(in: .whitespacesAndNewlines)
     return sanitized.isEmpty ? "attachment" : sanitized
+  }
+
+  private static func writeAtomically(_ data: Data, to destinationURL: URL) async throws {
+    let storeTask = Task.detached(priority: .userInitiated) {
+      try Task.checkCancellation()
+      try FileManager.default.createDirectory(
+        at: destinationURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      try data.write(to: destinationURL, options: .atomic)
+    }
+    try await withTaskCancellationHandler {
+      try await storeTask.value
+    } onCancel: {
+      storeTask.cancel()
+    }
+  }
+
+  private func removeStoredFile(at destinationURL: URL, directoryURL: URL) async {
+    let cleanupTask = Task.detached(priority: .utility) {
+      let fileManager = FileManager.default
+      if fileManager.fileExists(atPath: destinationURL.path(percentEncoded: false)) {
+        try? fileManager.removeItem(at: destinationURL)
+      }
+      if let remainingFiles = try? fileManager.contentsOfDirectory(
+        at: directoryURL,
+        includingPropertiesForKeys: nil,
+        options: []
+      ),
+        remainingFiles.isEmpty
+      {
+        try? fileManager.removeItem(at: directoryURL)
+      }
+    }
+    await cleanupTask.value
   }
 }

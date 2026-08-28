@@ -2,7 +2,7 @@ nonisolated extension ToolDefinition {
   package static let showFile = ToolDefinition(
     name: .showFile,
     description:
-      "Show a workspace file directly to the user without loading its contents into your model context. Use only when the user wants to view/open the file, not when you need to reason about its contents.",
+      "Show a workspace file directly to the user without loading it into model context. Cannot show chat attachments. Use only to view or open a workspace file, not to reason about it.",
     parameters: [
       ToolParameterDefinition(
         name: "path",

@@ -8,11 +8,6 @@ enum ChatAttachmentEvent: Equatable, Sendable {
 @MainActor
 final class ChatAttachmentCoordinator {
   private let loader: any ChatAttachmentLoading
-  private let loadQueue = DispatchQueue(
-    label: "chat.sumika.chat-attachments.load",
-    qos: .userInitiated,
-    attributes: .concurrent
-  )
   private var loadTask: Task<Void, Never>?
   private var loadRequestID = UUID()
 
@@ -39,15 +34,18 @@ final class ChatAttachmentCoordinator {
     loadRequestID = requestID
     loadTask?.cancel()
     let loader = loader
-    let loadQueue = loadQueue
 
     loadTask = Task {
+      defer {
+        Self.removeAppOwnedPasteboardTempFiles(from: urls)
+        if requestID == loadRequestID {
+          loadTask = nil
+        }
+      }
       do {
-        let attachments = try await Self.loadAttachments(
+        let attachments = try await loader.loadAttachments(
           from: urls,
-          existingAttachments: existingAttachments,
-          loader: loader,
-          loadQueue: loadQueue
+          existingAttachments: existingAttachments
         )
         guard !Task.isCancelled, requestID == loadRequestID else {
           return
@@ -59,33 +57,6 @@ final class ChatAttachmentCoordinator {
           return
         }
         onEvent(.error(error.localizedDescription))
-      }
-
-      if requestID == loadRequestID {
-        loadTask = nil
-      }
-    }
-  }
-
-  private nonisolated static func loadAttachments(
-    from urls: [URL],
-    existingAttachments: [ChatAttachment],
-    loader: any ChatAttachmentLoading,
-    loadQueue: DispatchQueue
-  ) async throws -> [ChatAttachment] {
-    try await withCheckedThrowingContinuation { continuation in
-      loadQueue.async {
-        do {
-          let attachments = try loader.loadAttachments(
-            from: urls,
-            existingAttachments: existingAttachments
-          )
-          removeAppOwnedPasteboardTempFiles(from: urls)
-          continuation.resume(returning: attachments)
-        } catch {
-          removeAppOwnedPasteboardTempFiles(from: urls)
-          continuation.resume(throwing: error)
-        }
       }
     }
   }

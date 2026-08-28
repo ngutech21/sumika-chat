@@ -171,7 +171,7 @@ struct WorkspaceChatComposerHost: View {
     panel.canChooseDirectories = false
     panel.allowsMultipleSelection = true
     panel.canCreateDirectories = false
-    panel.message = "Choose text files to add as model context."
+    panel.message = "Choose text, image, or DOCX files to add as model context."
     panel.prompt = "Add"
 
     if panel.runModal() == .OK {
