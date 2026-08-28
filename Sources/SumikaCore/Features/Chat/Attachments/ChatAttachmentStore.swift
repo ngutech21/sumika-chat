@@ -114,7 +114,11 @@ package struct ChatAttachmentStore: Sendable {
       if fileManager.fileExists(atPath: destinationURL.path(percentEncoded: false)) {
         try? fileManager.removeItem(at: destinationURL)
       }
-      if let remainingFiles = try? fileManager.contentsOfDirectory(atPath: directoryURL.path()),
+      if let remainingFiles = try? fileManager.contentsOfDirectory(
+        at: directoryURL,
+        includingPropertiesForKeys: nil,
+        options: []
+      ),
         remainingFiles.isEmpty
       {
         try? fileManager.removeItem(at: directoryURL)

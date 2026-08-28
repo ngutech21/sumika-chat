@@ -235,7 +235,7 @@ struct ChatAttachmentLoaderTests {
   func loadAttachmentsDoesNotReturnDocumentCancelledDuringStorage() async throws {
     let writer = BlockingAttachmentFileWriter()
     let attachmentStore = ChatAttachmentStore(
-      baseURL: try makeTemporaryDirectory().appending(path: "attachments"),
+      baseURL: try makeTemporaryDirectory().appending(path: "attachment storage"),
       writeFile: { data, destinationURL in
         try await writer.write(data, to: destinationURL)
       }
