@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.9.0](https://github.com/ngutech21/sumika-chat/compare/v1.8.0...v1.9.0) (2026-08-28)
+
+
+### Features
+
+* add debug-gated MLX memory tracing ([9fda3d0](https://github.com/ngutech21/sumika-chat/commit/9fda3d020977eb1a64b5ad559e84c71199b351f1)), closes [#225](https://github.com/ngutech21/sumika-chat/issues/225)
+* add first-valid multi-root skill discovery ([a064355](https://github.com/ngutech21/sumika-chat/commit/a06435571a1afcf2361045621ef1dc5a4f22a3b4))
+* add selectable reasoning effort levels ([935d73e](https://github.com/ngutech21/sumika-chat/commit/935d73ee59fef21bb9c82f69d8d5bbe2909ad5f2))
+* add support for skill mentions in user messages ([c2d0c36](https://github.com/ngutech21/sumika-chat/commit/c2d0c36c1185f50efd996a109263d4662981deba))
+* centralize model generation settings ([f9fbb2b](https://github.com/ngutech21/sumika-chat/commit/f9fbb2bc6ee9acda4d539ef1af968012baca843d))
+* enhance content classification for CSS and TypeScript, add new test cases ([0b8e82c](https://github.com/ngutech21/sumika-chat/commit/0b8e82c6b4fe850708e0949d371bdfee5ef5885c))
+* implement link opening functionality in transcript views ([56e25dd](https://github.com/ngutech21/sumika-chat/commit/56e25dd93cb50dc62a02194afbd1dc4489b55dea))
+* set Qwen 3.8 reasoning effort to medium ([ea22cf1](https://github.com/ngutech21/sumika-chat/commit/ea22cf18c717630adbeecbbde5a88f52db5bfc55))
+* support DOCX chat attachments ([#228](https://github.com/ngutech21/sumika-chat/issues/228)) ([98b3c22](https://github.com/ngutech21/sumika-chat/commit/98b3c221c25e0f6aeea111279bbba08d4aa2db2c))
+
+
+### Bug Fixes
+
+* add viewport width change handling and update streaming revision test for scroller styles ([fde9901](https://github.com/ngutech21/sumika-chat/commit/fde9901562eb41c1c623f2b029353463058bfeac))
+* correct formatting of FluidAudio package URL ([c32613f](https://github.com/ngutech21/sumika-chat/commit/c32613fb2111c7bf04b21aa2826192478e79d78b))
+* enhance download progress reporting in model downloader tests ([019385c](https://github.com/ngutech21/sumika-chat/commit/019385c217f33fcbba4a4211b24fb97b40bc64a9))
+* enhance scroll view behavior and add viewport width handling ([86b93e1](https://github.com/ngutech21/sumika-chat/commit/86b93e179c20012300e3de1f75df14a59a94c12e))
+* improve transcript readability ([48969d4](https://github.com/ngutech21/sumika-chat/commit/48969d4bed841e8223e2556f63a485be0f115941))
+* make new image attachments clickable ([81abfc0](https://github.com/ngutech21/sumika-chat/commit/81abfc03ab1692d64c88485f946c68c6f2c4f120))
+* normalize EXIF orientation before VLM image inference ([a18e8b8](https://github.com/ngutech21/sumika-chat/commit/a18e8b8bdd8c8b3aab07e39e3b2113b882eb1873)), closes [#224](https://github.com/ngutech21/sumika-chat/issues/224)
+* prevent Markdown responses from being misclassified as raw code ([ccab9c3](https://github.com/ngutech21/sumika-chat/commit/ccab9c3e0ff2ddb2238f19462ac7765579df47c1)), closes [#182](https://github.com/ngutech21/sumika-chat/issues/182)
+* restore notarized release builds ([0e8939d](https://github.com/ngutech21/sumika-chat/commit/0e8939d8b1760025947032345629958109150714))
+* set explicit width constraint for standalone cell in transcript tests ([d18f1e1](https://github.com/ngutech21/sumika-chat/commit/d18f1e144bf45ea0baa3b363646540c417ed5670))
+* set max tokens to 32k for qwen models ([125ef39](https://github.com/ngutech21/sumika-chat/commit/125ef3918e743f37c899e150a94c1261aec2d10e))
+
+
+### Performance Improvements
+
+* instrument streaming flush cadence ([3c1fd15](https://github.com/ngutech21/sumika-chat/commit/3c1fd15b5663448475372dff96b1d8828c88757f)), closes [#226](https://github.com/ngutech21/sumika-chat/issues/226)
+* isolate resource monitor updates to sidebar footer ([2bfac22](https://github.com/ngutech21/sumika-chat/commit/2bfac228bcbbed26c4d5b8b19c029cedcfa6adb9))
+* reduce transcript scrolling CPU usage ([4f0a3af](https://github.com/ngutech21/sumika-chat/commit/4f0a3af8750cfe3fcef4906b0b51721aa088c775))
+
 ## [1.8.0](https://github.com/ngutech21/sumika-chat/compare/v1.7.0...v1.8.0) (2026-08-22)
 
 
