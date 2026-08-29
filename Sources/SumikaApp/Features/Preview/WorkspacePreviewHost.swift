@@ -12,15 +12,30 @@ struct WorkspacePreviewHost: View {
       let _ = Self._printChanges()
     #endif
 
-    previewContent
-      .onChange(of: previewState.htmlPreviewRequestID) {
-        resetHTMLPreviewConsole()
+    ZStack {
+      previewContent
+    }
+    .onChange(of: previewState.htmlPreviewRequestID) {
+      resetHTMLPreviewConsole()
+    }
+    .onChange(of: previewState.preview) { previousPreview, currentPreview in
+      resetHTMLPreviewConsole()
+      guard previousPreview?.isHTML == true,
+        currentPreview != nil,
+        currentPreview?.isHTML != true
+      else {
+        return
       }
+      Task {
+        await browserToolService.clear()
+      }
+    }
   }
 
   @ViewBuilder
   private var previewContent: some View {
-    if let htmlPreview = previewState.htmlPreview {
+    switch previewState.preview {
+    case .html(let htmlPreview):
       HTMLPreviewPane(
         preview: htmlPreview,
         refreshID: htmlPreviewRefreshID,
@@ -37,23 +52,34 @@ struct WorkspacePreviewHost: View {
         },
         onClose: {
           resetHTMLPreviewConsole()
-          previewState.closeHTMLPreview()
+          previewState.closePreview()
           Task {
             await browserToolService.clear()
           }
         }
       )
       .transition(.move(edge: .trailing).combined(with: .opacity))
-    }
 
-    if let filePreview = previewState.filePreview {
+    case .file(let filePreview):
       FilePreviewPane(
         preview: filePreview,
         onClose: {
-          previewState.closeFilePreview()
+          previewState.closePreview()
         }
       )
       .transition(.move(edge: .trailing).combined(with: .opacity))
+
+    case .skill(let skillPreview):
+      SkillPreviewPane(
+        preview: skillPreview,
+        onClose: {
+          previewState.closePreview()
+        }
+      )
+      .transition(.move(edge: .trailing).combined(with: .opacity))
+
+    case nil:
+      EmptyView()
     }
   }
 

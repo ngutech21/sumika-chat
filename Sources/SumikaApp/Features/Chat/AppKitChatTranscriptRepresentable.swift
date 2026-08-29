@@ -16,6 +16,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
   // scroll clear of the floating composer that overlaps this view.
   let bottomContentInset: CGFloat
   let onToggleSpeech: (String, String) -> Void
+  let onOpenSkillPreview: (SkillPreviewRequest) -> Void
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
   let onApproveToolCallBatch: (ToolCallRecord.ID) -> Void
   let onResumeAutomaticApprovalBatch: (ToolCallRecord.ID) -> Void
@@ -29,7 +30,8 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       onDenyToolCall: onDenyToolCall,
       onAnswerAskUser: onAnswerAskUser,
       onApproveToolCallBatch: onApproveToolCallBatch,
-      onResumeAutomaticApprovalBatch: onResumeAutomaticApprovalBatch
+      onResumeAutomaticApprovalBatch: onResumeAutomaticApprovalBatch,
+      onOpenSkillPreview: onOpenSkillPreview
     )
   }
 
@@ -53,7 +55,8 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
         onDenyToolCall: onDenyToolCall,
         onAnswerAskUser: onAnswerAskUser,
         onApproveToolCallBatch: onApproveToolCallBatch,
-        onResumeAutomaticApprovalBatch: onResumeAutomaticApprovalBatch
+        onResumeAutomaticApprovalBatch: onResumeAutomaticApprovalBatch,
+        onOpenSkillPreview: onOpenSkillPreview
       )
       context.coordinator.applyBottomContentInset(bottomContentInset, to: scrollView)
       context.coordinator.update(
@@ -74,6 +77,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
 final class NativeChatTranscriptCoordinator: NSObject {
   private let section = NativeTranscriptSection.main
   private var onToggleSpeech: (String, String) -> Void
+  private var onOpenSkillPreview: (SkillPreviewRequest) -> Void
   private var onApproveToolCall: (ToolCallRecord.ID) -> Void
   private var onApproveToolCallBatch: (ToolCallRecord.ID) -> Void
   private var onResumeAutomaticApprovalBatch: (ToolCallRecord.ID) -> Void
@@ -114,9 +118,11 @@ final class NativeChatTranscriptCoordinator: NSObject {
     onDenyToolCall: @escaping (ToolCallRecord.ID) -> Void,
     onAnswerAskUser: @escaping (ToolCallRecord.ID, String) -> Void,
     onApproveToolCallBatch: @escaping (ToolCallRecord.ID) -> Void = { _ in },
-    onResumeAutomaticApprovalBatch: @escaping (ToolCallRecord.ID) -> Void = { _ in }
+    onResumeAutomaticApprovalBatch: @escaping (ToolCallRecord.ID) -> Void = { _ in },
+    onOpenSkillPreview: @escaping (SkillPreviewRequest) -> Void = { _ in }
   ) {
     self.onToggleSpeech = onToggleSpeech
+    self.onOpenSkillPreview = onOpenSkillPreview
     self.onApproveToolCall = onApproveToolCall
     self.onApproveToolCallBatch = onApproveToolCallBatch
     self.onResumeAutomaticApprovalBatch = onResumeAutomaticApprovalBatch
@@ -199,9 +205,11 @@ extension NativeChatTranscriptCoordinator {
     onDenyToolCall: @escaping (ToolCallRecord.ID) -> Void,
     onAnswerAskUser: @escaping (ToolCallRecord.ID, String) -> Void,
     onApproveToolCallBatch: @escaping (ToolCallRecord.ID) -> Void,
-    onResumeAutomaticApprovalBatch: @escaping (ToolCallRecord.ID) -> Void
+    onResumeAutomaticApprovalBatch: @escaping (ToolCallRecord.ID) -> Void,
+    onOpenSkillPreview: @escaping (SkillPreviewRequest) -> Void
   ) {
     self.onToggleSpeech = onToggleSpeech
+    self.onOpenSkillPreview = onOpenSkillPreview
     self.onApproveToolCall = onApproveToolCall
     self.onApproveToolCallBatch = onApproveToolCallBatch
     self.onResumeAutomaticApprovalBatch = onResumeAutomaticApprovalBatch
@@ -663,6 +671,9 @@ extension NativeChatTranscriptCoordinator {
           userMessageBlocks: makeUserMessageBlocksProvider(),
           openLink: { [weak self] url in
             self?.openLink(url)
+          },
+          openSkillPreview: { [weak self] request in
+            self?.onOpenSkillPreview(request)
           },
           highlightedCode: { [weak self] rowID, codeBlock in
             self?.codeHighlightStore.highlightedCode(rowID: rowID, codeBlock: codeBlock)
@@ -1704,6 +1715,9 @@ final class NativeChatMessageCellView: NSTableCellView {
     let userView = NativeUserMessageView(
       openLink: { [weak self] url in
         self?.actions?.openLink(url)
+      },
+      openSkillPreview: { [weak self] request in
+        self?.actions?.openSkillPreview(request)
       },
       makeAttachmentView: { [weak self] attachments, rowID, alignsTrailing in
         self?.makeAttachmentPreviews(

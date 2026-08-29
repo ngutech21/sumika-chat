@@ -7,6 +7,7 @@ struct ChatTranscriptHost: View {
   let appBehaviorSettings: AppBehaviorSettings
   let assistantSpeechService: AssistantSpeechService
   var bottomContentInset: CGFloat = 0
+  let onOpenSkillPreview: (SkillPreviewRequest) -> Void
 
   var body: some View {
     #if DEBUG
@@ -23,6 +24,7 @@ struct ChatTranscriptHost: View {
       appBehaviorSettings: appBehaviorSettings,
       assistantSpeechService: assistantSpeechService,
       bottomContentInset: bottomContentInset,
+      onOpenSkillPreview: onOpenSkillPreview,
       onApproveToolCall: { toolCallID in
         chatState.approveToolCall(id: toolCallID)
       },

@@ -69,6 +69,27 @@ struct NativeUserMessageRenderCache {
   }
 }
 
+final class NativeSkillPreviewLink: NSObject {
+  private static let linkURL: URL = {
+    guard let url = URL(string: "sumika-skill-preview://snapshot") else {
+      preconditionFailure("The internal Skill preview URL must be valid")
+    }
+    return url
+  }()
+
+  let request: SkillPreviewRequest
+  let url: URL
+
+  init(request: SkillPreviewRequest) {
+    self.request = request
+    url = Self.linkURL
+  }
+}
+
+extension NSAttributedString.Key {
+  static let skillPreviewLink = NSAttributedString.Key("chat.sumika.skillPreviewLink")
+}
+
 enum NativeMarkdownBlock {
   case text(NSAttributedString)
   case table(NativeMarkdownTable)
@@ -91,6 +112,24 @@ struct NativeMarkdownTableCell {
   var attributedString: NSAttributedString
 }
 
+private enum NativeMarkdownLinkPolicy {
+  case unrestricted
+  case webOnly
+
+  func url(for destination: String?) -> URL? {
+    guard let destination, let url = URL(string: destination) else {
+      return nil
+    }
+    guard self == .webOnly else {
+      return url
+    }
+    guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) else {
+      return nil
+    }
+    return url
+  }
+}
+
 enum NativeTranscriptMarkdownRenderer {
   static let bodyFontSize = NSFont.systemFontSize + 1
   static let bodyLineSpacing: CGFloat = 3
@@ -105,6 +144,10 @@ enum NativeTranscriptMarkdownRenderer {
 
   static func blocks(for markdown: String) -> [NativeMarkdownBlock] {
     renderMarkdown(markdown)
+  }
+
+  static func skillPreviewBlocks(for markdown: String) -> [NativeMarkdownBlock] {
+    renderMarkdown(markdown, linkPolicy: .webOnly)
   }
 
   static func linkifiedPlainText(_ text: String) -> NSAttributedString {
@@ -122,13 +165,15 @@ enum NativeTranscriptMarkdownRenderer {
 
   fileprivate static func renderMarkdown(
     _ markdown: String,
-    skillMentions: [ActivatedSkillMentionPresentation] = []
+    skillMentions: [ActivatedSkillMentionPresentation] = [],
+    linkPolicy: NativeMarkdownLinkPolicy = .unrestricted
   ) -> [NativeMarkdownBlock] {
     let source = markdown.isEmpty ? " " : markdown
     let document = Document(parsing: source)
     let renderer = NativeTranscriptMarkdownASTRenderer(
       source: source,
-      skillMentions: skillMentions
+      skillMentions: skillMentions,
+      linkPolicy: linkPolicy
     )
     return renderer.renderBlocks(document)
   }
@@ -311,7 +356,7 @@ private struct NativeSkillMentionRenderingContext {
       }
       result.append(
         Self.attributedSkillReference(
-          displayName: renderedMention.presentation.displayName,
+          presentation: renderedMention.presentation,
           tooltip: renderedMention.presentation.tooltip,
           paragraphStyle: paragraphStyle
         )
@@ -386,10 +431,11 @@ private struct NativeSkillMentionRenderingContext {
   }
 
   private static func attributedSkillReference(
-    displayName: String,
+    presentation: ActivatedSkillMentionPresentation,
     tooltip: String,
     paragraphStyle: NSParagraphStyle
   ) -> NSAttributedString {
+    let displayName = presentation.displayName
     let font = NSFont.systemFont(
       ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize,
       weight: .medium
@@ -418,9 +464,28 @@ private struct NativeSkillMentionRenderingContext {
       range: NSRange(location: 0, length: result.length)
     )
     result.addAttribute(.toolTip, value: tooltip, range: NSRange(location: 0, length: 1))
+    let previewLink = NativeSkillPreviewLink(
+      request: SkillPreviewRequest(
+        skill: presentation.skill,
+        displayName: presentation.displayName
+      ))
+    result.addAttributes(
+      [
+        .link: previewLink.url,
+        .skillPreviewLink: previewLink,
+      ],
+      range: NSRange(location: 0, length: 1)
+    )
     result.addAttribute(
       .toolTip,
       value: tooltip,
+      range: NSRange(location: 2, length: (displayName as NSString).length)
+    )
+    result.addAttributes(
+      [
+        .link: previewLink.url,
+        .skillPreviewLink: previewLink,
+      ],
       range: NSRange(location: 2, length: (displayName as NSString).length)
     )
     return result
@@ -451,13 +516,16 @@ private func appendMarkdownText(
 private final class NativeTranscriptInlineAccumulator {
   private let result: NSMutableAttributedString
   private let skillMentionContext: NativeSkillMentionRenderingContext?
+  private let linkPolicy: NativeMarkdownLinkPolicy
 
   init(
     result: NSMutableAttributedString,
-    skillMentionContext: NativeSkillMentionRenderingContext? = nil
+    skillMentionContext: NativeSkillMentionRenderingContext? = nil,
+    linkPolicy: NativeMarkdownLinkPolicy = .unrestricted
   ) {
     self.result = result
     self.skillMentionContext = skillMentionContext
+    self.linkPolicy = linkPolicy
   }
 
   func renderInlineChildren(of markup: Markup, style: NativeTranscriptInlineStyle) {
@@ -502,12 +570,15 @@ private final class NativeTranscriptInlineAccumulator {
       renderInlineChildren(of: emphasis, style: style.withFontTrait(.italicFontMask))
 
     case let link as Link:
-      let linkStyle = style.withLink(URL(string: link.destination ?? ""))
+      let linkStyle = style.withLink(linkPolicy.url(for: link.destination))
       if link.isEmpty, let destination = link.destination {
         appendText(destination, attributes: inlineAttributes(style: linkStyle))
       } else {
         renderInlineChildren(of: link, style: linkStyle)
       }
+
+    case let image as Markdown.Image:
+      appendText(image.plainText, attributes: inlineAttributes(style: style))
 
     case let strikethrough as Strikethrough:
       renderInlineChildren(of: strikethrough, style: style.withStrikethrough())
@@ -589,12 +660,18 @@ private final class NativeTranscriptMarkdownASTRenderer {
   private var blocks: [NativeMarkdownBlock] = []
   private let textResult = NSMutableAttributedString()
   private let skillMentionContext: NativeSkillMentionRenderingContext?
+  private let linkPolicy: NativeMarkdownLinkPolicy
 
-  init(source: String, skillMentions: [ActivatedSkillMentionPresentation]) {
+  init(
+    source: String,
+    skillMentions: [ActivatedSkillMentionPresentation],
+    linkPolicy: NativeMarkdownLinkPolicy
+  ) {
     skillMentionContext =
       skillMentions.isEmpty
       ? nil
       : NativeSkillMentionRenderingContext(source: source, mentions: skillMentions)
+    self.linkPolicy = linkPolicy
   }
 
   func renderBlocks(_ document: Document) -> [NativeMarkdownBlock] {
@@ -816,7 +893,8 @@ private final class NativeTranscriptMarkdownASTRenderer {
       : .systemFont(ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize)
     let renderer = NativeTranscriptInlineAccumulator(
       result: cellResult,
-      skillMentionContext: skillMentionContext
+      skillMentionContext: skillMentionContext,
+      linkPolicy: linkPolicy
     )
     renderer.renderInlineChildren(
       of: cell,
@@ -881,12 +959,15 @@ private final class NativeTranscriptMarkdownASTRenderer {
       renderInlineChildren(of: emphasis, style: style.withFontTrait(.italicFontMask))
 
     case let link as Link:
-      let linkStyle = style.withLink(URL(string: link.destination ?? ""))
+      let linkStyle = style.withLink(linkPolicy.url(for: link.destination))
       if link.isEmpty, let destination = link.destination {
         appendText(destination, attributes: inlineAttributes(style: linkStyle))
       } else {
         renderInlineChildren(of: link, style: linkStyle)
       }
+
+    case let image as Markdown.Image:
+      appendText(image.plainText, attributes: inlineAttributes(style: style))
 
     case let strikethrough as Strikethrough:
       renderInlineChildren(of: strikethrough, style: style.withStrikethrough())

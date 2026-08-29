@@ -692,6 +692,7 @@ struct NativeTranscriptCellActions {
   var markdownBlocks: @MainActor (String) -> [NativeMarkdownBlock]
   var userMessageBlocks: @MainActor (String, Int, UserTurnMessage) -> [NativeMarkdownBlock]
   var openLink: @MainActor (URL) -> Void
+  var openSkillPreview: @MainActor (SkillPreviewRequest) -> Void = { _ in }
   var highlightedCode: @MainActor (String, AssistantRenderBlock.CodeBlock) -> HighlightedCode?
   var requestCodeHighlight: @MainActor (String, AssistantRenderBlock.CodeBlock) -> Void
   var attachmentThumbnail: @MainActor (ChatAttachment, Int) -> NSImage?

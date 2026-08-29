@@ -9,6 +9,7 @@ struct ChatTranscript: View {
   let appBehaviorSettings: AppBehaviorSettings
   let assistantSpeechService: AssistantSpeechService
   var bottomContentInset: CGFloat = 0
+  let onOpenSkillPreview: (SkillPreviewRequest) -> Void
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
   let onApproveToolCallBatch: (ToolCallRecord.ID) -> Void
   let onResumeAutomaticApprovalBatch: (ToolCallRecord.ID) -> Void
@@ -55,6 +56,7 @@ struct ChatTranscript: View {
             settings: appBehaviorSettings
           )
         },
+        onOpenSkillPreview: onOpenSkillPreview,
         onApproveToolCall: onApproveToolCall,
         onApproveToolCallBatch: onApproveToolCallBatch,
         onResumeAutomaticApprovalBatch: onResumeAutomaticApprovalBatch,

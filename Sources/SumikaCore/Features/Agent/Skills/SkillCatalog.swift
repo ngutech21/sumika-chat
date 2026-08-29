@@ -616,6 +616,21 @@ extension SkillCatalog {
     try? parseFrontmatter(skill.content, directoryName: skill.id.name).description
   }
 
+  package static func persistedMarkdownBody(in skill: ActivatedSkill) -> String? {
+    guard (try? parseFrontmatter(skill.content, directoryName: skill.id.name)) != nil else {
+      return nil
+    }
+    let normalized =
+      skill.content
+      .replacingOccurrences(of: "\r\n", with: "\n")
+      .replacingOccurrences(of: "\r", with: "\n")
+    let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
+    guard let closingIndex = lines.dropFirst().firstIndex(where: { $0 == "---" }) else {
+      return nil
+    }
+    return lines[lines.index(after: closingIndex)...].joined(separator: "\n")
+  }
+
   fileprivate static func readInterfaceMetadata(
     in canonicalSkillDirectoryURL: URL
   ) -> SkillInterfaceMetadata? {

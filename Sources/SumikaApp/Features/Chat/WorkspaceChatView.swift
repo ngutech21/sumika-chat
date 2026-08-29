@@ -100,8 +100,20 @@ struct WorkspaceChatView: View, Equatable {
         await browserToolService.clear()
       }
     }
+    .onChange(of: sessionID) {
+      closePreviewForChatChange()
+    }
+    .onChange(of: context.id) {
+      closePreviewForChatChange()
+    }
   }
 
+  private func closePreviewForChatChange() {
+    previewState.closePreview()
+    Task {
+      await browserToolService.clear()
+    }
+  }
 }
 
 private struct WorkspaceChatMainColumn: View, Equatable {
@@ -155,7 +167,10 @@ private struct WorkspaceChatMainColumn: View, Equatable {
           modelState: modelManagementState.state.modelState,
           appBehaviorSettings: appBehaviorSettings,
           assistantSpeechService: assistantSpeechService,
-          bottomContentInset: composerHeight
+          bottomContentInset: composerHeight,
+          onOpenSkillPreview: { request in
+            previewState.showSkillPreview(request)
+          }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
 

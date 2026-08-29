@@ -2,6 +2,7 @@ import AppKit
 import Testing
 
 @testable import SumikaApp
+@testable import SumikaCore
 
 @MainActor
 struct NativeTranscriptLinkInteractionTests {
@@ -40,5 +41,38 @@ struct NativeTranscriptLinkInteractionTests {
     textView.clicked(onLink: link, at: 0)
 
     #expect(openedURLs.isEmpty)
+  }
+
+  @Test
+  func clickingValidatedSkillLinkRequestsItsPersistedSnapshotPreview() {
+    let content = "---\nname: review\ndescription: Review changes.\n---\nPersisted instructions"
+    let request = SkillPreviewRequest(
+      skill: ActivatedSkill(
+        id: SkillID(scope: .project, name: "review"),
+        portablePath: ".agents/skills/review/SKILL.md",
+        contentHash: ChatAttachmentStore.contentSHA256(for: Data(content.utf8)),
+        content: content
+      ),
+      displayName: "Review"
+    )
+    var openedRequests: [SkillPreviewRequest] = []
+    let textView = NativeTranscriptTextView(
+      openLink: nil,
+      openSkillPreview: { openedRequests.append($0) }
+    )
+    let skillLink = NativeSkillPreviewLink(request: request)
+    textView.setAttributedText(
+      NSAttributedString(
+        string: "Review",
+        attributes: [
+          .link: skillLink.url,
+          .skillPreviewLink: skillLink,
+        ]
+      ))
+
+    textView.clicked(onLink: skillLink.url, at: 0)
+
+    #expect(openedRequests == [request])
+    #expect(openedRequests.first?.skill.content == content)
   }
 }

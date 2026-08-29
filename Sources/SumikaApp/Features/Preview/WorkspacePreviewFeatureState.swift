@@ -2,11 +2,23 @@ import Foundation
 import Observation
 import SumikaCore
 
+enum WorkspacePreview: Equatable {
+  case html(HTMLPreviewState)
+  case file(FilePreviewState)
+  case skill(SkillPreviewState)
+
+  var isHTML: Bool {
+    if case .html = self {
+      return true
+    }
+    return false
+  }
+}
+
 @MainActor
 @Observable
 final class WorkspacePreviewFeatureState {
-  var htmlPreview: HTMLPreviewState?
-  var filePreview: FilePreviewState?
+  private(set) var preview: WorkspacePreview?
   var htmlPreviewRequestID = UUID()
   private(set) var errorMessage: String?
 
@@ -22,15 +34,14 @@ final class WorkspacePreviewFeatureState {
   }
 
   var isVisible: Bool {
-    htmlPreview != nil || filePreview != nil
+    preview != nil
   }
 
   @discardableResult
   func showHTMLPreview(path: String, in workspace: Workspace) -> Bool {
     do {
-      htmlPreview = try htmlPreviewResolver.resolve(path: path, in: workspace)
+      preview = .html(try htmlPreviewResolver.resolve(path: path, in: workspace))
       htmlPreviewRequestID = UUID()
-      filePreview = nil
       errorMessage = nil
       return true
     } catch {
@@ -42,8 +53,7 @@ final class WorkspacePreviewFeatureState {
   @discardableResult
   func showFilePreview(path: String, in workspace: Workspace) -> Bool {
     do {
-      filePreview = try filePreviewResolver.resolve(path: path, in: workspace)
-      htmlPreview = nil
+      preview = .file(try filePreviewResolver.resolve(path: path, in: workspace))
       errorMessage = nil
       return true
     } catch {
@@ -52,15 +62,16 @@ final class WorkspacePreviewFeatureState {
     }
   }
 
+  func showSkillPreview(_ request: SkillPreviewRequest) {
+    preview = .skill(SkillPreviewState(request: request))
+    errorMessage = nil
+  }
+
   func clearError() {
     errorMessage = nil
   }
 
-  func closeHTMLPreview() {
-    htmlPreview = nil
-  }
-
-  func closeFilePreview() {
-    filePreview = nil
+  func closePreview() {
+    preview = nil
   }
 }

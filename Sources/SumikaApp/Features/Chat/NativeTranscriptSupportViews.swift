@@ -12,15 +12,21 @@ final class NativeTranscriptTableView: NSView {
   private var rows: [[NativeMarkdownTableCell]]
   private var labels: [[NativeTranscriptTextView]] = []
   private let openLink: (URL) -> Void
+  private let openSkillPreview: ((SkillPreviewRequest) -> Void)?
 
   override var isFlipped: Bool {
     true
   }
 
-  init(table: NativeMarkdownTable, openLink: @escaping (URL) -> Void) {
+  init(
+    table: NativeMarkdownTable,
+    openLink: @escaping (URL) -> Void,
+    openSkillPreview: ((SkillPreviewRequest) -> Void)? = nil
+  ) {
     self.table = table
     self.rows = NativeMarkdownTableMetrics.normalizedRows(for: table)
     self.openLink = openLink
+    self.openSkillPreview = openSkillPreview
     super.init(frame: .zero)
 
     wantsLayer = false
@@ -69,7 +75,10 @@ final class NativeTranscriptTableView: NSView {
     }
     labels = rows.map { row in
       row.map { cell in
-        let textView = NativeTranscriptTextView(openLink: openLink)
+        let textView = NativeTranscriptTextView(
+          openLink: openLink,
+          openSkillPreview: openSkillPreview
+        )
         textView.textContainer?.lineBreakMode = .byWordWrapping
         textView.setAttributedText(cell.attributedString)
         addSubview(textView)

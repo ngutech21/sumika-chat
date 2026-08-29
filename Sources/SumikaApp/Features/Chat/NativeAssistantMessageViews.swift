@@ -690,8 +690,16 @@ final class NativeTranscriptTextView: NSTextView, NSTextViewDelegate {
   // alive itself.
   private let retainedTextStorage: NSTextStorage
   private let openLink: ((URL) -> Void)?
+  private let openSkillPreview: ((SkillPreviewRequest) -> Void)?
 
-  init(openLink: ((URL) -> Void)? = nil) {
+  convenience init(openLink: ((URL) -> Void)? = nil) {
+    self.init(openLink: openLink, openSkillPreview: nil)
+  }
+
+  init(
+    openLink: ((URL) -> Void)?,
+    openSkillPreview: ((SkillPreviewRequest) -> Void)?
+  ) {
     let storage = NSTextStorage()
     let layoutManager = NSLayoutManager()
     let container = NSTextContainer(
@@ -703,6 +711,7 @@ final class NativeTranscriptTextView: NSTextView, NSTextViewDelegate {
     layoutManager.addTextContainer(container)
     retainedTextStorage = storage
     self.openLink = openLink
+    self.openSkillPreview = openSkillPreview
     super.init(frame: .zero, textContainer: container)
     delegate = self
     translatesAutoresizingMaskIntoConstraints = false
@@ -730,7 +739,18 @@ final class NativeTranscriptTextView: NSTextView, NSTextViewDelegate {
     fatalError("init(coder:) has not been implemented")
   }
 
-  func textView(_: NSTextView, clickedOnLink link: Any, at _: Int) -> Bool {
+  func textView(_: NSTextView, clickedOnLink link: Any, at characterIndex: Int) -> Bool {
+    if characterIndex >= 0,
+      characterIndex < retainedTextStorage.length,
+      let skillLink = retainedTextStorage.attribute(
+        .skillPreviewLink,
+        at: characterIndex,
+        effectiveRange: nil
+      ) as? NativeSkillPreviewLink
+    {
+      openSkillPreview?(skillLink.request)
+      return true
+    }
     guard let url = Self.webURL(from: link) else {
       return true
     }
@@ -787,7 +807,14 @@ final class NativeTranscriptTextView: NSTextView, NSTextViewDelegate {
 
     let fullRange = NSRange(location: 0, length: retainedTextStorage.length)
     retainedTextStorage.enumerateAttribute(.link, in: fullRange) { value, range, _ in
-      guard let value, Self.webURL(from: value) != nil else {
+      guard let value,
+        Self.webURL(from: value) != nil
+          || retainedTextStorage.attribute(
+            .skillPreviewLink,
+            at: range.location,
+            effectiveRange: nil
+          ) is NativeSkillPreviewLink
+      else {
         return
       }
       let glyphRange = layoutManager.glyphRange(

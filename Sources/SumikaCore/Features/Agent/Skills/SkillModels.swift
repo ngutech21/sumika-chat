@@ -348,6 +348,7 @@ package struct ActivatedSkillMentionPresentation: Equatable, Sendable {
   package let range: NSRange
   package let displayName: String
   package let tooltip: String
+  package let skill: ActivatedSkill
 }
 
 extension UserTurnMessage {
@@ -382,7 +383,8 @@ extension UserTurnMessage {
       return ActivatedSkillMentionPresentation(
         range: mention.range,
         displayName: skill.interfaceMetadata?.displayName ?? "$\(skill.id.name)",
-        tooltip: tooltip
+        tooltip: tooltip,
+        skill: skill
       )
     }
   }

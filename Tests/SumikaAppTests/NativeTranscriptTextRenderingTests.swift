@@ -202,6 +202,27 @@ struct NativeTranscriptTextRenderingTests {
   }
 
   @Test
+  func skillPreviewMarkdownAllowsOnlyWebLinksAndRendersImageAltText() throws {
+    let rendered = combinedTextBlocks(
+      NativeTranscriptMarkdownRenderer.skillPreviewBlocks(
+        for: "[Web](https://example.com) [Relative](guide.md) ![Diagram](https://example.com/a.png)"
+      )
+    )
+    let webRange = (rendered.string as NSString).range(of: "Web")
+    let relativeRange = (rendered.string as NSString).range(of: "Relative")
+    let imageRange = (rendered.string as NSString).range(of: "Diagram")
+
+    #expect(
+      rendered.attribute(.link, at: webRange.location, effectiveRange: nil) as? URL
+        == URL(string: "https://example.com")
+    )
+    #expect(rendered.attribute(.link, at: relativeRange.location, effectiveRange: nil) == nil)
+    #expect(imageRange.location != NSNotFound)
+    #expect(rendered.attribute(.attachment, at: imageRange.location, effectiveRange: nil) == nil)
+    #expect(rendered.attribute(.link, at: imageRange.location, effectiveRange: nil) == nil)
+  }
+
+  @Test
   func userMessageRendererProjectsSkillAsIconAndDisplayNameWithTooltip() throws {
     let tooltip = "Review a diff on standards and spec"
     let rendered = combinedTextBlocks(
@@ -230,7 +251,17 @@ struct NativeTranscriptTextRenderingTests {
       rendered.attribute(.toolTip, at: labelRange.location, effectiveRange: nil) as? String
         == tooltip)
     #expect(rendered.attribute(.toolTip, at: iconRange.location + 1, effectiveRange: nil) == nil)
-    #expect(rendered.attribute(.link, at: labelRange.location, effectiveRange: nil) == nil)
+    let previewLink = try #require(
+      rendered.attribute(.skillPreviewLink, at: labelRange.location, effectiveRange: nil)
+        as? NativeSkillPreviewLink
+    )
+    #expect(previewLink.request.displayName == "Code Review")
+    #expect(previewLink.request.skill.content.contains("Full review description."))
+    #expect(
+      (rendered.attribute(.link, at: iconRange.location, effectiveRange: nil) as? URL)?.scheme
+        == "sumika-skill-preview"
+    )
+    #expect(rendered.attribute(.link, at: iconRange.location + 1, effectiveRange: nil) == nil)
     #expect(
       rendered.attribute(.underlineStyle, at: labelRange.location, effectiveRange: nil) == nil)
     #expect(rendered.foregroundColor(inText: "Code Review") == NSColor.linkColor)

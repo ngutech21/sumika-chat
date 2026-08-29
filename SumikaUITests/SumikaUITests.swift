@@ -273,13 +273,22 @@ final class SumikaUITests: XCTestCase {
   }
 
   @MainActor
-  func testActivatedSkillRendersDisplayNameTooltipAndCopiesRawToken() throws {
+  func testActivatedSkillOpensSnapshotPreviewAndCopiesRawToken() throws {
     let tooltip = "Review a diff on standards and spec"
+    let skillBody = "# Review steps\n\n- Inspect the diff."
+    let rawSkillSource = """
+      ---
+      name: code-review
+      description: Review the current diff.
+      ---
+      \(skillBody)
+      """
     let fixture = try launchFixture(
       projectSkills: [
         UISkillFixture(
           name: "code-review",
           description: "Review the current diff.",
+          body: skillBody,
           displayName: "Code Review",
           shortDescription: tooltip
         )
@@ -302,19 +311,14 @@ final class SumikaUITests: XCTestCase {
     XCTAssertEqual(messageField.value as? String, rawMessage)
     application.buttons["send-button"].click()
 
-    let renderedSkill = application.staticTexts.matching(
-      NSPredicate(format: "value CONTAINS %@", "Code Review")
+    let renderedSkill = application.links.matching(
+      NSPredicate(
+        format: "label CONTAINS %@ OR value CONTAINS %@",
+        "Code Review",
+        "Code Review"
+      )
     ).firstMatch
     XCTAssertTrue(renderedSkill.waitForExistence(timeout: 10))
-    XCTAssertFalse(
-      application.links.matching(
-        NSPredicate(format: "value CONTAINS %@", "Code Review")
-      ).firstMatch.exists
-    )
-
-    let windowCount = application.windows.count
-    renderedSkill.click()
-    XCTAssertEqual(application.windows.count, windowCount)
 
     application.windows.firstMatch.coordinate(
       withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)
@@ -337,6 +341,40 @@ final class SumikaUITests: XCTestCase {
       },
       "Hovering the rendered skill should show its native tooltip window."
     )
+
+    renderedSkill.click()
+    let previewPane = application.descendants(matching: .any)["skill-preview-pane"]
+    XCTAssertTrue(previewPane.waitForExistence(timeout: 5))
+    XCTAssertEqual(application.staticTexts["skill-preview-title"].label, "Code Review")
+    XCTAssertEqual(
+      application.staticTexts["skill-preview-subtitle"].label,
+      "Used in this message · .agents/skills/code-review/SKILL.md"
+    )
+    XCTAssertTrue(
+      application.staticTexts.matching(
+        NSPredicate(format: "value CONTAINS %@", "Review steps")
+      ).firstMatch.waitForExistence(timeout: 5)
+    )
+    XCTAssertFalse(
+      application.staticTexts.matching(
+        NSPredicate(format: "value CONTAINS %@", "name: code-review")
+      ).firstMatch.exists
+    )
+
+    let skillCopyButton = application.buttons["skill-preview-copy-button"]
+    XCTAssertTrue(skillCopyButton.waitForExistence(timeout: 5))
+    skillCopyButton.click()
+    messageField.click()
+    messageField.typeKey("a", modifierFlags: .command)
+    messageField.typeKey("v", modifierFlags: .command)
+    XCTAssertEqual(messageField.value as? String, rawSkillSource)
+    messageField.typeKey("a", modifierFlags: .command)
+    messageField.typeKey(.delete, modifierFlags: [])
+
+    let closePreviewButton = application.buttons["skill-preview-close-button"]
+    XCTAssertTrue(closePreviewButton.waitForExistence(timeout: 5))
+    closePreviewButton.click()
+    XCTAssertTrue(waitUntil(timeout: 5) { !previewPane.exists })
 
     let copyButton = application.buttons["Copy message"].firstMatch
     XCTAssertTrue(copyButton.waitForExistence(timeout: 5))

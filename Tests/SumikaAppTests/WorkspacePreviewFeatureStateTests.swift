@@ -27,8 +27,11 @@ struct WorkspacePreviewFeatureStateTests {
 
     #expect(state.showHTMLPreview(path: "index.html", in: workspace))
 
-    #expect(state.htmlPreview?.relativePath == WorkspaceRelativePath(rawValue: "index.html"))
-    #expect(state.filePreview == nil)
+    guard case .html(let preview) = state.preview else {
+      Issue.record("Expected the HTML preview to be the single active preview")
+      return
+    }
+    #expect(preview.relativePath == WorkspaceRelativePath(rawValue: "index.html"))
     #expect(state.htmlPreviewRequestID != initialRequestID)
     #expect(state.isVisible)
     #expect(state.errorMessage == nil)
@@ -52,14 +55,17 @@ struct WorkspacePreviewFeatureStateTests {
 
     #expect(state.showFilePreview(path: "notes.txt", in: workspace))
 
-    #expect(state.htmlPreview == nil)
-    #expect(state.filePreview?.relativePath == WorkspaceRelativePath(rawValue: "notes.txt"))
+    guard case .file(let preview) = state.preview else {
+      Issue.record("Expected the file preview to replace the HTML preview")
+      return
+    }
+    #expect(preview.relativePath == WorkspaceRelativePath(rawValue: "notes.txt"))
     #expect(state.isVisible)
     #expect(state.errorMessage == nil)
   }
 
   @Test
-  func closeMethodsClearOnlyTheirPreviewKind() throws {
+  func closePreviewClearsTheSingleActivePreview() throws {
     let workspace = try makeWorkspace()
     try "<!doctype html>".write(
       to: workspace.rootURL.appending(path: "index.html", directoryHint: .notDirectory),
@@ -73,21 +79,116 @@ struct WorkspacePreviewFeatureStateTests {
     )
     let state = WorkspacePreviewFeatureState()
     #expect(state.showHTMLPreview(path: "index.html", in: workspace))
-    state.closeFilePreview()
-
-    #expect(state.htmlPreview != nil)
-    #expect(state.filePreview == nil)
-
-    state.closeHTMLPreview()
+    state.closePreview()
     #expect(!state.isVisible)
 
     #expect(state.showFilePreview(path: "notes.txt", in: workspace))
-    state.closeHTMLPreview()
-    #expect(state.htmlPreview == nil)
-    #expect(state.filePreview != nil)
-
-    state.closeFilePreview()
+    state.closePreview()
     #expect(!state.isVisible)
+  }
+
+  @Test
+  func skillPreviewUsesPersistedMarkdownBodyAndReplacesHTMLPreview() throws {
+    let workspace = try makeWorkspace()
+    try "<!doctype html>".write(
+      to: workspace.rootURL.appending(path: "index.html", directoryHint: .notDirectory),
+      atomically: true,
+      encoding: .utf8
+    )
+    let state = WorkspacePreviewFeatureState()
+    #expect(state.showHTMLPreview(path: "index.html", in: workspace))
+    let rawContent = """
+      ---
+      name: code-review
+      description: Review the current diff.
+      ---
+      # Review steps
+
+      - Inspect the diff.
+      """
+
+    state.showSkillPreview(
+      skillRequest(
+        name: "code-review",
+        displayName: "Code Review",
+        content: rawContent
+      ))
+
+    guard case .skill(let preview) = state.preview else {
+      Issue.record("Expected the Skill preview to replace the HTML preview")
+      return
+    }
+    #expect(preview.title == "Code Review")
+    #expect(preview.portablePath == ".agents/skills/code-review/SKILL.md")
+    #expect(preview.rawContent == rawContent)
+    #expect(
+      preview.content
+        == .markdown(
+          """
+          # Review steps
+
+          - Inspect the diff.
+          """))
+  }
+
+  @Test
+  func filePreviewReplacesSkillPreview() throws {
+    let workspace = try makeWorkspace()
+    try "plain text".write(
+      to: workspace.rootURL.appending(path: "notes.txt", directoryHint: .notDirectory),
+      atomically: true,
+      encoding: .utf8
+    )
+    let state = WorkspacePreviewFeatureState()
+    state.showSkillPreview(
+      skillRequest(
+        name: "review",
+        displayName: "Review",
+        content: "---\nname: review\ndescription: Review changes.\n---\nInstructions"
+      ))
+
+    #expect(state.showFilePreview(path: "notes.txt", in: workspace))
+
+    guard case .file(let preview) = state.preview else {
+      Issue.record("Expected the file preview to replace the Skill preview")
+      return
+    }
+    #expect(preview.content == "plain text")
+  }
+
+  @Test
+  func skillPreviewFallsBackToRawPersistedSourceWhenFormattingFails() {
+    let rawContent = "not valid skill frontmatter"
+    let state = WorkspacePreviewFeatureState()
+
+    state.showSkillPreview(
+      skillRequest(name: "review", displayName: "Review", content: rawContent)
+    )
+
+    guard case .skill(let preview) = state.preview else {
+      Issue.record("Expected a Skill preview")
+      return
+    }
+    #expect(preview.rawContent == rawContent)
+    #expect(preview.content == .unformatted(rawContent))
+  }
+
+  @Test
+  func skillPreviewShowsEmptyInstructionsStateForFrontmatterOnlySnapshot() {
+    let state = WorkspacePreviewFeatureState()
+
+    state.showSkillPreview(
+      skillRequest(
+        name: "review",
+        displayName: "Review",
+        content: "---\nname: review\ndescription: Review changes.\n---\n\n"
+      ))
+
+    guard case .skill(let preview) = state.preview else {
+      Issue.record("Expected a Skill preview")
+      return
+    }
+    #expect(preview.content == .empty)
   }
 
   @Test
@@ -117,6 +218,22 @@ struct WorkspacePreviewFeatureStateTests {
     return Workspace(
       name: "Project",
       rootURL: URL(filePath: Workspace.normalizedPath(for: rootURL))
+    )
+  }
+
+  private func skillRequest(
+    name: String,
+    displayName: String,
+    content: String
+  ) -> SkillPreviewRequest {
+    SkillPreviewRequest(
+      skill: ActivatedSkill(
+        id: SkillID(scope: .project, name: name),
+        portablePath: ".agents/skills/\(name)/SKILL.md",
+        contentHash: ChatAttachmentStore.contentSHA256(for: Data(content.utf8)),
+        content: content
+      ),
+      displayName: displayName
     )
   }
 }

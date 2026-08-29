@@ -8,9 +8,14 @@ import SumikaCore
 final class NativeTranscriptMarkdownBlocksView: NSStackView {
   private var entries: [Entry] = []
   private let openLink: (URL) -> Void
+  private let openSkillPreview: (SkillPreviewRequest) -> Void
 
-  init(openLink: @escaping (URL) -> Void) {
+  init(
+    openLink: @escaping (URL) -> Void,
+    openSkillPreview: @escaping (SkillPreviewRequest) -> Void
+  ) {
     self.openLink = openLink
+    self.openSkillPreview = openSkillPreview
     super.init(frame: .zero)
     orientation = .vertical
     alignment = .leading
@@ -62,11 +67,19 @@ final class NativeTranscriptMarkdownBlocksView: NSStackView {
   private func makeEntry(for block: NativeMarkdownBlock) -> Entry {
     switch block {
     case .text(let attributedString):
-      let textView = NativeTranscriptTextView(openLink: openLink)
+      let textView = NativeTranscriptTextView(
+        openLink: openLink,
+        openSkillPreview: openSkillPreview
+      )
       textView.setAttributedText(attributedString)
       return .text(textView)
     case .table(let table):
-      return .table(NativeTranscriptTableView(table: table, openLink: openLink))
+      return .table(
+        NativeTranscriptTableView(
+          table: table,
+          openLink: openLink,
+          openSkillPreview: openSkillPreview
+        ))
     }
   }
 
@@ -116,9 +129,13 @@ final class NativeUserMessageView: NSView {
 
   init(
     openLink: @escaping (URL) -> Void,
+    openSkillPreview: @escaping (SkillPreviewRequest) -> Void,
     makeAttachmentView: @escaping AttachmentViewBuilder
   ) {
-    markdownView = NativeTranscriptMarkdownBlocksView(openLink: openLink)
+    markdownView = NativeTranscriptMarkdownBlocksView(
+      openLink: openLink,
+      openSkillPreview: openSkillPreview
+    )
     self.makeAttachmentView = makeAttachmentView
     super.init(frame: .zero)
 
