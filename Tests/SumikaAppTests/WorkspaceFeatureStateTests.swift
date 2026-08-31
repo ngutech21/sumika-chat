@@ -1,10 +1,11 @@
 import Foundation
 import SumikaCore
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaApp
 
-@Suite(.serialized)
+@Suite(.serialized, TemporaryDirectoryTrait(named: "sumika-workspace-feature-state-tests"))
 @MainActor
 struct WorkspaceFeatureStateTests {
   @Test
@@ -35,6 +36,239 @@ struct WorkspaceFeatureStateTests {
       sidebarState.workspaces.first?.sessions.map(\.id)
         == [newestSession.id, middleSession.id, oldestSession.id]
     )
+  }
+
+  @Test
+  func missingLibraryCreatesPersistsAndRestoresPersonalWorkspace() async throws {
+    let baseURL = try scopedTemporaryDirectory().appending(
+      path: "fresh-install",
+      directoryHint: .isDirectory
+    )
+    let personalRootURL =
+      baseURL
+      .appending(path: "Workspaces", directoryHint: .isDirectory)
+      .appending(path: "Personal", directoryHint: .isDirectory)
+    let defaultFactory = makeWorkspaceFeatureDefaultFactory()
+    let state = WorkspaceFeatureState(
+      workspaceStore: WorkspaceStore(baseURL: baseURL),
+      workspaceOpener: WorkspaceFeatureRecordingOpener(),
+      defaultSessionFactory: defaultFactory,
+      turnTracer: NoopTurnTracer()
+    )
+
+    let change = await state.loadLibrary(defaultSessionFactory: defaultFactory)
+
+    let personalWorkspace = try #require(state.library.workspaces.first)
+    let initialSession = try #require(personalWorkspace.sessions.first)
+    #expect(change == .changed(initialSession.id))
+    #expect(personalWorkspace.name == "Personal")
+    #expect(
+      personalWorkspace.rootURL
+        == personalRootURL.standardizedFileURL.resolvingSymlinksInPath()
+    )
+    #expect(personalWorkspace.bookmarkData == nil)
+    #expect(personalWorkspace.sessions.count == 1)
+    #expect(initialSession.interactionMode == .chat)
+    #expect(initialSession.selectedModelID == defaultFactory.selectedModelID)
+    #expect(state.library.activeWorkspaceID == personalWorkspace.id)
+    #expect(state.library.activeSessionID == initialSession.id)
+    #expect(FileManager.default.fileExists(atPath: personalRootURL.path(percentEncoded: false)))
+
+    let persistedResult = await WorkspaceStore(baseURL: baseURL).loadLibrary()
+    #expect(persistedResult.origin == .persisted)
+    #expect(persistedResult.library.activeWorkspaceID == personalWorkspace.id)
+    #expect(persistedResult.library.activeSessionID == initialSession.id)
+
+    let additionalRootURL = baseURL.appending(
+      path: "Additional",
+      directoryHint: .isDirectory
+    )
+    try FileManager.default.createDirectory(
+      at: additionalRootURL,
+      withIntermediateDirectories: true
+    )
+    _ = state.addWorkspace(from: additionalRootURL)
+    await state.flushPendingSaves()
+    #expect(state.library.workspaces.count == 2)
+
+    let restartedState = WorkspaceFeatureState(
+      workspaceStore: WorkspaceStore(baseURL: baseURL),
+      workspaceOpener: WorkspaceFeatureRecordingOpener(),
+      defaultSessionFactory: defaultFactory,
+      turnTracer: NoopTurnTracer()
+    )
+    await restartedState.loadLibrary(defaultSessionFactory: defaultFactory)
+    await restartedState.flushPendingSaves()
+
+    let restoredPersonalWorkspaces = restartedState.library.workspaces.filter {
+      $0.name == "Personal"
+    }
+    #expect(restartedState.library.workspaces.count == 2)
+    #expect(restoredPersonalWorkspaces.count == 1)
+    #expect(restoredPersonalWorkspaces.first?.id == personalWorkspace.id)
+    #expect(restoredPersonalWorkspaces.first?.sessions.first?.id == initialSession.id)
+  }
+
+  @Test
+  func missingLibraryUsesConfiguredAgentModeForPersonalWorkspace() async throws {
+    let baseURL = try scopedTemporaryDirectory().appending(
+      path: "agent-default",
+      directoryHint: .isDirectory
+    )
+    let defaultFactory = makeWorkspaceFeatureDefaultFactory(interactionMode: .agent)
+    let state = WorkspaceFeatureState(
+      workspaceStore: WorkspaceStore(baseURL: baseURL),
+      workspaceOpener: WorkspaceFeatureRecordingOpener(),
+      defaultSessionFactory: defaultFactory,
+      turnTracer: NoopTurnTracer()
+    )
+
+    await state.loadLibrary(defaultSessionFactory: defaultFactory)
+
+    #expect(state.activeWorkspace?.name == "Personal")
+    #expect(state.activeSession?.interactionMode == .agent)
+  }
+
+  @Test
+  func persistedEmptyLibraryDoesNotCreatePersonalWorkspace() async throws {
+    let baseURL = try scopedTemporaryDirectory().appending(
+      path: "persisted-empty",
+      directoryHint: .isDirectory
+    )
+    try await WorkspaceStore(baseURL: baseURL).saveLibrary(WorkspaceLibrary())
+    let state = WorkspaceFeatureState(
+      workspaceStore: WorkspaceStore(baseURL: baseURL),
+      workspaceOpener: WorkspaceFeatureRecordingOpener(),
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(),
+      turnTracer: NoopTurnTracer()
+    )
+
+    await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
+    await state.flushPendingSaves()
+
+    #expect(state.library == WorkspaceLibrary())
+    #expect(
+      !FileManager.default.fileExists(
+        atPath:
+          baseURL
+          .appending(path: "Workspaces", directoryHint: .isDirectory)
+          .appending(path: "Personal", directoryHint: .isDirectory)
+          .path(percentEncoded: false)
+      )
+    )
+  }
+
+  @Test
+  func existingLibraryDoesNotCreatePersonalWorkspace() async throws {
+    let baseURL = try scopedTemporaryDirectory().appending(
+      path: "existing-library",
+      directoryHint: .isDirectory
+    )
+    let existingRootURL = baseURL.appending(
+      path: "Existing",
+      directoryHint: .isDirectory
+    )
+    try FileManager.default.createDirectory(
+      at: existingRootURL,
+      withIntermediateDirectories: true
+    )
+    let existingSession = ChatSession(title: "Existing chat")
+    let existingWorkspace = Workspace(
+      name: "Existing",
+      rootURL: existingRootURL,
+      sessions: [existingSession]
+    )
+    try await WorkspaceStore(baseURL: baseURL).saveLibrary(
+      WorkspaceLibrary(
+        workspaces: [existingWorkspace],
+        activeWorkspaceID: existingWorkspace.id,
+        activeSessionID: existingSession.id
+      )
+    )
+    let state = WorkspaceFeatureState(
+      workspaceStore: WorkspaceStore(baseURL: baseURL),
+      workspaceOpener: WorkspaceFeatureRecordingOpener(),
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(),
+      turnTracer: NoopTurnTracer()
+    )
+
+    await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
+    await state.flushPendingSaves()
+
+    #expect(state.library.workspaces.map(\.id) == [existingWorkspace.id])
+    #expect(state.activeSessionID == existingSession.id)
+    #expect(
+      !FileManager.default.fileExists(
+        atPath:
+          baseURL
+          .appending(path: "Workspaces", directoryHint: .isDirectory)
+          .appending(path: "Personal", directoryHint: .isDirectory)
+          .path(percentEncoded: false)
+      )
+    )
+  }
+
+  @Test
+  func personalWorkspaceDirectoryFailureLeavesLibraryEmptyAndUnpersisted() async throws {
+    let baseURL = try scopedTemporaryDirectory().appending(
+      path: "directory-failure",
+      directoryHint: .isDirectory
+    )
+    try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
+    let workspacesURL = baseURL.appending(
+      path: "Workspaces",
+      directoryHint: .notDirectory
+    )
+    try Data("not a directory".utf8).write(to: workspacesURL)
+    let state = WorkspaceFeatureState(
+      workspaceStore: WorkspaceStore(baseURL: baseURL),
+      workspaceOpener: WorkspaceFeatureRecordingOpener(),
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(),
+      turnTracer: NoopTurnTracer()
+    )
+
+    await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
+
+    #expect(state.library == WorkspaceLibrary())
+    #expect(state.activeWorkspace == nil)
+    #expect(state.activeSession == nil)
+    #expect(state.errorMessage?.hasPrefix("Personal workspace could not be created.") == true)
+    #expect(
+      !FileManager.default.fileExists(
+        atPath:
+          baseURL
+          .appending(path: "WorkspaceLibrary", directoryHint: .isDirectory)
+          .appending(path: "workspaces.json", directoryHint: .notDirectory)
+          .path(percentEncoded: false)
+      )
+    )
+  }
+
+  @Test
+  func personalWorkspacePersistenceFailureDoesNotPublishInitialLibrary() async throws {
+    let rootURL = try scopedTemporaryDirectory()
+      .appending(path: "save-failure", directoryHint: .isDirectory)
+      .appending(path: "Personal", directoryHint: .isDirectory)
+    let store = WorkspaceFeatureInMemoryStore(
+      initialLibrary: WorkspaceLibrary(),
+      loadOrigin: .missing(defaultWorkspaceRootURL: rootURL),
+      shouldFailSaves: true
+    )
+    let state = WorkspaceFeatureState(
+      workspaceStore: store,
+      workspaceOpener: WorkspaceFeatureRecordingOpener(),
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(),
+      turnTracer: NoopTurnTracer()
+    )
+
+    await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
+
+    #expect(state.library == WorkspaceLibrary())
+    #expect(state.activeWorkspace == nil)
+    #expect(state.activeSession == nil)
+    #expect(state.errorMessage?.hasPrefix("Personal workspace could not be created.") == true)
+    #expect(await store.latestSavedLibrary() == nil)
+    #expect(FileManager.default.fileExists(atPath: rootURL.path(percentEncoded: false)))
   }
 
   @Test
@@ -468,21 +702,34 @@ struct WorkspaceFeatureStateTests {
 private actor WorkspaceFeatureInMemoryStore: WorkspaceStoring {
   private var library: WorkspaceLibrary
   private let loadIssues: [WorkspaceLibraryLoadIssue]
+  private let loadOrigin: WorkspaceLibraryLoadOrigin
+  private let shouldFailSaves: Bool
   private var savedLibraries: [WorkspaceLibrary] = []
 
   init(
     initialLibrary: WorkspaceLibrary,
-    loadIssues: [WorkspaceLibraryLoadIssue] = []
+    loadIssues: [WorkspaceLibraryLoadIssue] = [],
+    loadOrigin: WorkspaceLibraryLoadOrigin = .persisted,
+    shouldFailSaves: Bool = false
   ) {
     self.library = initialLibrary
     self.loadIssues = loadIssues
+    self.loadOrigin = loadOrigin
+    self.shouldFailSaves = shouldFailSaves
   }
 
   func loadLibrary() async -> WorkspaceLibraryLoadResult {
-    WorkspaceLibraryLoadResult(library: library, issues: loadIssues)
+    WorkspaceLibraryLoadResult(
+      library: library,
+      issues: loadIssues,
+      origin: loadOrigin
+    )
   }
 
   func saveLibrary(_ library: WorkspaceLibrary) async throws {
+    if shouldFailSaves {
+      throw WorkspaceFeatureStoreError.saveFailed
+    }
     self.library = library
     savedLibraries.append(library)
   }
@@ -510,12 +757,14 @@ private final class WorkspaceFeatureRecordingOpener: WorkspaceOpening {
 }
 
 private func makeWorkspaceFeatureDefaultFactory(
-  systemPrompt: String = "Default system"
+  systemPrompt: String = "Default system",
+  interactionMode: WorkspaceInteractionMode = .chat
 ) -> DefaultChatSessionFactory {
   DefaultChatSessionFactory(
     selectedModelID: ManagedModelCatalog.defaultModelID,
     systemPrompt: systemPrompt,
-    generationSettings: .agentDefault
+    generationSettings: .agentDefault,
+    interactionMode: interactionMode
   )
 }
 
@@ -549,3 +798,7 @@ private func waitForWorkspaceFeatureCondition(
 }
 
 private struct WorkspaceFeatureTestTimeoutError: Error {}
+
+private enum WorkspaceFeatureStoreError: Error {
+  case saveFailed
+}

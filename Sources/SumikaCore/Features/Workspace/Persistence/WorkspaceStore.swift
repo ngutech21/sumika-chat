@@ -14,15 +14,28 @@ package protocol WorkspaceStoring: Sendable {
 package struct WorkspaceLibraryLoadResult: Equatable, Sendable {
   package let library: WorkspaceLibrary
   package let issues: [WorkspaceLibraryLoadIssue]
+  package let origin: WorkspaceLibraryLoadOrigin
 
-  package init(library: WorkspaceLibrary, issues: [WorkspaceLibraryLoadIssue] = []) {
+  package init(
+    library: WorkspaceLibrary,
+    issues: [WorkspaceLibraryLoadIssue] = [],
+    origin: WorkspaceLibraryLoadOrigin = .persisted
+  ) {
     self.library = library
     self.issues = issues
+    self.origin = origin
   }
 
   package var canPersist: Bool {
     issues.allSatisfy(\.isSafeToPersistOver)
   }
+}
+
+/// Distinguishes a genuinely new library from a deliberately persisted empty
+/// one. The missing case carries the app-managed root for its initial workspace.
+package enum WorkspaceLibraryLoadOrigin: Equatable, Sendable {
+  case missing(defaultWorkspaceRootURL: URL)
+  case persisted
 }
 
 package enum WorkspaceLibraryLoadIssue: Equatable, Sendable {
@@ -104,7 +117,10 @@ package actor WorkspaceStore: WorkspaceStoring {
         lastPersistedLibrary = library
         lastPersistedManifest = nil
         isPersistenceBlocked = false
-        return WorkspaceLibraryLoadResult(library: library)
+        return WorkspaceLibraryLoadResult(
+          library: library,
+          origin: .missing(defaultWorkspaceRootURL: defaultWorkspaceRootURL)
+        )
       }
 
       lastPersistedLibrary = loaded.library
@@ -135,6 +151,12 @@ package actor WorkspaceStore: WorkspaceStoring {
       logIssue(issue.logMessage)
       return WorkspaceLibraryLoadResult(library: WorkspaceLibrary(), issues: [issue])
     }
+  }
+
+  nonisolated private var defaultWorkspaceRootURL: URL {
+    baseURL
+      .appending(path: "Workspaces", directoryHint: .isDirectory)
+      .appending(path: "Personal", directoryHint: .isDirectory)
   }
 
   package func saveLibrary(_ library: WorkspaceLibrary) async throws {

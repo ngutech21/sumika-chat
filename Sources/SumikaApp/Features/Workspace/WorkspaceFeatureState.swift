@@ -83,11 +83,29 @@ final class WorkspaceFeatureState {
     updateDefaultSessionFactory(defaultSessionFactory)
     let loadResult = await workspaceStore.loadLibrary()
     isPersistenceBlocked = !loadResult.canPersist
-    workspaceLibraryController.replaceLibrary(loadResult.library)
-    normalizeLoadedLibrary(
-      persistNormalization: loadResult.canPersist
-    )
-    syncWorkspaceProjections()
+    if loadResult.canPersist,
+      case .missing(let defaultWorkspaceRootURL) = loadResult.origin
+    {
+      do {
+        let initialLibrary = try await bootstrapPersonalWorkspace(
+          at: defaultWorkspaceRootURL,
+          defaultSessionFactory: defaultSessionFactory
+        )
+        workspaceLibraryController.replaceLibrary(initialLibrary)
+        syncWorkspaceProjections()
+      } catch {
+        workspaceLibraryController.replaceLibrary(loadResult.library)
+        syncWorkspaceProjections()
+        errorMessage = "Personal workspace could not be created. \(error.localizedDescription)"
+        errorMessageReflectsSaveFailure = true
+      }
+    } else {
+      workspaceLibraryController.replaceLibrary(loadResult.library)
+      normalizeLoadedLibrary(
+        persistNormalization: loadResult.canPersist
+      )
+      syncWorkspaceProjections()
+    }
     if let loadIssueMessage = Self.loadIssueMessage(for: loadResult.issues) {
       errorMessage = loadIssueMessage
       errorMessageReflectsSaveFailure = false
@@ -240,6 +258,43 @@ final class WorkspaceFeatureState {
     }
   }
 
+  private func bootstrapPersonalWorkspace(
+    at rootURL: URL,
+    defaultSessionFactory: DefaultChatSessionFactory
+  ) async throws -> WorkspaceLibrary {
+    let preparedRootURL = try await Self.prepareWorkspaceDirectory(at: rootURL)
+    var controller = WorkspaceLibraryController(
+      defaultSessionFactory: defaultSessionFactory
+    )
+    guard
+      let workspaceID = controller.addWorkspace(
+        name: "Personal",
+        rootURL: preparedRootURL
+      ),
+      controller.createSession(in: workspaceID) != nil
+    else {
+      throw PersonalWorkspaceBootstrapError.couldNotCreateInitialLibrary
+    }
+
+    let initialLibrary = controller.library
+    try await Self.persistLibrary(
+      initialLibrary,
+      workspaceStore: workspaceStore,
+      turnTracer: turnTracer
+    )
+    return initialLibrary
+  }
+
+  nonisolated private static func prepareWorkspaceDirectory(at rootURL: URL) async throws -> URL {
+    try await Task.detached(priority: .utility) {
+      try FileManager.default.createDirectory(
+        at: rootURL,
+        withIntermediateDirectories: true
+      )
+      return rootURL.standardizedFileURL.resolvingSymlinksInPath()
+    }.value
+  }
+
   private static func loadIssueMessage(for issues: [WorkspaceLibraryLoadIssue]) -> String? {
     guard let issue = issues.first else {
       return nil
@@ -317,13 +372,10 @@ final class WorkspaceFeatureState {
     saveLibraryTask = Task { [turnTracer, workspaceStore] in
       await previousSaveTask?.value
       do {
-        let startedAt = Date()
-        try await workspaceStore.saveLibrary(library)
-        await turnTracer.recordTurnTraceEvent(
-          TurnTraceEvent(
-            phase: .persist,
-            durationMs: Date().timeIntervalSince(startedAt) * 1000
-          )
+        try await Self.persistLibrary(
+          library,
+          workspaceStore: workspaceStore,
+          turnTracer: turnTracer
         )
         await MainActor.run {
           // Only clear messages this save path produced; a pending load-issue
@@ -340,6 +392,21 @@ final class WorkspaceFeatureState {
         }
       }
     }
+  }
+
+  nonisolated private static func persistLibrary(
+    _ library: WorkspaceLibrary,
+    workspaceStore: any WorkspaceStoring,
+    turnTracer: any TurnTracing
+  ) async throws {
+    let startedAt = Date()
+    try await workspaceStore.saveLibrary(library)
+    await turnTracer.recordTurnTraceEvent(
+      TurnTraceEvent(
+        phase: .persist,
+        durationMs: Date().timeIntervalSince(startedAt) * 1000
+      )
+    )
   }
 
   /// Waits until every queued library write has reached the store. Saves are
@@ -367,5 +434,13 @@ final class WorkspaceFeatureState {
 
   private func makeSecurityScopedBookmarkData(for url: URL) -> Data? {
     try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil)
+  }
+}
+
+private enum PersonalWorkspaceBootstrapError: LocalizedError {
+  case couldNotCreateInitialLibrary
+
+  var errorDescription: String? {
+    "The initial workspace library could not be initialized."
   }
 }

@@ -994,6 +994,31 @@ struct AppStateTests {
   }
 
   @Test
+  func missingLibrarySetsInitialRouteToPersonalChat() async throws {
+    let baseURL = try scopedTemporaryDirectory().appending(
+      path: "personal-workspace-route",
+      directoryHint: .isDirectory
+    )
+    let appState = AppState(
+      workspaceStore: WorkspaceStore(baseURL: baseURL),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      appBehaviorSettingsStore: InMemoryAppBehaviorSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime(),
+      modelAvailability: { _ in true }
+    )
+
+    await appState.waitForStartup()
+
+    let workspace = try #require(appState.workspaceState.activeWorkspace)
+    let session = try #require(appState.workspaceState.activeSession)
+    #expect(workspace.name == "Personal")
+    #expect(appState.workspaceState.activeSessionID == session.id)
+    #expect(appState.route == .chat(workspaceID: workspace.id, sessionID: session.id))
+  }
+
+  @Test
   func loadStoredLibrarySetsWorkspaceRouteWhenNoSessionIsActive() async throws {
     let workspaceID = UUID()
     let sessionID = UUID()

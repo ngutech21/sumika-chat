@@ -8,12 +8,35 @@ import Testing
 struct WorkspaceStoreTests {
   @Test
   func workspaceStoreReturnsCleanEmptyLibraryForMissingFile() async throws {
-    let missingStore = WorkspaceStore(baseURL: try temporaryBaseURL())
+    let baseURL = try temporaryBaseURL()
+    let missingStore = WorkspaceStore(baseURL: baseURL)
 
     let result = await missingStore.loadLibrary()
     #expect(result.library == WorkspaceLibrary())
     #expect(result.issues.isEmpty)
     #expect(result.canPersist)
+    #expect(
+      result.origin
+        == .missing(
+          defaultWorkspaceRootURL:
+            baseURL
+            .appending(path: "Workspaces", directoryHint: .isDirectory)
+            .appending(path: "Personal", directoryHint: .isDirectory)
+        )
+    )
+  }
+
+  @Test
+  func workspaceStoreDistinguishesPersistedEmptyLibraryFromMissingStorage() async throws {
+    let baseURL = try temporaryBaseURL()
+    try await WorkspaceStore(baseURL: baseURL).saveLibrary(WorkspaceLibrary())
+
+    let result = await WorkspaceStore(baseURL: baseURL).loadLibrary()
+
+    #expect(result.library == WorkspaceLibrary())
+    #expect(result.issues.isEmpty)
+    #expect(result.canPersist)
+    #expect(result.origin == .persisted)
   }
 
   @Test
@@ -32,6 +55,7 @@ struct WorkspaceStoreTests {
 
     #expect(result.library == WorkspaceLibrary())
     #expect(!result.canPersist)
+    #expect(result.origin == .persisted)
     guard case .migrationFailed = result.issues.first else {
       Issue.record("Expected a migrationFailed issue, got \(result.issues)")
       return
