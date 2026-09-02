@@ -41,7 +41,7 @@ let package = Package(
       url: "https://github.com/ml-explore/mlx-swift-lm",
       revision: "0f25e8605947cd23ca1edcd6885b2507a898d2ac"),
     .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.3"),
-    .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
+    .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.10.0"),
     .package(
       url: "https://github.com/FluidInference/FluidAudio",
       revision: "6428e29186573c6d33c598e25d460e6690bc0ee1"),
