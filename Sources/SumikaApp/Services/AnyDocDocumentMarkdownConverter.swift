@@ -9,7 +9,7 @@ nonisolated struct AnyDocDocumentMarkdownConverter: DocumentMarkdownConverting, 
     self.converter = converter
   }
 
-  func markdown(from data: Data, fileExtension: String) async throws -> String {
-    try await converter.markdown(from: data, fileExtension: fileExtension)
+  func markdown(from data: Data) async throws -> String {
+    try await converter.markdown(from: data)
   }
 }

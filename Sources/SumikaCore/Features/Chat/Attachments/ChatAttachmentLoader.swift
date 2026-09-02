@@ -1,7 +1,7 @@
 import Foundation
 
 package protocol DocumentMarkdownConverting: Sendable {
-  func markdown(from data: Data, fileExtension: String) async throws -> String
+  func markdown(from data: Data) async throws -> String
 }
 
 package protocol ChatAttachmentLoading: Sendable {
@@ -148,7 +148,6 @@ package struct ChatAttachmentLoader: ChatAttachmentLoading {
     {
       return try await readDocumentAttachment(
         from: url,
-        fileExtension: fileExtension,
         converter: documentMarkdownConverter
       )
     }
@@ -173,7 +172,6 @@ package struct ChatAttachmentLoader: ChatAttachmentLoading {
 
   private func readDocumentAttachment(
     from url: URL,
-    fileExtension: String,
     converter: any DocumentMarkdownConverting
   ) async throws -> ChatAttachment {
     let fileName = url.lastPathComponent
@@ -185,7 +183,7 @@ package struct ChatAttachmentLoader: ChatAttachmentLoading {
 
     let markdown: String
     do {
-      markdown = try await converter.markdown(from: data, fileExtension: fileExtension)
+      markdown = try await converter.markdown(from: data)
     } catch is CancellationError {
       throw CancellationError()
     } catch {

@@ -36,11 +36,7 @@ struct ChatAttachmentLoaderTests {
       attachment.contentSHA256 == ChatAttachmentStore.contentSHA256(for: documentData)
     )
     #expect(try Data(contentsOf: attachmentStore.localURL(for: attachment.id)) == documentData)
-    #expect(
-      await converter.requests == [
-        DocumentConversionRequest(data: documentData, fileExtension: "docx")
-      ]
-    )
+    #expect(await converter.requests == [documentData])
   }
 
   @Test
@@ -456,11 +452,6 @@ struct ChatAttachmentLoaderTests {
   }
 }
 
-private struct DocumentConversionRequest: Equatable, Sendable {
-  let data: Data
-  let fileExtension: String
-}
-
 private enum DocumentConversionBehavior: Sendable {
   case success(String)
   case failure
@@ -469,7 +460,7 @@ private enum DocumentConversionBehavior: Sendable {
 
 private actor RecordingDocumentMarkdownConverter: DocumentMarkdownConverting {
   let behavior: DocumentConversionBehavior
-  private(set) var requests: [DocumentConversionRequest] = []
+  private(set) var requests: [Data] = []
 
   init(markdown: String) {
     self.behavior = .success(markdown)
@@ -479,8 +470,8 @@ private actor RecordingDocumentMarkdownConverter: DocumentMarkdownConverting {
     self.behavior = behavior
   }
 
-  func markdown(from data: Data, fileExtension: String) async throws -> String {
-    requests.append(DocumentConversionRequest(data: data, fileExtension: fileExtension))
+  func markdown(from data: Data) async throws -> String {
+    requests.append(data)
     switch behavior {
     case .success(let markdown):
       return markdown
@@ -601,9 +592,8 @@ private final class SecurityScopeRecorder: Sendable {
 private struct ScopeCheckingDocumentConverter: DocumentMarkdownConverting {
   let recorder: SecurityScopeRecorder
 
-  func markdown(from data: Data, fileExtension: String) async throws -> String {
+  func markdown(from data: Data) async throws -> String {
     _ = data
-    _ = fileExtension
     recorder.recordConversionStart()
     return "Converted"
   }
