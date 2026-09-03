@@ -48,7 +48,7 @@ jobs:
         # your codebase is analyzed, see https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/codeql-code-scanning-for-compiled-languages
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Select Xcode 26.6
       if: matrix.build-mode == 'manual'
@@ -62,7 +62,7 @@ jobs:
 
     - name: Cache Swift package checkouts
       if: matrix.build-mode == 'manual'
-      uses: actions/cache@v6
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
           .build/repositories
@@ -84,7 +84,7 @@ jobs:
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@v4.37.9
+      uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
       with:
         languages: ${{ matrix.language }}
         build-mode: ${{ matrix.build-mode }}
@@ -108,6 +108,6 @@ jobs:
       run: xcrun swift build --target SumikaCore --arch arm64
 
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v4.37.9
+      uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
       with:
         category: "/language:${{matrix.language}}"
