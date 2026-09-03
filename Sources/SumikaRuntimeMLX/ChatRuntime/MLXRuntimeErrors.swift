@@ -10,6 +10,7 @@ enum MLXChatRuntimeError: LocalizedError {
   case unreadableImageAttachment(String)
   case interruptedStream
   case generationTokenLimitReached
+  case generationContextLimitReached
 
   var errorDescription: String? {
     switch self {
@@ -27,6 +28,8 @@ enum MLXChatRuntimeError: LocalizedError {
       "\(name) could not be decoded as an image."
     case .interruptedStream:
       "Local MLX generation ended before the model reported completion."
+    case .generationContextLimitReached:
+      "The response reached the remaining conversation context limit. Start a new chat or reduce the supplied content."
     case .generationTokenLimitReached:
       "Local MLX generation reached its token limit before the response was complete. Increase Max Tokens or ask the model to make a smaller change."
     }

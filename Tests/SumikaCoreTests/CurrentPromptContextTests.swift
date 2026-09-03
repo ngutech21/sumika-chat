@@ -108,29 +108,33 @@ struct CurrentPromptContextSelectorTests {
   }
 
   @Test
-  func attachedFileExcerptIsTruncatedBySharedCharacterBudget() throws {
-    let budget = try #require(ContextBudget.checked(maxCharacters: 6))
-    let attachment = makeTextChatAttachment(
-      displayName: "Long.swift",
-      content: "0123456789"
-    )
-
+  func unequalAttachmentsKeepTheirFullContentWithAnIndependentBudget() throws {
+    let longContent = String(repeating: "a", count: 31_995) + "END"
+    let attachments = [
+      makeTextChatAttachment(displayName: "long.pdf", content: longContent),
+      makeTextChatAttachment(displayName: "short.txt", content: "OK"),
+    ]
     let context = CurrentPromptContextSelector().selectContext(
       mode: .agent,
       focusedFileState: .empty,
-      attachments: [attachment],
-      budget: budget
+      attachments: attachments,
+      budget: try #require(ContextBudget.checked(maxCharacters: 6))
     )
-
-    guard case .selected(let selection) = context,
-      case .attachedFile(let attachedFile) = selection.blocks.values[0]
-    else {
-      Issue.record("Expected truncated attached file context block.")
+    guard case .selected(let selection) = context else {
+      Issue.record("Expected attachment context")
       return
     }
-    #expect(selection.truncation == .byCharacterBudget)
-    #expect(attachedFile.excerpt?.text == "012345")
-    #expect(attachedFile.excerpt?.truncated == true)
+    #expect(selection.budget.maxCharacters == 32_000)
+    #expect(selection.truncation == .none)
+    let excerpts = selection.blocks.values.compactMap { block -> String? in
+      guard case .attachedFile(let file) = block else { return nil }
+      #expect(file.excerpt?.truncated == false)
+      return file.excerpt?.text
+    }
+    #expect(excerpts == [longContent, "OK"])
+    #expect(
+      try JSONDecoder().decode(CurrentPromptContext.self, from: JSONEncoder().encode(context))
+        == context)
   }
 
   @Test
@@ -375,7 +379,7 @@ struct CurrentPromptContextRendererTests {
     #expect(rendered.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
     #expect(rendered[0].contains("Chat attachment: report.docx"))
     #expect(rendered[0].contains("Content hash:"))
-    #expect(rendered[0].contains("Complete DOCX-derived Markdown:"))
+    #expect(rendered[0].contains("Complete attached text:"))
     #expect(rendered[0].contains("let value = 1"))
     #expect(rendered[0].contains("not a workspace path"))
     #expect(rendered[0].contains("Attached file:") == false)
@@ -386,7 +390,7 @@ struct CurrentPromptContextRendererTests {
         Chat attachment: report.docx
         Source: chat attachment, not a workspace path.
         Content hash: 5eefe8717fb3aae43f2029837446312dd248d2d3564cd48adebc866067bf03e7
-        Complete DOCX-derived Markdown:
+        Complete attached text:
         let value = 1
         Use this content directly. Do not call workspace file/search tools (read_file, show_file, list_files, glob_files, or search_files) for this attachment.
         """)
@@ -414,7 +418,7 @@ struct CurrentPromptContextRendererTests {
       Issue.record("Expected typed attached file context.")
       return
     }
-    #expect(selection.budget.maxCharacters == ContextBudget.focusedFileDefault.maxCharacters)
+    #expect(selection.budget.maxCharacters == 32_000)
     #expect(selection.truncation == .none)
     #expect(attachedFile.attachmentID == attachment.id)
     #expect(attachedFile.displayName == "Foo.swift")
@@ -447,24 +451,27 @@ struct CurrentPromptContextRendererTests {
   }
 
   @Test
-  func rendersTruncatedDOCXMarkdownAsIncompleteAndNonRetrievableByWorkspaceTools() throws {
-    let budget = try #require(ContextBudget.checked(maxCharacters: 6))
-    let attachment = makeTextChatAttachment(
-      displayName: "report.docx",
-      content: "0123456789"
-    )
-    let context = CurrentPromptContextSelector().selectContext(
-      mode: .agent,
-      focusedFileState: .empty,
-      attachments: [attachment],
-      budget: budget
-    )
+  func rendersHistoricalTruncatedAttachmentAsIncompleteAndNonRetrievable() throws {
+    let data = Data(
+      """
+      {"kind":"selected","selected":{"budget":6,"truncation":"byCharacterBudget","blocks":[
+        {"kind":"attachedFile","attachedFile":{
+          "attachmentID":"00000000-0000-0000-0000-000000000001",
+          "displayName":"report.docx","contentHash":"old-hash",
+          "excerpt":{"text":"012345","truncated":true},"isEmpty":false
+        }}
+      ]}}
+      """.utf8)
+    let context = try JSONDecoder().decode(CurrentPromptContext.self, from: data)
+    #expect(
+      try JSONDecoder().decode(CurrentPromptContext.self, from: JSONEncoder().encode(context))
+        == context)
 
     let rendered = CurrentPromptContextRenderer.renderSupportingContext(context)
 
     #expect(rendered.count == 1)
-    #expect(rendered[0].contains("DOCX-derived Markdown excerpt (incomplete):"))
-    #expect(rendered[0].contains("Complete DOCX-derived Markdown:") == false)
+    #expect(rendered[0].contains("Attached text excerpt (incomplete):"))
+    #expect(rendered[0].contains("Complete attached text:") == false)
     #expect(rendered[0].contains("012345"))
     #expect(rendered[0].contains("Workspace file/search tools cannot retrieve the rest."))
     #expect(rendered[0].contains("Do not call read_file"))

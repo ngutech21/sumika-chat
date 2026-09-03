@@ -103,9 +103,10 @@ workspace or session identifiers. `deactivate()` publishes the final identified
 session snapshot for app-owned persistence and returns Core to its inactive
 state.
 
-1. `sendMessage` requires an active conversation, validates UI-facing state,
-   clears the draft and pending
-   attachments, then starts the active turn.
+1. `sendMessage` requires an active conversation and validates UI-facing state
+   and the combined attachment character budget before accepting the submission.
+   A rejected submission preserves the draft and pending attachments. An accepted
+   submission clears them and starts the active turn.
 2. The conversation owner computes the current prompt context, then emits events
    that create a `ChatTurn` with status `.running`, append the user message with
    its frozen `promptContext`, and append the assistant placeholder.
@@ -215,6 +216,94 @@ state.
 - Final no-tools follow-ups selected after denied tools or another force-final
   rule disable tools. If the model still emits a native tool attempt, the caller
   treats the follow-up as final and does not execute another tool.
+
+## Small-document attachments
+
+`ChatAttachmentLoader` admits document filenames supported by the pinned
+AnyDocSwift version: `doc`, `docx`, `docm`, `odt`, `pdf`, `ppt`, `pps`, `pot`,
+`pptx`, `pptm`, `ppsx`, `ppsm`, `rtf`, `epub`, `xlsx`, `xlsm`, `xlsb`, `xls`,
+`ods`, and `odp`. The converter detects the actual document format from its
+contents. `csv` keeps the existing UTF-8 text route. Conversion stays local,
+behind `DocumentMarkdownConverting`; scanned and mixed PDFs requiring OCR
+produce an actionable error and no partial attachment.
+
+Source-byte guards are independent of prompt admission: documents are limited
+to 64 MiB before reading/conversion, plain text to 256 KiB, images to 20 MiB,
+and converted Markdown to 256 KiB. The existing eight-file limit remains.
+After conversion, `ChatAttachmentLimits.validateContent` counts the complete
+Markdown and plain-text payloads with Swift `String.count`, including Markdown
+syntax. Filenames, prompt wrappers, and images do not spend this character
+budget. The combined limit is 32,000 characters per message. A new batch is
+checked together with existing pending attachments. Failure or cancellation
+removes files stored by that batch, while preserving the existing attachments.
+`ConversationEngine.sendMessage` rechecks the same policy before committing a
+turn.
+
+Accepted attachment text uses its own 32,000-character `ContextBudget` and is
+included in full, without dividing the allowance equally between files or
+truncating prefixes. The focused-workspace-file budget remains 4,000 characters.
+`ChatAttachmentStore` retains the original bytes and their hash;
+`TextAttachmentPayload` retains the extracted content. `UserTurnMessage` owns
+the attachment identity and frozen selected prompt context. Reloading a session
+preserves these snapshots, including historical truncated excerpts and their
+explicit warning that workspace tools cannot retrieve the omitted content.
+No RAG index, automatic summary, OCR service, history compaction, or persisted
+token ledger is introduced.
+
+## Conversation token budget
+
+Every `MLXChatRuntime.streamReply` request uses the effective context capacity
+already resolved from the user's setting and model configuration; the default
+remains 16,384 tokens. Chat, Agent tool continuations, approval resumptions, and
+reused sessions enter the same path.
+
+`MLXContextBudget` installs one production input-processor adapter independently
+of debug tracing. It measures `LMInput.text.tokens.size` after the model's actual
+processor has prepared the complete input, including history, instructions,
+tool schemas, reasoning markers, and media expansion. This happens before
+`ChatSession` reconciles its cache and selects an uncached suffix.
+
+For context capacity `C`, measured prompt tokens `P`, and configured response
+maximum `M`:
+
+```text
+protocol headroom = 64
+minimum reply space = min(M, 4,096, max(1, floor(C / 4)))
+available reply space = C - P - 64
+reject if available reply space < minimum reply space
+effective response maximum = min(M, available reply space)
+```
+
+For `M >= 4,096`, the minimum reply space is 1,024 tokens in a 4K context,
+2,048 in an 8K context, and 4,096 in contexts of 16K or larger. This is an
+admission threshold; the response can use all available reply space up to `M`.
+
+When the response maximum needs reducing, preparation throws an internal
+adjustment before cache trimming or model prefill. The adapter's stream owner
+validates the adjusted parameters against the existing thinking-budget
+components and retries preparation once with the same pending messages. The
+retry measures the full input again; another adjustment or insufficient space
+rejects the request without prefill. The request-local policy follows the
+preparation task, so it cannot be replaced by another generation's budget.
+
+The reduced allowance lasts only for this generation. Saved generation settings
+and `maxKVSize: nil` remain unchanged. History is not rewritten, and no response
+end token is manufactured. Normal cache reuse continues after successful
+preparation; actual runtime failures retain the normal failed-turn and cache
+invalidation behavior. Internal adjustment never enters user-visible failure
+handling.
+
+A native length stop carries whether the configured response maximum or the
+remaining context constrained the reply. Context capacity takes precedence when
+both limits are equal, because increasing the configured maximum cannot help.
+Context errors recommend starting a new chat or reducing supplied content.
+When the prompt or thinking budget does not fit, errors also suggest increasing
+Context Length in model settings. The existing `mlx_response` record gains
+`contextBudget` with `promptTokens`, `contextCapacity`,
+`configuredResponseMaximum`, `effectiveResponseMaximum`, `preparationAttempts`,
+and `rejected`; the request retains the original settings and effective context
+limit.
+
 ## Model Context Rules
 
 - Always build model input through `ChatModelContextBuilder`; do not pass the

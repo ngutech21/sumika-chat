@@ -91,6 +91,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
         } else {
           nil
         }
+      await MLXContextBudget.install(on: container)
       modelContainer = container
       loadedModelSupportsImageInput = configuration.supportsImageInput
       loadedReasoningTraceFormat = configuration.reasoningTraceFormat
@@ -98,7 +99,8 @@ final actor MLXChatRuntime: ChatModelRuntime {
         configuration.supportsHistoricalReasoningPreservation
       loadedModelReasoningCapability = configuration.reasoningCapability
       loadedThinkingBudgetPolicy = configuration.thinkingBudgetPolicy
-      contextTokenLimit = configuration.contextTokenLimit
+      contextTokenLimit =
+        configuration.contextTokenLimit ?? ManagedModelCatalog.defaultContextTokenLimit
       lastRuntimeCacheDebugSnapshot = nil
       invalidateCachedSession(reason: .modelChanged)
       await debugTraceStore.recordMemorySnapshot(
@@ -338,8 +340,12 @@ final actor MLXChatRuntime: ChatModelRuntime {
       generationID: traceID,
       traceMetadata: traceMetadata
     )
+    let contextBudget = MLXContextBudget(
+      capacity: contextTokenLimit ?? ManagedModelCatalog.defaultContextTokenLimit,
+      configuredMaximum: settings.maxTokens
+    )
     let startedGeneration = generationActivity.start {
-      cachePlan.session.streamDetails(to: cachePlan.streamMessages)
+      contextBudget.streamDetails(session: cachePlan.session, messages: cachePlan.streamMessages)
     }
     var activityLeaseHandedOff = false
     defer {
@@ -380,6 +386,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
       generationActivityLease: startedGeneration.activityLease,
       applicationStateSnapshotProvider: applicationStateSnapshotProvider,
       thinkingBudgetTrace: thinkingBudgetPlan.trace,
+      contextBudget: contextBudget,
       thinkingBudgetEnforcementState: thinkingBudgetPlan.enforcementState,
       markCompleted: { [weak self] assistant in
         await self?.markSessionCompleted(

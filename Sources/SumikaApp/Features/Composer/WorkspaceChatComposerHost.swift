@@ -171,7 +171,8 @@ struct WorkspaceChatComposerHost: View {
     panel.canChooseDirectories = false
     panel.allowsMultipleSelection = true
     panel.canCreateDirectories = false
-    panel.message = "Choose text, image, or DOCX files to add as model context."
+    panel.message =
+      "Choose documents, text files, or images to attach. Documents and text can contain up to 32,000 characters in total."
     panel.prompt = "Add"
 
     if panel.runModal() == .OK {

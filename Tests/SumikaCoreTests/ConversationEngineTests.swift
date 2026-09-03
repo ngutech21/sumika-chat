@@ -986,16 +986,47 @@ struct ConversationEngineTests {
   }
 
   @Test
-  func sentDocumentMarkdownSurvivesSessionRoundTripWithBoundedPromptContext() async throws {
-    let fullMarkdown = String(repeating: "0123456789", count: 500)
+  func sendRechecksCharacterLimitAndKeepsAttachmentsUntilRemoval() async throws {
+    let first = makeTextChatAttachment(
+      displayName: "large.pdf", content: String(repeating: "a", count: 32_000))
+    let extra = makeTextChatAttachment(displayName: "extra.txt", content: "!")
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["done"])
+    let engine = ConversationEngine(
+      runtime: runtime, modelPath: "/tmp/model",
+      chatAttachmentLoader: FixtureAttachmentLoader(attachments: [first, extra])
+    )
+    engine.modelRuntime.modelState = .ready
+    engine.addAttachments(from: [URL(filePath: "/tmp/large.pdf"), URL(filePath: "/tmp/extra.txt")])
+    try await waitUntil { engine.composerSessionState.pendingAttachments.count == 2 }
+    do {
+      try await engine.sendMessageInTestWorkspace(prompt: "Read the ending")
+      Issue.record("Expected character limit rejection")
+    } catch ChatAttachmentError.contentTooLarge(let actual, let limit) {
+      #expect(actual == 32_001)
+      #expect(limit == 32_000)
+    }
+    #expect(engine.composerSessionState.pendingAttachments == [first, extra])
+    #expect(engine.chatSession.turns.isEmpty)
+    #expect(await runtime.capturedMessages.isEmpty)
+    engine.removeAttachment(id: extra.id)
+    try await engine.sendMessageInTestWorkspace(prompt: "Read the ending")
+    try await waitUntil { !engine.isGenerating }
+    #expect(engine.chatSession.turns.count == 1)
+    #expect(engine.composerSessionState.pendingAttachments.isEmpty)
+  }
+
+  @Test
+  func sentDocumentEndingSurvivesSessionRoundTripWithFullPromptContext() async throws {
+    let fullMarkdown = String(repeating: "a", count: 31_978) + "\nDOCUMENT END: ORCHID."
     let attachment = makeTextChatAttachment(
       displayName: "report.docx",
       content: fullMarkdown,
       byteSize: 512,
       contentSHA256: "original-docx-hash"
     )
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["done"])
     let engine = ConversationEngine(
-      runtime: ChatSessionFakeChatModelRuntime(chunks: ["done"]),
+      runtime: runtime,
       modelPath: "/tmp/model",
       chatAttachmentLoader: FixtureAttachmentLoader(attachments: [attachment])
     )
@@ -1026,17 +1057,23 @@ struct ConversationEngineTests {
       Issue.record("Expected persisted attached-file prompt context")
       return
     }
-    #expect(selection.budget.maxCharacters == 4_000)
-    #expect(selection.truncation == .byCharacterBudget)
+    #expect(selection.budget.maxCharacters == 32_000)
+    #expect(selection.truncation == .none)
     #expect(attachedFile.attachmentID == attachment.id)
-    #expect(attachedFile.excerpt?.text == String(fullMarkdown.prefix(4_000)))
-    #expect(attachedFile.excerpt?.truncated == true)
+    #expect(attachedFile.excerpt?.text == fullMarkdown)
+    #expect(attachedFile.excerpt?.truncated == false)
     let rendered = try #require(
       CurrentPromptContextRenderer.renderSupportingContext(userMessage.promptContext).first
     )
-    #expect(rendered.contains("DOCX-derived Markdown excerpt (incomplete):"))
+    #expect(rendered.contains("Complete attached text:"))
     #expect(rendered.contains("not a workspace path"))
-    #expect(rendered.contains("Workspace file/search tools cannot retrieve the rest."))
+    #expect(rendered.contains("DOCUMENT END: ORCHID."))
+    #expect(
+      await runtime.capturedMessages.first?.contains {
+        $0.content.contains("DOCUMENT END: ORCHID.")
+      } == true)
+    let projection = ChatModelContextBuilder().transcript(from: decodedSession)
+    #expect(projection.entries[0].frozenContent.content.contains("DOCUMENT END: ORCHID."))
   }
 
   @Test

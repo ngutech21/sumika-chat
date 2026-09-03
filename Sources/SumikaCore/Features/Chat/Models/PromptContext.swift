@@ -5,6 +5,7 @@ package struct ContextBudget: Codable, Equatable, Sendable {
     self.maxCharacters = maxCharacters
   }
 
+  static let attachments = ContextBudget(maxCharacters: ChatAttachmentLimits.maxContentCharacters)
   package static let focusedFileDefault = ContextBudget(maxCharacters: 4_000)
   package static let workspaceInstructionsDefault = ContextBudget(maxCharacters: 8_000)
 
@@ -15,10 +16,6 @@ package struct ContextBudget: Codable, Equatable, Sendable {
       return nil
     }
     return ContextBudget(maxCharacters: maxCharacters)
-  }
-
-  static func unsafe(maxCharacters: Int) -> ContextBudget {
-    ContextBudget(maxCharacters: maxCharacters)
   }
 
   package init(from decoder: Decoder) throws {

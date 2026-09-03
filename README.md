@@ -12,7 +12,7 @@ separate runtime required.
 
 Install the app, choose and download a model, and start chatting right away.
 
-Use Chat mode to write, translate, summarize, research, or code. Switch to Agent
+Use Chat mode to write, translate, summarize, or research. Switch to Agent
 mode when you want Sumika to write code, work with your files, use
 approval-aware tools, or connect to local apps. Your conversations and model
 execution stay on your Mac, and you choose how tools and network access are
@@ -110,6 +110,18 @@ native preview pane.
 
 Download, load, and inspect local models from the macOS app without turning the
 chat into a cloud workflow.
+
+### Document attachments
+
+Attach Word, PDF, PowerPoint, Excel (including legacy XLS), OpenDocument, RTF,
+or EPUB files to ask about their complete extracted text. Conversion runs locally.
+CSV and other supported text files are read as UTF-8.
+
+You can attach up to eight files. Documents and text attachments can contain
+**32,000 extracted characters in total per message**; document source files can
+be up to **64 MiB each**. The conversation must also fit the selected model's
+context window, with space left for its reply. Scanned PDFs require text
+recognition first; Sumika does not perform OCR.
 
 ## What You Can Do
 

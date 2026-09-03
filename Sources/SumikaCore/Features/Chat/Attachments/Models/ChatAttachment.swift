@@ -150,9 +150,10 @@ package struct ImageAttachmentPayload: Codable, Equatable, Sendable {
 package enum ChatAttachmentLimits {
   package static let maxTextFileBytes = 256 * 1024
   package static let maxImageFileBytes = 20 * 1024 * 1024
-  package static let maxDocumentFileBytes = 8 * 1024 * 1024
+  package static let maxDocumentFileBytes = 64 * 1024 * 1024
   package static let maxConvertedDocumentBytes = 256 * 1024
   package static let maxAttachmentCount = 8
+  package static let maxContentCharacters = 32_000
 
   package static let supportedTextFileExtensions: Set<String> = [
     "c", "cc", "cpp", "css", "csv", "go", "h", "hpp", "html", "java",
@@ -164,7 +165,20 @@ package enum ChatAttachmentLimits {
     "jpeg", "jpg", "png", "webp",
   ]
 
-  package static let supportedDocumentFileExtensions: Set<String> = ["docx"]
+  // Filename aliases from the pinned AnyDocSwift version. CSV keeps its UTF-8 route.
+  package static let supportedDocumentFileExtensions: Set<String> = [
+    "doc", "docx", "docm", "odt", "pdf", "ppt", "pps", "pot", "pptx", "pptm",
+    "ppsx", "ppsm", "rtf", "epub", "xlsx", "xlsm", "xlsb", "xls", "ods", "odp",
+  ]
+
+  static func validateContent(of attachments: [ChatAttachment]) throws {
+    let count = attachments.reduce(0) { count, attachment in
+      count + (attachment.kind == .text ? attachment.content.count : 0)
+    }
+    guard count <= maxContentCharacters else {
+      throw ChatAttachmentError.contentTooLarge(count, maxContentCharacters)
+    }
+  }
 }
 
 package enum ChatAttachmentError: LocalizedError {
@@ -174,6 +188,8 @@ package enum ChatAttachmentError: LocalizedError {
   case fileSizeUnavailable(String)
   case unreadableText(String)
   case documentConversionFailed(String)
+  case documentNeedsOCR(String)
+  case contentTooLarge(Int, Int)
   case convertedDocumentTooLarge(String, Int)
   case missingStoredAttachment(String)
   case changedStoredAttachment(String)
@@ -192,6 +208,10 @@ package enum ChatAttachmentError: LocalizedError {
       "\(name) is not valid UTF-8 text."
     case .documentConversionFailed(let name):
       "\(name) could not be converted to text."
+    case .documentNeedsOCR(let name):
+      "\(name) contains scanned pages that Sumika cannot read locally. Attach a text-based PDF or extract the scanned text first."
+    case .contentTooLarge(let count, let limit):
+      "The attachments contain \(count.formatted()) characters; the limit is \(limit.formatted()) per message. Remove a file or attach less text."
     case .convertedDocumentTooLarge(let name, let limit):
       "The converted text for \(name) is larger than \(limit / 1024) KB."
     case .missingStoredAttachment(let name):

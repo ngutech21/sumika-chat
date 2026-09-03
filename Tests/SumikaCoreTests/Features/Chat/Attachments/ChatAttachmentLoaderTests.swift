@@ -8,6 +8,29 @@ import Testing
 @Suite(TemporaryDirectoryTrait(named: "sumika-attachment-loader-tests"))
 struct ChatAttachmentLoaderTests {
   @Test
+  func overBudgetBatchPreservesExistingAttachmentsAndRemovesNewFiles() async throws {
+    let store = ChatAttachmentStore(
+      baseURL: try makeTemporaryDirectory().appending(path: "attachments")
+    )
+    let loader = ChatAttachmentLoader(attachmentStore: store)
+    let existingURL = try write(
+      Data(String(repeating: "a", count: 30_000).utf8), to: "existing.txt")
+    let existing = try await loader.loadAttachments(from: [existingURL], existingAttachments: [])
+    let firstURL = try write(Data(String(repeating: "b", count: 2_000).utf8), to: "first.txt")
+    let secondURL = try write(Data("c".utf8), to: "second.txt")
+
+    await #expect(throws: (any Error).self) {
+      try await loader.loadAttachments(from: [firstURL, secondURL], existingAttachments: existing)
+    }
+
+    let stored = try FileManager.default.contentsOfDirectory(
+      at: store.baseURL, includingPropertiesForKeys: nil
+    )
+    #expect(stored.count == 1)
+    #expect(try Data(contentsOf: store.localURL(for: existing[0].id)).count == 30_000)
+  }
+
+  @Test
   func loadAttachmentsConvertsDOCXToMarkdownAndStoresOriginalBytes() async throws {
     let documentData = Data("DOCX fixture bytes".utf8)
     let markdown = "# Converted document\n\nKnown body text."

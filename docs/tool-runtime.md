@@ -152,6 +152,12 @@ flowchart TD
   emits a native call in any tools-stripped final response, every call is stored
   as an unavailable failed audit record, no executor runs, and deterministic
   assistant text completes the turn instead of raising a conversation error.
+- Every model generation, including tool follow-ups and approval resumptions,
+  uses the [conversation token budget](chat-runtime.md#conversation-token-budget).
+  Context exhaustion recommends starting a new chat or reducing supplied content.
+  An incomplete tool-protocol tail caused by context exhaustion gets no repair
+  generation; accepted complete tool calls keep their existing delivery and
+  approval behavior.
 - The transient finish-only instruction is appended to the MLX prompt snapshot
   and therefore to the completed generation's cached prefix, but it is not part
   of persisted `ChatTurn.items`. On the next turn the reconstructed canonical

@@ -11,6 +11,8 @@ inout = "inout"
 
 [files]
 extend-exclude = [
+  # Encoded binary document fixtures, not prose.
+  "Tests/SumikaAppTests/Fixtures/*.base64",
   "CHANGELOG.md",
   "docs/codebase-audit-open-findings.md",
 ]

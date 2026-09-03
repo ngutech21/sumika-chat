@@ -10,6 +10,33 @@ import Testing
 @Suite(.serialized, TemporaryDirectoryTrait(named: "sumika-mlx-trace-tests"))
 struct MLXDebugTraceStoreTests {
   @Test
+  func rejectedContextBudgetTraceKeepsMeasuredInputAndResponseAllowance() async throws {
+    let fileURL = try temporaryTraceFileURL()
+    let store = MLXDebugTraceStore(fileURL: fileURL, isEnabled: { true })
+    let budget = MLXContextBudget(capacity: 16_384, configuredMaximum: 32_768)
+    do {
+      _ = try budget.measure(promptTokens: 12_225)
+      Issue.record("Expected context rejection")
+    } catch {
+      await store.traceResponse(
+        id: UUID(), output: "", metrics: nil, error: error.localizedDescription,
+        thinkingBudgetOutcome: .notApplied, contextBudget: budget.trace
+      )
+    }
+    let line = try #require(
+      String(contentsOf: fileURL, encoding: .utf8).split(separator: "\n").first)
+    let record = try #require(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+    let values = try #require(record["contextBudget"] as? [String: Any])
+    #expect(record["kind"] as? String == "mlx_response")
+    #expect(values["promptTokens"] as? Int == 12_225)
+    #expect(values["contextCapacity"] as? Int == 16_384)
+    #expect(values["configuredResponseMaximum"] as? Int == 32_768)
+    #expect(values["effectiveResponseMaximum"] as? Int == 4_095)
+    #expect(values["rejected"] as? Bool == true)
+    #expect(values["preparationAttempts"] as? Int == 1)
+  }
+
+  @Test
   func turnTraceEventDoesNotWriteWhenDebugTraceIsDisabled() async throws {
     unsetenv("SUMIKA_DEBUG_TRACE")
     let fileURL = try temporaryTraceFileURL()

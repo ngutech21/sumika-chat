@@ -8,6 +8,29 @@ import Testing
 @MainActor
 struct ConversationEngineToolLoopTests {
   @Test
+  func contextLimitedToolTailReportsContextRecoveryWithoutAnotherGeneration() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [
+        [.outputLimitReached(.init(discardedToolProtocolTail: true, reason: .contextCapacity))]
+      ],
+      automaticallyCompletes: false
+    )
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    await engine.sendMessage(prompt: "Read this document", in: workspace, sessionID: sessionID)
+    try await waitUntil { !engine.isGenerating && engine.errorMessage != nil }
+    #expect(await runtime.capturedPromptPlans.count == 1)
+    #expect(engine.errorMessage == ChatGenerationError.contextLimitReached.localizedDescription)
+    #expect(engine.errorMessage?.contains("Start a new chat") == true)
+    #expect(engine.errorMessage?.contains("Max Tokens") == false)
+    #expect(engine.chatSession.turns.last?.status == .failed)
+  }
+
+  @Test
   func discardedToolProtocolTailRetriesOnceWithSmallerPayloadInstruction() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)

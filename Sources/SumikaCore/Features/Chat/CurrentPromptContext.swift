@@ -531,10 +531,7 @@ internal struct CurrentPromptContextSelector: Sendable {
     attachments: [ChatAttachment] = [],
     budget: ContextBudget
   ) -> CurrentPromptContext {
-    if let attachedFileContext = selectedAttachedFilesContext(
-      attachments,
-      budget: budget
-    ) {
+    if let attachedFileContext = selectedAttachedFilesContext(attachments) {
       return attachedFileContext
     }
 
@@ -563,8 +560,7 @@ internal struct CurrentPromptContextSelector: Sendable {
   }
 
   private func selectedAttachedFilesContext(
-    _ attachments: [ChatAttachment],
-    budget: ContextBudget
+    _ attachments: [ChatAttachment]
   ) -> CurrentPromptContext? {
     let validAttachments = attachments.filter { $0.kind == .text }.compactMap {
       attachmentContextInput($0)
@@ -573,15 +569,11 @@ internal struct CurrentPromptContextSelector: Sendable {
       return nil
     }
 
-    let perAttachmentBudget = max(1, budget.maxCharacters / validAttachments.count)
     let blocks = validAttachments.map { input in
       let excerpt =
         input.content.isEmpty
         ? nil
-        : truncatedExcerpt(
-          input.content,
-          budget: ContextBudget.unsafe(maxCharacters: perAttachmentBudget)
-        )
+        : PromptContextExcerpt.make(text: input.content, truncated: false)
       return PromptContextBlock.attachedFile(
         .make(
           attachmentID: input.id,
@@ -596,16 +588,7 @@ internal struct CurrentPromptContextSelector: Sendable {
       return nil
     }
 
-    let truncation =
-      blocks.contains { block in
-        if case .attachedFile(let context) = block {
-          return context.excerpt?.truncated == true
-        }
-        return false
-      }
-      ? PromptContextTruncation.byCharacterBudget
-      : .none
-    return .selected(.make(blocks: nonEmptyBlocks, budget: budget, truncation: truncation))
+    return .selected(.make(blocks: nonEmptyBlocks, budget: .attachments, truncation: .none))
   }
 
   private func selectedFocusedFileContext(
@@ -798,17 +781,9 @@ internal enum CurrentPromptContextRenderer {
     ]
     if let excerpt = context.excerpt {
       if excerpt.truncated {
-        lines.append(
-          isDOCXDisplayName(context.displayName)
-            ? "DOCX-derived Markdown excerpt (incomplete):"
-            : "Attached text excerpt (incomplete):"
-        )
+        lines.append("Attached text excerpt (incomplete):")
       } else {
-        lines.append(
-          isDOCXDisplayName(context.displayName)
-            ? "Complete DOCX-derived Markdown:"
-            : "Complete attached text:"
-        )
+        lines.append("Complete attached text:")
       }
       lines.append(excerpt.text)
       if excerpt.truncated {
@@ -875,10 +850,6 @@ internal enum CurrentPromptContextRenderer {
     }
     lines.append(attachmentWorkspaceToolInstruction)
     return lines.joined(separator: "\n")
-  }
-
-  private static func isDOCXDisplayName(_ displayName: String) -> Bool {
-    displayName.lowercased().hasSuffix(".docx")
   }
 
   private static let attachmentWorkspaceToolInstruction =

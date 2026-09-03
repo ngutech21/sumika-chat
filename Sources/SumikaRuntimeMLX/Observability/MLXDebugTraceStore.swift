@@ -106,7 +106,8 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     metrics: ChatGenerationMetrics?,
     error: String? = nil,
     thinkingBudget: MLXThinkingBudgetTrace? = nil,
-    thinkingBudgetOutcome: MLXThinkingBudgetOutcome
+    thinkingBudgetOutcome: MLXThinkingBudgetOutcome,
+    contextBudget: MLXContextBudgetTrace? = nil
   ) async {
     guard tracingIsEnabled else {
       return
@@ -131,6 +132,17 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     }
     if let thinkingBudget {
       response["thinkingBudget"] = thinkingBudgetObject(from: thinkingBudget)
+    }
+    if let contextBudget {
+      var budget: [String: Any] = [
+        "contextCapacity": contextBudget.capacity,
+        "configuredResponseMaximum": contextBudget.configuredResponseMaximum,
+        "preparationAttempts": contextBudget.preparationAttempts,
+        "rejected": contextBudget.rejected,
+      ]
+      budget["promptTokens"] = contextBudget.promptTokens
+      budget["effectiveResponseMaximum"] = contextBudget.effectiveResponseMaximum
+      response["contextBudget"] = budget
     }
     response["thinkingBudgetOutcome"] = thinkingBudgetOutcomeValue(thinkingBudgetOutcome)
     if let diagnostic = thinkingBudgetDiagnostic(from: thinkingBudgetOutcome) {

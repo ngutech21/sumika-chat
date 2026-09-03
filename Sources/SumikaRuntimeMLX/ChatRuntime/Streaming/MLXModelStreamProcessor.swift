@@ -39,6 +39,7 @@ enum MLXModelStreamProcessor {
       .unavailable
     },
     thinkingBudgetTrace: MLXThinkingBudgetTrace? = nil,
+    contextBudget: MLXContextBudget? = nil,
     thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState? = nil,
     markCompleted: @escaping @Sendable (MLXCompletedAssistantSnapshot) async -> Void,
     markNativeToolCallBoundary:
@@ -249,6 +250,7 @@ enum MLXModelStreamProcessor {
           debugTraceStore: debugTraceStore,
           runtimeCacheDiagnostics: runtimeCacheDiagnostics,
           thinkingBudgetTrace: thinkingBudgetTrace,
+          contextBudget: contextBudget?.trace,
           thinkingBudgetEnforcementState: thinkingBudgetEnforcementState,
           memoryTraceScope: memoryTraceScope,
           markCompleted: markCompleted,
@@ -265,6 +267,7 @@ enum MLXModelStreamProcessor {
           debugTraceStore: debugTraceStore,
           memoryTraceScope: memoryTraceScope,
           thinkingBudgetTrace: thinkingBudgetTrace,
+          contextBudget: contextBudget?.trace,
           thinkingBudgetEnforcementState: thinkingBudgetEnforcementState,
           didTerminateDownstream: streamCancellationState.didTerminateDownstream,
           markCancelled: markCancelled
@@ -281,6 +284,7 @@ enum MLXModelStreamProcessor {
           debugTraceStore: debugTraceStore,
           memoryTraceScope: memoryTraceScope,
           thinkingBudgetTrace: thinkingBudgetTrace,
+          contextBudget: contextBudget?.trace,
           thinkingBudgetEnforcementState: thinkingBudgetEnforcementState,
           markCancelled: markCancelled,
           memoryCacheClearer: memoryCacheClearer
@@ -321,6 +325,7 @@ extension MLXModelStreamProcessor {
     debugTraceStore: MLXDebugTraceStore,
     memoryTraceScope: MLXMemoryTraceScope?,
     thinkingBudgetTrace: MLXThinkingBudgetTrace?,
+    contextBudget: MLXContextBudgetTrace?,
     thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState?,
     didTerminateDownstream: Bool,
     markCancelled: @Sendable (MLXSessionInvalidationReason) async -> Void
@@ -340,7 +345,8 @@ extension MLXModelStreamProcessor {
       error: CancellationError().localizedDescription,
       thinkingBudget: thinkingBudgetTrace,
       thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
-        ? .notApplied : .cancelled
+        ? .notApplied : .cancelled,
+      contextBudget: contextBudget
     )
     continuation.finish(throwing: CancellationError())
     return outcome
@@ -384,6 +390,7 @@ extension MLXModelStreamProcessor {
     debugTraceStore: MLXDebugTraceStore,
     memoryTraceScope: MLXMemoryTraceScope?,
     thinkingBudgetTrace: MLXThinkingBudgetTrace?,
+    contextBudget: MLXContextBudgetTrace?,
     thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState?,
     markCancelled: @Sendable (MLXSessionInvalidationReason) async -> Void,
     memoryCacheClearer: MLXMemoryCacheClearer
@@ -418,7 +425,8 @@ extension MLXModelStreamProcessor {
       metrics: completedMetrics,
       error: error.localizedDescription,
       thinkingBudget: thinkingBudgetTrace,
-      thinkingBudgetOutcome: thinkingBudgetOutcome
+      thinkingBudgetOutcome: thinkingBudgetOutcome,
+      contextBudget: contextBudget
     )
     continuation.finish(throwing: error)
     return .failed
@@ -733,6 +741,7 @@ extension MLXModelStreamProcessor {
     debugTraceStore: MLXDebugTraceStore,
     runtimeCacheDiagnostics: MLXRuntimeCacheDiagnostics?,
     thinkingBudgetTrace: MLXThinkingBudgetTrace?,
+    contextBudget: MLXContextBudgetTrace?,
     thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState?,
     memoryTraceScope: MLXMemoryTraceScope?,
     markCompleted: @Sendable (MLXCompletedAssistantSnapshot) async -> Void,
@@ -755,7 +764,10 @@ extension MLXModelStreamProcessor {
     }
 
     if didReachTokenLimit {
-      let error = MLXChatRuntimeError.generationTokenLimitReached
+      let reason = contextBudget?.outputLimitReason ?? .configuredMaximum
+      let error =
+        reason == .contextCapacity
+        ? MLXChatRuntimeError.generationContextLimitReached : .generationTokenLimitReached
       await recordGenerationTerminalMemory(
         outcome: .outputLimit,
         scope: memoryTraceScope,
@@ -777,12 +789,13 @@ extension MLXModelStreamProcessor {
         error: error.localizedDescription,
         thinkingBudget: thinkingBudgetTrace,
         thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
-          ? .notApplied : .outputLimit
+          ? .notApplied : .outputLimit,
+        contextBudget: contextBudget
       )
       _ = continuation.yield(
         .outputLimitReached(
           ChatGenerationOutputLimit(
-            discardedToolProtocolTail: didDiscardToolProtocolTail
+            discardedToolProtocolTail: didDiscardToolProtocolTail, reason: reason
           )))
       continuation.finish()
       return .outputLimit
@@ -814,7 +827,8 @@ extension MLXModelStreamProcessor {
         error: error.localizedDescription,
         thinkingBudget: thinkingBudgetTrace,
         thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
-          ? .notApplied : .interrupted
+          ? .notApplied : .interrupted,
+        contextBudget: contextBudget
       )
       continuation.finish(throwing: error)
       return .interrupted
@@ -846,7 +860,8 @@ extension MLXModelStreamProcessor {
         metrics: completedMetrics,
         thinkingBudget: thinkingBudgetTrace,
         thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
-          ? .notApplied : .completedAuthoritative
+          ? .notApplied : .completedAuthoritative,
+        contextBudget: contextBudget
       )
       continuation.finish()
       return .toolCallBoundary
@@ -875,7 +890,8 @@ extension MLXModelStreamProcessor {
       metrics: completedMetrics,
       thinkingBudget: thinkingBudgetTrace,
       thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
-        ? .notApplied : .completedAuthoritative
+        ? .notApplied : .completedAuthoritative,
+      contextBudget: contextBudget
     )
     continuation.finish()
     return .completed

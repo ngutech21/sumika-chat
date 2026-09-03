@@ -658,6 +658,12 @@ extension ConversationEngine {
       throw ConversationIntentError.unsupportedInteractionMode
     }
     let attachmentsForTurn = pendingAttachments
+    do {
+      try ChatAttachmentLimits.validateContent(of: attachmentsForTurn)
+    } catch {
+      errorMessage = error.localizedDescription
+      throw error
+    }
     guard selectedModel.supportsImageInput || !attachmentsForTurn.hasImages
     else {
       errorMessage = unsupportedImageInputMessage(for: selectedModel)

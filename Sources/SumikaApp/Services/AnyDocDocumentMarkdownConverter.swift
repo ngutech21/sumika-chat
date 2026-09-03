@@ -10,6 +10,10 @@ nonisolated struct AnyDocDocumentMarkdownConverter: DocumentMarkdownConverting, 
   }
 
   func markdown(from data: Data) async throws -> String {
-    try await converter.markdown(from: data)
+    do {
+      return try await converter.markdown(from: data)
+    } catch AnyDocConversionError.needsOCR {
+      throw DocumentMarkdownConversionError.needsOCR
+    }
   }
 }

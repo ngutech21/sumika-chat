@@ -10,6 +10,39 @@ import Testing
 #endif
 @Suite()
 struct MLXModelStreamProcessorTests {
+  @Test(arguments: [
+    (2_048, 8_000, ChatGenerationOutputLimit.Reason.configuredMaximum),
+    (32_768, 8_000, .contextCapacity),
+    (2_048, 14_272, .contextCapacity),
+  ])
+  func outputLimitReportsTheConstraintIncludingTiedLimits(
+    configuredMaximum: Int, promptTokens: Int, expectedReason: ChatGenerationOutputLimit.Reason
+  ) async throws {
+    let budget = MLXContextBudget(capacity: 16_384, configuredMaximum: configuredMaximum)
+    let maximum = try budget.measure(promptTokens: promptTokens)
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("partial reply"))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: promptTokens, generationTokenCount: maximum,
+            promptTime: 0.1, generationTime: 1, stopReason: .length
+          )))
+      continuation.finish()
+    }
+    let stream = MLXModelStreamProcessor.modelStreamPlan(
+      from: source, traceID: UUID(), traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(), debugTraceStore: temporaryDebugTraceStore(),
+      contextBudget: budget, markCompleted: { _ in }, markCancelled: { _ in },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
+    ).stream
+    var limit: ChatGenerationOutputLimit?
+    for try await event in stream {
+      if case .outputLimitReached(let value) = event { limit = value }
+    }
+    #expect(limit?.reason == expectedReason)
+  }
+
   @Test
   func enforcedQwenStreamFailsClosedOnDuplicateReasoningClose() async throws {
     let marker = "</think>"

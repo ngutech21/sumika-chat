@@ -24,10 +24,17 @@ package enum ChatModelStreamEvent: Sendable {
 }
 
 package struct ChatGenerationOutputLimit: Equatable, Sendable {
-  package let discardedToolProtocolTail: Bool
+  package enum Reason: String, Equatable, Sendable {
+    case configuredMaximum
+    case contextCapacity
+  }
 
-  package init(discardedToolProtocolTail: Bool) {
+  package let discardedToolProtocolTail: Bool
+  package let reason: Reason
+
+  package init(discardedToolProtocolTail: Bool, reason: Reason = .configuredMaximum) {
     self.discardedToolProtocolTail = discardedToolProtocolTail
+    self.reason = reason
   }
 }
 

@@ -139,7 +139,7 @@ struct ModelPromptProjectionTests {
     let rendered = try #require(
       CurrentPromptContextRenderer.renderSupportingContext(decoded).first
     )
-    #expect(rendered.contains("Complete DOCX-derived Markdown:"))
+    #expect(rendered.contains("Complete attached text:"))
     #expect(rendered.contains("not a workspace path"))
 
     let reencoded = try JSONEncoder().encode(decoded)

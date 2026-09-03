@@ -269,9 +269,10 @@ struct ChatTurnExecutionCoordinator {
     }
     if toolPromptMode != .afterToolBudgetExhausted,
       generationResult.nativeToolCalls.isEmpty,
-      case .outputLimit = generationResult.termination
+      case .outputLimit(_, let reason) = generationResult.termination
     {
-      throw ChatGenerationError.outputLimitReached
+      throw reason == .contextCapacity
+        ? ChatGenerationError.contextLimitReached : ChatGenerationError.outputLimitReached
     }
     guard conversation.isActive(turnID) else {
       return ChatGenerationResult(assistantContent: "")

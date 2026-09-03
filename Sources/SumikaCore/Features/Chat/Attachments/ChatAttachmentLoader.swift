@@ -4,6 +4,10 @@ package protocol DocumentMarkdownConverting: Sendable {
   func markdown(from data: Data) async throws -> String
 }
 
+package enum DocumentMarkdownConversionError: Error {
+  case needsOCR
+}
+
 package protocol ChatAttachmentLoading: Sendable {
   func loadAttachments(
     from urls: [URL],
@@ -123,15 +127,24 @@ package struct ChatAttachmentLoader: ChatAttachmentLoading {
 
     let existingNames = Set(existingAttachments.map(\.displayName))
     var attachments: [ChatAttachment] = []
-    for url in urls {
-      try Task.checkCancellation()
-      guard !existingNames.contains(url.lastPathComponent) else {
-        continue
-      }
+    do {
+      for url in urls {
+        try Task.checkCancellation()
+        guard !existingNames.contains(url.lastPathComponent) else {
+          continue
+        }
 
-      attachments.append(try await readAttachment(from: url))
+        attachments.append(try await readAttachment(from: url))
+      }
+      try Task.checkCancellation()
+      try ChatAttachmentLimits.validateContent(of: existingAttachments + attachments)
+      return attachments
+    } catch {
+      for attachment in attachments {
+        await attachmentStore.removeStoredAttachment(attachment)
+      }
+      throw error
     }
-    return attachments
   }
 
   private func readAttachment(from url: URL) async throws -> ChatAttachment {
@@ -186,6 +199,8 @@ package struct ChatAttachmentLoader: ChatAttachmentLoading {
       markdown = try await converter.markdown(from: data)
     } catch is CancellationError {
       throw CancellationError()
+    } catch DocumentMarkdownConversionError.needsOCR {
+      throw ChatAttachmentError.documentNeedsOCR(fileName)
     } catch {
       throw ChatAttachmentError.documentConversionFailed(fileName)
     }

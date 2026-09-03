@@ -47,6 +47,15 @@ package struct ChatAttachmentStore: Sendable {
     }
   }
 
+  // Only the loader's uncommitted batch is removed here; existing attachments keep their identity.
+  func removeStoredAttachment(_ attachment: ChatAttachment) async {
+    let directoryURL = directoryURL(for: attachment.id)
+    await removeStoredFile(
+      at: directoryURL.appending(path: storedFileName(for: attachment.displayName)),
+      directoryURL: directoryURL
+    )
+  }
+
   package func localURL(for id: AttachmentID) throws -> URL {
     let fileManager = FileManager.default
     let directoryURL = directoryURL(for: id)
