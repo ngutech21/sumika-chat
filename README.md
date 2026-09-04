@@ -276,7 +276,8 @@ Swift 6.3.3 and the macOS 26.5 SDK, and Homebrew. Install `just` and `typos`, th
 use the project recipe for the remaining tools:
 
 ```sh
-brew install just typos-cli
+brew version-install just@1.58.0
+brew version-install typos-cli@1.50.0
 just deps
 ```
 
@@ -328,7 +329,8 @@ just final-check
 stable DerivedData path under `build/DerivedData`. `just test` runs every unit
 and integration test target through SwiftPM; Xcode remains responsible for the
 app launcher/resources and UI tests. `just lint` runs SwiftLint using
-`.swiftlint.yml`. `just format` checks Swift sources with `swift-format`.
+`.swiftlint.yml`. `just format` checks Swift sources with the `swift-format`
+provided by the selected Xcode toolchain.
 `just final-check` runs the broader local verification suite before review.
 
 `just resolve-packages` resolves both the root SwiftPM graph and the Xcode app

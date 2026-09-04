@@ -55,7 +55,7 @@ jobs:
 
       - name: Install build tools
         timeout-minutes: 5
-        run: brew install just
+        run: brew version-install just@1.58.0
 
       - name: Resolve Sparkle tools from release tag
         timeout-minutes: 10

@@ -18,7 +18,9 @@ default:
 
 # installs the dev tools on macos
 deps:
-   brew install swiftlint swift-format periphery create-dmg
+    brew version-install swiftlint@0.65.1
+    brew version-install periphery@3.8.0
+    brew version-install create-dmg@1.3.0
 
 resolve-packages:
     {{swift}} package resolve
@@ -203,7 +205,7 @@ coverage-low threshold="80":
     {{swift}} script/coverage_low.swift "$report" --threshold "$threshold"
 
 lint:
-    @command -v swiftlint >/dev/null || { echo "swiftlint is not installed. Install it with: brew install swiftlint"; exit 127; }
+    @command -v swiftlint >/dev/null || { echo "swiftlint is not installed. Install it with: brew version-install swiftlint@0.65.1"; exit 127; }
     @configs="$(find . \( -path ./.git -o -path ./.build -o -path ./build -o -path ./DerivedData \) -prune -o -name .swiftlint.yml -print | sort | sed 's#^\./##')"; \
     if [ -z "$configs" ]; then \
         echo "No SwiftLint configuration files found."; \
@@ -222,7 +224,7 @@ lint:
     exit "$status"
 
 lint-analyze:
-    @command -v swiftlint >/dev/null || { echo "swiftlint is not installed. Install it with: brew install swiftlint"; exit 127; }
+    @command -v swiftlint >/dev/null || { echo "swiftlint is not installed. Install it with: brew version-install swiftlint@0.65.1"; exit 127; }
     @log=$(mktemp); \
     trap 'rm -f "$log"' EXIT; \
     set --; \
@@ -243,12 +245,12 @@ lint-analyze:
 final-check: typos format lint periphery test
 
 format:
-    @command -v swift-format >/dev/null || { echo "swift-format is not installed."; exit 127; }
-    swift-format lint --strict --recursive --parallel sumika SumikaUITests Sources Tests Package.swift
+    @xcrun --find swift-format >/dev/null || { echo "The selected Xcode toolchain does not provide swift-format."; exit 127; }
+    xcrun swift-format lint --strict --recursive --parallel sumika SumikaUITests Sources Tests Package.swift
 
 format-fix:
-    @command -v swift-format >/dev/null || { echo "swift-format is not installed."; exit 127; }
-    swift-format format --in-place --recursive --parallel sumika SumikaUITests Sources Tests Package.swift
+    @xcrun --find swift-format >/dev/null || { echo "The selected Xcode toolchain does not provide swift-format."; exit 127; }
+    xcrun swift-format format --in-place --recursive --parallel sumika SumikaUITests Sources Tests Package.swift
 
 typos:
     typos -q --format brief

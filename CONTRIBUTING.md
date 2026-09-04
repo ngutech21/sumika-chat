@@ -16,14 +16,15 @@ Sumika is a native macOS project. Development requires:
 - macOS 15 or later.
 - Xcode 26.6 (build 17F113) with Apple Swift 6.3.3 and the macOS 26.5 SDK.
 - [Homebrew](https://brew.sh/).
-- `just`, SwiftLint, swift-format, Periphery, and `typos` for the complete local
-  verification workflow.
+- `just`, SwiftLint, Periphery, and `typos` for the complete local verification
+  workflow. Xcode provides `swift-format`.
 
 Install `just`, then use the project recipe to install its primary development
 tools:
 
 ```sh
-brew install just typos-cli
+brew version-install just@1.58.0
+brew version-install typos-cli@1.50.0
 just deps
 ```
 
