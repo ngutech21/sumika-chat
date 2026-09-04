@@ -11,7 +11,6 @@ export_options := "script/DeveloperIDExportOptions.plist"
 developer_team := "G8Z2RHV3P5"
 
 swift := env("SWIFT", "xcrun swift")
-swiftlint_version := "0.65.1"
 swiftlint_package := "script/swiftlint"
 swiftlint_scratch := ".build/swiftlint"
 swiftlint := swiftlint_scratch + "/artifacts/swiftlintplugins/SwiftLintBinary/SwiftLintBinary.artifactbundle/macos/swiftlint"
@@ -31,7 +30,6 @@ resolve-swiftlint:
 prepare-swiftlint:
     {{swift}} package --package-path {{swiftlint_package}} --scratch-path {{swiftlint_scratch}} --disable-automatic-resolution resolve
     @test -x "{{swiftlint}}" || { echo "SwiftLint binary not found after package resolution: {{swiftlint}}"; exit 1; }
-    @actual="$({{swiftlint}} version)"; test "$actual" = "{{swiftlint_version}}" || { echo "Expected SwiftLint {{swiftlint_version}}, found $actual."; exit 1; }
 
 resolve-packages:
     {{swift}} package resolve
