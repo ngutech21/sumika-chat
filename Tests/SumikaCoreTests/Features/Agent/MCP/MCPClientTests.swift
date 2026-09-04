@@ -252,6 +252,98 @@ struct MCPClientTests {
     await connection.shutdown()
   }
 
+  @Test
+  func oversizedUnterminatedFrameFailsInitializationBeforeTimeout() async throws {
+    let script = try writeScript(
+      """
+      #!/bin/sh
+      dd if=/dev/zero bs=1048576 count=9 2>/dev/null | tr '\\000' x
+      sleep 30
+      """
+    )
+    let connection = MCPServerConnection(
+      config: MCPServerConfig(name: "Oversized", command: script.path(percentEncoded: false)),
+      workspaceRootURL: script.deletingLastPathComponent()
+    )
+    let start = ContinuousClock.now
+
+    do {
+      _ = try await connection.start()
+      Issue.record("Expected oversized frame to fail initialization")
+    } catch let error as MCPClientError {
+      guard case .resourceLimit = error else {
+        Issue.record("Expected resource limit error, got \(error)")
+        await connection.shutdown()
+        return
+      }
+    }
+    await connection.shutdown()
+
+    #expect(ContinuousClock.now - start < .seconds(10))
+  }
+
+  @Test
+  func exitingServerPreservesBoundedStderrTailWithoutNewlines() async throws {
+    let script = try writeScript(
+      """
+      #!/bin/sh
+      printf 'discard-this-prefix:' >&2
+      dd if=/dev/zero bs=16384 count=1 2>/dev/null | tr '\\000' x >&2
+      printf ':final-diagnostic' >&2
+      exit 1
+      """
+    )
+    let connection = MCPServerConnection(
+      config: MCPServerConfig(name: "Verbose", command: script.path(percentEncoded: false)),
+      workspaceRootURL: script.deletingLastPathComponent()
+    )
+
+    do {
+      _ = try await connection.start()
+      Issue.record("Expected server exit")
+    } catch let error as MCPClientError {
+      guard case .serverExited(let detail) = error else {
+        Issue.record("Expected stderr diagnostic on server exit, got \(error)")
+        await connection.shutdown()
+        return
+      }
+      #expect(detail?.hasSuffix(":final-diagnostic") == true)
+      #expect(detail?.contains("discard-this-prefix") == false)
+      #expect(detail?.utf8.count == 8_192)
+    }
+    await connection.shutdown()
+  }
+
+  @Test
+  func closedStdoutFailsInitializationWithoutWaitingForProcessExit() async throws {
+    let script = try writeScript(
+      """
+      #!/bin/sh
+      exec 1>&-
+      sleep 30
+      """
+    )
+    let connection = MCPServerConnection(
+      config: MCPServerConfig(name: "ClosedOutput", command: script.path(percentEncoded: false)),
+      workspaceRootURL: script.deletingLastPathComponent()
+    )
+    let start = ContinuousClock.now
+
+    do {
+      _ = try await connection.start()
+      Issue.record("Expected closed protocol output to fail initialization")
+    } catch let error as MCPClientError {
+      guard case .serverExited = error else {
+        Issue.record("Expected connection lifecycle error, got \(error)")
+        await connection.shutdown()
+        return
+      }
+    }
+    await connection.shutdown()
+
+    #expect(ContinuousClock.now - start < .seconds(10))
+  }
+
   /// Opt-in end-to-end check against the reference server. Requires network
   /// and node; run with `SUMIKA_MCP_E2E=1 xcrun swift test --filter realServer`.
   @Test(.enabled(if: ProcessInfo.processInfo.environment["SUMIKA_MCP_E2E"] == "1"))
@@ -514,7 +606,7 @@ struct MCPClientTests {
       switch error {
       case .notConnected, .serverExited:
         break
-      case .staleConnection, .timedOut, .protocolError, .serverError:
+      case .staleConnection, .timedOut, .protocolError, .serverError, .resourceLimit:
         Issue.record("Expected connection lifecycle error, got \(error)")
       }
     } catch {
@@ -530,6 +622,61 @@ struct MCPClientTests {
       return
     }
     #expect(executors.isEmpty)
+  }
+
+  @Test
+  func managerInvalidatesConnectionAfterOversizedToolResponse() async throws {
+    let script = try writeScript(
+      """
+      #!/bin/sh
+      request_id() {
+        printf '%s\\n' "$1" | sed -E 's/.*"id":("[^"]*"|[0-9]+).*/\\1/'
+      }
+      read -r line
+      id=$(request_id "$line")
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"oversized","version":"1.0"}}}\\n' "$id"
+      read -r line
+      read -r line
+      id=$(request_id "$line")
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"dump","inputSchema":{"type":"object"}}]}}\\n' "$id"
+      read -r line
+      dd if=/dev/zero bs=1048576 count=9 2>/dev/null | tr '\\000' x
+      printf '\\n'
+      sleep 30
+      """
+    )
+    let config = MCPServerConfig(name: "Oversized", command: script.path(percentEncoded: false))
+    let manager = MCPClientManager()
+    await activate(manager, configs: [config])
+    let token = try #require(await manager.connectionToken(for: config.id))
+    let start = ContinuousClock.now
+
+    do {
+      _ = try await manager.callTool(
+        serverID: config.id,
+        connectionToken: token,
+        name: "dump",
+        arguments: [:]
+      )
+      Issue.record("Expected oversized tool response to fail")
+    } catch let error as MCPClientError {
+      guard case .resourceLimit = error else {
+        Issue.record("Expected resource limit error, got \(error)")
+        await manager.shutdownAll()
+        return
+      }
+    }
+    let statuses = await manager.statuses()
+    let tools = await manager.agentToolExecutors()
+    await manager.shutdownAll()
+
+    #expect(ContinuousClock.now - start < .seconds(10))
+    #expect(tools.isEmpty)
+    guard case .failed(let message)? = statuses.first?.state else {
+      Issue.record("Expected resource failure to invalidate the connection")
+      return
+    }
+    #expect(message.contains("limit"))
   }
 
   @Test

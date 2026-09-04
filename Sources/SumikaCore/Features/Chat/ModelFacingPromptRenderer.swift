@@ -437,9 +437,13 @@ enum ToolModelObservationRenderer {
         result.outputRef.map { "Output ref: \($0)" },
         result.stdout.truncated ? "Stdout truncated: true" : nil,
         result.stdoutOmittedChars > 0 ? "Stdout omitted chars: \(result.stdoutOmittedChars)" : nil,
+        result.stdoutCaptureOmittedBytes > 0
+          ? "Stdout capture omitted bytes: \(result.stdoutCaptureOmittedBytes)" : nil,
         result.stdout.text.isEmpty ? nil : "Stdout preview:\n\(result.stdout.text)",
         result.stderr.truncated ? "Stderr truncated: true" : nil,
         result.stderrOmittedChars > 0 ? "Stderr omitted chars: \(result.stderrOmittedChars)" : nil,
+        result.stderrCaptureOmittedBytes > 0
+          ? "Stderr capture omitted bytes: \(result.stderrCaptureOmittedBytes)" : nil,
         result.stderr.text.isEmpty ? nil : "Stderr preview:\n\(result.stderr.text)",
       ].compactMap(\.self)
       if let outputRef = result.outputRef {

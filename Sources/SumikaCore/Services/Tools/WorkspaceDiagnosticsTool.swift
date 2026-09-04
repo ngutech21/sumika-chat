@@ -316,6 +316,38 @@ package struct CommandOutputReadPage: Codable, Equatable, Sendable {
   package let endLine: Int
   package let lines: [CommandOutputReadLine]
   package let continuation: WorkspaceDiagnosticsContinuation
+  let captureOmittedBytes: Int
+
+  private enum CodingKeys: String, CodingKey {
+    case stream, startLine, endLine, lines, continuation, captureOmittedBytes
+  }
+
+  init(
+    stream: CommandOutputStream,
+    startLine: Int,
+    endLine: Int,
+    lines: [CommandOutputReadLine],
+    continuation: WorkspaceDiagnosticsContinuation,
+    captureOmittedBytes: Int = 0
+  ) {
+    self.stream = stream
+    self.startLine = startLine
+    self.endLine = endLine
+    self.lines = lines
+    self.continuation = continuation
+    self.captureOmittedBytes = captureOmittedBytes
+  }
+
+  package init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    stream = try container.decode(CommandOutputStream.self, forKey: .stream)
+    startLine = try container.decode(Int.self, forKey: .startLine)
+    endLine = try container.decode(Int.self, forKey: .endLine)
+    lines = try container.decode([CommandOutputReadLine].self, forKey: .lines)
+    continuation = try container.decode(
+      WorkspaceDiagnosticsContinuation.self, forKey: .continuation)
+    captureOmittedBytes = try container.decodeIfPresent(Int.self, forKey: .captureOmittedBytes) ?? 0
+  }
 }
 
 package enum CommandOutputReadResult: Codable, Equatable, Sendable {
@@ -341,6 +373,45 @@ package struct CommandOutputSearchPage: Codable, Equatable, Sendable {
   package let lineCount: Int
   package let matches: [CommandOutputSearchMatch]
   package let continuation: WorkspaceDiagnosticsContinuation
+  let captureOmittedBytes: Int
+
+  private enum CodingKeys: String, CodingKey {
+    case stream, pattern, startLine, scannedThrough, lineCount, matches, continuation
+    case captureOmittedBytes
+  }
+
+  init(
+    stream: CommandOutputStream,
+    pattern: String,
+    startLine: Int,
+    scannedThrough: Int?,
+    lineCount: Int,
+    matches: [CommandOutputSearchMatch],
+    continuation: WorkspaceDiagnosticsContinuation,
+    captureOmittedBytes: Int = 0
+  ) {
+    self.stream = stream
+    self.pattern = pattern
+    self.startLine = startLine
+    self.scannedThrough = scannedThrough
+    self.lineCount = lineCount
+    self.matches = matches
+    self.continuation = continuation
+    self.captureOmittedBytes = captureOmittedBytes
+  }
+
+  package init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    stream = try container.decode(CommandOutputStream.self, forKey: .stream)
+    pattern = try container.decode(String.self, forKey: .pattern)
+    startLine = try container.decode(Int.self, forKey: .startLine)
+    scannedThrough = try container.decodeIfPresent(Int.self, forKey: .scannedThrough)
+    lineCount = try container.decode(Int.self, forKey: .lineCount)
+    matches = try container.decode([CommandOutputSearchMatch].self, forKey: .matches)
+    continuation = try container.decode(
+      WorkspaceDiagnosticsContinuation.self, forKey: .continuation)
+    captureOmittedBytes = try container.decodeIfPresent(Int.self, forKey: .captureOmittedBytes) ?? 0
+  }
 }
 
 package enum CommandOutputSearchResult: Codable, Equatable, Sendable {
@@ -452,11 +523,11 @@ nonisolated extension WorkspaceDiagnosticsResult {
   package var isTruncated: Bool {
     switch self {
     case .read(_, .page(let page)):
-      page.continuation != .endOfOutput
+      page.continuation != .endOfOutput || page.captureOmittedBytes > 0
     case .read(_, .lineTooLong):
       true
     case .search(_, .page(let page)):
-      page.continuation != .endOfOutput
+      page.continuation != .endOfOutput || page.captureOmittedBytes > 0
     case .read, .search, .legacyDiagnostics:
       false
     }
@@ -490,17 +561,21 @@ extension CommandOutputReadResult {
     switch self {
     case .page(let page):
       var lines = Self.streamHeader(page.stream)
+      lines.append(contentsOf: Self.captureNotice(omittedBytes: page.captureOmittedBytes))
       lines.append("Lines: \(page.startLine)-\(page.endLine)")
       lines.append(contentsOf: page.lines.map { $0.rendered(selectedStream: page.stream) })
-      lines.append(page.continuation.renderedReadContinuation)
+      lines.append(
+        page.captureOmittedBytes > 0 && page.continuation == .endOfOutput
+          ? "End of retained output" : page.continuation.renderedReadContinuation
+      )
       return lines.joined(separator: "\n")
     case .empty(let stream):
-      return (Self.streamHeader(stream) + ["Output is empty.", "End of output"])
+      return (Self.streamHeader(stream) + ["Retained output is empty.", "End of retained output"])
         .joined(separator: "\n")
     case .offsetOutOfRange(let stream, let requestedOffset, let lineCount):
       return
         (Self.streamHeader(stream) + [
-          "Offset \(requestedOffset) is past the end of output, which has \(lineCount) lines."
+          "Offset \(requestedOffset) is past the end of retained output, which has \(lineCount) lines."
         ]).joined(separator: "\n")
     case .lineTooLong(let stream, let line, let byteCount):
       return
@@ -518,6 +593,16 @@ extension CommandOutputReadResult {
     }
     return lines
   }
+
+  fileprivate static func captureNotice(omittedBytes: Int) -> [String] {
+    guard omittedBytes > 0 else {
+      return []
+    }
+    return [
+      "Capture omitted bytes: \(omittedBytes). These bytes are unavailable.",
+      "Line numbers and search coverage refer only to retained output, including gap markers.",
+    ]
+  }
 }
 
 extension CommandOutputSearchResult {
@@ -525,15 +610,21 @@ extension CommandOutputSearchResult {
     switch self {
     case .page(let page):
       var lines = CommandOutputReadResult.streamHeader(page.stream)
+      lines.append(
+        contentsOf: CommandOutputReadResult.captureNotice(omittedBytes: page.captureOmittedBytes))
       lines.append("Pattern: \(Self.displayPattern(page.pattern))")
       if let scannedThrough = page.scannedThrough {
         lines.append("Scanned lines: \(page.startLine)-\(scannedThrough)")
       } else {
         lines.append("Scanned lines: none")
       }
-      let searchComplete = page.continuation == .endOfOutput
+      let retainedSearchComplete = page.continuation == .endOfOutput
+      let searchComplete = retainedSearchComplete && page.captureOmittedBytes == 0
       lines.append("Returned matches: \(page.matches.count)")
       lines.append("Search complete: \(searchComplete)")
+      if page.captureOmittedBytes > 0 {
+        lines.append("Retained output search complete: \(retainedSearchComplete)")
+      }
       switch page.continuation {
       case .next(let offset, _) where offset <= page.lineCount:
         lines.append("Unscanned lines: \(offset)-\(page.lineCount)")
@@ -545,18 +636,21 @@ extension CommandOutputSearchResult {
       if page.matches.isEmpty {
         lines.append(
           page.lineCount == 0
-            ? "Output is empty."
+            ? "Retained output is empty."
             : "No matches returned from the scanned lines."
         )
       } else {
         lines.append(contentsOf: page.matches.map { $0.rendered(selectedStream: page.stream) })
       }
-      lines.append(page.continuation.renderedSearchContinuation)
+      lines.append(
+        page.captureOmittedBytes > 0 && retainedSearchComplete
+          ? "End of retained output" : page.continuation.renderedSearchContinuation
+      )
       return lines.joined(separator: "\n")
     case .offsetOutOfRange(let stream, let requestedOffset, let lineCount):
       return
         (CommandOutputReadResult.streamHeader(stream) + [
-          "Offset \(requestedOffset) is past the end of output, which has \(lineCount) lines."
+          "Offset \(requestedOffset) is past the end of retained output, which has \(lineCount) lines."
         ]).joined(separator: "\n")
     }
   }
@@ -868,7 +962,8 @@ struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
       startLine: startLine,
       endLine: lines[lines.count - 1].line,
       lines: lines,
-      continuation: continuation
+      continuation: continuation,
+      captureOmittedBytes: document.captureOmittedBytes
     )
   }
 
@@ -921,7 +1016,8 @@ struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
               scannedThrough: scannedThrough,
               lineCount: document.lines.count,
               matches: matches,
-              continuation: .next(offset: sourceLine.line, reason: .byteLimit)
+              continuation: .next(offset: sourceLine.line, reason: .byteLimit),
+              captureOmittedBytes: document.captureOmittedBytes
             )
           )
         }
@@ -944,7 +1040,8 @@ struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
             scannedThrough: scannedThrough,
             lineCount: document.lines.count,
             matches: matches,
-            continuation: continuation
+            continuation: continuation,
+            captureOmittedBytes: document.captureOmittedBytes
           )
         )
       }
@@ -958,7 +1055,8 @@ struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
         scannedThrough: scannedThrough,
         lineCount: document.lines.count,
         matches: matches,
-        continuation: .endOfOutput
+        continuation: .endOfOutput,
+        captureOmittedBytes: document.captureOmittedBytes
       )
     )
   }
@@ -1060,6 +1158,7 @@ struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
 private struct CommandOutputDocument {
   let stream: CommandOutputStream
   let lines: [CommandOutputDocumentLine]
+  let captureOmittedBytes: Int
 
   init(output: CommandOutputRecord, stream: CommandOutputStream) {
     self.stream = stream
@@ -1069,10 +1168,13 @@ private struct CommandOutputDocument {
     switch stream {
     case .stdout:
       selected = stdoutLines
+      captureOmittedBytes = output.stdoutOmittedBytes
     case .stderr:
       selected = stderrLines
+      captureOmittedBytes = output.stderrOmittedBytes
     case .combined:
       selected = stdoutLines + stderrLines
+      captureOmittedBytes = output.stdoutOmittedBytes + output.stderrOmittedBytes
     }
     lines = selected.enumerated().map { index, line in
       CommandOutputDocumentLine(

@@ -491,8 +491,9 @@ declarations.
   configurations. The prototype does not decode the former flat stdio schema.
 - `MCPServerConnection` owns one stdio or Streamable HTTP connection. For stdio,
   Sumika spawns `/usr/bin/env <command> <args>` with the same PATH conventions
-  as `run_command` and the active workspace root as its current directory, then
-  hands the child descriptors to the official MCP Swift SDK's `StdioTransport`.
+  as `run_command` and the active workspace root as its current directory.
+  Sumika's `MCPStdioTransport` adapts `OwnedProcess` to the official MCP Swift
+  SDK's transport interface, with bounded newline framing before SDK decoding.
   For HTTP, Sumika creates the SDK's `HTTPClientTransport` with streaming
   enabled; the SDK owns POST/SSE exchange, session IDs, protocol headers, and
   stream resumption. Only current Streamable HTTP is supported, not legacy
@@ -500,14 +501,20 @@ declarations.
   HTTPS. Plain HTTP is accepted only for `localhost`, IPv4 loopback, and `::1`;
   endpoint URLs with credentials or fragments are rejected. The app declares
   `NSAllowsLocalNetworking` without disabling App Transport Security globally.
-- The SDK `Client` owns JSON-RPC framing, lifecycle negotiation, request IDs,
+- The SDK `Client` owns JSON-RPC encoding and decoding, lifecycle negotiation, request IDs,
   error decoding, typed `tools/list`/`tools/call`, notifications, and optional
   `roots/list` dispatch for both transports. stdio and loopback HTTP advertise
   roots and return only the active workspace URI; remote HTTPS servers receive
   neither the roots capability nor the local workspace path. Workspace names
   are never sent. Sumika owns stdio process lifetime, stderr diagnostics,
-  request timeouts, the Darwin `F_SETNOSIGPIPE` guard, and whole process-tree
-  shutdown. `tools/list` pagination is bounded by Sumika. SDK values are mapped
+  request timeouts, the Darwin `F_SETNOSIGPIPE` guard, and owned process-group
+  shutdown. A local transport adapter rejects oversized stdout frames before
+  SDK decoding: each frame is limited to 8 MiB, at most two incoming frames and
+  two outgoing writes may be queued, and stderr retains an 8 KiB byte tail.
+  A full incoming queue pauses stdout reads until the consumer makes room;
+  only the remainder of one 16 KiB read is held alongside the framing buffers.
+  Valid message bursts apply pipe backpressure instead of failing the connection.
+  `tools/list` pagination is bounded by Sumika. SDK values are mapped
   at the connection boundary into the persisted Sumika tool models; result text
   is capped and marked truncated, and non-text content blocks become explicit
   unsupported placeholders.
@@ -715,7 +722,11 @@ declarations.
   Git through `Process` argv, not shell interpolation. The first version is
   Git-only: it returns `git status --short`, `git diff --stat`, and unified
   `git diff` output for tracked changes. Untracked files are reported in status
-  without dumping their contents. Output is capped and marked when truncated.
+  without dumping their contents. Each of the three subprocesses retains at
+  most 48 KiB stdout and 8 KiB stderr at ingestion, for a combined capture
+  ceiling of 168 KiB. The rendered result has its own 48 KiB cap. Capture and
+  display truncation both mark the result as truncated; no temporary output
+  files are created.
 - Write tools and command tools must enter the approval-required path before
   execution. The active Agent session's manual or automatic policy decides
   whether that path pauses for user input.
@@ -758,7 +769,8 @@ declarations.
 - `run_command` uses an optional timeout that defaults to 120 seconds when
   omitted and is clamped to the supported range before execution. It captures
   stdout, stderr, exit code, duration, timeout, cancellation, preview truncation
-  metadata, and an `outputRef` as a structured `RunCommandResult`. A non-zero
+  metadata, capture-omitted byte counts, and an `outputRef` as a structured
+  `RunCommandResult`. A non-zero
   process exit is still a completed tool execution so the model can inspect
   output and repair; it must not become a controller error. Display and
   model-observation projections derive command outcome separately: only exit
@@ -768,9 +780,25 @@ declarations.
   did not complete successfully and that the assistant must not report the
   requested task as complete from that failed result, but it must not infer
   command-specific side effects without a later verifying tool result.
-- After an actual `run_command` process is started, the full stdout/stderr is
+- All noninteractive Core subprocesses use one internal process owner for
+  launch, concurrent bounded I/O, cancellation, and teardown. One-shot commands,
+  Git diff and discovery, and long-lived MCP stdio specify finite capture
+  limits. Timeout and cancellation cover stdin writes and output draining as
+  well as execution. Shutdown signals the owned process group with TERM, waits
+  a finite grace period, escalates to KILL, and reaps the direct child. A child
+  that deliberately leaves the owned group is outside this lifecycle guarantee.
+  After normal child exit, MCP stdout can continue draining under consumer
+  backpressure. Explicit shutdown and deadlines still abort a paused drain;
+  process cleanup must not discard final frames merely because the consumer is slow.
+  Interactive PTY terminals and MCP HTTP transport retain their own lifecycles.
+- After an actual `run_command` process is started, bounded stdout/stderr is
   recorded in ephemeral latest-command state keyed by workspace, session, and
-  `outputRef`. The model-facing `RunCommandResult` contains only command
+  `outputRef`. Each stream retains at most 512 KiB, including a head/tail gap
+  marker when bytes are discarded during capture. This keeps the combined
+  capture below the store's 2 MiB budget. Capture-omitted byte counts are
+  separate from the character counts omitted only by preview shortening;
+  discarded capture bytes cannot be recovered through the output ref.
+  The model-facing `RunCommandResult` contains only command
   metadata plus head/tail stdout/stderr previews. Awaiting-approval or denied
   command requests must not overwrite this state. An `outputRef` is returned
   only when the new output survives the count and byte retention budgets; an
@@ -793,10 +821,15 @@ declarations.
   page contains at most 50 matches, at most 8 KiB of rendered match content,
   and at most 240 characters per snippet. `nextOffset` is the first line not
   consumed by the page, so a continuation can resume without skipping a
-  match. Search results call the page-local count `returned_matches` and expose
+  match. Read and search pages report capture-omitted bytes; their line numbers
+  address retained output, including gap markers. Search results call the
+  page-local count `returned_matches` and expose
   `search_complete` explicitly. Only a complete search establishes the total
   match count or the absence or uniqueness of a match; partial pages must be
-  continued when one of those facts matters.
+  continued when one of those facts matters. If capture discarded bytes,
+  `search_complete` remains false even after all retained lines were scanned;
+  there is no continuation into the discarded gap. Persisted older command
+  results and diagnostic pages decode missing capture-omitted counts as zero.
 - `combined` is deterministic concatenation: all stdout lines followed by all
   stderr lines. Each rendered combined line includes its origin stream and
   stream-local line number in addition to the combined `N: ` gutter; it does

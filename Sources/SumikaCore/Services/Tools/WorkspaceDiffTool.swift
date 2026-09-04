@@ -84,6 +84,7 @@ struct WorkspaceDiffToolExecutor: TypedToolExecutor {
   private let envExecutableURL: URL
   private let maxBytes: Int
   private let timeoutSeconds: Int
+  private let processRunner: any CommandProcessRunning
 
   init(
     gitExecutableURL: URL? = nil,
@@ -92,7 +93,8 @@ struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     gitPathPrefixDirectories: [URL]? = nil,
     envExecutableURL: URL = URL(filePath: "/usr/bin/env"),
     maxBytes: Int = 48 * 1024,
-    timeoutSeconds: Int = 10
+    timeoutSeconds: Int = 10,
+    processRunner: any CommandProcessRunning = DefaultCommandProcessRunner()
   ) {
     self.gitExecutableURL = gitExecutableURL
     self.directGitExecutableURLs = directGitExecutableURLs ?? Self.defaultDirectGitExecutableURLs
@@ -101,6 +103,7 @@ struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     self.envExecutableURL = envExecutableURL
     self.maxBytes = maxBytes
     self.timeoutSeconds = timeoutSeconds
+    self.processRunner = processRunner
   }
 
   func evaluatePermission(
@@ -141,6 +144,7 @@ struct WorkspaceDiffToolExecutor: TypedToolExecutor {
         let pathArguments = [gitScopedPath.rawValue]
         let status = try await runGit(
           command: gitCommand,
+          workingDirectoryURL: rootURL,
           arguments: configuredGitArguments(
             ["-C", rootURL.path(percentEncoded: false), "status", "--short", "--"]
               + pathArguments)
@@ -154,6 +158,7 @@ struct WorkspaceDiffToolExecutor: TypedToolExecutor {
 
         let stat = try await runGit(
           command: gitCommand,
+          workingDirectoryURL: rootURL,
           arguments: configuredGitArguments(
             [
               "-C", rootURL.path(percentEncoded: false), "diff", "--no-ext-diff", "--stat", "--",
@@ -168,6 +173,7 @@ struct WorkspaceDiffToolExecutor: TypedToolExecutor {
 
         let diff = try await runGit(
           command: gitCommand,
+          workingDirectoryURL: rootURL,
           arguments: configuredGitArguments(
             ["-C", rootURL.path(percentEncoded: false), "diff", "--no-ext-diff", "--"]
               + pathArguments)
@@ -180,8 +186,13 @@ struct WorkspaceDiffToolExecutor: TypedToolExecutor {
         }
 
         let rendered = render(status: status.stdout, stat: stat.stdout, diff: diff.stdout)
+        let captureTruncated = [status, stat, diff].contains {
+          $0.stdoutTruncated || $0.stderrTruncated
+        }
+        let content = cappedOutput(
+          rendered, maxBytes: maxBytes, captureTruncated: captureTruncated)
         return .workspaceDiff(
-          .success(path: scopedPath, content: cappedOutput(rendered, maxBytes: maxBytes))
+          .success(path: scopedPath, content: content)
         )
       }
     } catch {
@@ -227,82 +238,26 @@ struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     ["-c", "core.fsmonitor=false"] + arguments
   }
 
-  private func runGit(command: GitLaunchCommand, arguments: [String]) async throws
-    -> GitCommandResult
-  {
-    let process = Process()
-    process.executableURL = command.executableURL
-    process.arguments = command.leadingArguments + arguments
-    if let environment = command.environment {
-      process.environment = environment
-    }
-
-    let outputID = UUID().uuidString
-    let temporaryDirectory = FileManager.default.temporaryDirectory
-    let stdoutURL = temporaryDirectory.appending(
-      path: "sumika-workspace-diff-\(outputID).stdout")
-    let stderrURL = temporaryDirectory.appending(
-      path: "sumika-workspace-diff-\(outputID).stderr")
-    try Data().write(to: stdoutURL)
-    try Data().write(to: stderrURL)
-
-    let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
-    let stderrHandle = try FileHandle(forWritingTo: stderrURL)
-    var outputHandlesClosed = false
-    func closeOutputHandles() {
-      guard !outputHandlesClosed else {
-        return
-      }
-      outputHandlesClosed = true
-      try? stdoutHandle.close()
-      try? stderrHandle.close()
-    }
-    defer {
-      closeOutputHandles()
-      try? FileManager.default.removeItem(at: stdoutURL)
-      try? FileManager.default.removeItem(at: stderrURL)
-    }
-
-    process.standardOutput = stdoutHandle
-    process.standardError = stderrHandle
-
-    let timeoutTask = Task {
-      try await Task.sleep(for: .seconds(timeoutSeconds))
-      guard process.isRunning else {
-        return false
-      }
-      process.terminate()
-      return true
-    }
-
-    let exitCode = try await runProcessAndWaitForExit(process)
-    timeoutTask.cancel()
-    let timedOut = (try? await timeoutTask.value) ?? false
-    closeOutputHandles()
-    let stdoutData = try Data(contentsOf: stdoutURL)
-    let stderrData = try Data(contentsOf: stderrURL)
-
-    return GitCommandResult(
-      exitCode: exitCode,
-      stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-      stderr: String(data: stderrData, encoding: .utf8) ?? "",
-      timedOut: timedOut
+  private func runGit(
+    command: GitLaunchCommand,
+    workingDirectoryURL: URL,
+    arguments: [String]
+  ) async throws -> CommandProcessResult {
+    let result = try await processRunner.run(
+      CommandProcessRequest(
+        executableURL: command.executableURL,
+        arguments: command.leadingArguments + arguments,
+        environment: command.environment ?? ProcessInfo.processInfo.environment,
+        workingDirectoryURL: workingDirectoryURL,
+        timeoutSeconds: timeoutSeconds,
+        maxStdoutBytes: 48 * 1024,
+        maxStderrBytes: 8 * 1024
+      )
     )
-  }
-
-  private func runProcessAndWaitForExit(_ process: Process) async throws -> Int32 {
-    try await withCheckedThrowingContinuation { continuation in
-      process.terminationHandler = { process in
-        continuation.resume(returning: process.terminationStatus)
-      }
-
-      do {
-        try process.run()
-      } catch {
-        process.terminationHandler = nil
-        continuation.resume(throwing: error)
-      }
+    if result.cancelled {
+      throw CancellationError()
     }
+    return result
   }
 
   private func render(status: String, stat: String, diff: String) -> String {
@@ -399,7 +354,7 @@ struct WorkspaceDiffToolExecutor: TypedToolExecutor {
   private func failureResult(
     path: WorkspaceRelativePath?,
     command: String,
-    result: GitCommandResult
+    result: CommandProcessResult
   ) -> ToolResultPayload {
     let output = trimmingTrailingWhitespace(
       result.stderr.isEmpty ? result.stdout : result.stderr
@@ -414,11 +369,16 @@ struct WorkspaceDiffToolExecutor: TypedToolExecutor {
         "The selected git executable invokes xcrun, which cannot run inside the App Sandbox. "
         + "Make a real git executable available in the app PATH."
     } else if output.isEmpty {
-      reason = "\(command) exited with status \(result.exitCode)."
+      reason = "\(command) exited with status \(result.exitCode.map(String.init) ?? "none")."
     } else {
-      reason = "\(command) exited with status \(result.exitCode): \(output)"
+      reason =
+        "\(command) exited with status \(result.exitCode.map(String.init) ?? "none"): \(output)"
     }
-    return .workspaceDiff(.failed(path: path, reason: .executionError(reason)))
+    let content = cappedOutput(
+      reason, maxBytes: maxBytes,
+      captureTruncated: result.stdoutTruncated || result.stderrTruncated
+    )
+    return .workspaceDiff(.failed(path: path, reason: .executionError(content.text)))
   }
 
   private func timeoutResult(path: WorkspaceRelativePath?) -> ToolResultPayload {
@@ -429,15 +389,22 @@ struct WorkspaceDiffToolExecutor: TypedToolExecutor {
       ))
   }
 
-  private func cappedOutput(_ text: String, maxBytes: Int) -> ToolTextOutput {
+  private func cappedOutput(
+    _ text: String, maxBytes: Int, captureTruncated: Bool = false
+  ) -> ToolTextOutput {
+    let limit = max(maxBytes, 0)
     let byteCount = text.utf8.count
-    guard byteCount > maxBytes else {
+    guard captureTruncated || byteCount > limit else {
       return ToolTextOutput(text: text)
     }
 
-    let marker = "\n[workspace_diff output truncated]"
+    let message =
+      captureTruncated
+      ? "\n[workspace_diff capture truncated; retained output only]"
+      : "\n[workspace_diff output truncated]"
+    let marker = String(message.prefix(limit))
     let markerBytes = marker.utf8.count
-    let prefixByteCount = max(maxBytes - markerBytes, 0)
+    let prefixByteCount = max(limit - markerBytes, 0)
     let prefixData = Data(text.utf8.prefix(prefixByteCount))
     let prefix = utf8StringDroppingPartialSuffix(from: prefixData)
     return ToolTextOutput(text: prefix + marker, truncated: true)
@@ -469,13 +436,6 @@ struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     }
     return text
   }
-}
-
-private struct GitCommandResult: Equatable, Sendable {
-  var exitCode: Int32
-  var stdout: String
-  var stderr: String
-  var timedOut: Bool
 }
 
 private struct GitLaunchCommand: Equatable, Sendable {

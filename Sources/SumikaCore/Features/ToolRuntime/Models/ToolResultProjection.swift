@@ -599,6 +599,14 @@ private func metadataFields(for block: ToolObservationBlock) -> [ToolResultModel
       .init(name: "stderr_present", value: .bool(!result.stderr.text.isEmpty)),
       .init(name: "stderr_truncated", value: .bool(result.stderr.truncated)),
     ]
+    if result.stdoutCaptureOmittedBytes > 0 {
+      fields.append(
+        .init(name: "stdout_capture_omitted_bytes", value: .int(result.stdoutCaptureOmittedBytes)))
+    }
+    if result.stderrCaptureOmittedBytes > 0 {
+      fields.append(
+        .init(name: "stderr_capture_omitted_bytes", value: .int(result.stderrCaptureOmittedBytes)))
+    }
     if let outputRef = result.outputRef {
       fields.append(.init(name: "output_ref", value: .string(outputRef)))
     }
@@ -661,6 +669,9 @@ private func workspaceDiagnosticsMetadataFields(
       fields.append(.init(name: "start_line", value: .int(page.startLine)))
       fields.append(.init(name: "end_line", value: .int(page.endLine)))
       fields.append(.init(name: "returned_lines", value: .int(page.lines.count)))
+      if page.captureOmittedBytes > 0 {
+        fields.append(.init(name: "capture_omitted_bytes", value: .int(page.captureOmittedBytes)))
+      }
       appendWorkspaceDiagnosticsContinuation(page.continuation, to: &fields)
     case .empty(let stream):
       fields.append(.init(name: "stream", value: .string(stream.rawValue)))
@@ -681,6 +692,9 @@ private func workspaceDiagnosticsMetadataFields(
       fields.append(.init(name: "stream", value: .string(page.stream.rawValue)))
       fields.append(.init(name: "start_line", value: .int(page.startLine)))
       fields.append(.init(name: "line_count", value: .int(page.lineCount), includeDefault: true))
+      if page.captureOmittedBytes > 0 {
+        fields.append(.init(name: "capture_omitted_bytes", value: .int(page.captureOmittedBytes)))
+      }
       fields.append(
         .init(
           name: "returned_matches",
@@ -691,7 +705,7 @@ private func workspaceDiagnosticsMetadataFields(
       fields.append(
         .init(
           name: "search_complete",
-          value: .bool(page.continuation == .endOfOutput),
+          value: .bool(page.continuation == .endOfOutput && page.captureOmittedBytes == 0),
           includeDefault: true
         )
       )

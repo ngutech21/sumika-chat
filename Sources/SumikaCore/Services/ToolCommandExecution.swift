@@ -98,8 +98,16 @@ internal struct CommandOutputRecord: Equatable, Sendable {
   package var stdout: String
   package var stderr: String
 
-  package init(outputRef: String, stdout: String, stderr: String) {
+  var stdoutOmittedBytes: Int
+  var stderrOmittedBytes: Int
+
+  package init(
+    outputRef: String, stdout: String, stderr: String,
+    stdoutOmittedBytes: Int = 0, stderrOmittedBytes: Int = 0
+  ) {
     self.outputRef = outputRef
+    self.stdoutOmittedBytes = stdoutOmittedBytes
+    self.stderrOmittedBytes = stderrOmittedBytes
     self.stdout = stdout
     self.stderr = stderr
   }
@@ -110,24 +118,23 @@ internal struct CommandOutputRecord: Equatable, Sendable {
 }
 
 internal struct CommandProcessRequest: Equatable, Sendable {
-  package var executableURL: URL
-  package var arguments: [String]
-  package var environment: [String: String]
-  package var workingDirectoryURL: URL
-  package var timeoutSeconds: Int
-  package var standardInput: Data?
-  package var maxStdoutBytes: Int?
-  package var maxStderrBytes: Int?
+  var executableURL: URL
+  var arguments: [String]
+  var environment: [String: String]
+  var workingDirectoryURL: URL
+  var timeoutSeconds: Int
+  var standardInput: Data?
+  var maxStdoutBytes: Int
+  var maxStderrBytes: Int
+  var stdoutRetention: ProcessOutputRetention
+  var stderrRetention: ProcessOutputRetention
 
-  package init(
-    executableURL: URL,
-    arguments: [String],
-    environment: [String: String],
-    workingDirectoryURL: URL,
-    timeoutSeconds: Int,
-    standardInput: Data? = nil,
-    maxStdoutBytes: Int? = nil,
-    maxStderrBytes: Int? = nil
+  init(
+    executableURL: URL, arguments: [String], environment: [String: String],
+    workingDirectoryURL: URL, timeoutSeconds: Int, standardInput: Data? = nil,
+    maxStdoutBytes: Int, maxStderrBytes: Int,
+    stdoutRetention: ProcessOutputRetention = .prefix,
+    stderrRetention: ProcessOutputRetention = .prefix
   ) {
     self.executableURL = executableURL
     self.arguments = arguments
@@ -137,40 +144,42 @@ internal struct CommandProcessRequest: Equatable, Sendable {
     self.standardInput = standardInput
     self.maxStdoutBytes = maxStdoutBytes
     self.maxStderrBytes = maxStderrBytes
+    self.stdoutRetention = stdoutRetention
+    self.stderrRetention = stderrRetention
   }
 }
 
 internal struct CommandProcessResult: Equatable, Sendable {
-  package var exitCode: Int32?
-  package var durationMs: Int
-  package var stdout: String
-  package var stdoutData: Data
-  package var stderr: String
-  package var timedOut: Bool
-  package var cancelled: Bool
-  package var stdoutTruncated: Bool
-  package var stderrTruncated: Bool
+  var exitCode: Int32?
+  var durationMs: Int
+  var stdout: String
+  var stdoutData: Data
+  var stderr: String
+  var termination: OwnedProcess.Termination
+  var stdoutTruncated: Bool
+  var stderrTruncated: Bool
+  var stdoutOmittedBytes: Int
+  var stderrOmittedBytes: Int
 
-  package init(
-    exitCode: Int32?,
-    durationMs: Int,
-    stdout: String,
-    stderr: String,
-    stdoutData: Data? = nil,
-    timedOut: Bool = false,
-    cancelled: Bool = false,
-    stdoutTruncated: Bool = false,
-    stderrTruncated: Bool = false
+  var timedOut: Bool { termination == .timedOut }
+  var cancelled: Bool { termination == .cancelled }
+
+  init(
+    exitCode: Int32?, durationMs: Int, stdout: String, stderr: String,
+    stdoutData: Data? = nil, timedOut: Bool = false, cancelled: Bool = false,
+    stdoutTruncated: Bool = false, stderrTruncated: Bool = false,
+    stdoutOmittedBytes: Int = 0, stderrOmittedBytes: Int = 0
   ) {
     self.exitCode = exitCode
     self.durationMs = durationMs
     self.stdout = stdout
     self.stdoutData = stdoutData ?? Data(stdout.utf8)
     self.stderr = stderr
-    self.timedOut = timedOut
-    self.cancelled = cancelled
-    self.stdoutTruncated = stdoutTruncated
-    self.stderrTruncated = stderrTruncated
+    self.termination = cancelled ? .cancelled : (timedOut ? .timedOut : .exited(exitCode ?? -1))
+    self.stdoutTruncated = stdoutTruncated || stdoutOmittedBytes > 0
+    self.stderrTruncated = stderrTruncated || stderrOmittedBytes > 0
+    self.stdoutOmittedBytes = stdoutOmittedBytes
+    self.stderrOmittedBytes = stderrOmittedBytes
   }
 }
 
@@ -178,306 +187,42 @@ internal protocol CommandProcessRunning: Sendable {
   func run(_ request: CommandProcessRequest) async throws -> CommandProcessResult
 }
 
-private enum CommandProcessWaitOutcome: Sendable {
-  case exited
-  case timedOut
-  case cancelled
-}
-
-private final class PipeDataCollector: @unchecked Sendable {
-  private let fileHandle: FileHandle
-  private let maxBytes: Int?
-  private let lock = NSLock()
-  private var data = Data()
-  private var reachedEnd = false
-  private var truncated = false
-
-  init(fileHandle: FileHandle, maxBytes: Int? = nil) {
-    self.fileHandle = fileHandle
-    self.maxBytes = maxBytes
-    fileHandle.readabilityHandler = { [weak self] handle in
-      let chunk = handle.availableData
-      if chunk.isEmpty {
-        handle.readabilityHandler = nil
-      }
-      self?.record(chunk)
-    }
-  }
-
-  func snapshot(afterExitDrain duration: Duration) async -> Data {
-    if !hasReachedEnd {
-      try? await Task.sleep(for: duration)
-    }
-
-    return snapshotAndClose()
-  }
-
-  func close() {
-    _ = snapshotAndClose()
-  }
-
-  var wasTruncated: Bool {
-    lock.lock()
-    let value = truncated
-    lock.unlock()
-    return value
-  }
-
-  private func snapshotAndClose() -> Data {
-    fileHandle.readabilityHandler = nil
-    try? fileHandle.close()
-
-    lock.lock()
-    let snapshot = data
-    lock.unlock()
-    return snapshot
-  }
-
-  private var hasReachedEnd: Bool {
-    lock.lock()
-    let value = reachedEnd
-    lock.unlock()
-    return value
-  }
-
-  private func record(_ chunk: Data) {
-    lock.lock()
-    if chunk.isEmpty {
-      reachedEnd = true
-    } else {
-      let remainingBytes = maxBytes.map { max($0 - data.count, 0) } ?? chunk.count
-      if remainingBytes > 0 {
-        data.append(chunk.prefix(remainingBytes))
-      }
-      if remainingBytes < chunk.count {
-        truncated = true
-      }
-    }
-    lock.unlock()
-  }
-}
-
 internal struct DefaultCommandProcessRunner: CommandProcessRunning {
-  internal func run(
-    _ request: CommandProcessRequest
-  ) async throws -> CommandProcessResult {
-    try await runCommandProcess(request)
-  }
-}
-
-private func runCommandProcess(_ request: CommandProcessRequest) async throws
-  -> CommandProcessResult
-{
-  let process = Process()
-  process.executableURL = request.executableURL
-  process.arguments = request.arguments
-  process.environment = request.environment
-  process.currentDirectoryURL = request.workingDirectoryURL
-
-  let stdoutPipe = Pipe()
-  let stderrPipe = Pipe()
-  process.standardOutput = stdoutPipe
-  process.standardError = stderrPipe
-  let standardInputPipe = request.standardInput.map { _ in Pipe() }
-  process.standardInput = standardInputPipe
-  let stdoutCollector = PipeDataCollector(
-    fileHandle: stdoutPipe.fileHandleForReading,
-    maxBytes: request.maxStdoutBytes
-  )
-  let stderrCollector = PipeDataCollector(
-    fileHandle: stderrPipe.fileHandleForReading,
-    maxBytes: request.maxStderrBytes
-  )
-
-  let startedAt = Date()
-  do {
-    try process.run()
-    if let standardInput = request.standardInput, let standardInputPipe {
-      try standardInputPipe.fileHandleForWriting.write(contentsOf: standardInput)
-      try standardInputPipe.fileHandleForWriting.close()
+  func run(_ request: CommandProcessRequest) async throws -> CommandProcessResult {
+    let owner: OwnedProcess
+    do {
+      owner = try await OwnedProcess.start(
+        executableURL: request.executableURL, arguments: request.arguments,
+        environment: request.environment, workingDirectoryURL: request.workingDirectoryURL,
+        stdout: .capture(limit: request.maxStdoutBytes, retention: request.stdoutRetention),
+        stderrLimit: request.maxStderrBytes, stderrRetention: request.stderrRetention,
+        maxWriteBytes: request.standardInput?.count ?? 0, maxPendingWrites: 1,
+        timeout: .seconds(request.timeoutSeconds)
+      )
+    } catch is CancellationError {
+      return CommandProcessResult(
+        exitCode: nil, durationMs: 0, stdout: "", stderr: "", cancelled: true
+      )
     }
-  } catch {
-    try? standardInputPipe?.fileHandleForWriting.close()
-    if process.isRunning {
-      terminateProcessTree(process)
+    let output = await withTaskCancellationHandler {
+      if let input = request.standardInput {
+        // EPIPE can simply mean that the child exited without reading all input.
+        // The owner settles exit/failure and always completes bounded cleanup.
+        try? await owner.write(input)
+      }
+      await owner.closeInput()
+      return await owner.wait()
+    } onCancel: {
+      Task { await owner.stop(.cancelled) }
     }
-    stdoutCollector.close()
-    stderrCollector.close()
-    throw error
-  }
-
-  let waitOutcome = await withTaskCancellationHandler {
-    let outcome = await waitForExitOrTimeout(
-      process: process,
-      timeoutSeconds: request.timeoutSeconds
+    if case .failed(let failure) = output.termination { throw failure }
+    let exitCode: Int32? = if case .exited(let code) = output.termination { code } else { nil }
+    var result = CommandProcessResult(
+      exitCode: exitCode, durationMs: output.durationMs, stdout: output.stdout,
+      stderr: output.stderr, stdoutData: output.stdoutData,
+      stdoutOmittedBytes: output.stdoutOmittedBytes, stderrOmittedBytes: output.stderrOmittedBytes
     )
-    return Task.isCancelled ? .cancelled : outcome
-  } onCancel: {
-    if process.isRunning {
-      terminateProcessTree(process)
-    }
+    result.termination = output.termination
+    return result
   }
-
-  let durationMs = max(Int(Date().timeIntervalSince(startedAt) * 1000), 0)
-  let pipeDrainGrace: Duration = .milliseconds(25)
-  async let stdoutCapture = stdoutCollector.snapshot(afterExitDrain: pipeDrainGrace)
-  async let stderrCapture = stderrCollector.snapshot(afterExitDrain: pipeDrainGrace)
-  let (stdoutData, stderrData) = await (stdoutCapture, stderrCapture)
-
-  return CommandProcessResult(
-    exitCode: process.isRunning ? nil : process.terminationStatus,
-    durationMs: durationMs,
-    stdout: decodeUTF8Lossily(stdoutData),
-    stderr: String(bytes: stderrData, encoding: .utf8) ?? "",
-    stdoutData: stdoutData,
-    timedOut: waitOutcome == .timedOut,
-    cancelled: waitOutcome == .cancelled,
-    stdoutTruncated: stdoutCollector.wasTruncated,
-    stderrTruncated: stderrCollector.wasTruncated
-  )
-}
-
-private func decodeUTF8Lossily(_ data: Data) -> String {
-  // Invalid or byte-truncated output still needs a useful display projection.
-  // swiftlint:disable:next optional_data_string_conversion
-  return String(decoding: data, as: UTF8.self)
-}
-
-private func waitForExitOrTimeout(
-  process: Process,
-  timeoutSeconds: Int
-) async -> CommandProcessWaitOutcome {
-  do {
-    return try await withThrowingTaskGroup(of: CommandProcessWaitOutcome.self) { group in
-      group.addTask {
-        await waitUntilProcessExits(process)
-        return .exited
-      }
-
-      group.addTask {
-        do {
-          try await Task.sleep(for: .seconds(timeoutSeconds))
-          return Task.isCancelled ? .cancelled : .timedOut
-        } catch {
-          return .cancelled
-        }
-      }
-
-      let outcome = try await group.next() ?? .exited
-      if outcome != .exited, process.isRunning {
-        terminateProcessTree(process)
-        _ = await waitUntilProcessExits(process, timeoutMilliseconds: 1_000)
-      }
-      group.cancelAll()
-      return outcome
-    }
-  } catch {
-    if process.isRunning {
-      terminateProcessTree(process)
-    }
-    _ = await waitUntilProcessExits(process, timeoutMilliseconds: 1_000)
-    return .cancelled
-  }
-}
-
-private func waitUntilProcessExits(
-  _ process: Process,
-  timeoutMilliseconds: Int? = nil
-) async {
-  let deadline = timeoutMilliseconds.map {
-    Date().addingTimeInterval(TimeInterval($0) / 1_000)
-  }
-
-  while process.isRunning {
-    if Task.isCancelled {
-      return
-    }
-    if let deadline, Date() >= deadline {
-      return
-    }
-    try? await Task.sleep(for: .milliseconds(10))
-  }
-}
-
-// Shared with the MCP server connection, which owns long-lived child
-// processes that may spawn their own subprocesses (npx, uv, ...).
-func terminateProcessTree(_ process: Process) {
-  let rootPID = process.processIdentifier
-  let descendantPIDs = processDescendantIDs(of: rootPID)
-  terminateProcesses(descendantPIDs.reversed() + [rootPID])
-}
-
-private func processDescendantIDs(of rootPID: Int32) -> [Int32] {
-  let processParents = processParentIDs()
-  var descendants: [Int32] = []
-  var pending = [rootPID]
-
-  while let parent = pending.popLast() {
-    let children = processParents.compactMap { pid, parentPID in
-      parentPID == parent ? pid : nil
-    }
-    descendants.append(contentsOf: children)
-    pending.append(contentsOf: children)
-  }
-
-  return descendants
-}
-
-private func processParentIDs() -> [Int32: Int32] {
-  guard
-    let psURL = firstExecutableURL(paths: ["/bin/ps", "/usr/bin/ps"]),
-    let output = runTerminationHelper(psURL, arguments: ["-axo", "pid=,ppid="])
-  else {
-    return [:]
-  }
-
-  var parents: [Int32: Int32] = [:]
-  for line in output.split(whereSeparator: \.isNewline) {
-    let fields = line.split(whereSeparator: \.isWhitespace)
-    guard fields.count >= 2, let pid = Int32(fields[0]), let parentPID = Int32(fields[1]) else {
-      continue
-    }
-    parents[pid] = parentPID
-  }
-  return parents
-}
-
-private func terminateProcesses(_ processIDs: [Int32]) {
-  guard
-    !processIDs.isEmpty,
-    let killURL = firstExecutableURL(paths: ["/bin/kill", "/usr/bin/kill"])
-  else {
-    return
-  }
-
-  _ = runTerminationHelper(
-    killURL,
-    arguments: ["-KILL"] + processIDs.map(String.init)
-  )
-}
-
-private func runTerminationHelper(_ executableURL: URL, arguments: [String]) -> String? {
-  let process = Process()
-  process.executableURL = executableURL
-  process.arguments = arguments
-
-  let outputPipe = Pipe()
-  process.standardOutput = outputPipe
-  process.standardError = Pipe()
-
-  do {
-    try process.run()
-    process.waitUntilExit()
-    let output = outputPipe.fileHandleForReading.readDataToEndOfFile()
-    return String(data: output, encoding: .utf8)
-  } catch {
-    return nil
-  }
-}
-
-private func firstExecutableURL(paths: [String]) -> URL? {
-  for path in paths where FileManager.default.isExecutableFile(atPath: path) {
-    return URL(filePath: path)
-  }
-  return nil
 }

@@ -1173,6 +1173,83 @@ struct ToolExecutionTests {
   }
 
   @Test
+  func workspaceDiffBoundsEveryCaptureAndReportsCaptureTruncation() async throws {
+    let workspace = try makeWorkspace()
+    let runner = SpyCommandProcessRunner(
+      result: CommandProcessResult(
+        exitCode: 0,
+        durationMs: 1,
+        stdout: " M README.md\n",
+        stderr: "",
+        stdoutOmittedBytes: 900_000
+      )
+    )
+    let result = await WorkspaceDiffToolExecutor(maxBytes: 120, processRunner: runner).run(
+      WorkspaceDiffInput(),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(result.status == .success)
+    #expect(result.truncated)
+    #expect(result.text.contains("capture truncated; retained output only"))
+    #expect(result.text.utf8.count <= 120)
+    let requests = await runner.requests
+    #expect(requests.count == 3)
+    #expect(requests.allSatisfy { $0.maxStdoutBytes == 48 * 1024 })
+    #expect(requests.allSatisfy { $0.maxStderrBytes == 8 * 1024 })
+    #expect(requests.allSatisfy { $0.stdoutRetention == .prefix && $0.stderrRetention == .prefix })
+    #expect(requests.allSatisfy { $0.workingDirectoryURL == workspace.rootURL })
+  }
+
+  @Test(arguments: [8, 220])
+  func workspaceDiffBoundsFailedOutputIncludingCaptureMarker(maxBytes: Int) async throws {
+    let workspace = try makeWorkspace()
+    let runner = SpyCommandProcessRunner(
+      result: CommandProcessResult(
+        exitCode: 1, durationMs: 1, stdout: "",
+        stderr: String(repeating: "error detail\n", count: 500),
+        stderrOmittedBytes: 900_000
+      )
+    )
+    let result = await WorkspaceDiffToolExecutor(
+      maxBytes: maxBytes, processRunner: runner
+    ).run(WorkspaceDiffInput(), context: ToolContext(workspace: workspace))
+
+    #expect(result.status == .failed)
+    #expect(result.text.utf8.count <= maxBytes)
+    #expect(await runner.spawnCount == 1)
+    if maxBytes == 220 {
+      #expect(result.text.contains("git status exited with status 1"))
+      #expect(result.text.contains("capture truncated; retained output only"))
+    }
+  }
+
+  @Test(arguments: [false, true])
+  func workspaceDiffStopsAfterCancelledOrTimedOutStatus(cancelled: Bool) async throws {
+    let workspace = try makeWorkspace()
+    let runner = SpyCommandProcessRunner(
+      result: CommandProcessResult(
+        exitCode: nil,
+        durationMs: 1,
+        stdout: "",
+        stderr: "",
+        timedOut: !cancelled,
+        cancelled: cancelled
+      )
+    )
+    let result = await WorkspaceDiffToolExecutor(processRunner: runner).run(
+      WorkspaceDiffInput(),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(result.status != .success)
+    #expect(await runner.spawnCount == 1)
+    if !cancelled {
+      #expect(result.text.contains("timed out"))
+    }
+  }
+
+  @Test
   func writeFileRequiresApprovalForWorkspacePath() async throws {
     let workspace = try makeWorkspace()
     let executor = WriteFileToolExecutor()
@@ -1498,6 +1575,10 @@ struct ToolExecutionTests {
     #expect(await runner.lastRequest?.executableURL.path(percentEncoded: false) == "/bin/bash")
     #expect(await runner.lastRequest?.arguments == ["-c", command])
     #expect(await runner.lastRequest?.workingDirectoryURL == workspace.rootURL)
+    #expect(await runner.lastRequest?.maxStdoutBytes == 512 * 1024)
+    #expect(await runner.lastRequest?.maxStderrBytes == 512 * 1024)
+    #expect(await runner.lastRequest?.stdoutRetention == .headTail)
+    #expect(await runner.lastRequest?.stderrRetention == .headTail)
     #expect(
       await runner.lastRequest?.environment["PWD"] == workspace.rootURL.path(percentEncoded: false))
     guard case .runCommand(let payload) = result.resultPayload else {
@@ -1548,17 +1629,17 @@ struct ToolExecutionTests {
     #expect(result.state.preview?.text.contains("Exit code: 2") == true)
   }
 
-  @Test
-  func runCommandRecordsTimeoutCancellationAndOutputLimits() async throws {
+  @Test(arguments: [false, true])
+  func runCommandRecordsTimeoutCancellationAndOutputLimits(cancelled: Bool) async throws {
     let workspace = try makeWorkspace()
     let runner = SpyCommandProcessRunner(
       result: CommandProcessResult(
         exitCode: nil,
         durationMs: 120_000,
         stdout: "abc🙂def",
-        stderr: "cancelled",
-        timedOut: true,
-        cancelled: true
+        stderr: "interrupted",
+        timedOut: !cancelled,
+        cancelled: cancelled
       )
     )
     let registry = ToolExecutorRegistry([
@@ -1583,8 +1664,8 @@ struct ToolExecutionTests {
     }
     #expect(await runner.lastRequest?.timeoutSeconds == 120)
     #expect(payload.timeoutSeconds == 120)
-    #expect(payload.timedOut)
-    #expect(payload.cancelled)
+    #expect(payload.timedOut == !cancelled)
+    #expect(payload.cancelled == cancelled)
     #expect(payload.stdout.truncated)
     #expect(payload.outputTruncated)
     #expect(payload.stdout.text.contains("... truncated"))
@@ -1601,7 +1682,9 @@ struct ToolExecutionTests {
         arguments: ["-c", "sleep 5"],
         environment: [:],
         workingDirectoryURL: try makeTemporaryDirectory(),
-        timeoutSeconds: 1
+        timeoutSeconds: 1,
+        maxStdoutBytes: 64 * 1024,
+        maxStderrBytes: 64 * 1024
       )
     )
     let elapsedMs = max(Int(Date().timeIntervalSince(startedAt) * 1000), 0)
@@ -1621,7 +1704,9 @@ struct ToolExecutionTests {
         arguments: ["-c", "printf 'out'; printf 'err' >&2"],
         environment: [:],
         workingDirectoryURL: try makeTemporaryDirectory(),
-        timeoutSeconds: 5
+        timeoutSeconds: 5,
+        maxStdoutBytes: 64 * 1024,
+        maxStderrBytes: 64 * 1024
       )
     )
 
@@ -1643,7 +1728,8 @@ struct ToolExecutionTests {
         workingDirectoryURL: try makeTemporaryDirectory(),
         timeoutSeconds: 5,
         standardInput: Data("input\n".utf8),
-        maxStdoutBytes: 8
+        maxStdoutBytes: 8,
+        maxStderrBytes: 64 * 1024
       )
     )
 
@@ -1663,7 +1749,8 @@ struct ToolExecutionTests {
         environment: [:],
         workingDirectoryURL: try makeTemporaryDirectory(),
         timeoutSeconds: 5,
-        maxStdoutBytes: completeRecord.count + 1
+        maxStdoutBytes: completeRecord.count + 1,
+        maxStderrBytes: 64 * 1024
       )
     )
 
@@ -1683,7 +1770,9 @@ struct ToolExecutionTests {
           arguments: ["-c", "sleep 30"],
           environment: [:],
           workingDirectoryURL: try makeTemporaryDirectory(),
-          timeoutSeconds: 120
+          timeoutSeconds: 120,
+          maxStdoutBytes: 64 * 1024,
+          maxStderrBytes: 64 * 1024
         )
       )
     }
@@ -1750,6 +1839,81 @@ struct ToolExecutionTests {
     #expect(
       await store.output(outputRef: "cmd_test123", workspaceID: workspace.id, sessionID: sessionID)?
         .stdout == stdout)
+  }
+
+  @Test
+  func commandCaptureLossRemainsVisibleWhenPreviewsFitAndDiagnosticsSearchMisses() async throws {
+    let workspace = try makeWorkspace()
+    let sessionID = UUID()
+    let store = LatestCommandResultStore()
+    let runner = SpyCommandProcessRunner(
+      result: CommandProcessResult(
+        exitCode: 0,
+        durationMs: 1,
+        stdout: "head\n[... 123 bytes omitted during capture ...]\ntail\n",
+        stderr: "error tail\n",
+        stdoutOmittedBytes: 123,
+        stderrOmittedBytes: 45
+      )
+    )
+    let result = await RunCommandToolExecutor(
+      outputRefGenerator: { "cmd_capture" }, processRunner: runner
+    ).run(
+      RunCommandInput(command: "capture", timeoutSeconds: 10),
+      context: ToolContext(
+        workspace: workspace,
+        sessionID: sessionID,
+        latestCommandResultStore: store
+      )
+    )
+    guard case .runCommand(let command) = result else {
+      Issue.record("Expected command result.")
+      return
+    }
+    #expect(command.outputRef == "cmd_capture")
+    #expect(command.stdoutCaptureOmittedBytes == 123)
+    #expect(command.stderrCaptureOmittedBytes == 45)
+    #expect(command.stdoutOmittedChars == 0)
+    #expect(!command.stdout.truncated)
+    #expect(command.outputTruncated)
+    #expect(command.previewText.contains("Stdout capture omitted bytes: 123"))
+    let retained = await store.output(
+      outputRef: "cmd_capture", workspaceID: workspace.id, sessionID: sessionID)
+    #expect(retained?.stdoutOmittedBytes == 123)
+    #expect(retained?.stderrOmittedBytes == 45)
+
+    let read = await executeWorkspaceDiagnostics(
+      arguments: [
+        "outputRef": .string("cmd_capture"), "operation": .string("read"),
+        "stream": .string("combined"),
+      ],
+      store: store, workspace: workspace, sessionID: sessionID
+    )
+    guard case .workspaceDiagnostics(.read(_, .page(let readPage))) = read.resultPayload else {
+      Issue.record("Expected retained read page.")
+      return
+    }
+    #expect(readPage.captureOmittedBytes == 168)
+    #expect(read.state.preview?.truncated == true)
+    #expect(read.state.preview?.text.contains("End of retained output") == true)
+
+    let search = await executeWorkspaceDiagnostics(
+      arguments: [
+        "outputRef": .string("cmd_capture"), "operation": .string("search"),
+        "stream": .string("stdout"), "pattern": .string("missing needle"),
+      ],
+      store: store, workspace: workspace, sessionID: sessionID
+    )
+    guard case .workspaceDiagnostics(.search(_, .page(let page))) = search.resultPayload else {
+      Issue.record("Expected retained search page.")
+      return
+    }
+    #expect(page.captureOmittedBytes == 123)
+    #expect(page.matches.isEmpty)
+    #expect(page.continuation == .endOfOutput)
+    #expect(search.state.preview?.truncated == true)
+    #expect(search.state.preview?.text.contains("Search complete: false") == true)
+    #expect(search.state.preview?.text.contains("Retained output search complete: true") == true)
   }
 
   @Test

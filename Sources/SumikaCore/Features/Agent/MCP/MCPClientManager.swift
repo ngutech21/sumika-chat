@@ -28,7 +28,7 @@ struct MCPAgentToolExecutorGroup: Sendable {
 extension MCPClientError {
   fileprivate var invalidatesConnection: Bool {
     switch self {
-    case .notConnected, .serverExited:
+    case .notConnected, .serverExited, .resourceLimit:
       return true
     case .staleConnection, .timedOut, .protocolError, .serverError:
       return false
@@ -298,10 +298,22 @@ actor MCPClientManager: MCPToolCalling {
     let connectionToken = server.connectionToken
     servers[serverID]?.state = .connecting
     let connection = makeConnection(server.config, activeScope.workspaceRootURL)
+    servers[serverID]?.connection = connection
+    await connection.setFailureHandler { [weak self, weak connection] error in
+      guard let self, let connection else {
+        return
+      }
+      _ = await self.markConnectionUnavailable(
+        serverID: serverID,
+        connection: connection,
+        error: error
+      )
+    }
     do {
       let tools = try await connection.start()
       guard let current = servers[serverID],
         current.connectionToken == connectionToken,
+        current.connection === connection,
         current.config.isEnabled,
         current.isDesired
       else {

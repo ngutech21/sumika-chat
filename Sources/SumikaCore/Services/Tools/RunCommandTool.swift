@@ -58,6 +58,8 @@ package struct RunCommandResult: Codable, Equatable, Sendable {
   package var outputRef: String?
   package var stdoutOmittedChars: Int
   package var stderrOmittedChars: Int
+  var stdoutCaptureOmittedBytes: Int
+  var stderrCaptureOmittedBytes: Int
   package var timedOut: Bool
   package var cancelled: Bool
 
@@ -71,6 +73,8 @@ package struct RunCommandResult: Codable, Equatable, Sendable {
     case outputRef
     case stdoutOmittedChars
     case stderrOmittedChars
+    case stdoutCaptureOmittedBytes
+    case stderrCaptureOmittedBytes
     case timedOut
     case cancelled
   }
@@ -85,6 +89,8 @@ package struct RunCommandResult: Codable, Equatable, Sendable {
     outputRef: String? = nil,
     stdoutOmittedChars: Int = 0,
     stderrOmittedChars: Int = 0,
+    stdoutCaptureOmittedBytes: Int = 0,
+    stderrCaptureOmittedBytes: Int = 0,
     timedOut: Bool = false,
     cancelled: Bool = false
   ) {
@@ -97,6 +103,8 @@ package struct RunCommandResult: Codable, Equatable, Sendable {
     self.outputRef = outputRef
     self.stdoutOmittedChars = stdoutOmittedChars
     self.stderrOmittedChars = stderrOmittedChars
+    self.stdoutCaptureOmittedBytes = stdoutCaptureOmittedBytes
+    self.stderrCaptureOmittedBytes = stderrCaptureOmittedBytes
     self.timedOut = timedOut
     self.cancelled = cancelled
   }
@@ -112,12 +120,17 @@ package struct RunCommandResult: Codable, Equatable, Sendable {
     outputRef = try container.decodeIfPresent(String.self, forKey: .outputRef)
     stdoutOmittedChars = try container.decodeIfPresent(Int.self, forKey: .stdoutOmittedChars) ?? 0
     stderrOmittedChars = try container.decodeIfPresent(Int.self, forKey: .stderrOmittedChars) ?? 0
+    stdoutCaptureOmittedBytes =
+      try container.decodeIfPresent(Int.self, forKey: .stdoutCaptureOmittedBytes) ?? 0
+    stderrCaptureOmittedBytes =
+      try container.decodeIfPresent(Int.self, forKey: .stderrCaptureOmittedBytes) ?? 0
     timedOut = try container.decodeIfPresent(Bool.self, forKey: .timedOut) ?? false
     cancelled = try container.decodeIfPresent(Bool.self, forKey: .cancelled) ?? false
   }
 
   package var outputTruncated: Bool {
     stdout.truncated || stderr.truncated
+      || stdoutCaptureOmittedBytes > 0 || stderrCaptureOmittedBytes > 0
   }
 }
 
@@ -157,6 +170,12 @@ nonisolated extension RunCommandResult {
     }
     if stderrOmittedChars > 0 {
       lines.append("Stderr omitted chars: \(stderrOmittedChars)")
+    }
+    if stdoutCaptureOmittedBytes > 0 {
+      lines.append("Stdout capture omitted bytes: \(stdoutCaptureOmittedBytes)")
+    }
+    if stderrCaptureOmittedBytes > 0 {
+      lines.append("Stderr capture omitted bytes: \(stderrCaptureOmittedBytes)")
     }
     if !stdout.text.isEmpty {
       lines.append("stdout:\n\(stdout.text)")
@@ -320,7 +339,11 @@ struct RunCommandToolExecutor: TypedToolExecutor {
           arguments: ["-c", input.command],
           environment: commandEnvironment(workspaceRoot: workspaceRoot),
           workingDirectoryURL: workspaceRoot,
-          timeoutSeconds: timeoutSeconds
+          timeoutSeconds: timeoutSeconds,
+          maxStdoutBytes: 512 * 1024,
+          maxStderrBytes: 512 * 1024,
+          stdoutRetention: .headTail,
+          stderrRetention: .headTail
         )
         let processResult = try await processRunner.run(request)
         let limits = previewLimits(exitCode: processResult.exitCode)
@@ -342,6 +365,8 @@ struct RunCommandToolExecutor: TypedToolExecutor {
           outputRef: nil,
           stdoutOmittedChars: stdoutPreview.omittedChars,
           stderrOmittedChars: stderrPreview.omittedChars,
+          stdoutCaptureOmittedBytes: processResult.stdoutOmittedBytes,
+          stderrCaptureOmittedBytes: processResult.stderrOmittedBytes,
           timedOut: processResult.timedOut,
           cancelled: processResult.cancelled
         )
@@ -356,7 +381,9 @@ struct RunCommandToolExecutor: TypedToolExecutor {
             output: CommandOutputRecord(
               outputRef: outputRef,
               stdout: processResult.stdout,
-              stderr: processResult.stderr
+              stderr: processResult.stderr,
+              stdoutOmittedBytes: processResult.stdoutOmittedBytes,
+              stderrOmittedBytes: processResult.stderrOmittedBytes
             ),
             workspaceID: context.workspace.id,
             sessionID: sessionID

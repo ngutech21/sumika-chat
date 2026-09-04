@@ -1,15 +1,12 @@
 import Foundation
 import MCP
 
-#if canImport(Darwin)
-  import Darwin
-#endif
-
 enum MCPClientError: LocalizedError, Equatable {
   case notConnected
   case staleConnection
   case serverExited(detail: String?)
   case timedOut(method: String)
+  case resourceLimit(String)
   case protocolError(String)
   case serverError(code: Int, message: String)
 
@@ -26,6 +23,8 @@ enum MCPClientError: LocalizedError, Equatable {
       return "The MCP server process exited: \(detail)"
     case .timedOut(let method):
       return "The MCP server did not answer \(method) in time."
+    case .resourceLimit(let message):
+      return "The MCP server exceeded a process I/O limit: \(message)"
     case .protocolError(let message):
       return "The MCP server sent an invalid response: \(message)"
     case .serverError(let code, let message):
@@ -36,8 +35,8 @@ enum MCPClientError: LocalizedError, Equatable {
 
 /// One SDK-backed stdio or Streamable HTTP connection to a configured MCP server.
 ///
-/// Sumika owns stdio child processes and transport selection. The MCP SDK owns
-/// framing, JSON-RPC, lifecycle negotiation, roots dispatch, and typed requests.
+/// Sumika owns bounded stdio framing, child processes, and transport selection.
+/// The MCP SDK owns JSON-RPC, lifecycle negotiation, roots, and typed requests.
 actor MCPServerConnection {
   typealias HTTPTransportFactory = @Sendable (URL) -> any Transport
 
@@ -45,28 +44,25 @@ actor MCPServerConnection {
     // npx/uvx may download packages on first launch.
     static let initializeSeconds = 30
     static let listToolsSeconds = 30
-    static let callToolSeconds = 120
   }
 
   private static let maxToolListPages = 16
   private static let maxResultTextCharacters = 64_000
-  private static let stderrTailLimit = 2_048
 
   private let config: MCPServerConfig
   private let workspaceRootURL: URL
   private let baseEnvironment: [String: String]
   private let pathPrefixDirectories: [URL]
   private let makeHTTPTransport: HTTPTransportFactory
+  private let callToolTimeout: Duration
 
-  private var process: Process?
+  private var process: OwnedProcess?
   private var client: Client?
-  private var stdinHandle: FileHandle?
-  private var stdoutHandle: FileHandle?
-  private var stderrHandle: FileHandle?
-  private var stderrTask: Task<Void, Never>?
-  private var stderrTail = ""
+  private var processTask: Task<Void, Never>?
   private var exitError: MCPClientError?
+  private var didStart = false
   private var isShuttingDown = false
+  private var failureHandler: (@Sendable (MCPClientError) async -> Void)?
 
   init(
     config: MCPServerConfig,
@@ -76,12 +72,14 @@ actor MCPServerConnection {
       URL(filePath: "/opt/homebrew/bin"),
       URL(filePath: "/usr/local/bin"),
       URL(filePath: "/opt/local/bin"),
-    ]
+    ],
+    callToolTimeout: Duration = .seconds(120)
   ) {
     self.config = config
     self.workspaceRootURL = workspaceRootURL.standardizedFileURL.resolvingSymlinksInPath()
     self.baseEnvironment = baseEnvironment
     self.pathPrefixDirectories = pathPrefixDirectories
+    self.callToolTimeout = callToolTimeout
     self.makeHTTPTransport = { endpoint in
       HTTPClientTransport(endpoint: endpoint, streaming: true)
     }
@@ -102,23 +100,29 @@ actor MCPServerConnection {
     self.workspaceRootURL = workspaceRootURL.standardizedFileURL.resolvingSymlinksInPath()
     self.baseEnvironment = baseEnvironment
     self.pathPrefixDirectories = pathPrefixDirectories
+    self.callToolTimeout = .seconds(120)
     self.makeHTTPTransport = makeHTTPTransport
   }
 
   // MARK: - Lifecycle
 
+  func setFailureHandler(_ handler: @escaping @Sendable (MCPClientError) async -> Void) {
+    failureHandler = handler
+  }
+
   /// Creates the configured transport, performs SDK-managed initialization,
   /// and returns the server's tools.
   func start() async throws -> [MCPRemoteTool] {
-    guard process == nil, client == nil else {
+    guard !didStart, !isShuttingDown else {
       throw MCPClientError.protocolError("Connection was already started.")
     }
+    didStart = true
 
     let transport: any Transport
     let exposesWorkspaceRoots: Bool
     switch config.transport {
     case .stdio(let command, let arguments, let environment):
-      transport = try launchProcess(
+      transport = try await launchProcess(
         command: command,
         arguments: arguments,
         environment: environment
@@ -145,10 +149,22 @@ actor MCPServerConnection {
     self.client = client
 
     do {
+      guard !isShuttingDown else {
+        throw CancellationError()
+      }
+      if let exitError {
+        throw exitError
+      }
       try await connect(client: client, transport: transport)
       return try await listTools(client: client)
     } catch {
-      throw await mappedError(error)
+      if error is CancellationError {
+        await shutdown()
+        throw error
+      }
+      let mapped = await mappedError(error)
+      await shutdown()
+      throw mapped
     }
   }
 
@@ -156,17 +172,16 @@ actor MCPServerConnection {
     isShuttingDown = true
     let process = process
     let client = client
+    let processTask = processTask
     self.process = nil
     self.client = nil
+    self.processTask = nil
 
+    // Stop independently of SDK task/transport progress, then unblock requests.
+    _ = await process?.stop(.stopped)
     await client?.disconnect()
-    stderrTask?.cancel()
-    stderrTask = nil
-    closePipeHandles()
-
-    if let process, process.isRunning {
-      terminateProcessTree(process)
-    }
+    processTask?.cancel()
+    await processTask?.value
   }
 
   // MARK: - Requests
@@ -188,10 +203,13 @@ actor MCPServerConnection {
         context,
         client: client,
         method: "tools/call",
-        timeoutSeconds: Timeouts.callToolSeconds
+        timeout: callToolTimeout
       )
       return Self.toolResult(from: result, serverName: config.name, remoteToolName: name)
     } catch {
+      if error is CancellationError {
+        throw error
+      }
       throw await mappedError(error)
     }
   }
@@ -211,7 +229,7 @@ actor MCPServerConnection {
         context,
         client: client,
         method: "tools/list",
-        timeoutSeconds: Timeouts.listToolsSeconds
+        timeout: .seconds(Timeouts.listToolsSeconds)
       )
       tools.append(contentsOf: result.tools.map(Self.remoteTool(from:)))
       guard let nextCursor = result.nextCursor, !nextCursor.isEmpty else {
@@ -237,7 +255,11 @@ actor MCPServerConnection {
         group.cancelAll()
       } catch {
         group.cancelAll()
-        await client.disconnect()
+        if case .stdio = config.transport, error is CancellationError || error is MCPClientError {
+          await stopStdioRequest(error: error)
+        } else {
+          await client.disconnect()
+        }
         throw error
       }
     }
@@ -247,14 +269,14 @@ actor MCPServerConnection {
     _ context: RequestContext<Output>,
     client: Client,
     method: String,
-    timeoutSeconds: Int
+    timeout: Duration
   ) async throws -> Output where Output: Decodable & Sendable {
     try await withThrowingTaskGroup(of: Output.self) { group in
       group.addTask {
         try await context.value
       }
       group.addTask {
-        try await Task.sleep(for: .seconds(timeoutSeconds))
+        try await Task.sleep(for: timeout)
         throw MCPClientError.timedOut(method: method)
       }
 
@@ -267,14 +289,27 @@ actor MCPServerConnection {
       } catch {
         group.cancelAll()
         if error is CancellationError || error is MCPClientError {
-          try? await client.cancelRequest(
-            context.requestID,
-            reason: "Sumika stopped waiting for \(method)."
-          )
+          if case .stdio = config.transport {
+            await stopStdioRequest(error: error)
+          } else {
+            try? await client.cancelRequest(
+              context.requestID,
+              reason: "Sumika stopped waiting for \(method)."
+            )
+          }
         }
         throw error
       }
     }
+  }
+
+  private func stopStdioRequest(error: any Error) async {
+    // Cancellation notifications use the same possibly blocked stdin pipe.
+    // Stop the process before awaiting SDK request tasks or their send tasks.
+    let failure = exitError ?? (error as? MCPClientError) ?? .notConnected
+    exitError = failure
+    await shutdown()
+    await failureHandler?(failure)
   }
 
   // MARK: - Process
@@ -283,60 +318,41 @@ actor MCPServerConnection {
     command: String,
     arguments: [String],
     environment: [String: String]
-  ) throws -> StdioTransport {
-    let process = Process()
-    let stdinPipe = Pipe()
-    let stdoutPipe = Pipe()
-    let stderrPipe = Pipe()
-    let stdinHandle = stdinPipe.fileHandleForWriting
-    let stdoutHandle = stdoutPipe.fileHandleForReading
-    let stderrHandle = stderrPipe.fileHandleForReading
-
-    // The child may exit between a lifecycle check and an SDK transport write.
-    // Make that race return EPIPE instead of terminating Sumika with SIGPIPE.
-    try disableSIGPIPE(on: stdinHandle)
-
-    process.executableURL = URL(filePath: "/usr/bin/env")
-    process.arguments = [command] + arguments
-    process.environment = resolvedEnvironment(overrides: environment)
-    process.currentDirectoryURL = workspaceRootURL
-    process.standardInput = stdinPipe
-    process.standardOutput = stdoutPipe
-    process.standardError = stderrPipe
-    process.terminationHandler = { [weak self] _ in
-      guard let self else {
-        return
-      }
-      Task { await self.handleProcessExit() }
+  ) async throws -> MCPStdioTransport {
+    let process = try await OwnedProcess.start(
+      executableURL: URL(filePath: "/usr/bin/env"),
+      arguments: [command] + arguments,
+      environment: resolvedEnvironment(overrides: environment),
+      workingDirectoryURL: workspaceRootURL,
+      stdout: .frames(maxBytes: 8 * 1024 * 1024, queuedFrames: 2),
+      stderrLimit: 8 * 1024,
+      stderrRetention: .tail,
+      maxWriteBytes: 8 * 1024 * 1024 + 1,
+      maxPendingWrites: 2
+    )
+    guard !isShuttingDown else {
+      _ = await process.stop(.stopped)
+      throw CancellationError()
     }
-
-    try process.run()
 
     self.process = process
-    self.stdinHandle = stdinHandle
-    self.stdoutHandle = stdoutHandle
-    self.stderrHandle = stderrHandle
-    stderrTask = Task { [weak self] in
-      for await line in PipeLineStream.lines(from: stderrHandle) {
-        guard let self else {
-          return
-        }
-        await self.recordStderrLine(line)
+    processTask = Task { [weak self, process] in
+      let result = await process.wait()
+      // Successful final responses must drain before normal EOF disconnects
+      // the SDK. Resource failures invalidate requests regardless of that queue.
+      if case .exited = result.termination {
+        return
+      }
+      await self?.handleProcessExit(result)
+    }
+    return MCPStdioTransport(process: process) { [weak self, process] in
+      Task {
+        // A server can close stdout while staying alive. EOF still closes the
+        // protocol connection, so do not wait indefinitely for a separate exit.
+        let result = await process.stop(.stopped)
+        await self?.handleProcessExit(result)
       }
     }
-
-    return StdioTransport(
-      input: .init(rawValue: stdoutHandle.fileDescriptor),
-      output: .init(rawValue: stdinHandle.fileDescriptor)
-    )
-  }
-
-  private func disableSIGPIPE(on fileHandle: FileHandle) throws {
-    #if canImport(Darwin)
-      guard fcntl(fileHandle.fileDescriptor, F_SETNOSIGPIPE, 1) != -1 else {
-        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-      }
-    #endif
   }
 
   private func resolvedEnvironment(overrides: [String: String]) -> [String: String] {
@@ -353,36 +369,23 @@ actor MCPServerConnection {
     return resolved
   }
 
-  private func handleProcessExit() async {
+  private func handleProcessExit(_ result: OwnedProcess.Result) async {
     guard !isShuttingDown, exitError == nil else {
       return
     }
-    exitError = .serverExited(detail: nil)
-    // Give the stderr reader a moment to drain the diagnostic tail.
-    try? await Task.sleep(for: .milliseconds(50))
-    exitError = .serverExited(detail: stderrTailSnapshot())
-    await client?.disconnect()
-  }
-
-  private func recordStderrLine(_ line: String) {
-    stderrTail += line + "\n"
-    if stderrTail.count > Self.stderrTailLimit {
-      stderrTail = String(stderrTail.suffix(Self.stderrTailLimit))
+    let error: MCPClientError
+    switch result.termination {
+    case .failed(.resourceLimit(let detail)):
+      error = .resourceLimit(detail)
+    case .failed(let failure):
+      error = .serverExited(detail: failure.localizedDescription)
+    case .exited, .timedOut, .cancelled, .stopped:
+      let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+      error = .serverExited(detail: detail.isEmpty ? nil : detail)
     }
-  }
-
-  private func stderrTailSnapshot() -> String? {
-    let trimmed = stderrTail.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? nil : trimmed
-  }
-
-  private func closePipeHandles() {
-    try? stdinHandle?.close()
-    try? stdoutHandle?.close()
-    try? stderrHandle?.close()
-    stdinHandle = nil
-    stdoutHandle = nil
-    stderrHandle = nil
+    exitError = error
+    await client?.disconnect()
+    await failureHandler?(error)
   }
 
   // MARK: - Boundary mapping
@@ -480,11 +483,17 @@ actor MCPServerConnection {
   }
 
   private func mappedError(_ error: any Error) async -> MCPClientError {
-    if exitError == nil, let process, !process.isRunning {
-      await handleProcessExit()
-    }
     if let exitError {
       return exitError
+    }
+    if let failure = error as? OwnedProcess.Failure {
+      if case .resourceLimit(let detail) = failure {
+        return .resourceLimit(detail)
+      }
+      if let process {
+        await handleProcessExit(await process.wait())
+      }
+      return exitError ?? .serverExited(detail: failure.localizedDescription)
     }
     if let error = error as? MCPClientError {
       return error

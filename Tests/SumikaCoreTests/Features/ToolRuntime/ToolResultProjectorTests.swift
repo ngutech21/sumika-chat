@@ -1142,6 +1142,63 @@ struct ToolResultProjectorTests {
   }
 
   @Test
+  func diagnosticsCaptureLossPreventsCompleteSearchMetadata() throws {
+    let result = WorkspaceDiagnosticsResult.search(
+      outputRef: "cmd_capture",
+      result: .page(
+        CommandOutputSearchPage(
+          stream: .stdout, pattern: "missing", startLine: 1,
+          scannedThrough: 2, lineCount: 2, matches: [],
+          continuation: .endOfOutput, captureOmittedBytes: 123
+        )
+      )
+    )
+    let projection = ToolResultProjector.project(
+      payload: .workspaceDiagnostics(result),
+      request: request(
+        toolName: .workspaceDiagnostics,
+        payload: .workspaceDiagnostics(
+          WorkspaceDiagnosticsInput(
+            outputRef: "cmd_capture", operation: .search, stream: .stdout, pattern: "missing"
+          )
+        )
+      )
+    )
+    let rendered = try hybridToolResult(
+      ToolModelObservationRenderer.render(projection, callID: UUID()))
+
+    #expect(rendered.json["search_complete"] as? Bool == false)
+    #expect(rendered.json["capture_omitted_bytes"] as? Int == 123)
+    #expect(rendered.json["truncated"] as? Bool == true)
+    #expect(rendered.json["next_offset"] == nil)
+    #expect(rendered.content.contains("Retained output search complete: true"))
+  }
+
+  @Test
+  func commandCaptureLossAppearsInModelMetadataIndependentlyOfPreviewTruncation() throws {
+    let result = RunCommandResult(
+      command: "build", timeoutSeconds: 120, exitCode: 0, durationMs: 10,
+      stdout: ToolTextOutput(text: "head and tail"), stderr: ToolTextOutput(text: "error tail"),
+      stdoutCaptureOmittedBytes: 123, stderrCaptureOmittedBytes: 45
+    )
+    let projection = ToolResultProjector.project(
+      payload: .runCommand(result),
+      request: request(
+        toolName: .runCommand,
+        payload: .runCommand(RunCommandInput(command: "build", timeoutSeconds: 120))
+      )
+    )
+    let rendered = try hybridToolResult(
+      ToolModelObservationRenderer.render(projection, callID: UUID()))
+
+    #expect(rendered.json["stdout_capture_omitted_bytes"] as? Int == 123)
+    #expect(rendered.json["stderr_capture_omitted_bytes"] as? Int == 45)
+    #expect(rendered.json["stdout_truncated"] == nil)
+    #expect(rendered.content.contains("Stdout capture omitted bytes: 123"))
+    #expect(rendered.content.contains("Stderr capture omitted bytes: 45"))
+  }
+
+  @Test
   func successProjectionsDoNotContainFailureBlocks() {
     let projections = [
       ToolResultProjector.project(

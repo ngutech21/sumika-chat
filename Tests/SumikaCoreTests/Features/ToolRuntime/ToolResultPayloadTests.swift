@@ -413,8 +413,59 @@ struct ToolResultPayloadTests {
     #expect(decoded.outputRef == nil)
     #expect(decoded.stdoutOmittedChars == 0)
     #expect(decoded.stderrOmittedChars == 0)
+    #expect(decoded.stdoutCaptureOmittedBytes == 0)
+    #expect(decoded.stderrCaptureOmittedBytes == 0)
     #expect(!decoded.timedOut)
     #expect(!decoded.cancelled)
+  }
+
+  @Test
+  func commandCaptureMetadataRoundTripsSeparatelyFromPreviewTruncation() throws {
+    let result = RunCommandResult(
+      command: "build", timeoutSeconds: 120, exitCode: 0, durationMs: 42,
+      stdout: ToolTextOutput(text: "head and tail"), stderr: ToolTextOutput(text: ""),
+      stdoutCaptureOmittedBytes: 123, stderrCaptureOmittedBytes: 45
+    )
+    let decoded = try JSONDecoder().decode(
+      RunCommandResult.self, from: JSONEncoder().encode(result))
+
+    #expect(decoded == result)
+    #expect(decoded.outputTruncated)
+    #expect(!decoded.stdout.truncated)
+    #expect(decoded.stdoutOmittedChars == 0)
+  }
+
+  @Test
+  func diagnosticsCaptureMetadataRoundTripsAndOldPagesDefaultToCompleteCapture() throws {
+    let read = CommandOutputReadPage(
+      stream: .stdout, startLine: 1, endLine: 1,
+      lines: [CommandOutputReadLine(line: 1, origin: .stdout, streamLine: 1, content: "tail")],
+      continuation: .endOfOutput, captureOmittedBytes: 123
+    )
+    let search = CommandOutputSearchPage(
+      stream: .stdout, pattern: "missing", startLine: 1, scannedThrough: 1,
+      lineCount: 1, matches: [], continuation: .endOfOutput, captureOmittedBytes: 123
+    )
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    #expect(try decoder.decode(CommandOutputReadPage.self, from: encoder.encode(read)) == read)
+    #expect(
+      try decoder.decode(CommandOutputSearchPage.self, from: encoder.encode(search)) == search)
+
+    var oldRead = try #require(
+      JSONSerialization.jsonObject(with: encoder.encode(read)) as? [String: Any])
+    oldRead.removeValue(forKey: "captureOmittedBytes")
+    var oldSearch = try #require(
+      JSONSerialization.jsonObject(with: encoder.encode(search)) as? [String: Any])
+    oldSearch.removeValue(forKey: "captureOmittedBytes")
+    #expect(
+      try decoder.decode(
+        CommandOutputReadPage.self, from: JSONSerialization.data(withJSONObject: oldRead)
+      ).captureOmittedBytes == 0)
+    #expect(
+      try decoder.decode(
+        CommandOutputSearchPage.self, from: JSONSerialization.data(withJSONObject: oldSearch)
+      ).captureOmittedBytes == 0)
   }
 
   @Test
