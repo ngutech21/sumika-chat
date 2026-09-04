@@ -686,7 +686,8 @@ declarations.
   existing path validation and access semantics.
 - `list_files` is a read-only, flat listing of direct physical children. It
   hides ignored entries, preserves nonignored empty directories, keeps
-  submodules as directory entries, and caps returned entries.
+  submodules as directory entries, and caps returned entries. Its `path`
+  defaults to `.` when omitted, empty, or whitespace-only.
 - `glob_files` is a read-only recursive discovery tool. Its `path` is a
   workspace-relative search directory that defaults to `.`, uses the canonical
   discovery policy, and caps returned results.

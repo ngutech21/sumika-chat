@@ -54,6 +54,16 @@ nonisolated extension ToolDefinition {
 struct ListFilesToolExecutor: TypedToolExecutor {
   static let codec = ToolCodec<ListFilesInput>(
     definition: ToolDefinition.listFiles,
+    decodeArguments: { arguments in
+      let input = try ToolInputDecoder.decode(ListFilesInput.self, from: arguments)
+      guard
+        let path = input.path,
+        path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      else {
+        return input
+      }
+      return ListFilesInput(path: nil)
+    },
     makePayload: ToolCallPayload.listFiles,
     extractInput: { payload in
       guard case .listFiles(let input) = payload else {
@@ -63,9 +73,6 @@ struct ListFilesToolExecutor: TypedToolExecutor {
         )
       }
       return input
-    },
-    validateInput: { input in
-      try ToolArgumentValidation.validateOptionalPath(input.path)
     }
   )
 

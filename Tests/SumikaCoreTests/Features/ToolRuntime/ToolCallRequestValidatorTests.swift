@@ -148,6 +148,20 @@ struct ToolCallRequestValidatorTests {
   }
 
   @Test
+  func listFilesTreatsBlankPathAsWorkspaceRoot() {
+    let registry = ToolExecutorRegistry.codingAgent.toolRegistry
+
+    for path in ["", " \n\t"] {
+      let request = validator.validate(
+        raw(.listFiles, arguments: ["path": .string(path)]),
+        registry: registry
+      )
+
+      #expect(request.payload == .listFiles(ListFilesInput(path: nil)))
+    }
+  }
+
+  @Test
   func runCommandDefaultsMissingTimeout() throws {
     let request = validator.validate(
       raw(.runCommand, arguments: ["command": .string("just test-core")]),
