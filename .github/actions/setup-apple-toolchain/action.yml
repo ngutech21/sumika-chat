@@ -1,0 +1,15 @@
+name: Setup Apple toolchain
+description: Select and verify the repository's required Xcode, Swift, and macOS SDK versions.
+
+outputs:
+  cache-key:
+    description: Stable toolchain fingerprint for dependency cache keys.
+    value: ${{ steps.setup.outputs.cache-key }}
+
+runs:
+  using: composite
+  steps:
+    - name: Select and verify Apple toolchain
+      id: setup
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/setup.sh"

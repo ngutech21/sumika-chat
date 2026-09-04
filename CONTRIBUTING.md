@@ -14,7 +14,7 @@ described in [SECURITY.md](SECURITY.md).
 Sumika is a native macOS project. Development requires:
 
 - macOS 15 or later.
-- Xcode with a toolchain compatible with the Swift 6.1 package manifest.
+- Xcode 26.6 (build 17F113) with Apple Swift 6.3.3 and the macOS 26.5 SDK.
 - [Homebrew](https://brew.sh/).
 - `just`, SwiftLint, swift-format, Periphery, and `typos` for the complete local
   verification workflow.

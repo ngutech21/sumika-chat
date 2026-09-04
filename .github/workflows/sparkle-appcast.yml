@@ -49,6 +49,10 @@ jobs:
           path: release-source
           persist-credentials: false
 
+      - name: Select and verify Apple toolchain
+        id: apple-toolchain
+        uses: ./workflow-source/.github/actions/setup-apple-toolchain
+
       - name: Install build tools
         timeout-minutes: 5
         run: brew install just

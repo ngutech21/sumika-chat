@@ -57,12 +57,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Print toolchain versions
-        run: |
-          uname -m
-          xcodebuild -version
-          xcrun --sdk macosx --show-sdk-version
-          xcrun swift --version
+      - name: Select and verify Apple toolchain
+        id: apple-toolchain
+        uses: ./.github/actions/setup-apple-toolchain
 
       - name: Install build tools
         timeout-minutes: 10

@@ -271,9 +271,9 @@ app target links only the local `SumikaApp` product.
 
 ## Development
 
-Development requires macOS 15 or later, Xcode with a Swift 6.1-compatible
-toolchain, and Homebrew. Install `just` and `typos`, then use the project recipe
-for the remaining tools:
+Development requires macOS 15 or later, Xcode 26.6 (build 17F113) with Apple
+Swift 6.3.3 and the macOS 26.5 SDK, and Homebrew. Install `just` and `typos`, then
+use the project recipe for the remaining tools:
 
 ```sh
 brew install just typos-cli

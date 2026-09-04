@@ -52,15 +52,10 @@ jobs:
       with:
         persist-credentials: false
 
-    - name: Select Xcode 26.6
+    - name: Select and verify Apple toolchain
+      id: apple-toolchain
       if: matrix.build-mode == 'manual'
-      env:
-        DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
-      run: |
-        test -d "$DEVELOPER_DIR"
-        echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
-        xcodebuild -version
-        xcrun swift --version
+      uses: ./.github/actions/setup-apple-toolchain
 
     - name: Cache Swift package checkouts
       if: matrix.build-mode == 'manual'
@@ -70,7 +65,7 @@ jobs:
           .build/repositories
           .build/checkouts
           .build/artifacts
-        key: ${{ runner.os }}-codeql-swiftpm-${{ hashFiles('Package.resolved') }}
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.apple-toolchain.outputs.cache-key }}-codeql-swiftpm-${{ hashFiles('Package.resolved') }}
 
     - name: Resolve Swift packages
       if: matrix.build-mode == 'manual'

@@ -32,12 +32,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Print toolchain versions
-        run: |
-          uname -m
-          xcodebuild -version
-          xcrun --sdk macosx --show-sdk-version
-          xcrun swift --version
+      - name: Select and verify Apple toolchain
+        id: apple-toolchain
+        uses: ./.github/actions/setup-apple-toolchain
 
       - name: Install lint tools
         timeout-minutes: 10
@@ -53,7 +50,7 @@ jobs:
             .build/repositories
             .build/checkouts
             .build/artifacts
-          key: ${{ runner.os }}-macos-nightly-swiftpm-${{ hashFiles('Package.resolved', 'Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.apple-toolchain.outputs.cache-key }}-macos-nightly-swiftpm-${{ hashFiles('Package.resolved', 'Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
       - name: Verify Swift package lockfiles
         timeout-minutes: 10
