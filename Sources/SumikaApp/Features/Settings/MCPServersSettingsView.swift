@@ -16,11 +16,11 @@ struct MCPServersSettingsView: View {
   var body: some View {
     Form {
       Section {
-        if settingsState.mcpServers.isEmpty {
+        if settingsState.editableMCPServers.isEmpty {
           Text("No MCP servers configured.")
             .foregroundStyle(.secondary)
         }
-        ForEach(settingsState.mcpServers) { server in
+        ForEach(settingsState.editableMCPServers) { server in
           MCPServerRow(
             server: server,
             status: status(for: server.id),
@@ -60,10 +60,10 @@ struct MCPServersSettingsView: View {
   private func isEnabledBinding(for serverID: UUID) -> Binding<Bool> {
     Binding(
       get: {
-        settingsState.mcpServers.first { $0.id == serverID }?.isEnabled ?? false
+        settingsState.editableMCPServers.first { $0.id == serverID }?.isEnabled ?? false
       },
       set: { isEnabled in
-        var servers = settingsState.mcpServers
+        var servers = settingsState.editableMCPServers
         guard let index = servers.firstIndex(where: { $0.id == serverID }) else {
           return
         }
@@ -74,7 +74,7 @@ struct MCPServersSettingsView: View {
   }
 
   private func saveServer(_ server: MCPServerConfig) {
-    var servers = settingsState.mcpServers
+    var servers = settingsState.editableMCPServers
     if let index = servers.firstIndex(where: { $0.id == server.id }) {
       servers[index] = server
     } else {
@@ -84,7 +84,7 @@ struct MCPServersSettingsView: View {
   }
 
   private func removeServer(_ serverID: UUID) {
-    onUpdateServers(settingsState.mcpServers.filter { $0.id != serverID })
+    onUpdateServers(settingsState.editableMCPServers.filter { $0.id != serverID })
   }
 }
 

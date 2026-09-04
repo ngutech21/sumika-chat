@@ -43,6 +43,10 @@ package final class ModelManagementFeature {
     await modelController.prepareDefaultModelDirectory()
   }
 
+  package func prepareForTermination() async {
+    await modelController.flushPendingSettingsPersistence()
+  }
+
   package func selectModel(_ model: ManagedModel) {
     selectModelIfAllowed(model)
   }

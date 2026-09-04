@@ -37,7 +37,7 @@ struct AppSettingsView: View {
           MCPServersSettingsView(
             settingsState: settingsState,
             onUpdateServers: onUpdateMCPServers,
-            canTestServers: canTestMCPServers,
+            canTestServers: canTestMCPServers && settingsState.pendingMCPServers == nil,
             onTestServer: onTestMCPServer
           )
         }

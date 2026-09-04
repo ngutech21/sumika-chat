@@ -145,7 +145,7 @@ struct MCPServersStoreTests {
   func loadReturnsEmptyListWhenFileIsMissing() async throws {
     let (store, _) = try makeStore()
 
-    let servers = await store.servers()
+    let servers = try await store.load()
 
     #expect(servers.isEmpty)
   }
@@ -159,16 +159,88 @@ struct MCPServersStoreTests {
     ]
 
     try await store.save(servers: configs)
-    let loaded = await store.servers()
+    let loaded = try await store.load()
 
     #expect(loaded == configs)
   }
 
   @Test
-  func loadDropsCorruptEntriesInsteadOfFailingEntirely() async throws {
+  func loadMigratesUnversionedServersFileToVersionOne() async throws {
     let (store, url) = try makeStore()
-    try FileManager.default.createDirectory(
-      at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try write(
+      """
+      {
+        "servers": [
+          {
+            "id": "6F1B4E86-3A6C-4E5E-9C61-27FBA9D9A902",
+            "name": "legacy",
+            "transport": {
+              "type": "stdio",
+              "command": "npx",
+              "arguments": ["-y", "server"],
+              "environment": {"TOKEN": "secret"}
+            },
+            "isEnabled": false
+          }
+        ]
+      }
+      """,
+      to: url
+    )
+
+    let servers = try await store.load()
+
+    #expect(
+      servers == [
+        MCPServerConfig(
+          id: try #require(UUID(uuidString: "6F1B4E86-3A6C-4E5E-9C61-27FBA9D9A902")),
+          name: "legacy",
+          command: "npx",
+          arguments: ["-y", "server"],
+          environment: ["TOKEN": "secret"],
+          isEnabled: false
+        )
+      ]
+    )
+    let migrated = try #require(
+      JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+    )
+    #expect(migrated["schemaVersion"] as? Int == 1)
+    #expect((migrated["servers"] as? [[String: Any]])?.count == 1)
+  }
+
+  @Test
+  func loadAcceptsCurrentVersionWithoutRewritingIt() async throws {
+    let (store, url) = try makeStore()
+    let current = """
+      {
+        "schemaVersion": 1,
+        "servers": [
+          {
+            "id": "6F1B4E86-3A6C-4E5E-9C61-27FBA9D9A902",
+            "name": "remote",
+            "transport": {
+              "type": "streamableHTTP",
+              "endpoint": "https://mcp.example.com/service"
+            },
+            "isEnabled": true
+          }
+        ]
+      }
+      """
+    try write(current, to: url)
+    let originalData = try Data(contentsOf: url)
+
+    let servers = try await store.load()
+
+    #expect(servers.count == 1)
+    #expect(servers.first?.name == "remote")
+    #expect(try Data(contentsOf: url) == originalData)
+  }
+
+  @Test
+  func loadRejectsCorruptEntryWithoutDroppingItOrRewritingFile() async throws {
+    let (store, url) = try makeStore()
     let json = """
       {
         "servers": [
@@ -187,11 +259,67 @@ struct MCPServersStoreTests {
         ]
       }
       """
+    try write(json, to: url)
+    let originalData = try Data(contentsOf: url)
+
+    await #expect(
+      throws: VersionedJSONFileError.decodeFailed(
+        fileName: "mcp-servers.json",
+        schemaVersion: 0
+      )
+    ) {
+      try await store.load()
+    }
+    #expect(try Data(contentsOf: url) == originalData)
+  }
+
+  @Test
+  func loadRejectsFutureVersionWithoutRewritingFile() async throws {
+    let (store, url) = try makeStore()
+    let json = """
+      {
+        "schemaVersion": 2,
+        "servers": []
+      }
+      """
+    try write(json, to: url)
+    let originalData = try Data(contentsOf: url)
+
+    await #expect(
+      throws: VersionedJSONFileError.unsupportedSchemaVersion(
+        fileName: "mcp-servers.json",
+        found: 2,
+        current: 1
+      )
+    ) {
+      try await store.load()
+    }
+    #expect(try Data(contentsOf: url) == originalData)
+  }
+
+  @Test
+  func loadRejectsFormerFlatServersFileSchema() async throws {
+    let (store, url) = try makeStore()
+    let json = """
+      {
+        "id": "6F1B4E86-3A6C-4E5E-9C61-27FBA9D9A902",
+        "name": "everything",
+        "command": "npx",
+        "isEnabled": true
+      }
+      """
+    try write(json, to: url)
+
+    await #expect(throws: VersionedJSONFileError.self) {
+      try await store.load()
+    }
+  }
+
+  private func write(_ json: String, to url: URL) throws {
+    try FileManager.default.createDirectory(
+      at: url.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
     try Data(json.utf8).write(to: url)
-
-    let servers = await store.servers()
-
-    #expect(servers.count == 1)
-    #expect(servers.first?.name == "ok")
   }
 }

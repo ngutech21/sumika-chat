@@ -30,7 +30,7 @@ struct ModelManagementTests {
     try #require(didStartProvider)
 
     try await withTestTimeout(.milliseconds(250)) {
-      await store.setSelectedModelID("replacement-model")
+      try await store.setSelectedModelID("replacement-model")
     }
 
     releaseProvider.signal()
@@ -38,7 +38,7 @@ struct ModelManagementTests {
   }
 
   @Test
-  func settingsStorePersistsOnlyChangedFieldsAsSchemaV3Overrides() async throws {
+  func settingsStorePersistsOnlyChangedFieldsAsSchemaV4Overrides() async throws {
     let settingsURL = try temporarySettingsURL()
     let model = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
     let generationConfig = GenerationSettingsOverride(
@@ -71,7 +71,7 @@ struct ModelManagementTests {
     let object = try #require(
       JSONSerialization.jsonObject(with: Data(contentsOf: settingsURL)) as? [String: Any]
     )
-    #expect(object["schemaVersion"] as? Int == 3)
+    #expect(object["schemaVersion"] as? Int == 4)
     let modelSettings = try #require(object["modelSettings"] as? [String: Any])
     let persisted = try #require(modelSettings[model.id] as? [String: Any])
     let modeOverrides = try #require(persisted["modeOverrides"] as? [String: Any])
@@ -154,7 +154,7 @@ struct ModelManagementTests {
     let object = try #require(
       JSONSerialization.jsonObject(with: Data(contentsOf: settingsURL)) as? [String: Any]
     )
-    #expect(object["schemaVersion"] as? Int == 3)
+    #expect(object["schemaVersion"] as? Int == 4)
     let reloaded = ModelSettingsStore(
       userDefaults: makeUserDefaults(),
       settingsURL: settingsURL,
@@ -237,7 +237,7 @@ struct ModelManagementTests {
       settingsURL: settingsURL,
       generationConfigProvider: { _ in nil }
     )
-    await store.setSelectedModelID(qwen.id)
+    try await store.setSelectedModelID(qwen.id)
 
     let restored = try await store.restoreConfiguration(
       availableModels: ManagedModelCatalog.models
@@ -256,7 +256,7 @@ struct ModelManagementTests {
     let object = try #require(
       JSONSerialization.jsonObject(with: Data(contentsOf: settingsURL)) as? [String: Any]
     )
-    #expect(object["schemaVersion"] as? Int == 3)
+    #expect(object["schemaVersion"] as? Int == 4)
     let models = try #require(object["modelSettings"] as? [String: Any])
     let qwenGeneration = try persistedGenerationSettings(
       modelID: qwen.id,
@@ -272,6 +272,129 @@ struct ModelManagementTests {
     #expect(binaryGeneration["reasoningSelection"] as? String == "on")
     #expect(qwenGeneration["reasoningEnabled"] == nil)
     #expect(binaryGeneration["reasoningEnabled"] == nil)
+  }
+
+  @Test
+  func restoreConfigurationMigratesSchemaV3AndLegacySelectionToV4() async throws {
+    let settingsURL = try temporarySettingsURL()
+    let model = try #require(ManagedModelCatalog.model(id: "Qwen3.6-27B-OptiQ-4bit"))
+    let userDefaultsSuiteName = makeUserDefaultsSuiteName()
+    let userDefaults = makeUserDefaults(suiteName: userDefaultsSuiteName)
+    userDefaults.set(model.id, forKey: "selectedModelID")
+    try FileManager.default.createDirectory(
+      at: settingsURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try Data(
+      """
+      {
+        "schemaVersion": 3,
+        "modelSettings": {}
+      }
+      """.utf8
+    ).write(to: settingsURL, options: .atomic)
+    let store = ModelSettingsStore(
+      userDefaults: userDefaults,
+      settingsURL: settingsURL,
+      generationConfigProvider: { _ in nil }
+    )
+
+    let restored = try await store.restoreConfiguration(
+      availableModels: ManagedModelCatalog.models
+    )
+
+    #expect(restored.model == model)
+    #expect(
+      makeUserDefaults(suiteName: userDefaultsSuiteName)
+        .object(forKey: "selectedModelID") == nil
+    )
+    let object = try #require(
+      JSONSerialization.jsonObject(with: Data(contentsOf: settingsURL)) as? [String: Any]
+    )
+    #expect(object["schemaVersion"] as? Int == 4)
+    #expect(object["selectedModelID"] as? String == model.id)
+  }
+
+  @Test
+  func restoreConfigurationPrefersV4SelectionOverResidualUserDefaults() async throws {
+    let settingsURL = try temporarySettingsURL()
+    let persistedModel = try #require(
+      ManagedModelCatalog.model(id: "gemma4-26b-qat-4bit")
+    )
+    let residualModel = try #require(
+      ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit")
+    )
+    let userDefaultsSuiteName = makeUserDefaultsSuiteName()
+    let userDefaults = makeUserDefaults(suiteName: userDefaultsSuiteName)
+    userDefaults.set(residualModel.id, forKey: "selectedModelID")
+    try FileManager.default.createDirectory(
+      at: settingsURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try Data(
+      """
+      {
+        "schemaVersion": 4,
+        "selectedModelID": "\(persistedModel.id)",
+        "modelSettings": {}
+      }
+      """.utf8
+    ).write(to: settingsURL, options: .atomic)
+    let store = ModelSettingsStore(
+      userDefaults: userDefaults,
+      settingsURL: settingsURL,
+      generationConfigProvider: { _ in nil }
+    )
+
+    let restored = try await store.restoreConfiguration(
+      availableModels: ManagedModelCatalog.models
+    )
+
+    #expect(restored.model == persistedModel)
+    #expect(
+      makeUserDefaults(suiteName: userDefaultsSuiteName)
+        .object(forKey: "selectedModelID") == nil
+    )
+  }
+
+  @Test
+  func restoreConfigurationImportsResidualSelectionIntoV4WithoutSelection() async throws {
+    let settingsURL = try temporarySettingsURL()
+    let model = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
+    let userDefaultsSuiteName = makeUserDefaultsSuiteName()
+    let userDefaults = makeUserDefaults(suiteName: userDefaultsSuiteName)
+    userDefaults.set(model.id, forKey: "selectedModelID")
+    try FileManager.default.createDirectory(
+      at: settingsURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try Data(
+      """
+      {
+        "schemaVersion": 4,
+        "modelSettings": {}
+      }
+      """.utf8
+    ).write(to: settingsURL, options: .atomic)
+    let store = ModelSettingsStore(
+      userDefaults: userDefaults,
+      settingsURL: settingsURL,
+      generationConfigProvider: { _ in nil }
+    )
+
+    let restored = try await store.restoreConfiguration(
+      availableModels: ManagedModelCatalog.models
+    )
+
+    #expect(restored.model == model)
+    #expect(
+      makeUserDefaults(suiteName: userDefaultsSuiteName)
+        .object(forKey: "selectedModelID") == nil
+    )
+    let object = try #require(
+      JSONSerialization.jsonObject(with: Data(contentsOf: settingsURL)) as? [String: Any]
+    )
+    #expect(object["selectedModelID"] as? String == model.id)
   }
 
   @Test
@@ -497,9 +620,10 @@ struct ModelManagementTests {
 
   @Test
   func restoreConfigurationResolvesDefaultModelWhenNoConfigurationExists() async throws {
+    let settingsURL = try temporarySettingsURL()
     let store = ModelSettingsStore(
       userDefaults: makeUserDefaults(),
-      settingsURL: try temporarySettingsURL(),
+      settingsURL: settingsURL,
       generationConfigProvider: { _ in nil }
     )
 
@@ -516,6 +640,7 @@ struct ModelManagementTests {
           userOverrides: ModelSettingsOverrides()
         )
     )
+    #expect(!FileManager.default.fileExists(atPath: settingsURL.path(percentEncoded: false)))
   }
 
   @Test
@@ -540,7 +665,7 @@ struct ModelManagementTests {
       userDefaults: makeUserDefaults(suiteName: userDefaultsSuiteName),
       settingsURL: settingsURL
     )
-    await store.setSelectedModelID(model.id)
+    try await store.setSelectedModelID(model.id)
     try await persist(settings, for: model, in: store)
 
     let reloadedStore = ModelSettingsStore(
@@ -572,6 +697,212 @@ struct ModelManagementTests {
     await #expect(throws: ModelSettingsRestoreError.self) {
       try await store.restoreConfiguration(availableModels: ManagedModelCatalog.models)
     }
+  }
+
+  @Test
+  func restoreConfigurationRejectsTruncatedV4WithoutChangingSourceOrLegacySelection()
+    async throws
+  {
+    let settingsURL = try temporarySettingsURL()
+    let selectedModel = ManagedModelCatalog.defaultModel
+    let source = Data(
+      """
+      {
+        "schemaVersion": 4,
+        "selectedModelID": "\(selectedModel.id)"
+      }
+      """.utf8
+    )
+    try FileManager.default.createDirectory(
+      at: settingsURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try source.write(to: settingsURL, options: .atomic)
+    let userDefaultsSuiteName = makeUserDefaultsSuiteName()
+    let userDefaults = makeUserDefaults(suiteName: userDefaultsSuiteName)
+    userDefaults.set(selectedModel.id, forKey: "selectedModelID")
+    let store = ModelSettingsStore(
+      userDefaults: userDefaults,
+      settingsURL: settingsURL,
+      generationConfigProvider: { _ in nil }
+    )
+
+    await #expect(throws: ModelSettingsRestoreError.self) {
+      try await store.restoreConfiguration(availableModels: ManagedModelCatalog.models)
+    }
+
+    #expect(try Data(contentsOf: settingsURL) == source)
+    #expect(
+      makeUserDefaults(suiteName: userDefaultsSuiteName)
+        .string(forKey: "selectedModelID") == selectedModel.id
+    )
+  }
+
+  @Test
+  func restoreConfigurationRejectsFutureSchemaWithoutChangingSourceOrLegacySelection()
+    async throws
+  {
+    let settingsURL = try temporarySettingsURL()
+    let source = Data(
+      """
+      {
+        "schemaVersion": 5,
+        "selectedModelID": "future-model",
+        "modelSettings": {}
+      }
+      """.utf8
+    )
+    try FileManager.default.createDirectory(
+      at: settingsURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try source.write(to: settingsURL, options: .atomic)
+    let userDefaultsSuiteName = makeUserDefaultsSuiteName()
+    let userDefaults = makeUserDefaults(suiteName: userDefaultsSuiteName)
+    userDefaults.set(ManagedModelCatalog.defaultModelID, forKey: "selectedModelID")
+    let store = ModelSettingsStore(
+      userDefaults: userDefaults,
+      settingsURL: settingsURL,
+      generationConfigProvider: { _ in nil }
+    )
+
+    await #expect(throws: ModelSettingsRestoreError.self) {
+      try await store.restoreConfiguration(availableModels: ManagedModelCatalog.models)
+    }
+
+    #expect(try Data(contentsOf: settingsURL) == source)
+    #expect(
+      makeUserDefaults(suiteName: userDefaultsSuiteName)
+        .string(forKey: "selectedModelID")
+        == ManagedModelCatalog.defaultModelID
+    )
+  }
+
+  @Test
+  func restoreConfigurationRejectsNullAndMalformedSchemaVersionWithoutChangingSource()
+    async throws
+  {
+    for encodedVersion in ["null", "\"4\""] {
+      let settingsURL = try temporarySettingsURL()
+      let source = Data(
+        """
+        {
+          "schemaVersion": \(encodedVersion),
+          "modelSettings": {}
+        }
+        """.utf8
+      )
+      try FileManager.default.createDirectory(
+        at: settingsURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      try source.write(to: settingsURL, options: .atomic)
+      let userDefaultsSuiteName = makeUserDefaultsSuiteName()
+      let userDefaults = makeUserDefaults(suiteName: userDefaultsSuiteName)
+      userDefaults.set(ManagedModelCatalog.defaultModelID, forKey: "selectedModelID")
+      let store = ModelSettingsStore(
+        userDefaults: userDefaults,
+        settingsURL: settingsURL,
+        generationConfigProvider: { _ in nil }
+      )
+
+      await #expect(throws: ModelSettingsRestoreError.self) {
+        try await store.restoreConfiguration(availableModels: ManagedModelCatalog.models)
+      }
+
+      #expect(try Data(contentsOf: settingsURL) == source)
+      #expect(
+        makeUserDefaults(suiteName: userDefaultsSuiteName)
+          .string(forKey: "selectedModelID")
+          == ManagedModelCatalog.defaultModelID
+      )
+    }
+  }
+
+  @Test
+  func restoreConfigurationRejectsMalformedV4ReasoningWithoutChangingSource() async throws {
+    let malformedReasoningFields = [
+      "\"reasoningEnabled\": true",
+      "\"reasoningSelection\": \"unexpected\"",
+      "\"reasoningSelection\": true",
+    ]
+    for reasoningField in malformedReasoningFields {
+      let settingsURL = try temporarySettingsURL()
+      let selectedModel = ManagedModelCatalog.defaultModel
+      let source = Data(
+        """
+        {
+          "schemaVersion": 4,
+          "selectedModelID": "\(selectedModel.id)",
+          "modelSettings": {
+            "\(selectedModel.id)": {
+              "modeOverrides": {
+                "chat": {
+                  "generationSettings": { \(reasoningField) }
+                }
+              }
+            }
+          }
+        }
+        """.utf8
+      )
+      try FileManager.default.createDirectory(
+        at: settingsURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      try source.write(to: settingsURL, options: .atomic)
+      let userDefaultsSuiteName = makeUserDefaultsSuiteName()
+      let userDefaults = makeUserDefaults(suiteName: userDefaultsSuiteName)
+      userDefaults.set(selectedModel.id, forKey: "selectedModelID")
+      let store = ModelSettingsStore(
+        userDefaults: userDefaults,
+        settingsURL: settingsURL,
+        generationConfigProvider: { _ in nil }
+      )
+
+      await #expect(throws: ModelSettingsRestoreError.self) {
+        try await store.restoreConfiguration(availableModels: ManagedModelCatalog.models)
+      }
+
+      #expect(try Data(contentsOf: settingsURL) == source)
+      #expect(
+        makeUserDefaults(suiteName: userDefaultsSuiteName)
+          .string(forKey: "selectedModelID") == selectedModel.id
+      )
+    }
+  }
+
+  @Test
+  func restoreConfigurationRetainsLegacySelectionWhenV4WriteFails() async throws {
+    let blockedParentURL = try scopedTemporaryDirectory().appending(
+      path: UUID().uuidString,
+      directoryHint: .notDirectory
+    )
+    let blocker = Data("not a directory".utf8)
+    try blocker.write(to: blockedParentURL, options: .atomic)
+    let settingsURL = blockedParentURL.appending(
+      path: "model-settings.json",
+      directoryHint: .notDirectory
+    )
+    let userDefaultsSuiteName = makeUserDefaultsSuiteName()
+    let userDefaults = makeUserDefaults(suiteName: userDefaultsSuiteName)
+    userDefaults.set(ManagedModelCatalog.defaultModelID, forKey: "selectedModelID")
+    let store = ModelSettingsStore(
+      userDefaults: userDefaults,
+      settingsURL: settingsURL,
+      generationConfigProvider: { _ in nil }
+    )
+
+    await #expect(throws: (any Error).self) {
+      try await store.restoreConfiguration(availableModels: ManagedModelCatalog.models)
+    }
+
+    #expect(try Data(contentsOf: blockedParentURL) == blocker)
+    #expect(
+      makeUserDefaults(suiteName: userDefaultsSuiteName)
+        .string(forKey: "selectedModelID")
+        == ManagedModelCatalog.defaultModelID
+    )
   }
 
   @Test
@@ -659,6 +990,41 @@ struct ModelManagementTests {
     #expect(await reloadedStore.settings(for: secondModel) == secondSettings)
   }
 
+  @Test
+  func settingsStoreSerializesSelectionAndSettingsMutations() async throws {
+    let settingsURL = try temporarySettingsURL()
+    let selectedModel = try #require(
+      ManagedModelCatalog.model(id: "gemma4-26b-qat-4bit")
+    )
+    let configuredModel = try #require(
+      ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit")
+    )
+    let store = ModelSettingsStore(
+      userDefaults: makeUserDefaults(),
+      settingsURL: settingsURL,
+      generationConfigProvider: { _ in nil }
+    )
+
+    async let selection: Void = store.setSelectedModelID(selectedModel.id)
+    async let settings = store.apply(
+      .contextTokenLimitChanged(12_345),
+      for: configuredModel
+    )
+    let (_, updatedSettings) = try await (selection, settings)
+
+    #expect(updatedSettings.contextTokenLimit == 12_345)
+    let object = try #require(
+      JSONSerialization.jsonObject(with: Data(contentsOf: settingsURL)) as? [String: Any]
+    )
+    #expect(object["schemaVersion"] as? Int == 4)
+    #expect(object["selectedModelID"] as? String == selectedModel.id)
+    let modelSettings = try #require(object["modelSettings"] as? [String: Any])
+    let configuredSettings = try #require(
+      modelSettings[configuredModel.id] as? [String: Any]
+    )
+    #expect(configuredSettings["contextTokenLimitOverride"] as? Int == 12_345)
+  }
+
   private func makeUserDefaultsSuiteName() -> String {
     "sumika-tests-\(UUID().uuidString)"
   }
@@ -715,4 +1081,68 @@ private func waitForSemaphore(
 
 private struct LegacyModelSettingsFile: Encodable {
   let modelSettings: [String: StoredModelSettings]
+
+  private enum CodingKeys: String, CodingKey {
+    case modelSettings
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(
+      modelSettings.mapValues(LegacyStoredModelSettings.init),
+      forKey: .modelSettings
+    )
+  }
+}
+
+private struct LegacyStoredModelSettings: Encodable {
+  let modeSettings: LegacyModeSettingsSet
+  let contextTokenLimit: Int
+
+  init(_ settings: StoredModelSettings) {
+    modeSettings = LegacyModeSettingsSet(settings.modeSettings)
+    contextTokenLimit = settings.contextTokenLimit
+  }
+}
+
+private struct LegacyModeSettingsSet: Encodable {
+  let chat: LegacyModeSettings
+  let agent: LegacyModeSettings
+
+  init(_ settings: ChatModeSettingsSet) {
+    chat = LegacyModeSettings(settings.chat)
+    agent = LegacyModeSettings(settings.agent)
+  }
+}
+
+private struct LegacyModeSettings: Encodable {
+  let systemPrompt: String
+  let generationSettings: LegacyGenerationSettings
+
+  init(_ settings: ChatModeSettings) {
+    systemPrompt = settings.systemPrompt
+    generationSettings = LegacyGenerationSettings(settings.generationSettings)
+  }
+}
+
+private struct LegacyGenerationSettings: Encodable {
+  let temperature: Double
+  let topP: Double
+  let topK: Int
+  let maxTokens: Int
+  let repetitionPenalty: Double
+  let repetitionContextSize: Int
+  let presencePenalty: Double
+  let reasoningEnabled: Bool
+
+  init(_ settings: ChatGenerationSettings) {
+    temperature = settings.temperature
+    topP = settings.topP
+    topK = settings.topK
+    maxTokens = settings.maxTokens
+    repetitionPenalty = settings.repetitionPenalty
+    repetitionContextSize = settings.repetitionContextSize
+    presencePenalty = settings.presencePenalty
+    reasoningEnabled = settings.reasoningEnabled
+  }
 }

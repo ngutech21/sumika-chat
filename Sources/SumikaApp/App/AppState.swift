@@ -20,6 +20,9 @@ final class AppState {
     ManagedModelCatalog.defaultModel.defaultModeSettings
   @ObservationIgnored private var didAttemptAutoloadLastModel = false
   @ObservationIgnored private var startupTask: Task<Void, Never>?
+  @ObservationIgnored private var mcpServersUpdateTask: Task<Void, Never>?
+  @ObservationIgnored private var mcpServersUpdateGeneration = 0
+  @ObservationIgnored private var lastPersistedMCPServers: [MCPServerConfig]?
 
   convenience init(
     workspaceStore: any WorkspaceStoring = WorkspaceStore(),
@@ -47,7 +50,7 @@ final class AppState {
       modelAvailability: modelAvailability,
       browserToolService: browserToolService,
       webAccessSettingsProvider: {
-        await webAccessSettingsStore.settings()
+        (try? await webAccessSettingsStore.load()) ?? .disabled
       },
       skillCatalog: skillCatalog,
       turnTracer: turnTracer
@@ -280,7 +283,43 @@ final class AppState {
   }
 
   func updateMCPServers(_ servers: [MCPServerConfig]) {
-    settingsState.updateMCPServers(servers)
+    if lastPersistedMCPServers == nil, settingsState.hasAuthoritativeMCPServers {
+      lastPersistedMCPServers = settingsState.mcpServers
+    }
+    mcpServersUpdateGeneration += 1
+    let updateGeneration = mcpServersUpdateGeneration
+    settingsState.stageMCPServersUpdate(servers)
+    let previousUpdateTask = mcpServersUpdateTask
+    mcpServersUpdateTask = Task { @MainActor [weak self] in
+      await previousUpdateTask?.value
+      guard let self else {
+        return
+      }
+      let saveOutcome = await settingsState.persistMCPServers(servers)
+      if saveOutcome.didSave {
+        lastPersistedMCPServers = servers
+      }
+      guard updateGeneration == mcpServersUpdateGeneration else {
+        return
+      }
+
+      let previousServers = settingsState.mcpServers
+      let wasAuthoritative = settingsState.hasAuthoritativeMCPServers
+      let settledServers = lastPersistedMCPServers
+      settingsState.settleMCPServersUpdate(
+        authoritativeServers: settledServers,
+        saveOutcome: saveOutcome
+      )
+      guard let settledServers,
+        !wasAuthoritative || settledServers != previousServers
+      else {
+        return
+      }
+      applyPersistedMCPServers(settledServers)
+    }
+  }
+
+  private func applyPersistedMCPServers(_ servers: [MCPServerConfig]) {
     let availableServerIDs = Set(servers.map(\.id))
     workspaceState.retainSelectedMCPServerIDs(availableServerIDs)
     if let active = sumika.conversation.state.active {
@@ -343,6 +382,9 @@ final class AppState {
   }
 
   private func normalizedMCPServerSelection(_ serverIDs: [UUID]) -> [UUID] {
+    guard settingsState.hasAuthoritativeMCPServers else {
+      return serverIDs
+    }
     let requestedIDs = Set(serverIDs)
     return settingsState.mcpServers.map(\.id).filter { requestedIDs.contains($0) }
   }
@@ -430,11 +472,14 @@ final class AppState {
   }
 
   /// Runs on the termination path: snapshots the live session, waits until
-  /// every queued library write has reached the store — the unstructured save
-  /// tasks would otherwise die with the process — and terminates spawned MCP
-  /// server processes so they do not outlive the app.
+  /// every queued settings and library write has reached its store — the
+  /// unstructured save tasks would otherwise die with the process — and terminates
+  /// spawned MCP server processes so they do not outlive the app.
   func prepareForTermination() async {
     sumika.conversation.deactivate()
+    await mcpServersUpdateTask?.value
+    await settingsState.flushPendingSaves()
+    await sumika.models.prepareForTermination()
     await workspaceState.flushPendingSaves()
     await sumika.agent.prepareForTermination()
   }
@@ -537,20 +582,28 @@ final class AppState {
   private func loadStoredLibrary() async {
     await modelManagementState.initialize()
     audioModelController.refreshAvailability()
-    await settingsState.load()
+    let settingsLoadOutcome = await settingsState.load()
+    lastPersistedMCPServers =
+      settingsLoadOutcome.hasAuthoritativeMCPServers ? settingsState.mcpServers : nil
 
     applyAppBehaviorSettings(settingsState.appBehaviorSettings)
-    await sumika.agent.loadServerConfiguration(settingsState.mcpServers)
+    if settingsLoadOutcome.hasAuthoritativeMCPServers {
+      await sumika.agent.loadServerConfiguration(settingsState.mcpServers)
+    }
     let defaultSessionFactory = makeDefaultSessionFactory()
     await workspaceState.loadLibrary(defaultSessionFactory: defaultSessionFactory)
-    workspaceState.retainSelectedMCPServerIDs(
-      Set(settingsState.mcpServers.map(\.id))
-    )
+    if settingsLoadOutcome.hasAuthoritativeMCPServers {
+      workspaceState.retainSelectedMCPServerIDs(
+        Set(settingsState.mcpServers.map(\.id))
+      )
+    }
     if route != .models {
       route = routeFromWorkspaceSelection()
     }
     routeToModelsIfNoTextModelIsDownloaded()
-    reconcileMCPConnectionsIfNeeded()
+    if settingsLoadOutcome.hasAuthoritativeMCPServers {
+      reconcileMCPConnectionsIfNeeded()
+    }
     attemptAutoloadLastModelIfReady()
   }
 

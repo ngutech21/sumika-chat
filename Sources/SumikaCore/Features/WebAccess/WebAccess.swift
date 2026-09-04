@@ -120,67 +120,178 @@ package struct WebAccessSettings: Codable, Equatable, Sendable {
 }
 
 package protocol WebAccessSettingsStoring: Sendable {
-  func settings() async -> WebAccessSettings
+  func load() async throws -> WebAccessSettings
   func save(settings: WebAccessSettings) async throws
 }
 
-private enum WebAccessSettingsFileCodingKeys: String, CodingKey {
-  case settings
-}
-
 package actor WebAccessSettingsStore: WebAccessSettingsStoring {
-  private struct SettingsFile: Codable {
-    var settings: WebAccessSettings
-
-    init(settings: WebAccessSettings) {
-      self.settings = settings
-    }
-
-    init(from decoder: Decoder) throws {
-      let container = try decoder.container(keyedBy: WebAccessSettingsFileCodingKeys.self)
-      settings = try container.decodeIfPresent(
-        WebAccessSettings.self,
-        forKey: .settings,
-        default: .disabled
-      )
-    }
-  }
-
-  private let settingsURL: URL
+  private let file: VersionedJSONFile<WebAccessSettingsFileFormat>
 
   package init(
     settingsURL: URL = LocalModelDirectory.defaultBaseURL
       .deletingLastPathComponent()
       .appending(path: "web-access-settings.json", directoryHint: .notDirectory)
   ) {
-    self.settingsURL = settingsURL
+    self.file = VersionedJSONFile(fileURL: settingsURL)
   }
 
-  package func settings() async -> WebAccessSettings {
-    readSettingsFile().settings
+  package func load() async throws -> WebAccessSettings {
+    switch try await file.load() {
+    case .missing:
+      return .disabled
+    case .current(let document):
+      return document.settings.domainSettings
+    case .migrated(let document, fromVersion: _):
+      return document.settings.domainSettings
+    }
   }
 
   package func save(settings: WebAccessSettings) async throws {
-    try FileManager.default.createDirectory(
-      at: settingsURL.deletingLastPathComponent(),
-      withIntermediateDirectories: true
-    )
+    try await file.save(WebAccessSettingsFileV1(settings: settings))
+  }
+}
 
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    let data = try encoder.encode(SettingsFile(settings: settings))
-    try data.write(to: settingsURL, options: .atomic)
+private enum WebAccessSettingsFileFormat: VersionedJSONFormat {
+  typealias CurrentDocument = WebAccessSettingsFileV1
+
+  static let currentVersion = 1
+
+  static func decode(_ data: Data, sourceVersion: Int) throws -> CurrentDocument {
+    switch sourceVersion {
+    case 0:
+      let legacy = try JSONDecoder().decode(WebAccessSettingsFileV0.self, from: data)
+      return WebAccessSettingsFileV1(migrating: legacy)
+    case currentVersion:
+      return try JSONDecoder().decode(CurrentDocument.self, from: data)
+    default:
+      throw WebAccessSettingsFileError.unsupportedSourceVersion(sourceVersion)
+    }
+  }
+}
+
+private enum WebAccessSettingsFileError: Error {
+  case unsupportedSourceVersion(Int)
+}
+
+private enum WebAccessSettingsFileCodingKeys: String, CodingKey {
+  case settings
+}
+
+private struct WebAccessSettingsFileV0: Decodable, Sendable {
+  var settings: WebAccessSettingsPayloadV0
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: WebAccessSettingsFileCodingKeys.self)
+    settings =
+      try container.decodeIfPresent(WebAccessSettingsPayloadV0.self, forKey: .settings)
+      ?? WebAccessSettingsPayloadV0()
+  }
+}
+
+private struct WebAccessSettingsPayloadV0: Decodable, Sendable {
+  var policy: WebAccessPolicy
+  var provider: WebSearchProvider
+  var searxngBaseURL: String
+  var fetchProvider: WebFetchProvider
+  var firecrawlBaseURL: String
+
+  private enum CodingKeys: String, CodingKey {
+    case policy
+    case provider
+    case searxngBaseURL
+    case fetchProvider
+    case firecrawlBaseURL
   }
 
-  private func readSettingsFile() -> SettingsFile {
-    guard
-      let data = try? Data(contentsOf: settingsURL),
-      let decoded = try? JSONDecoder().decode(SettingsFile.self, from: data)
-    else {
-      return SettingsFile(settings: .disabled)
-    }
+  init(
+    policy: WebAccessPolicy = .off,
+    provider: WebSearchProvider = .duckDuckGo,
+    searxngBaseURL: String = "",
+    fetchProvider: WebFetchProvider = .builtIn,
+    firecrawlBaseURL: String = ""
+  ) {
+    self.policy = policy
+    self.provider = provider
+    self.searxngBaseURL = searxngBaseURL
+    self.fetchProvider = fetchProvider
+    self.firecrawlBaseURL = firecrawlBaseURL
+  }
 
-    return decoded
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    policy = try container.decodeIfPresent(WebAccessPolicy.self, forKey: .policy) ?? .off
+    provider =
+      try container.decodeIfPresent(WebSearchProvider.self, forKey: .provider) ?? .duckDuckGo
+    searxngBaseURL = try container.decodeIfPresent(String.self, forKey: .searxngBaseURL) ?? ""
+    fetchProvider =
+      try container.decodeIfPresent(WebFetchProvider.self, forKey: .fetchProvider) ?? .builtIn
+    firecrawlBaseURL = try container.decodeIfPresent(String.self, forKey: .firecrawlBaseURL) ?? ""
+  }
+}
+
+private struct WebAccessSettingsFileV1: Codable, Equatable, Sendable {
+  let schemaVersion: Int
+  var settings: WebAccessSettingsPayloadV1
+
+  init(settings: WebAccessSettings) {
+    schemaVersion = WebAccessSettingsFileFormat.currentVersion
+    self.settings = WebAccessSettingsPayloadV1(settings: settings)
+  }
+
+  init(migrating legacy: WebAccessSettingsFileV0) {
+    schemaVersion = WebAccessSettingsFileFormat.currentVersion
+    settings = WebAccessSettingsPayloadV1(migrating: legacy.settings)
+  }
+}
+
+private struct WebAccessSettingsPayloadV1: Codable, Equatable, Sendable {
+  var policy: WebAccessPolicy
+  var provider: WebSearchProvider
+  var searxngBaseURL: String
+  var fetchProvider: WebFetchProvider
+  var firecrawlBaseURL: String
+
+  private enum CodingKeys: String, CodingKey {
+    case policy
+    case provider
+    case searxngBaseURL
+    case fetchProvider
+    case firecrawlBaseURL
+  }
+
+  init(settings: WebAccessSettings) {
+    policy = settings.policy
+    provider = settings.provider
+    searxngBaseURL = settings.searxngBaseURL
+    fetchProvider = settings.fetchProvider
+    firecrawlBaseURL = settings.firecrawlBaseURL
+  }
+
+  init(migrating legacy: WebAccessSettingsPayloadV0) {
+    policy = legacy.policy
+    provider = legacy.provider
+    searxngBaseURL = legacy.searxngBaseURL
+    fetchProvider = legacy.fetchProvider
+    firecrawlBaseURL = legacy.firecrawlBaseURL
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    policy = try container.decode(WebAccessPolicy.self, forKey: .policy)
+    provider = try container.decode(WebSearchProvider.self, forKey: .provider)
+    searxngBaseURL = try container.decode(String.self, forKey: .searxngBaseURL)
+    fetchProvider = try container.decode(WebFetchProvider.self, forKey: .fetchProvider)
+    firecrawlBaseURL = try container.decode(String.self, forKey: .firecrawlBaseURL)
+  }
+
+  var domainSettings: WebAccessSettings {
+    WebAccessSettings(
+      policy: policy,
+      provider: provider,
+      searxngBaseURL: searxngBaseURL,
+      fetchProvider: fetchProvider,
+      firecrawlBaseURL: firecrawlBaseURL
+    )
   }
 }
 

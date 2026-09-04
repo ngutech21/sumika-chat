@@ -204,7 +204,7 @@ enum AppLaunchConfiguration {
       modelAvailability: modelAvailability,
       browserToolService: browserToolService,
       webAccessSettingsProvider: {
-        await webAccessSettingsStore.settings()
+        (try? await webAccessSettingsStore.load()) ?? .disabled
       },
       skillCatalog: skillCatalog,
       turnTracer: turnTracer

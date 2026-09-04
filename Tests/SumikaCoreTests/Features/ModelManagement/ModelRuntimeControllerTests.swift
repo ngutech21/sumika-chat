@@ -96,6 +96,29 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
+  func selectingModelKeepsInMemorySelectionAndReportsPersistenceFailure() async throws {
+    let store = RuntimeFakeModelSettingsStore()
+    store.selectionError = RuntimeFakeModelSettingsError.selectionWriteFailed
+    let selectedModel = try #require(
+      ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit")
+    )
+    let controller = await makeController(
+      initialModelID: "gemma4-26b-qat-4bit",
+      modelSettingsStore: store
+    )
+    var reportedError: String?
+    controller.onError = { reportedError = $0 }
+
+    controller.selectModel(selectedModel)
+
+    try await waitUntil { reportedError != nil }
+    #expect(controller.selectedModelID == selectedModel.id)
+    #expect(controller.modelPath == selectedModel.localPath)
+    #expect(store.persistedSelectedModelID == nil)
+    #expect(reportedError == "The model selection could not be saved.")
+  }
+
+  @Test
   func selectingQwen38PublishesMediumReasoningDefaultsForBothModes() async throws {
     let qwen = try #require(ManagedModelCatalog.model(id: "qwen3.8-27B-OptiQ-4bit"))
     let qwenSettings = ModelSettingsResolver.recommendedSettings(
@@ -761,13 +784,25 @@ struct ModelRuntimeControllerTests {
 
 }
 
+private enum RuntimeFakeModelSettingsError: LocalizedError {
+  case selectionWriteFailed
+
+  var errorDescription: String? {
+    "The model selection could not be saved."
+  }
+}
+
 private final class RuntimeFakeModelSettingsStore: ModelSettingsStoring, @unchecked Sendable {
   var persistedSelectedModelID: ManagedModel.ID?
+  var selectionError: Error?
   var settingsByModelID: [String: StoredModelSettings] = [:]
   var recommendedSettingsByModelID: [String: StoredModelSettings] = [:]
   var savedSettingsByModelID: [String: StoredModelSettings] = [:]
 
-  func setSelectedModelID(_ modelID: String) async {
+  func setSelectedModelID(_ modelID: String) async throws {
+    if let selectionError {
+      throw selectionError
+    }
     persistedSelectedModelID = modelID
   }
 

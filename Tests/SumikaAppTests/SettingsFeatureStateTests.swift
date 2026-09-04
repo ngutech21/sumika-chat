@@ -1,5 +1,6 @@
 import Foundation
 import SumikaCore
+import SumikaTestSupport
 import Testing
 
 @testable import SumikaApp
@@ -29,7 +30,7 @@ struct SettingsFeatureStateTests {
       mcpServersStore: InMemorySettingsMCPServersStore()
     )
 
-    await state.load()
+    _ = await state.load()
 
     #expect(state.webAccessSettings == webSettings)
     #expect(state.appBehaviorSettings == appBehaviorSettings)
@@ -52,7 +53,7 @@ struct SettingsFeatureStateTests {
     state.updateWebAccessSettings(updated)
 
     try await waitUntil {
-      await store.settings() == updated
+      await store.snapshot() == updated
     }
     #expect(state.webAccessSettings == updated)
     #expect(state.errorMessage == nil)
@@ -80,7 +81,7 @@ struct SettingsFeatureStateTests {
     state.updateAppBehaviorSettings(updated)
 
     try await waitUntil {
-      await store.settings() == updated
+      await store.snapshot() == updated
     }
     #expect(state.appBehaviorSettings == updated)
     #expect(state.errorMessage == nil)
@@ -147,7 +148,7 @@ struct SettingsFeatureStateTests {
     try await waitUntil(timeout: 3) {
       await store.saveCount() == 2
     }
-    #expect(await store.settings() == second)
+    #expect(await store.snapshot() == second)
     #expect(state.webAccessSettings == second)
   }
 
@@ -174,7 +175,7 @@ struct SettingsFeatureStateTests {
     try await waitUntil(timeout: 3) {
       await store.saveCount() == 2
     }
-    #expect(await store.settings() == second)
+    #expect(await store.snapshot() == second)
     #expect(state.appBehaviorSettings == second)
   }
 
@@ -196,6 +197,44 @@ struct SettingsFeatureStateTests {
   }
 
   @Test
+  func successfulSaveDoesNotClearAnotherSettingsDomainFailure() async throws {
+    let appBehaviorStore = InMemorySettingsAppBehaviorStore()
+    let state = SettingsFeatureState(
+      webAccessSettingsStore: FailingSettingsWebAccessStore(),
+      appBehaviorSettingsStore: appBehaviorStore,
+      mcpServersStore: InMemorySettingsMCPServersStore()
+    )
+
+    state.updateWebAccessSettings(WebAccessSettings(policy: .allow))
+    try await waitUntil {
+      state.errorMessage == TestSettingsError.saveFailed.localizedDescription
+    }
+    let appSettings = AppBehaviorSettings(autoloadLastModel: true)
+    state.updateAppBehaviorSettings(appSettings)
+    try await waitUntil {
+      await appBehaviorStore.snapshot() == appSettings
+    }
+
+    #expect(state.errorMessage == TestSettingsError.saveFailed.localizedDescription)
+  }
+
+  @Test
+  func failedMCPLoadIsUnavailableRatherThanAuthoritativeEmptyConfiguration() async {
+    let state = SettingsFeatureState(
+      webAccessSettingsStore: InMemorySettingsWebAccessStore(),
+      appBehaviorSettingsStore: InMemorySettingsAppBehaviorStore(),
+      mcpServersStore: FailingLoadSettingsMCPServersStore()
+    )
+
+    let outcome = await state.load()
+
+    #expect(!outcome.hasAuthoritativeMCPServers)
+    #expect(!state.hasAuthoritativeMCPServers)
+    #expect(state.mcpServers.isEmpty)
+    #expect(state.errorMessage == TestSettingsError.loadFailed.localizedDescription)
+  }
+
+  @Test
   func loadReadsMCPServersAndUpdatePersistsThem() async throws {
     let stored = MCPServerConfig(name: "GitHub", command: "npx", arguments: ["-y", "server"])
     let store = InMemorySettingsMCPServersStore(servers: [stored])
@@ -205,15 +244,19 @@ struct SettingsFeatureStateTests {
       mcpServersStore: store
     )
 
-    await state.load()
+    _ = await state.load()
     #expect(state.mcpServers == [stored])
 
     let replacement = MCPServerConfig(name: "Local", command: "/usr/local/bin/mcp")
-    state.updateMCPServers([replacement])
+    state.stageMCPServersUpdate([replacement])
+    let saveOutcome = await state.persistMCPServers([replacement])
+    state.settleMCPServersUpdate(
+      authoritativeServers: saveOutcome.didSave ? [replacement] : nil,
+      saveOutcome: saveOutcome
+    )
 
-    try await waitUntil {
-      await store.servers() == [replacement]
-    }
+    #expect(saveOutcome == .saved)
+    #expect(await store.snapshot() == [replacement])
     #expect(state.mcpServers == [replacement])
     #expect(state.errorMessage == nil)
   }
@@ -280,6 +323,170 @@ struct SettingsFeatureStateTests {
   }
 }
 
+@Suite(TemporaryDirectoryTrait(named: "sumika-app-behavior-settings-store-tests"))
+@MainActor
+struct AppBehaviorSettingsStoreTests {
+  @Test
+  func loadReturnsDefaultsWhenFileIsMissing() async throws {
+    let url = try makeURL(named: "app-behavior-settings-missing.json")
+
+    let settings = try await AppBehaviorSettingsStore(settingsURL: url).load()
+
+    #expect(settings == AppBehaviorSettings())
+    #expect(!FileManager.default.fileExists(atPath: url.path(percentEncoded: false)))
+  }
+
+  @Test
+  func saveWritesVersionOneAndRoundTripsSettings() async throws {
+    let url = try makeURL(named: "app-behavior-settings.json")
+    let settings = AppBehaviorSettings(
+      autoloadLastModel: true,
+      todoWriteToolEnabled: true,
+      defaultInteractionMode: .agent,
+      defaultToolApprovalPolicy: .automatic,
+      assistantSpeechEnabled: true,
+      assistantSpeechLanguageCode: "en-US",
+      assistantSpeechVoiceIdentifier: "voice.en",
+      assistantSpeechRate: 0.58,
+      speechInputAudioModelID: "speech-model"
+    )
+
+    try await AppBehaviorSettingsStore(settingsURL: url).save(settings: settings)
+
+    #expect(try await AppBehaviorSettingsStore(settingsURL: url).load() == settings)
+    let persisted = try #require(
+      JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+    )
+    #expect(persisted["schemaVersion"] as? Int == 1)
+    #expect(persisted["autoloadLastModel"] as? Bool == true)
+    #expect(persisted["defaultInteractionMode"] as? String == "agent")
+    #expect(persisted["settings"] == nil)
+
+    let legacyDecoded = try JSONDecoder().decode(
+      AppBehaviorSettings.self,
+      from: Data(contentsOf: url)
+    )
+    #expect(legacyDecoded == settings)
+  }
+
+  @Test
+  func loadMigratesUnversionedFileToVersionOne() async throws {
+    let url = try makeURL(named: "app-behavior-settings-v0.json")
+    try write(
+      """
+      {
+        "autoloadLastModel": true,
+        "todoWriteToolEnabled": true,
+        "defaultInteractionMode": "agent",
+        "defaultToolApprovalPolicy": "automatic",
+        "assistantSpeechEnabled": true,
+        "assistantSpeechLanguageCode": "de-DE",
+        "assistantSpeechVoiceIdentifier": "voice.de",
+        "assistantSpeechRate": 0.42,
+        "speechInputAudioModelID": "speech-model"
+      }
+      """,
+      to: url
+    )
+
+    let settings = try await AppBehaviorSettingsStore(settingsURL: url).load()
+
+    #expect(
+      settings
+        == AppBehaviorSettings(
+          autoloadLastModel: true,
+          todoWriteToolEnabled: true,
+          defaultInteractionMode: .agent,
+          defaultToolApprovalPolicy: .automatic,
+          assistantSpeechEnabled: true,
+          assistantSpeechLanguageCode: "de-DE",
+          assistantSpeechVoiceIdentifier: "voice.de",
+          assistantSpeechRate: 0.42,
+          speechInputAudioModelID: "speech-model"
+        )
+    )
+    let migrated = try #require(
+      JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+    )
+    #expect(migrated["schemaVersion"] as? Int == 1)
+    #expect(migrated["autoloadLastModel"] as? Bool == true)
+    #expect(migrated["defaultInteractionMode"] as? String == "agent")
+    #expect(migrated["settings"] == nil)
+  }
+
+  @Test
+  func loadAcceptsCurrentVersionWithoutRewritingIt() async throws {
+    let url = try makeURL(named: "app-behavior-settings-v1.json")
+    let current = """
+      {
+        "schemaVersion": 1,
+        "autoloadLastModel": true,
+        "todoWriteToolEnabled": false,
+        "defaultInteractionMode": "chat",
+        "defaultToolApprovalPolicy": "manual",
+        "assistantSpeechEnabled": false,
+        "assistantSpeechRate": 0.5
+      }
+      """
+    try write(current, to: url)
+    let originalData = try Data(contentsOf: url)
+
+    let settings = try await AppBehaviorSettingsStore(settingsURL: url).load()
+
+    #expect(settings == AppBehaviorSettings(autoloadLastModel: true, assistantSpeechRate: 0.5))
+    #expect(try Data(contentsOf: url) == originalData)
+  }
+
+  @Test
+  func loadRejectsMalformedFileWithoutRewritingIt() async throws {
+    let url = try makeURL(named: "app-behavior-settings-malformed.json")
+    let malformed = #"{"autoloadLastModel":"yes"}"#
+    try write(malformed, to: url)
+    let originalData = try Data(contentsOf: url)
+
+    await #expect(
+      throws: VersionedJSONFileError.decodeFailed(
+        fileName: "app-behavior-settings-malformed.json",
+        schemaVersion: 0
+      )
+    ) {
+      try await AppBehaviorSettingsStore(settingsURL: url).load()
+    }
+    #expect(try Data(contentsOf: url) == originalData)
+  }
+
+  @Test
+  func loadRejectsFutureVersionWithoutRewritingIt() async throws {
+    let url = try makeURL(named: "app-behavior-settings-future.json")
+    let future = #"{"schemaVersion":2,"settings":{}}"#
+    try write(future, to: url)
+    let originalData = try Data(contentsOf: url)
+
+    await #expect(
+      throws: VersionedJSONFileError.unsupportedSchemaVersion(
+        fileName: "app-behavior-settings-future.json",
+        found: 2,
+        current: 1
+      )
+    ) {
+      try await AppBehaviorSettingsStore(settingsURL: url).load()
+    }
+    #expect(try Data(contentsOf: url) == originalData)
+  }
+
+  private func makeURL(named fileName: String) throws -> URL {
+    try scopedTemporaryDirectory().appending(path: fileName, directoryHint: .notDirectory)
+  }
+
+  private func write(_ json: String, to url: URL) throws {
+    try FileManager.default.createDirectory(
+      at: url.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try Data(json.utf8).write(to: url)
+  }
+}
+
 private actor InMemorySettingsMCPServersStore: MCPServersStoring {
   private var storedServers: [MCPServerConfig]
 
@@ -287,7 +494,11 @@ private actor InMemorySettingsMCPServersStore: MCPServersStoring {
     self.storedServers = servers
   }
 
-  func servers() async -> [MCPServerConfig] {
+  func load() async throws -> [MCPServerConfig] {
+    storedServers
+  }
+
+  func snapshot() -> [MCPServerConfig] {
     storedServers
   }
 
@@ -303,7 +514,11 @@ private actor InMemorySettingsWebAccessStore: WebAccessSettingsStoring {
     self.storedSettings = settings
   }
 
-  func settings() async -> WebAccessSettings {
+  func load() async throws -> WebAccessSettings {
+    storedSettings
+  }
+
+  func snapshot() -> WebAccessSettings {
     storedSettings
   }
 
@@ -319,7 +534,11 @@ private actor InMemorySettingsAppBehaviorStore: AppBehaviorSettingsStoring {
     self.storedSettings = settings
   }
 
-  func settings() async -> AppBehaviorSettings {
+  func load() async throws -> AppBehaviorSettings {
+    storedSettings
+  }
+
+  func snapshot() -> AppBehaviorSettings {
     storedSettings
   }
 
@@ -332,7 +551,11 @@ private actor SlowFirstSettingsWebAccessStore: WebAccessSettingsStoring {
   private var storedSettings = WebAccessSettings.disabled
   private var saves = 0
 
-  func settings() async -> WebAccessSettings {
+  func load() async throws -> WebAccessSettings {
+    storedSettings
+  }
+
+  func snapshot() -> WebAccessSettings {
     storedSettings
   }
 
@@ -353,7 +576,11 @@ private actor SlowFirstSettingsAppBehaviorStore: AppBehaviorSettingsStoring {
   private var storedSettings = AppBehaviorSettings()
   private var saves = 0
 
-  func settings() async -> AppBehaviorSettings {
+  func load() async throws -> AppBehaviorSettings {
+    storedSettings
+  }
+
+  func snapshot() -> AppBehaviorSettings {
     storedSettings
   }
 
@@ -371,7 +598,7 @@ private actor SlowFirstSettingsAppBehaviorStore: AppBehaviorSettingsStoring {
 }
 
 private actor FailingSettingsWebAccessStore: WebAccessSettingsStoring {
-  func settings() async -> WebAccessSettings {
+  func load() async throws -> WebAccessSettings {
     .disabled
   }
 
@@ -381,11 +608,27 @@ private actor FailingSettingsWebAccessStore: WebAccessSettingsStoring {
   }
 }
 
+private actor FailingLoadSettingsMCPServersStore: MCPServersStoring {
+  func load() async throws -> [MCPServerConfig] {
+    throw TestSettingsError.loadFailed
+  }
+
+  func save(servers _: [MCPServerConfig]) async throws {
+    throw TestSettingsError.saveFailed
+  }
+}
+
 private enum TestSettingsError: LocalizedError {
+  case loadFailed
   case saveFailed
 
   var errorDescription: String? {
-    "Settings save failed."
+    switch self {
+    case .loadFailed:
+      "Settings load failed."
+    case .saveFailed:
+      "Settings save failed."
+    }
   }
 }
 

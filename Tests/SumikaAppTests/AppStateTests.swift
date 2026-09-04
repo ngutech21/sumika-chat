@@ -511,7 +511,7 @@ struct AppStateTests {
 
     #expect(savedSession.interactionMode == .agent)
     try await waitUntil {
-      await appBehaviorSettingsStore.settings().defaultInteractionMode == .agent
+      await appBehaviorSettingsStore.snapshot().defaultInteractionMode == .agent
     }
   }
 
@@ -646,6 +646,87 @@ struct AppStateTests {
   }
 
   @Test
+  func prepareForTerminationWaitsForPendingModelSelectionPersistence() async throws {
+    let modelSettingsStore = BlockingModelSelectionSettingsStore()
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
+      modelSettingsStore: modelSettingsStore,
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime(),
+      modelAvailability: { _ in false }
+    )
+    try await waitUntil { !appState.workspaceState.isLoading }
+    let targetModel = try #require(
+      ManagedModelCatalog.model(id: "gemma4-26b-qat-4bit")
+    )
+
+    appState.modelManagementState.selectModel(targetModel)
+    await modelSettingsStore.waitForSelectionStart()
+    var didFinishTermination = false
+    let terminationTask = Task { @MainActor in
+      await appState.prepareForTermination()
+      didFinishTermination = true
+    }
+    await Task.yield()
+    await Task.yield()
+
+    #expect(!didFinishTermination)
+
+    await modelSettingsStore.releaseSelection()
+    await terminationTask.value
+
+    #expect(didFinishTermination)
+    #expect(await modelSettingsStore.persistedSelectedModelID() == targetModel.id)
+  }
+
+  @Test
+  func prepareForTerminationWaitsForPendingDurableSettingsSaves() async throws {
+    let webAccessSettingsStore = BlockingWebAccessSettingsStore()
+    let appBehaviorSettingsStore = BlockingAppBehaviorSettingsStore()
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: webAccessSettingsStore,
+      appBehaviorSettingsStore: appBehaviorSettingsStore,
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime(),
+      modelAvailability: { _ in false }
+    )
+    try await waitUntil { !appState.workspaceState.isLoading }
+    let webAccessSettings = WebAccessSettings(policy: .allow, provider: .duckDuckGo)
+    let appBehaviorSettings = AppBehaviorSettings(autoloadLastModel: true)
+
+    appState.settingsState.updateWebAccessSettings(webAccessSettings)
+    appState.updateAppBehaviorSettings(appBehaviorSettings)
+    await webAccessSettingsStore.waitForSaveStart()
+    await appBehaviorSettingsStore.waitForSaveStart()
+
+    var didFinishTermination = false
+    let terminationTask = Task { @MainActor in
+      await appState.prepareForTermination()
+      didFinishTermination = true
+    }
+    await Task.yield()
+    await Task.yield()
+
+    #expect(!didFinishTermination)
+
+    await webAccessSettingsStore.releaseSave()
+    await Task.yield()
+    await Task.yield()
+
+    #expect(!didFinishTermination)
+
+    await appBehaviorSettingsStore.releaseSave()
+    await terminationTask.value
+
+    #expect(didFinishTermination)
+    #expect(await webAccessSettingsStore.snapshot() == webAccessSettings)
+    #expect(await appBehaviorSettingsStore.snapshot() == appBehaviorSettings)
+  }
+
+  @Test
   func sendMessagePersistsActiveSession() async throws {
     let workspaceID = UUID()
     let sessionID = UUID()
@@ -734,7 +815,7 @@ struct AppStateTests {
     appState.settingsState.updateWebAccessSettings(updated)
 
     try await waitUntil {
-      await webAccessSettingsStore.settings() == updated
+      await webAccessSettingsStore.snapshot() == updated
     }
     #expect(appState.settingsState.webAccessSettings == updated)
   }
@@ -768,7 +849,7 @@ struct AppStateTests {
     try await waitUntil(timeout: 3) {
       await webAccessSettingsStore.saveCount() == 2
     }
-    #expect(await webAccessSettingsStore.settings() == second)
+    #expect(await webAccessSettingsStore.snapshot() == second)
     #expect(appState.settingsState.webAccessSettings == second)
   }
 
@@ -1318,7 +1399,7 @@ struct AppStateTests {
       sessions.first { $0.id == newSessionID }?.toolApprovalPolicy == .automatic
     )
     try await waitUntil {
-      await appBehaviorSettingsStore.settings() == updatedSettings
+      await appBehaviorSettingsStore.snapshot() == updatedSettings
     }
   }
 
@@ -1544,7 +1625,7 @@ struct AppStateTests {
       runtime: AppStateTestRuntime(),
       browserToolService: browserToolService,
       webAccessSettingsProvider: {
-        await webAccessSettingsStore.settings()
+        await webAccessSettingsStore.snapshot()
       },
       skillCatalog: try testSkillCatalog(),
       turnTracer: NoopTurnTracer()
@@ -1593,7 +1674,7 @@ struct AppStateTests {
     appState.updateAppBehaviorSettings(updated)
 
     try await waitUntil {
-      await appBehaviorSettingsStore.settings() == updated
+      await appBehaviorSettingsStore.snapshot() == updated
     }
     #expect(appState.settingsState.appBehaviorSettings == updated)
     #expect(await runtime.loadCount() == 0)
@@ -1682,7 +1763,7 @@ struct AppStateTests {
       runtime: AppStateTestRuntime(),
       browserToolService: browserToolService,
       webAccessSettingsProvider: {
-        await webAccessSettingsStore.settings()
+        await webAccessSettingsStore.snapshot()
       },
       skillCatalog: try testSkillCatalog(),
       turnTracer: NoopTurnTracer()
@@ -1859,7 +1940,7 @@ struct AppStateTests {
     let updatedSettings = AppBehaviorSettings(todoWriteToolEnabled: true)
     appState.updateAppBehaviorSettings(updatedSettings)
     try await waitUntil {
-      await appBehaviorSettingsStore.settings() == updatedSettings
+      await appBehaviorSettingsStore.snapshot() == updatedSettings
     }
 
     appState.modelManagementState.setModelLoadStateForTesting(.ready)
@@ -2052,6 +2133,289 @@ struct AppStateTests {
   }
 
   @Test
+  func unavailableMCPConfigurationDoesNotPrunePersistedSessionSelection() async throws {
+    let unavailableServerID = UUID()
+    let sessionID = UUID()
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [
+        ChatSession(
+          id: sessionID,
+          interactionMode: .agent,
+          selectedMCPServerIDs: [unavailableServerID]
+        )
+      ]
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspace.id,
+        activeSessionID: sessionID
+      )
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: FailingLoadMCPServersStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil { !appState.workspaceState.isLoading }
+
+    #expect(!appState.settingsState.hasAuthoritativeMCPServers)
+    #expect(
+      appState.workspaceState.activeSession?.selectedMCPServerIDs == [unavailableServerID]
+    )
+    #expect(
+      appState.chatFeatureState.composer.session.selectedMCPServerIDs == [unavailableServerID]
+    )
+    #expect(
+      appState.settingsState.errorMessage == MCPSettingsStoreFailure.load.localizedDescription
+    )
+    #expect(
+      await workspaceStore.latestSavedLibrary()?
+        .workspaces.first?.sessions.first?.selectedMCPServerIDs == [unavailableServerID]
+    )
+    await appState.prepareForTermination()
+  }
+
+  @Test
+  func failedMCPConfigurationSaveDoesNotPublishOrPruneChanges() async throws {
+    let configuredServer = MCPServerConfig(
+      name: "Offline",
+      command: "/usr/bin/false",
+      isEnabled: false
+    )
+    let sessionID = UUID()
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [
+        ChatSession(
+          id: sessionID,
+          interactionMode: .agent,
+          selectedMCPServerIDs: [configuredServer.id]
+        )
+      ]
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspace.id,
+        activeSessionID: sessionID
+      )
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: FailingSaveMCPServersStore(servers: [configuredServer]),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+        && appState.settingsState.mcpServers == [configuredServer]
+    }
+    appState.updateMCPServers([])
+    try await waitUntil {
+      appState.settingsState.errorMessage == MCPSettingsStoreFailure.save.localizedDescription
+    }
+
+    #expect(appState.settingsState.mcpServers == [configuredServer])
+    #expect(
+      appState.workspaceState.activeSession?.selectedMCPServerIDs == [configuredServer.id]
+    )
+    #expect(
+      appState.chatFeatureState.composer.session.selectedMCPServerIDs == [configuredServer.id]
+    )
+    #expect(
+      await workspaceStore.latestSavedLibrary()?
+        .workspaces.first?.sessions.first?.selectedMCPServerIDs == [configuredServer.id]
+    )
+    await appState.prepareForTermination()
+  }
+
+  @Test
+  func rapidMCPConfigurationUpdatesComposePendingDrafts() async throws {
+    let firstServer = MCPServerConfig(
+      name: "First",
+      command: "/usr/bin/false"
+    )
+    let secondServer = MCPServerConfig(
+      name: "Second",
+      command: "/usr/bin/false"
+    )
+    let store = DelayedMCPServersStore(
+      servers: [firstServer, secondServer],
+      blockedSaveNumber: 1
+    )
+    let appState = AppState(
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: store,
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+        && appState.settingsState.mcpServers == [firstServer, secondServer]
+    }
+
+    var firstUpdate = appState.settingsState.editableMCPServers
+    firstUpdate[0].isEnabled = false
+    appState.updateMCPServers(firstUpdate)
+    try await waitUntil { await store.saveCount() == 1 }
+
+    var secondUpdate = appState.settingsState.editableMCPServers
+    secondUpdate[1].isEnabled = false
+    appState.updateMCPServers(secondUpdate)
+    #expect(secondUpdate.allSatisfy { !$0.isEnabled })
+
+    await store.releaseBlockedSave()
+    try await waitUntil {
+      await store.saveCount() == 2
+        && appState.settingsState.pendingMCPServers == nil
+    }
+
+    #expect(appState.settingsState.mcpServers.allSatisfy { !$0.isEnabled })
+    #expect(await store.snapshot().allSatisfy { !$0.isEnabled })
+    await appState.prepareForTermination()
+  }
+
+  @Test
+  func supersededMCPRemovalDoesNotPruneSessionSelection() async throws {
+    let configuredServer = MCPServerConfig(
+      name: "Offline",
+      command: "/usr/bin/false",
+      isEnabled: false
+    )
+    let sessionID = UUID()
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [
+        ChatSession(
+          id: sessionID,
+          interactionMode: .agent,
+          selectedMCPServerIDs: [configuredServer.id]
+        )
+      ]
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspace.id,
+        activeSessionID: sessionID
+      )
+    )
+    let mcpServersStore = DelayedMCPServersStore(
+      servers: [configuredServer],
+      blockedSaveNumber: 1
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: mcpServersStore,
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+        && appState.settingsState.mcpServers == [configuredServer]
+    }
+    appState.updateMCPServers([])
+    try await waitUntil { await mcpServersStore.saveCount() == 1 }
+    appState.updateMCPServers([configuredServer])
+
+    await mcpServersStore.releaseBlockedSave()
+    try await waitUntil {
+      await mcpServersStore.saveCount() == 2
+        && appState.settingsState.pendingMCPServers == nil
+    }
+
+    #expect(appState.settingsState.mcpServers == [configuredServer])
+    #expect(
+      appState.workspaceState.activeSession?.selectedMCPServerIDs == [configuredServer.id]
+    )
+    #expect(
+      appState.chatFeatureState.composer.session.selectedMCPServerIDs == [configuredServer.id]
+    )
+    #expect(
+      await workspaceStore.latestSavedLibrary()?
+        .workspaces.first?.sessions.first?.selectedMCPServerIDs == [configuredServer.id]
+    )
+    await appState.prepareForTermination()
+  }
+
+  @Test
+  func failedLatestMCPUpdatePublishesLastSuccessfulSnapshot() async throws {
+    let configuredServer = MCPServerConfig(
+      name: "Offline",
+      command: "/usr/bin/false",
+      isEnabled: false
+    )
+    let sessionID = UUID()
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [
+        ChatSession(
+          id: sessionID,
+          interactionMode: .agent,
+          selectedMCPServerIDs: [configuredServer.id]
+        )
+      ]
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspace.id,
+        activeSessionID: sessionID
+      )
+    )
+    let mcpServersStore = DelayedMCPServersStore(
+      servers: [configuredServer],
+      blockedSaveNumber: 1,
+      failingSaveNumbers: [2]
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: mcpServersStore,
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+        && appState.settingsState.mcpServers == [configuredServer]
+    }
+    appState.updateMCPServers([])
+    try await waitUntil { await mcpServersStore.saveCount() == 1 }
+    appState.updateMCPServers([configuredServer])
+
+    await mcpServersStore.releaseBlockedSave()
+    try await waitUntil {
+      await mcpServersStore.saveCount() == 2
+        && appState.settingsState.pendingMCPServers == nil
+    }
+
+    #expect(appState.settingsState.mcpServers.isEmpty)
+    #expect(appState.settingsState.editableMCPServers.isEmpty)
+    #expect(
+      appState.settingsState.errorMessage == MCPSettingsStoreFailure.save.localizedDescription
+    )
+    #expect(appState.workspaceState.activeSession?.selectedMCPServerIDs.isEmpty == true)
+    #expect(appState.chatFeatureState.composer.session.selectedMCPServerIDs.isEmpty)
+    #expect(await mcpServersStore.snapshot().isEmpty)
+    await appState.prepareForTermination()
+  }
+
+  @Test
   func disabledMCPSelectionPersistsAndDeletedConfigurationIsPruned() async throws {
     let configuredServer = MCPServerConfig(
       name: "Offline",
@@ -2203,7 +2567,7 @@ private actor InMemoryModelSettingsStore: ModelSettingsStoring {
     self.recommendedSettingsByModelID = recommendedSettingsByModelID ?? settingsByModelID
   }
 
-  func setSelectedModelID(_: String) async {}
+  func setSelectedModelID(_: String) async throws {}
 
   func settings(for model: ManagedModel) async -> StoredModelSettings {
     settingsByModelID[model.id] ?? resolvedRecommendation(for: model)
@@ -2237,6 +2601,53 @@ private actor InMemoryModelSettingsStore: ModelSettingsStoring {
   }
 }
 
+private actor BlockingModelSelectionSettingsStore: ModelSettingsStoring {
+  private var selectedModelID: ManagedModel.ID?
+  private var didStartSelection = false
+  private var selectionContinuation: CheckedContinuation<Void, Never>?
+  private var startContinuations: [CheckedContinuation<Void, Never>] = []
+
+  func setSelectedModelID(_ modelID: String) async throws {
+    didStartSelection = true
+    for continuation in startContinuations {
+      continuation.resume()
+    }
+    startContinuations.removeAll()
+    await withCheckedContinuation { continuation in
+      selectionContinuation = continuation
+    }
+    selectedModelID = modelID
+  }
+
+  func settings(for model: ManagedModel) async -> StoredModelSettings {
+    ModelSettingsResolver.recommendedSettings(for: model, generationConfig: nil)
+  }
+
+  func apply(
+    _ mutation: ModelSettingsMutation,
+    for model: ManagedModel
+  ) async throws -> StoredModelSettings {
+    _ = mutation
+    return await settings(for: model)
+  }
+
+  func waitForSelectionStart() async {
+    guard !didStartSelection else { return }
+    await withCheckedContinuation { continuation in
+      startContinuations.append(continuation)
+    }
+  }
+
+  func releaseSelection() {
+    selectionContinuation?.resume()
+    selectionContinuation = nil
+  }
+
+  func persistedSelectedModelID() -> ManagedModel.ID? {
+    selectedModelID
+  }
+}
+
 private actor InMemoryWebAccessSettingsStore: WebAccessSettingsStoring {
   private var storedSettings: WebAccessSettings
 
@@ -2244,12 +2655,55 @@ private actor InMemoryWebAccessSettingsStore: WebAccessSettingsStoring {
     self.storedSettings = settings
   }
 
-  func settings() async -> WebAccessSettings {
+  func load() async throws -> WebAccessSettings {
+    storedSettings
+  }
+
+  func snapshot() async -> WebAccessSettings {
     storedSettings
   }
 
   func save(settings: WebAccessSettings) async throws {
     storedSettings = settings
+  }
+}
+
+private actor BlockingWebAccessSettingsStore: WebAccessSettingsStoring {
+  private var storedSettings = WebAccessSettings.disabled
+  private var didStartSave = false
+  private var saveContinuation: CheckedContinuation<Void, Never>?
+  private var startContinuations: [CheckedContinuation<Void, Never>] = []
+
+  func load() async throws -> WebAccessSettings {
+    storedSettings
+  }
+
+  func save(settings: WebAccessSettings) async throws {
+    didStartSave = true
+    for continuation in startContinuations {
+      continuation.resume()
+    }
+    startContinuations.removeAll()
+    await withCheckedContinuation { continuation in
+      saveContinuation = continuation
+    }
+    storedSettings = settings
+  }
+
+  func waitForSaveStart() async {
+    guard !didStartSave else { return }
+    await withCheckedContinuation { continuation in
+      startContinuations.append(continuation)
+    }
+  }
+
+  func releaseSave() {
+    saveContinuation?.resume()
+    saveContinuation = nil
+  }
+
+  func snapshot() -> WebAccessSettings {
+    storedSettings
   }
 }
 
@@ -2260,12 +2714,101 @@ private actor InMemoryMCPServersStore: MCPServersStoring {
     self.storedServers = servers
   }
 
-  func servers() async -> [MCPServerConfig] {
+  func load() async throws -> [MCPServerConfig] {
     storedServers
   }
 
   func save(servers: [MCPServerConfig]) async throws {
     storedServers = servers
+  }
+}
+
+private enum MCPSettingsStoreFailure: LocalizedError {
+  case load
+  case save
+
+  var errorDescription: String? {
+    switch self {
+    case .load:
+      "MCP settings could not be loaded."
+    case .save:
+      "MCP settings could not be saved."
+    }
+  }
+}
+
+private actor FailingLoadMCPServersStore: MCPServersStoring {
+  func load() async throws -> [MCPServerConfig] {
+    throw MCPSettingsStoreFailure.load
+  }
+
+  func save(servers _: [MCPServerConfig]) async throws {
+    throw MCPSettingsStoreFailure.save
+  }
+}
+
+private actor FailingSaveMCPServersStore: MCPServersStoring {
+  private let servers: [MCPServerConfig]
+
+  init(servers: [MCPServerConfig]) {
+    self.servers = servers
+  }
+
+  func load() async throws -> [MCPServerConfig] {
+    servers
+  }
+
+  func save(servers _: [MCPServerConfig]) async throws {
+    throw MCPSettingsStoreFailure.save
+  }
+}
+
+private actor DelayedMCPServersStore: MCPServersStoring {
+  private var storedServers: [MCPServerConfig]
+  private let blockedSaveNumber: Int
+  private let failingSaveNumbers: Set<Int>
+  private var saves = 0
+  private var blockedSaveContinuation: CheckedContinuation<Void, Never>?
+
+  init(
+    servers: [MCPServerConfig],
+    blockedSaveNumber: Int,
+    failingSaveNumbers: Set<Int> = []
+  ) {
+    self.storedServers = servers
+    self.blockedSaveNumber = blockedSaveNumber
+    self.failingSaveNumbers = failingSaveNumbers
+  }
+
+  func load() async throws -> [MCPServerConfig] {
+    storedServers
+  }
+
+  func save(servers: [MCPServerConfig]) async throws {
+    saves += 1
+    let saveNumber = saves
+    if saveNumber == blockedSaveNumber {
+      await withCheckedContinuation { continuation in
+        blockedSaveContinuation = continuation
+      }
+    }
+    if failingSaveNumbers.contains(saveNumber) {
+      throw MCPSettingsStoreFailure.save
+    }
+    storedServers = servers
+  }
+
+  func saveCount() -> Int {
+    saves
+  }
+
+  func snapshot() -> [MCPServerConfig] {
+    storedServers
+  }
+
+  func releaseBlockedSave() {
+    blockedSaveContinuation?.resume()
+    blockedSaveContinuation = nil
   }
 }
 
@@ -2276,7 +2819,11 @@ private actor InMemoryAppBehaviorSettingsStore: AppBehaviorSettingsStoring {
     self.storedSettings = settings
   }
 
-  func settings() async -> AppBehaviorSettings {
+  func load() async throws -> AppBehaviorSettings {
+    storedSettings
+  }
+
+  func snapshot() async -> AppBehaviorSettings {
     storedSettings
   }
 
@@ -2285,11 +2832,54 @@ private actor InMemoryAppBehaviorSettingsStore: AppBehaviorSettingsStoring {
   }
 }
 
+private actor BlockingAppBehaviorSettingsStore: AppBehaviorSettingsStoring {
+  private var storedSettings = AppBehaviorSettings()
+  private var didStartSave = false
+  private var saveContinuation: CheckedContinuation<Void, Never>?
+  private var startContinuations: [CheckedContinuation<Void, Never>] = []
+
+  func load() async throws -> AppBehaviorSettings {
+    storedSettings
+  }
+
+  func save(settings: AppBehaviorSettings) async throws {
+    didStartSave = true
+    for continuation in startContinuations {
+      continuation.resume()
+    }
+    startContinuations.removeAll()
+    await withCheckedContinuation { continuation in
+      saveContinuation = continuation
+    }
+    storedSettings = settings
+  }
+
+  func waitForSaveStart() async {
+    guard !didStartSave else { return }
+    await withCheckedContinuation { continuation in
+      startContinuations.append(continuation)
+    }
+  }
+
+  func releaseSave() {
+    saveContinuation?.resume()
+    saveContinuation = nil
+  }
+
+  func snapshot() -> AppBehaviorSettings {
+    storedSettings
+  }
+}
+
 private actor SlowFirstWebAccessSettingsStore: WebAccessSettingsStoring {
   private var storedSettings = WebAccessSettings.disabled
   private var saves = 0
 
-  func settings() async -> WebAccessSettings {
+  func load() async throws -> WebAccessSettings {
+    storedSettings
+  }
+
+  func snapshot() async -> WebAccessSettings {
     storedSettings
   }
 

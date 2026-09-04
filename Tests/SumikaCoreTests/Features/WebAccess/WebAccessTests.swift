@@ -958,7 +958,169 @@ struct WebAccessTests {
     try await store.save(settings: settings)
     let reloaded = WebAccessSettingsStore(settingsURL: url)
 
-    #expect(await reloaded.settings() == settings)
+    #expect(try await reloaded.load() == settings)
+    let persisted = try #require(
+      JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+    )
+    #expect(persisted["schemaVersion"] as? Int == 1)
+  }
+
+  @Test
+  func webAccessSettingsStoreReturnsDisabledSettingsWhenFileIsMissing() async throws {
+    let url = try scopedTemporaryDirectory()
+      .appending(path: "web-access-settings-missing.json", directoryHint: .notDirectory)
+
+    let settings = try await WebAccessSettingsStore(settingsURL: url).load()
+
+    #expect(settings == .disabled)
+    #expect(!FileManager.default.fileExists(atPath: url.path(percentEncoded: false)))
+  }
+
+  @Test
+  func webAccessSettingsStoreMigratesUnversionedFileToVersionOne() async throws {
+    let url = try scopedTemporaryDirectory()
+      .appending(path: "web-access-settings-v0.json", directoryHint: .notDirectory)
+    try writeWebSettingsJSON(
+      """
+      {
+        "settings": {
+          "policy": "askEachTime",
+          "provider": "searxng",
+          "searxngBaseURL": "https://search.example",
+          "fetchProvider": "firecrawl",
+          "firecrawlBaseURL": "http://127.0.0.1:3002"
+        }
+      }
+      """,
+      to: url
+    )
+
+    let settings = try await WebAccessSettingsStore(settingsURL: url).load()
+
+    #expect(
+      settings
+        == WebAccessSettings(
+          policy: .askEachTime,
+          provider: .searxng,
+          searxngBaseURL: "https://search.example",
+          fetchProvider: .firecrawl,
+          firecrawlBaseURL: "http://127.0.0.1:3002"
+        )
+    )
+    let migrated = try #require(
+      JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+    )
+    #expect(migrated["schemaVersion"] as? Int == 1)
+    #expect(migrated["settings"] is [String: Any])
+  }
+
+  @Test
+  func webAccessSettingsStoreLoadsCurrentVersionWithoutRewritingIt() async throws {
+    let url = try scopedTemporaryDirectory()
+      .appending(path: "web-access-settings-v1.json", directoryHint: .notDirectory)
+    let current = """
+      {
+        "schemaVersion": 1,
+        "settings": {
+          "policy": "allow",
+          "provider": "duckDuckGo",
+          "searxngBaseURL": "",
+          "fetchProvider": "builtIn",
+          "firecrawlBaseURL": ""
+        }
+      }
+      """
+    try writeWebSettingsJSON(current, to: url)
+    let originalData = try Data(contentsOf: url)
+
+    let settings = try await WebAccessSettingsStore(settingsURL: url).load()
+
+    #expect(settings == WebAccessSettings(policy: .allow))
+    #expect(try Data(contentsOf: url) == originalData)
+  }
+
+  @Test
+  func webAccessSettingsStoreRejectsTruncatedCurrentVersionWithoutRewritingIt() async throws {
+    let url = try scopedTemporaryDirectory()
+      .appending(path: "web-access-settings-v1-truncated.json", directoryHint: .notDirectory)
+    let truncated = """
+      {
+        "schemaVersion": 1,
+        "settings": {
+          "policy": "allow"
+        }
+      }
+      """
+    try writeWebSettingsJSON(truncated, to: url)
+    let originalData = try Data(contentsOf: url)
+
+    await #expect(
+      throws: VersionedJSONFileError.decodeFailed(
+        fileName: "web-access-settings-v1-truncated.json",
+        schemaVersion: 1
+      )
+    ) {
+      try await WebAccessSettingsStore(settingsURL: url).load()
+    }
+    #expect(try Data(contentsOf: url) == originalData)
+  }
+
+  @Test
+  func webAccessSettingsStoreRejectsMalformedFileWithoutRewritingIt() async throws {
+    let url = try scopedTemporaryDirectory()
+      .appending(path: "web-access-settings-malformed.json", directoryHint: .notDirectory)
+    let malformed = """
+      {
+        "settings": {
+          "policy": 42
+        }
+      }
+      """
+    try writeWebSettingsJSON(malformed, to: url)
+    let originalData = try Data(contentsOf: url)
+
+    await #expect(
+      throws: VersionedJSONFileError.decodeFailed(
+        fileName: "web-access-settings-malformed.json",
+        schemaVersion: 0
+      )
+    ) {
+      try await WebAccessSettingsStore(settingsURL: url).load()
+    }
+    #expect(try Data(contentsOf: url) == originalData)
+  }
+
+  @Test
+  func webAccessSettingsStoreRejectsFutureVersionWithoutRewritingIt() async throws {
+    let url = try scopedTemporaryDirectory()
+      .appending(path: "web-access-settings-future.json", directoryHint: .notDirectory)
+    let future = """
+      {
+        "schemaVersion": 2,
+        "settings": {}
+      }
+      """
+    try writeWebSettingsJSON(future, to: url)
+    let originalData = try Data(contentsOf: url)
+
+    await #expect(
+      throws: VersionedJSONFileError.unsupportedSchemaVersion(
+        fileName: "web-access-settings-future.json",
+        found: 2,
+        current: 1
+      )
+    ) {
+      try await WebAccessSettingsStore(settingsURL: url).load()
+    }
+    #expect(try Data(contentsOf: url) == originalData)
+  }
+
+  private func writeWebSettingsJSON(_ json: String, to url: URL) throws {
+    try FileManager.default.createDirectory(
+      at: url.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try Data(json.utf8).write(to: url)
   }
 }
 

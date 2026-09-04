@@ -481,8 +481,11 @@ tools; only their definitions and codecs are instance state instead of static
 declarations.
 
 - `MCPServerConfig` is the persisted server description (name, enabled flag,
-  and a tagged transport configuration), stored in `mcp-servers.json` through
-  `MCPServersStore`. A transport is either stdio with command, arguments, and
+  and a tagged transport configuration), stored in schema-versioned
+  `mcp-servers.json` through `MCPServersStore`. The current top-level schema is
+  `{ "schemaVersion": 1, "servers": [...] }`; the former unversioned wrapper
+  migrates losslessly, while malformed entries fail the entire load instead of
+  being dropped. A transport is either stdio with command, arguments, and
   environment, or Streamable HTTP with one endpoint URL. Servers are configured
   globally in Settings; workspaces and repositories cannot contribute server
   configurations. The prototype does not decode the former flat stdio schema.

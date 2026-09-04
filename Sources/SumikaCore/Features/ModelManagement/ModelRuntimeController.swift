@@ -22,6 +22,7 @@ final class ModelRuntimeController {
   @ObservationIgnored private var downloadTask: Task<Void, Never>?
   @ObservationIgnored private var deleteTask: Task<Void, Never>?
   @ObservationIgnored private var availabilityRefreshTask: Task<Void, Never>?
+  @ObservationIgnored private var modelSelectionTask: Task<Void, Never>?
   @ObservationIgnored private var settingsMutationTask: Task<Void, Never>?
   @ObservationIgnored private var availabilityRefreshRevision = 0
   @ObservationIgnored private var availabilityMutationRevisions: [ManagedModel.ID: Int] = [:]
@@ -102,6 +103,7 @@ final class ModelRuntimeController {
     downloadTask?.cancel()
     deleteTask?.cancel()
     availabilityRefreshTask?.cancel()
+    modelSelectionTask?.cancel()
     settingsMutationTask?.cancel()
   }
 
@@ -153,8 +155,15 @@ final class ModelRuntimeController {
       for: model.id
     )
 
-    Task { [modelSettingsStore] in
-      await modelSettingsStore.setSelectedModelID(model.id)
+    let predecessor = modelSelectionTask
+    modelSelectionTask = Task { @MainActor [weak self, modelSettingsStore] in
+      await predecessor?.value
+      guard let self, !Task.isCancelled else { return }
+      do {
+        try await modelSettingsStore.setSelectedModelID(model.id)
+      } catch {
+        onError?(error.localizedDescription)
+      }
       await settingsMutationTask?.value
       let settings = await modelSettingsStore.settings(for: model)
       guard selectedModelID == model.id else {
@@ -164,6 +173,11 @@ final class ModelRuntimeController {
       selectedModeSettings = settings.modeSettings
       onModelDidChange?(settings)
     }
+  }
+
+  func flushPendingSettingsPersistence() async {
+    await modelSelectionTask?.value
+    await settingsMutationTask?.value
   }
 
   func applySessionModel(_ model: ManagedModel) -> Bool {

@@ -93,7 +93,7 @@ private actor SuspendedResetModelSettingsStore: ModelSettingsStoring {
     self.resetSettings = resetSettings
   }
 
-  func setSelectedModelID(_: String) async {}
+  func setSelectedModelID(_: String) async throws {}
 
   func settings(for _: ManagedModel) async -> StoredModelSettings {
     currentSettings
