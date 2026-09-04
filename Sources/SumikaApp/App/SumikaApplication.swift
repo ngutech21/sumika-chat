@@ -160,6 +160,13 @@ public struct SumikaApplication: App {
       options[.version] = buildVersion
     }
 
+    if let websiteURL = URL(string: "https://sumika.chat") {
+      options[.credits] = NSAttributedString(
+        string: "sumika.chat",
+        attributes: [.link: websiteURL]
+      )
+    }
+
     NSApplication.shared.orderFrontStandardAboutPanel(options: options)
   }
 
