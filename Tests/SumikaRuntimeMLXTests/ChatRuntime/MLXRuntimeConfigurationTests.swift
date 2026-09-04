@@ -10,55 +10,45 @@ import Testing
 #endif
 @Suite()
 struct MLXRuntimeConfigurationTests {
-  @Test(arguments: [
-    (16_384, 12_224, 2_048, 1_024, 4_096),
-    (4_096, 512, 1_024, 512, 3_520),
-    (4_096, 512, 2_048, 1_024, 3_520),
-  ])
-  func contextClampPreservesQwenThinkingAndAnswerBudgets(
-    capacity: Int, promptTokens: Int, thinkingMaximum: Int,
-    minimumAnswer: Int, expectedMaximum: Int
-  ) throws {
-    let original = GenerateParameters(maxTokens: 32_768)
-    let components = try MLXThinkingBudgetPlanner.makeComponents(
-      maximumTokenCount: thinkingMaximum, minimumAnswerTokenCount: minimumAnswer,
-      reasoning: QwenReasoningProtocol.tagged,
-      tokenizer: ThinkingBudgetTestTokenizer(),
-      generateParameters: original,
-      enforcementState: MLXThinkingBudgetEnforcementState()
-    )
-    let budget = MLXContextBudget(capacity: capacity, configuredMaximum: 32_768)
-    var adjusted = original
-    adjusted.maxTokens = try budget.measure(promptTokens: promptTokens)
-    #expect(adjusted.maxTokens == expectedMaximum)
-    try components.validate(parameters: adjusted)
-    #expect(original.maxTokens == 32_768)
+  @Test(arguments: ManagedModelCatalog.models.filter { $0.reasoningTraceFormat == .qwenThinkTags })
+  func qwenDefaultOutputAllowanceReachesMLXUnchanged(model: ManagedModel) {
+    let recommended = ModelSettingsResolver.recommendedSettings(for: model, generationConfig: nil)
+    for mode in [WorkspaceInteractionMode.chat, .agent] {
+      let settings = recommended.modeSettings[mode].generationSettings
+      let parameters = MLXChatRuntime.generateParameters(from: settings)
+      #expect(settings.maxTokens == 32_768)
+      #expect(parameters.maxTokens == 32_768)
+      #expect(parameters.maxKVSize == nil)
+    }
   }
 
-  @Test(arguments: [(1_024, 512), (2_048, 1_024)])
-  func contextReserveDoesNotBypassQwenThinkingAndAnswerBudgets(
-    thinkingMaximum: Int, minimumAnswer: Int
-  ) throws {
-    let original = GenerateParameters(maxTokens: 32_768)
-    let components = try MLXThinkingBudgetPlanner.makeComponents(
-      maximumTokenCount: thinkingMaximum, minimumAnswerTokenCount: minimumAnswer,
-      reasoning: QwenReasoningProtocol.tagged,
-      tokenizer: ThinkingBudgetTestTokenizer(),
-      generateParameters: original,
-      enforcementState: MLXThinkingBudgetEnforcementState()
-    )
-    let budget = MLXContextBudget(capacity: 4_096, configuredMaximum: 32_768)
-    var adjusted = original
-    adjusted.maxTokens = try budget.measure(promptTokens: 3_008)
-    #expect(adjusted.maxTokens == 1_024)
-    do {
-      try components.validate(parameters: adjusted)
-      Issue.record("Expected insufficient space for Qwen thinking and answer budgets")
-    } catch ThinkingBudgetError.insufficientGenerationTokenLimit(let required, let actual) {
-      #expect(required > thinkingMaximum + minimumAnswer)
-      #expect(actual == 1_024)
+  @Test(arguments: ["qwen3.6-35b-a3b-optiq-4bit", "gemma4-12b-qat-4bit"])
+  func manualOutputAllowanceReachesMLXUnchanged(modelID: String) throws {
+    let model = try #require(ManagedModelCatalog.model(id: modelID))
+    let override = ModeSettingsOverride(
+      generationSettings: GenerationSettingsOverride(maxTokens: 8_192))
+    let resolved = ModelSettingsResolver.settings(
+      for: model, generationConfig: nil,
+      userOverrides: ModelSettingsOverrides(
+        chat: override, agent: override, contextTokenLimit: 4_096))
+    for mode in [WorkspaceInteractionMode.chat, .agent] {
+      let parameters = MLXChatRuntime.generateParameters(
+        from: resolved.modeSettings[mode].generationSettings)
+      #expect(parameters.maxTokens == 8_192)
+      #expect(parameters.maxKVSize == nil)
     }
-    #expect(original.maxTokens == 32_768)
+  }
+
+  @Test
+  func gemmaKeepsItsOwnOutputDefaults() throws {
+    let model = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
+    let recommended = ModelSettingsResolver.recommendedSettings(for: model, generationConfig: nil)
+    for mode in [WorkspaceInteractionMode.chat, .agent] {
+      let settings = recommended.modeSettings[mode].generationSettings
+      let parameters = MLXChatRuntime.generateParameters(from: settings)
+      #expect(parameters.maxTokens == model.defaultModeSettings[mode].generationSettings.maxTokens)
+      #expect(parameters.maxKVSize == nil)
+    }
   }
 
   @Test

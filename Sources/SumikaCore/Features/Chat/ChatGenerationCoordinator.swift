@@ -72,7 +72,6 @@ enum ChatGenerationError: LocalizedError, Equatable, Sendable {
   case streamInterrupted
   case emptyModelResponse
   case outputLimitReached
-  case contextLimitReached
 
   var errorDescription: String? {
     switch self {
@@ -82,16 +81,13 @@ enum ChatGenerationError: LocalizedError, Equatable, Sendable {
       "Model generation completed without visible text or tool calls."
     case .outputLimitReached:
       "Local model generation reached its token limit before the response was complete. Increase Max Tokens or ask the model to make a smaller change."
-    case .contextLimitReached:
-      "The response reached the remaining conversation context limit. Start a new chat or reduce the supplied content."
     }
   }
 }
 
 enum ChatGenerationTermination: Equatable, Sendable {
   case completed
-  case outputLimit(
-    discardedToolProtocolTail: Bool, reason: ChatGenerationOutputLimit.Reason = .configuredMaximum)
+  case outputLimit(discardedToolProtocolTail: Bool)
 }
 
 struct ChatGenerationResult: Equatable, Sendable {
@@ -389,7 +385,7 @@ struct ChatGenerationCoordinator {
       assistantContent: generatedContent,
       nativeToolCalls: nativeToolCalls,
       termination: outputLimit.map {
-        .outputLimit(discardedToolProtocolTail: $0.discardedToolProtocolTail, reason: $0.reason)
+        .outputLimit(discardedToolProtocolTail: $0.discardedToolProtocolTail)
       } ?? .completed
     )
   }

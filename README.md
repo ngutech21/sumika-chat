@@ -119,9 +119,9 @@ CSV and other supported text files are read as UTF-8.
 
 You can attach up to eight files. Documents and text attachments can contain
 **32,000 extracted characters in total per message**; document source files can
-be up to **64 MiB each**. The conversation must also fit the selected model's
-context window, with space left for its reply. Scanned PDFs require text
-recognition first; Sumika does not perform OCR.
+be up to **64 MiB each**. Accepted attachment text is supplied in full. These
+attachment limits do not cap conversation history or reduce the selected response
+length. Scanned PDFs require text recognition first; Sumika does not perform OCR.
 
 ## What You Can Do
 

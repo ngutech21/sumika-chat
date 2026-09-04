@@ -250,59 +250,31 @@ explicit warning that workspace tools cannot retrieve the omitted content.
 No RAG index, automatic summary, OCR service, history compaction, or persisted
 token ledger is introduced.
 
-## Conversation token budget
+## Generation output limits
 
-Every `MLXChatRuntime.streamReply` request uses the effective context capacity
-already resolved from the user's setting and model configuration; the default
-remains 16,384 tokens. Chat, Agent tool continuations, approval resumptions, and
-reused sessions enter the same path.
+Every `MLXChatRuntime.streamReply` request passes the selected response maximum
+unchanged to MLX as `maxTokens`. Qwen defaults to 32,768 output tokens in both
+Chat and Agent modes; manual Response Length overrides and other models' settings
+remain authoritative. Thinking, visible text, and tool-call tokens share this
+per-generation output allowance. Existing thinking-budget validation still
+requires room for the configured thinking, protocol, and answer budgets.
 
-`MLXContextBudget` installs one production input-processor adapter independently
-of debug tracing. It measures `LMInput.text.tokens.size` after the model's actual
-processor has prepared the complete input, including history, instructions,
-tool schemas, reasoning markers, and media expansion. This happens before
-`ChatSession` reconciles its cache and selects an uncached suffix.
+Sumika does not impose a conversation token cap or subtract prompt/history tokens
+from the output allowance. Chat, Agent tool continuations, approval resumptions,
+and reused sessions all use direct `ChatSession.streamDetails` generation with
+`maxKVSize: nil`. The existing Context Length value remains configuration and
+request-trace metadata; it does not reject input or clamp generation. Model-native
+context and hardware limits are unchanged.
 
-For context capacity `C`, measured prompt tokens `P`, and configured response
-maximum `M`:
+The attachment limits above apply to newly supplied document content before a
+turn starts. They do not limit accumulated conversation history. No history
+compaction or document retrieval is introduced, and saved settings and transcript
+schemas are unchanged.
 
-```text
-protocol headroom = 64
-minimum reply space = min(M, 4,096, max(1, floor(C / 4)))
-available reply space = C - P - 64
-reject if available reply space < minimum reply space
-effective response maximum = min(M, available reply space)
-```
-
-For `M >= 4,096`, the minimum reply space is 1,024 tokens in a 4K context,
-2,048 in an 8K context, and 4,096 in contexts of 16K or larger. This is an
-admission threshold; the response can use all available reply space up to `M`.
-
-When the response maximum needs reducing, preparation throws an internal
-adjustment before cache trimming or model prefill. The adapter's stream owner
-validates the adjusted parameters against the existing thinking-budget
-components and retries preparation once with the same pending messages. The
-retry measures the full input again; another adjustment or insufficient space
-rejects the request without prefill. The request-local policy follows the
-preparation task, so it cannot be replaced by another generation's budget.
-
-The reduced allowance lasts only for this generation. Saved generation settings
-and `maxKVSize: nil` remain unchanged. History is not rewritten, and no response
-end token is manufactured. Normal cache reuse continues after successful
-preparation; actual runtime failures retain the normal failed-turn and cache
-invalidation behavior. Internal adjustment never enters user-visible failure
-handling.
-
-A native length stop carries whether the configured response maximum or the
-remaining context constrained the reply. Context capacity takes precedence when
-both limits are equal, because increasing the configured maximum cannot help.
-Context errors recommend starting a new chat or reducing supplied content.
-When the prompt or thinking budget does not fit, errors also suggest increasing
-Context Length in model settings. The existing `mlx_response` record gains
-`contextBudget` with `promptTokens`, `contextCapacity`,
-`configuredResponseMaximum`, `effectiveResponseMaximum`, `preparationAttempts`,
-and `rejected`; the request retains the original settings and effective context
-limit.
+A native length stop retains normal output-limit handling, including completed
+tool calls, incomplete protocol tails, thinking delivery, and cache invalidation.
+Diagnostics recommend increasing the selected output maximum or requesting a
+smaller response; they do not report a derived conversation-context allowance.
 
 ## Model Context Rules
 
