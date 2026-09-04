@@ -53,9 +53,11 @@ jobs:
         id: apple-toolchain
         uses: ./workflow-source/.github/actions/setup-apple-toolchain
 
-      - name: Install build tools
+      - name: Install just
         timeout-minutes: 5
-        run: brew version-install just@1.58.0
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
+        with:
+          just-version: "1.58.0"
 
       - name: Resolve Sparkle tools from release tag
         timeout-minutes: 10
