@@ -254,8 +254,9 @@ native Xcode app target:
 
 Dependencies point one-way: `SumikaApp` -> `SumikaRuntimeMLX` ->
 `SumikaCore`; `SumikaApp` may also use `SumikaCore` directly. All external
-Swift package dependencies are declared in the root `Package.swift`; the Xcode
-app target links only the local `SumikaApp` product.
+product dependencies are declared in the root `Package.swift`; the isolated
+SwiftLint tool package lives under `script/swiftlint`. The Xcode app target
+links only the local `SumikaApp` product.
 
 - [Tool Runtime](docs/tool-runtime.md): core flow for adding type-safe tools,
   permissions, registries, and model-facing tool calls.
@@ -329,8 +330,9 @@ just final-check
 stable DerivedData path under `build/DerivedData`. `just test` runs every unit
 and integration test target through SwiftPM; Xcode remains responsible for the
 app launcher/resources and UI tests. `just lint` runs SwiftLint using
-`.swiftlint.yml`. `just format` checks Swift sources with the `swift-format`
-provided by the selected Xcode toolchain.
+`.swiftlint.yml` and the exact SwiftPM-pinned version from
+`script/swiftlint/Package.swift`. `just format` checks Swift sources with the
+`swift-format` provided by the selected Xcode toolchain.
 `just final-check` runs the broader local verification suite before review.
 
 `just resolve-packages` resolves both the root SwiftPM graph and the Xcode app
@@ -343,6 +345,9 @@ that both committed lockfiles still satisfy their graph and resolve identical
 package pins. The files represent different resolver roots and are not expected
 to be byte-identical; metadata such as `originHash` and normalized repository
 URLs may differ.
+SwiftLint is intentionally outside the product graphs. Its independent
+`script/swiftlint/Package.resolved` lockfile is validated whenever
+`just prepare-swiftlint`, `just lint`, or `just lint-analyze` runs.
 If a Dependabot PR changes the root graph and this check reports a stale Xcode
 lockfile, run `just resolve-packages` and commit the regenerated Xcode
 `Package.resolved` file to the PR.

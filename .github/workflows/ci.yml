@@ -35,10 +35,15 @@ jobs:
         with:
           just-version: "1.58.0"
 
-      - name: Install SwiftLint
-        timeout-minutes: 10
-        run: brew version-install swiftlint@0.65.1
+      - name: Cache SwiftLint
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build/swiftlint
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.apple-toolchain.outputs.cache-key }}-swiftlint-${{ hashFiles('script/swiftlint/Package.resolved') }}
 
+      - name: Prepare SwiftLint
+        timeout-minutes: 10
+        run: just prepare-swiftlint
 
       - name: Run format
         timeout-minutes: 10
@@ -47,7 +52,7 @@ jobs:
       - name: Run SwiftLint
         timeout-minutes: 10
         run: just lint
-    
+
 
   unit-tests:
     name: macOS Core, App, and MLX unit tests

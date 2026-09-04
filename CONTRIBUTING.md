@@ -16,8 +16,9 @@ Sumika is a native macOS project. Development requires:
 - macOS 15 or later.
 - Xcode 26.6 (build 17F113) with Apple Swift 6.3.3 and the macOS 26.5 SDK.
 - [Homebrew](https://brew.sh/).
-- `just`, SwiftLint, Periphery, and `typos` for the complete local verification
-  workflow. Xcode provides `swift-format`.
+- `just`, Periphery, and `typos` for the complete local verification workflow.
+  The project resolves its pinned SwiftLint binary through SwiftPM, and Xcode
+  provides `swift-format`.
 
 Install `just`, then use the project recipe to install its primary development
 tools:
@@ -139,8 +140,9 @@ instead of reporting the suite as passing.
 
 ## Dependencies and Generated Files
 
-All Swift package dependencies are declared in the root `Package.swift`. After
-changing dependencies, run:
+All product Swift package dependencies are declared in the root `Package.swift`.
+The isolated SwiftLint tool package lives under `script/swiftlint`. After
+changing product dependencies, run:
 
 ```sh
 just resolve-packages
@@ -150,6 +152,9 @@ just check-package-locks
 Commit both `Package.resolved` files. The root lockfile is the canonical package
 selection, while the Xcode lockfile retains workspace-specific metadata; they
 are not expected to be byte-identical.
+
+After changing the pinned SwiftLint dependency, run `just resolve-swiftlint`
+and commit `script/swiftlint/Package.resolved`.
 
 Do not commit model downloads, DerivedData, `.build` contents, release artifacts,
 or unrelated generated files.

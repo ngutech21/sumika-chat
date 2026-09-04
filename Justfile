@@ -11,16 +11,27 @@ export_options := "script/DeveloperIDExportOptions.plist"
 developer_team := "G8Z2RHV3P5"
 
 swift := env("SWIFT", "xcrun swift")
+swiftlint_version := "0.65.1"
+swiftlint_package := "script/swiftlint"
+swiftlint_scratch := ".build/swiftlint"
+swiftlint := swiftlint_scratch + "/artifacts/swiftlintplugins/SwiftLintBinary/SwiftLintBinary.artifactbundle/macos/swiftlint"
 
 
 default:
   @just --list
 
 # installs the dev tools on macos
-deps:
-    brew version-install swiftlint@0.65.1
+deps: prepare-swiftlint
     brew version-install periphery@3.8.0
     brew version-install create-dmg@1.3.0
+
+resolve-swiftlint:
+    {{swift}} package --package-path {{swiftlint_package}} --scratch-path {{swiftlint_scratch}} resolve
+
+prepare-swiftlint:
+    {{swift}} package --package-path {{swiftlint_package}} --scratch-path {{swiftlint_scratch}} --disable-automatic-resolution resolve
+    @test -x "{{swiftlint}}" || { echo "SwiftLint binary not found after package resolution: {{swiftlint}}"; exit 1; }
+    @actual="$({{swiftlint}} version)"; test "$actual" = "{{swiftlint_version}}" || { echo "Expected SwiftLint {{swiftlint_version}}, found $actual."; exit 1; }
 
 resolve-packages:
     {{swift}} package resolve
@@ -204,8 +215,7 @@ coverage-low threshold="80":
     test -f "$report" || { echo "No SwiftPM coverage report found at $report."; exit 1; }; \
     {{swift}} script/coverage_low.swift "$report" --threshold "$threshold"
 
-lint:
-    @command -v swiftlint >/dev/null || { echo "swiftlint is not installed. Install it with: brew version-install swiftlint@0.65.1"; exit 127; }
+lint: prepare-swiftlint
     @configs="$(find . \( -path ./.git -o -path ./.build -o -path ./build -o -path ./DerivedData \) -prune -o -name .swiftlint.yml -print | sort | sed 's#^\./##')"; \
     if [ -z "$configs" ]; then \
         echo "No SwiftLint configuration files found."; \
@@ -216,15 +226,14 @@ lint:
         dir="$(dirname "$config")"; \
         echo "SwiftLint $config"; \
         if [ "$dir" = "." ]; then \
-            swiftlint lint --quiet --strict --no-cache --config "$config" || status=$?; \
+            {{swiftlint}} lint --quiet --strict --no-cache --config "$config" || status=$?; \
         else \
-            swiftlint lint --quiet --strict --no-cache --config "$config" "$dir" || status=$?; \
+            {{swiftlint}} lint --quiet --strict --no-cache --config "$config" "$dir" || status=$?; \
         fi; \
     done; \
     exit "$status"
 
-lint-analyze:
-    @command -v swiftlint >/dev/null || { echo "swiftlint is not installed. Install it with: brew version-install swiftlint@0.65.1"; exit 127; }
+lint-analyze: prepare-swiftlint
     @log=$(mktemp); \
     trap 'rm -f "$log"' EXIT; \
     set --; \
@@ -240,17 +249,17 @@ lint-analyze:
         cat "$log"; \
         exit "$status"; \
     fi; \
-    swiftlint analyze --quiet --strict --config .swiftlint-analyze.yml --compiler-log-path "$log"
+    {{swiftlint}} analyze --quiet --strict --config .swiftlint-analyze.yml --compiler-log-path "$log"
 
 final-check: typos format lint periphery test
 
 format:
     @xcrun --find swift-format >/dev/null || { echo "The selected Xcode toolchain does not provide swift-format."; exit 127; }
-    xcrun swift-format lint --strict --recursive --parallel sumika SumikaUITests Sources Tests Package.swift
+    xcrun swift-format lint --strict --recursive --parallel sumika SumikaUITests Sources Tests Package.swift script/swiftlint/Package.swift
 
 format-fix:
     @xcrun --find swift-format >/dev/null || { echo "The selected Xcode toolchain does not provide swift-format."; exit 127; }
-    xcrun swift-format format --in-place --recursive --parallel sumika SumikaUITests Sources Tests Package.swift
+    xcrun swift-format format --in-place --recursive --parallel sumika SumikaUITests Sources Tests Package.swift script/swiftlint/Package.swift
 
 typos:
     typos -q --format brief

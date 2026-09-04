@@ -42,11 +42,10 @@ jobs:
         with:
           just-version: "1.58.0"
 
-      - name: Install lint tools
+      - name: Install Homebrew tools
         timeout-minutes: 10
         run: |
           brew untap aws/tap || true
-          brew version-install swiftlint@0.65.1
           brew version-install periphery@3.8.0
           brew version-install create-dmg@1.3.0
 
@@ -58,11 +57,16 @@ jobs:
             .build/repositories
             .build/checkouts
             .build/artifacts
-          key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.apple-toolchain.outputs.cache-key }}-macos-nightly-swiftpm-${{ hashFiles('Package.resolved', 'Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+            .build/swiftlint
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.apple-toolchain.outputs.cache-key }}-macos-nightly-swiftpm-${{ hashFiles('Package.resolved', 'Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'script/swiftlint/Package.resolved') }}
 
       - name: Verify Swift package lockfiles
         timeout-minutes: 10
         run: just check-package-locks
+
+      - name: Prepare SwiftLint
+        timeout-minutes: 10
+        run: just prepare-swiftlint
 
       - name: Run SwiftLint
         timeout-minutes: 10
