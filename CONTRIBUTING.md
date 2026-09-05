@@ -123,16 +123,22 @@ Use the narrowest feedback loop that covers the change:
 | Concurrency or memory safety | `just test-tsan` or `just test-asan` |
 | Documentation or comments only | `just typos` |
 
-Before requesting review, run:
+Before requesting review for code changes, complete:
 
 ```sh
 just final-check
 ```
 
-This checks spelling, formatting, lint, dead code, and SwiftPM tests. It does not
-replace `just build` or `just test-ui` when a change affects those areas. UI
-tests are local-only, must not download a model, and may skip when their
-configured local model is unavailable.
+This checks spelling, formatting, lint, dead code, and the full SwiftPM test suite.
+If equivalent coverage already passed against unchanged code, run only the missing
+checks; a focused test does not replace the full suite. Repeat or broaden checks
+only when changes, failures, or unresolved concerns justify it. For documentation
+or comments only, run `just typos` and explain why builds and tests were skipped.
+
+The dead-code check performs SwiftPM and Xcode builds. It does not replace
+`just build` or `just test-ui` when a change affects those areas. UI tests are
+local-only, must not download a model, and may skip when their configured local
+model is unavailable.
 
 Report the checks you actually ran and their real outcomes in the pull request.
 If an unrelated failure or environment restriction blocks a check, identify it

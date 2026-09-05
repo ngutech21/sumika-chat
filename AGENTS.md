@@ -2,11 +2,22 @@
 
 ## Project Goal
 
-`sumika-chat` is the repository for Sumika, a macOS Swift app for local-first
-coding with local Gemma and Qwen models running through MLX. Keep workflows
-focused, inspectable, reviewable, and explicit: local context, short steps,
-auditable shell execution, and macOS-native SwiftUI/AppKit UI. Do not assume
-network access is available or desirable.
+Sumika is a private macOS AI assistant running local Gemma and Qwen models through
+MLX. Chat supports everyday assistance; Agent supports coding, files, and connected
+tools. Keep context, tool actions, and network access explicit and inspectable,
+with a macOS-native SwiftUI/AppKit UI. Do not assume network access is available
+or desirable.
+
+## Working Scope
+
+- Analysis and review requests are read-only. For implementation requests, resolve
+  routine choices within the requested scope and continue through verification.
+  Ask only when missing information materially changes the result or required
+  authorization is absent.
+- Preserve unrelated user changes. Keep patches focused on the requested outcome.
+- Tool approval and interaction-mode rules below describe Sumika's runtime.
+- Report what changed, the checks actually run, and any remaining blocker. A
+  skipped or blocked check is not a passing check.
 
 ## Architecture And Ownership
 
@@ -19,6 +30,9 @@ Follow the existing layout:
 - MLX runtime: `Sources/SumikaRuntimeMLX/`
 - App tests: `Tests/SumikaAppTests/`
 - MLX runtime tests: `Tests/SumikaRuntimeMLXTests/`
+- Shared test helpers: `Tests/SumikaTestSupport/`
+- Schema documentation generator: `Sources/DataModelGenerator/`
+  and `Tests/DataModelGeneratorTests/`
 - Xcode app launcher/resources: `sumika/`
 - UI tests: `SumikaUITests/`
 
@@ -40,8 +54,23 @@ Follow the existing layout:
 - SwiftPM owns package tests, sanitizers, and coverage. Xcode owns only the app
   launcher/resources and UI tests. Production launch code must not detect a unit
   test host or construct test adapters; package tests inject adapters at seams.
-- Do not create new top-level folders, empty abstractions, or speculative layers.
-  Start with the smallest structure required by real code.
+- Do not create new top-level folders. Add only structure required by real code
+  within the existing layout.
+
+## Documentation Routing
+
+Read the relevant contract before changing its behavior; update it when that
+contract changes:
+
+- Transcript, turn lifecycle, or model context: [chat runtime](docs/chat-runtime.md).
+- Tool execution or permissions: [tool runtime](docs/tool-runtime.md).
+- Agent continuation, budgets, or completion: [agent loop](docs/agent-loop.md).
+- Persisted domain ownership: [model overview](docs/model.md).
+- Storage formats, migrations, or recovery: [persistence](docs/persistence.md).
+- Setup, dependencies, or contribution workflow: [contributing](CONTRIBUTING.md).
+
+`docs/data-model.md` is the generated schema inventory. Regenerate it with
+`just data-model` after schema changes and include the result; never edit it by hand.
 
 ## API And Module Design
 
@@ -51,26 +80,19 @@ Follow the existing layout:
 - Keep public interfaces small and stable. Do not expose storage models, runtime
   details, helper types, intermediate workflow state, dependency internals, or
   mutation points merely for caller convenience.
-- Apply SOLID at concrete boundaries: keep responsibilities cohesive, protocols
-  substitutable and role-specific, and high-level policy independent of vendor or
-  platform implementations. Do not introduce a seam without a concrete caller,
+- Keep protocols substitutable and role-specific, and high-level policy independent
+  of vendor/platform implementations. A new abstraction needs a concrete caller,
   alternate implementation, test boundary, or independently changing owner.
-- Prefer deep modules: a small interface should hide substantial implementation
-  detail and enforce its own invariants. Directory depth, file count, wrapper
-  count, and forwarding layers do not make a module deep.
-- Do not add speculative protocols, factories, wrappers, dependency injection, or
-  pass-through facades. An abstraction must reduce caller knowledge or coordination,
-  not merely rename or forward another API.
+- Prefer deep modules: small interfaces that hide implementation and enforce
+  invariants. Avoid speculative protocols, factories, wrappers, dependency
+  injection, and pass-through facades; reduce caller knowledge or coordination.
 - Keep code near its canonical owner. Preserve cohesive vertical slices, such as
   the one-file-per-tool layout, when their inputs, validation, execution, and
   results change together. Move only genuinely shared policy or infrastructure
   into horizontal modules.
-- Give each type one primary responsibility and one reason to change. Before
-  extending a large controller, coordinator, service, store, or runtime, verify
-  that the new behavior shares its owner, lifecycle, invariants, and dependencies.
-  Split unrelated responsibilities instead of growing a god type.
-- Line counts and file sizes are review signals, not design goals. Do not split a
-  cohesive implementation into shallow types solely to satisfy a size metric.
+- Give each type one primary responsibility. Before extending it, check that new
+  behavior shares its owner, lifecycle, invariants, and dependencies. Split unrelated
+  responsibilities; file size alone does not justify splitting cohesive code.
 
 ## Refactoring Completion
 
@@ -78,8 +100,8 @@ A refactoring is complete only when the repository has one canonical path for th
 refactored behavior:
 
 - Migrate every in-scope caller to the new path.
-- Remove replaced implementations, compatibility adapters, obsolete overloads,
-  unused protocols, stale flags, tests, fixtures, and documentation.
+- Remove replaced implementations, obsolete compatibility adapters and overloads,
+  unused protocols, and stale flags, tests, fixtures, and documentation.
 - Search explicitly for old type names, symbols, configuration keys, and call
   patterns after migration; do not assume compiler success proves cleanup.
 - Do not retain parallel old and new architectures for hypothetical compatibility.
@@ -87,7 +109,6 @@ refactored behavior:
   remaining callers, temporary boundary, and deletion condition.
 - Run dead-code analysis after structural refactors and inspect the final diff for
   additions without the corresponding expected deletions.
-- Preserve unrelated user changes while cleaning the complete refactoring scope.
 
 Before finishing a structural refactor or API change, summarize new or widened
 APIs, new types and their responsibilities, old code removed, and any retained
@@ -95,16 +116,12 @@ legacy path with its concrete reason. State when no public API was added.
 
 ## Data Model Policy
 
-Prefer clean ADTs, single sources of truth, derived projections, and intentional
-`Codable` schemas covered by tests.
+Prefer clean ADTs and intentional `Codable` schemas. Keep persisted state minimal
+and use a single source of truth (SSOT):
 
-Keep the persisted data model minimal and SSOT-first:
-
-- Store each domain fact in exactly one place. Do not keep parallel collections
-  that can describe the same event or lifecycle state.
-- Choose one canonical owner for every persisted concept and keep related
-  lifecycle state with that owner. References between concepts should use stable
-  IDs, not duplicated stored copies.
+- Store each domain fact with one canonical owner, including its lifecycle state.
+  Use stable IDs for references, not duplicated stored copies or parallel
+  collections describing the same event.
 - Do not add convenience arrays, caches, summaries, or denormalized fields as
   persisted state when they mirror canonical data. Build UI timelines, prompt
   inputs, traces, summaries, and other read models as derived projections.
@@ -128,22 +145,18 @@ Keep the persisted data model minimal and SSOT-first:
 
 ## Tool Runtime
 
-Follow `docs/tool-runtime.md` when adding or changing tools.
-
-Rules:
-
-- Tools are registered through the typed runtime.
-- Parsers emit neutral `ToolCallRequest` values.
-- Registry membership controls availability.
-- Concrete tools receive typed inputs.
-- Denied tools and approval-required tools are distinct.
-- Write, patch, and command tools must enter awaiting-approval before execution.
+- Register tools through the typed runtime; registry membership controls availability.
+  Parsers emit neutral `ToolCallRequest` values; concrete tools receive typed inputs.
+- Keep denied decisions distinct from approval-required decisions.
+- Write, edit, command, and MCP tools must enter `awaitingApproval` in canonical
+  `ChatTurn.items` before execution. The Agent session's manual or automatic
+  `toolApprovalPolicy` determines whether to pause for human approval. Both paths
+  revalidate before execution; neither bypasses denial or `ask_user`.
 - Keep runtime termination separate from transcript delivery. When an
   output-limited batch has accepted complete tool calls, mark any streamed
   assistant prose and thinking complete before pausing or completing the turn,
   while preserving the output-limit termination instead of reporting normal
   generation completion.
-- Update `docs/tool-runtime.md` when the tool contract changes.
 
 ## Workspace Interaction Modes
 
@@ -152,8 +165,9 @@ The chat composer has a manual `WorkspaceInteractionMode` per session:
 - `chat`: normal conversation with public web tools only
   (`ToolExecutorRegistry.chatWeb`, `web_search`, `web_fetch`); no workspace
   tools, writes, shell commands, or local file access.
-- `agent`: coding-agent workflow with `ToolExecutorRegistry.codingAgent`,
-  write/edit tools, and approval flow.
+- `agent`: file, coding, and connected-tool workflows. Production composition uses
+  `AgentToolConfiguration.executorRegistry(selectedMCPServerIDs:)` to combine
+  configured built-ins and selected MCP servers, with the approval flow above.
 
 Do not infer tool availability from prompt keywords. Mode is explicit
 product/session state. Persist it on `ChatSession` and trace
@@ -167,12 +181,15 @@ product/session state. Persist it on `ChatSession` and trace
   dictionaries. Use `throws` for recoverable failures.
 - Avoid singletons unless they wrap immutable platform facilities. Avoid
   synchronous file IO and `@unchecked Sendable` stores in new persistence code.
-- Preserve user changes. Never overwrite or revert unrelated edits.
+- Check target isolation in `Package.swift` before changing concurrency boundaries.
+  `SumikaApp` defaults to `MainActor` and enables `NonisolatedNonsendingByDefault`;
+  Core and MLX runtime use complete strict-concurrency checking without those
+  defaults. Do not assume an async function moves work off the main actor.
 - Prefer narrow patches, focused tests, sparse useful comments, and ASCII source
   unless a file already uses non-ASCII for a reason.
-- The primary screen is the coding workflow. Use dense macOS-native layouts, show
-  model context and generated diffs, and provide clear loading/generating/
-  cancelled/failed/applied states.
+- Support everyday Chat and Agent workflows with dense macOS-native layouts.
+  Show model context, tool actions, and generated diffs where relevant, with clear
+  loading/generating/cancelled/failed/applied states.
 - Keep SwiftUI state at the smallest component that renders or mutates it.
   Root/container views should own only shell state such as selection, routing,
   window/sidebar layout, and command routing. Move fast-changing child-only
@@ -184,7 +201,7 @@ product/session state. Persist it on `ChatSession` and trace
 
 ## Build And Test
 
-Use the project task runner and the narrowest feedback loop that covers the change:
+During implementation, use the narrowest feedback loop that covers the change:
 
 - One target, suite, or test: use `swift test --filter <pattern>`.
 - Package unit and integration tests: `just test`.
@@ -194,19 +211,26 @@ Use the project task runner and the narrowest feedback loop that covers the chan
 - Cross-boundary changes spanning package logic and the Xcode shell: run both
   `just test` and `just build`.
 - Concurrency or memory-safety work: use `just test-tsan` or `just test-asan` as
-  relevant. Data-model schema changes must run `just data-model`.
+  relevant. Schema changes also require the documentation regeneration above.
 - Add or update focused tests for shared logic, patch and prompt construction,
   command execution, and tool execution.
 
-For final verification after implementation, prefer `just final-check`; it runs
-`typos`, `format`, `lint`, `periphery`, and `test`. If an equivalent focused test
-already passed, run only the missing checks instead of repeating it. For docs or
-comments only, explain why build/tests were skipped and run the narrowest relevant
-check, such as `just typos`.
+Before handing off code changes for review, complete `just final-check`: `typos`,
+`format`, `lint`, `periphery`, and the full SwiftPM test suite. Run only missing
+checks if equivalent coverage already passed against unchanged code; a focused
+test does not replace the full suite. Repeat or broaden verification only when
+changes, failures, or unresolved concerns justify it.
 
-After dependency changes, run `just resolve-packages`, commit both lockfiles, and
-follow the lockfile policy in `README.md`. UI tests are local-only, must never
-download a model, and should skip cleanly when the configured model is absent.
+`just format` checks formatting; `just format-fix` rewrites it. `periphery` performs
+SwiftPM and Xcode builds and does not replace required `just build` or `just test-ui`
+checks above. UI tests are local-only, must never download a model, and should skip
+cleanly when the configured model is absent. For docs/comments-only changes, run
+`just typos` and explain why builds and tests were skipped.
+
+After product dependency changes, run `just resolve-packages` and
+`just check-package-locks`; include both root and Xcode `Package.resolved` files.
+For the separate SwiftLint package, use `just resolve-swiftlint` and include
+`script/swiftlint/Package.resolved`. Follow the lockfile policy in `README.md`.
 
 ## Debugging And Tracing
 
@@ -214,9 +238,11 @@ Use the project script before inventing new launch flows:
 
 - `./script/build_and_run.sh --logs`: stream `Sumika` process logs.
 - `./script/build_and_run.sh --telemetry`: stream `chat.sumika` subsystem logs.
-- `./script/build_and_run.sh --trace`: run with `SUMIKA_DEBUG_TRACE=1`.
-- Normal trace: `~/Library/Application Support/Sumika/debug/mlx-trace.jsonl`.
-- UI-test traces: `~/Library/Application Support/Sumika/debug/traces/`.
+- `./script/build_and_run.sh --trace`: enable tracing and print the timestamped
+  output file under `~/Library/Application Support/Sumika/debug/traces/`.
+- UI-test traces use the same directory. Follow the path printed by the run.
+- Runtime trace fallback without a file/basename override:
+  `~/Library/Application Support/Sumika/debug/mlx-trace.jsonl`.
 
 Do not create additional chat/model performance trace formats. Extend
 `MLXDebugTraceStore`. Existing row kinds are `mlx_request`,
@@ -230,5 +256,5 @@ bottleneck.
 
 - Use intentional conventional commits, e.g. `feat: add mock chat runtime`.
 - Include `Fixes #<id>` in a second paragraph for issue-closing commits.
-- Review diffs before committing; avoid generated files, build output, and
+- Review diffs before committing; avoid unrelated generated files, build output, and
   unrelated changes.
