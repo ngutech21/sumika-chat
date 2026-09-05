@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.10.0](https://github.com/ngutech21/sumika-chat/compare/v1.9.0...v1.10.0) (2026-09-05)
+
+
+### Features
+
+* create a Personal workspace and first chat on initial launch ([0eb4a68](https://github.com/ngutech21/sumika-chat/commit/0eb4a68980bcceb1c80ac8b12a59e3a34595128e)), closes [#230](https://github.com/ngutech21/sumika-chat/issues/230)
+* preview persisted skills from chat history ([87223f8](https://github.com/ngutech21/sumika-chat/commit/87223f83007be6b22c42dc101b306ddd50835c17))
+* support full-document attachments and context budgeting ([cc1e3a3](https://github.com/ngutech21/sumika-chat/commit/cc1e3a35312ee1e3574227a9a9d97dd88d4ec9ab))
+* unify generation and reasoning indicators with Flow animation ([e5e4b5d](https://github.com/ngutech21/sumika-chat/commit/e5e4b5d403e20781a58c0586f6be0d536e6c17ce))
+
+
+### Bug Fixes
+
+* add bounded process I/O for commands, diffs, and MCP stdio ([de35967](https://github.com/ngutech21/sumika-chat/commit/de35967c04f0c5f87f501c6f96325867f3c93373)), closes [#238](https://github.com/ngutech21/sumika-chat/issues/238)
+* **ci:** install pinned SwiftLint through SwiftPM ([0be6616](https://github.com/ngutech21/sumika-chat/commit/0be6616714d5e51b2cd4fb53b91ee2e81c8fec1f))
+* **ci:** repair action pins and pinned just setup ([0caeab5](https://github.com/ngutech21/sumika-chat/commit/0caeab51767d20e65cecb0edbe6303c1a089b537))
+* remove application context cap from generation ([7c3f039](https://github.com/ngutech21/sumika-chat/commit/7c3f039d25a0d43cc6cd8d24c44614ac412c245e))
+* treat blank list_files paths as workspace root ([ab849b2](https://github.com/ngutech21/sumika-chat/commit/ab849b2a222a2954ff435678e2db8bf6de8af6b0))
+
 ## [1.9.0](https://github.com/ngutech21/sumika-chat/compare/v1.8.0...v1.9.0) (2026-08-28)
 
 
