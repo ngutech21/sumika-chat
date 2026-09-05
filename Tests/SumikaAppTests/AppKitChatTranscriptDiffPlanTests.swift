@@ -1866,6 +1866,8 @@ struct AppKitChatTranscriptDiffPlanTests {
     let firstHostedView = try #require(cell.hostedContentViewForTesting)
     let firstHeaderLabel = try #require(
       cell.descendantTextFields.first { $0.stringValue == "Reasoning" })
+    let firstIndicator = try #require(
+      cell.descendants(of: NativeFlowActivityIndicatorView.self).first)
 
     cell.configure(
       row: revisedRow, state: NativeTranscriptCellState(), actions: testNativeActions())
@@ -1876,7 +1878,36 @@ struct AppKitChatTranscriptDiffPlanTests {
 
     #expect(firstHostedView === revisedHostedView)
     #expect(firstHeaderLabel === revisedHeaderLabel)
+    #expect(cell.descendants(of: NativeFlowActivityIndicatorView.self).first === firstIndicator)
     #expect(cell.descendantTextValues.contains("Inspecting the search results"))
+  }
+
+  @Test
+  func completedReasoningReplacesFlowIndicatorWithStaticBrain() throws {
+    let cell = configuredNativeCell(
+      for: nativeStreamingThinkingRow(id: "thinking", revision: 1, content: "Inspecting")
+    )
+    let indicator = try #require(cell.descendants(of: NativeFlowActivityIndicatorView.self).first)
+    let startedAt = Date(timeIntervalSinceReferenceDate: 1000)
+    cell.configure(
+      row: nativeCompletedThinkingRow(
+        id: "thinking",
+        revision: 2,
+        content: "Inspected the workspace.",
+        startedAt: startedAt,
+        completedAt: startedAt.addingTimeInterval(4)
+      ),
+      state: NativeTranscriptCellState(),
+      actions: testNativeActions()
+    )
+
+    #expect(indicator.superview == nil)
+    #expect(cell.descendants(of: NativeFlowActivityIndicatorView.self).isEmpty)
+    #expect(
+      cell.descendants(of: NSImageView.self).contains {
+        $0.image === NativeTranscriptSymbolImages.image(named: "brain")
+      }
+    )
   }
 
   @Test

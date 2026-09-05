@@ -157,8 +157,8 @@ final class NativeAssistantThinkingView: NSView {
 
     statusHost.translatesAutoresizingMaskIntoConstraints = false
     NSLayoutConstraint.activate([
-      statusHost.widthAnchor.constraint(equalToConstant: 12),
-      statusHost.heightAnchor.constraint(equalToConstant: 12),
+      statusHost.widthAnchor.constraint(equalToConstant: 18),
+      statusHost.heightAnchor.constraint(equalToConstant: 18),
     ])
     header.addArrangedSubview(statusHost)
 
@@ -353,17 +353,7 @@ private func nativeThinkingStatusIndicator(
   status: AssistantDeliveryStatus
 ) -> NSView {
   if status == .streaming {
-    let spinner = NSProgressIndicator()
-    spinner.translatesAutoresizingMaskIntoConstraints = false
-    spinner.style = .spinning
-    spinner.controlSize = .small
-    spinner.startAnimation(nil)
-    NSLayoutConstraint.activate([
-      spinner.widthAnchor.constraint(equalToConstant: 12),
-      spinner.heightAnchor.constraint(equalToConstant: 12),
-    ])
-    spinner.setAccessibilityElement(false)
-    return spinner
+    return NativeFlowActivityIndicatorView()
   }
 
   let imageView = NSImageView()

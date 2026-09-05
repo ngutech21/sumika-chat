@@ -270,12 +270,8 @@ final class NativeGenerationIndicatorView: NSStackView {
     distribution = .gravityAreas
     spacing = 8
 
-    let spinner = NSProgressIndicator()
-    spinner.style = .spinning
-    spinner.controlSize = .small
-    spinner.isDisplayedWhenStopped = false
-    spinner.startAnimation(nil)
-    addArrangedSubview(spinner)
+    titleLabel.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+    addArrangedSubview(NativeFlowActivityIndicatorView())
     addArrangedSubview(titleLabel)
   }
 
