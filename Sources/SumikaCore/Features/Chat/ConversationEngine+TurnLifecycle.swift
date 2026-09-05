@@ -110,6 +110,8 @@ extension ConversationEngine {
       }
 
       try await runtimeContextClearCoordinator.awaitPendingClear()
+      try Task.checkCancellation()
+      guard self.isActive(turnID) else { return .stop }
       if toolProfile == .agent, let workspace {
         let loadResult = try await workspaceInstructionsLoader.loadInstructions(from: workspace)
         guard self.isActive(turnID) else {
@@ -360,7 +362,7 @@ extension ConversationEngine {
     operation: @escaping @MainActor @Sendable (ChatTurn.ID) async throws -> ChatTurnTaskOutcome
   ) {
     startTurn(id: turnID) { [weak self] turnID in
-      guard let self else {
+      guard let self, self.isActive(turnID), !Task.isCancelled else {
         return
       }
 

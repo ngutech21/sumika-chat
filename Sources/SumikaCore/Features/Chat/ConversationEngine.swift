@@ -28,6 +28,7 @@ final class ConversationEngine {
       }
       activeConversation?.session = newValue
       syncComposerSessionState()
+      syncAttachmentReferences()
     }
   }
   private var pendingAttachments: [ChatAttachment] {
@@ -43,6 +44,7 @@ final class ConversationEngine {
       }
       activeConversation?.pendingAttachments = newValue
       syncComposerSessionState()
+      syncAttachmentReferences()
     }
   }
   private(set) var composerSessionState = ChatComposerSessionState()
@@ -153,6 +155,14 @@ final class ConversationEngine {
       turnTracer: turnTracer
     )
     self.attachmentCoordinator = ChatAttachmentCoordinator(loader: chatAttachmentLoader)
+    self.attachmentCoordinator.onCleanup = { [weak self] issues in
+      guard let self else { return }
+      if !issues.isEmpty {
+        self.errorMessage = FileCleanupIssue.message
+      } else if self.errorMessage == FileCleanupIssue.message {
+        self.errorMessage = nil
+      }
+    }
   }
 
   deinit {
@@ -272,6 +282,14 @@ extension ConversationEngine {
     onSessionDidChange = handler
   }
 
+  func setAttachmentCleanupFailureHandler(
+    _ handler: @escaping @MainActor @Sendable ([FileCleanupIssue]) -> Void
+  ) {
+    attachmentCoordinator.onCleanup = { issues in
+      if !issues.isEmpty { handler(issues) }
+    }
+  }
+
   // Test-only convenience overload; exercised through @testable import.
   // swiftlint:disable:next unused_declaration
   func setSessionChangeHandler(
@@ -326,9 +344,12 @@ extension ConversationEngine {
     modelRuntimeWasReset: Bool,
     prepareRuntimeContext: Bool = true
   ) {
+    attachmentCoordinator.cancelLoading()
+    isLoadingAttachments = false
     errorMessage = nil
     updateRuntimeCacheDebugSnapshot(nil)
     activeConversation = ActiveConversation(workspace: workspace, session: session)
+    syncAttachmentReferences()
     skillCatalogSnapshot = .empty
     syncComposerSessionState()
     applyConfiguredAgentToolsForActiveSession()
@@ -378,6 +399,7 @@ extension ConversationEngine {
     isLoadingAttachments = false
     publishSessionSnapshot()
     activeConversation = nil
+    syncAttachmentReferences()
     skillCatalogRefreshTask?.cancel()
     skillCatalogRefreshTask = nil
     skillCatalogSnapshot = .empty
@@ -386,6 +408,16 @@ extension ConversationEngine {
     updateRuntimeCacheDebugSnapshot(nil)
     invalidateModelContextDebugDocument()
     clearRuntimeContextForReuse()
+  }
+
+  func drainAttachments() async {
+    await attachmentCoordinator.drain()
+  }
+
+  private func syncAttachmentReferences() {
+    let ids = (activeConversation?.session.attachmentIDs ?? [])
+      .union(activeConversation?.pendingAttachments.map(\.id) ?? [])
+    attachmentCoordinator.setReferences(ids)
   }
 
   func setInteractionMode(_ mode: WorkspaceInteractionMode) {
@@ -694,7 +726,6 @@ extension ConversationEngine {
     updateDefaultSessionTitleIfNeeded(fromFirstPrompt: prompt)
     applyPendingAgentToolExecutorRegistry()
     errorMessage = nil
-    pendingAttachments.removeAll()
     isGenerating = true
 
     startUserTurn(
@@ -706,6 +737,7 @@ extension ConversationEngine {
       runtime: turnRuntimeContext(),
       runtimeContextClearCoordinator: runtimeContextClearCoordinator
     )
+    pendingAttachments.removeAll()
   }
 
   // Test-only convenience that still enters the canonical asynchronous submission path.

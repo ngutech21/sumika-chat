@@ -9,6 +9,111 @@ import Testing
 @MainActor
 struct AppStateTests {
   @Test
+  func terminationDiscardsPendingAttachmentCopies() async throws {
+    let root = try scopedTemporaryDirectory()
+    let source = root.appending(path: "source.txt")
+    try Data("pending".utf8).write(to: source)
+    let store = WorkspaceStore(baseURL: root.appending(path: "app"))
+    let session = ChatSession()
+    let workspace = Workspace(name: "Project", rootURL: root, sessions: [session])
+    try await store.saveLibrary(
+      WorkspaceLibrary(
+        workspaces: [workspace], activeWorkspaceID: workspace.id, activeSessionID: session.id
+      ))
+    let appState = AppState(
+      workspaceStore: store, modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      appBehaviorSettingsStore: InMemoryAppBehaviorSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(), runtime: AppStateTestRuntime()
+    )
+    try await waitUntil { !appState.workspaceState.isLoading }
+    appState.chatFeatureState.addAttachments(from: [source])
+    try await waitUntil { !appState.chatFeatureState.composer.session.pendingAttachments.isEmpty }
+    let attachment = try #require(
+      appState.chatFeatureState.composer.session.pendingAttachments.first)
+    await appState.prepareForTermination()
+    let files = ChatAttachmentStore(baseURL: root.appending(path: "app/Attachments"))
+    #expect(!FileManager.default.fileExists(atPath: files.directoryURL(for: attachment.id).path))
+    #expect(try Data(contentsOf: source) == Data("pending".utf8))
+  }
+
+  @Test(arguments: ["chat", "workspace"])
+  func deletionReclaimsOwnedFilesAndKeepsSharedImagePreviews(action: String) async throws {
+    let root = try scopedTemporaryDirectory()
+    let source = root.appending(path: "source.png")
+    let data = try #require(
+      Data(
+        base64Encoded:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+      ))
+    try data.write(to: source)
+    let store = WorkspaceStore(baseURL: root.appending(path: "app"))
+    let batch = try await ChatAttachmentLoader(lifecycle: store.attachmentLifecycle)
+      .loadAttachments(from: [source], existingAttachments: [])
+    let attachment = try #require(batch.attachments.first)
+    let userSession = ChatSession(turns: [
+      ChatTurn(
+        status: .cancelled,
+        items: [
+          .userMessage(UserTurnMessage(content: "Image", attachments: [attachment]))
+        ])
+    ])
+    let assistantSession = ChatSession(turns: [
+      ChatTurn(
+        status: .completed,
+        items: [
+          .assistantMessage(AssistantTurnMessage(content: "Image", attachments: [attachment]))
+        ])
+    ])
+    let first = Workspace(name: "First", rootURL: root, sessions: [userSession])
+    let secondRoot = root.appending(path: "second")
+    try FileManager.default.createDirectory(at: secondRoot, withIntermediateDirectories: true)
+    let second = Workspace(name: "Second", rootURL: secondRoot, sessions: [assistantSession])
+    try await store.saveLibrary(
+      WorkspaceLibrary(
+        workspaces: [first, second], activeWorkspaceID: first.id, activeSessionID: userSession.id
+      ))
+    await batch.discard()
+    let appState = AppState(
+      workspaceStore: store,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      appBehaviorSettingsStore: InMemoryAppBehaviorSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(), runtime: AppStateTestRuntime()
+    )
+    try await waitUntil { !appState.workspaceState.isLoading }
+    #expect(appState.chatFeatureState.activateSelectedConversation())
+    await appState.workspaceState.flushPendingSaves()
+    if action == "chat" {
+      appState.deleteSession(userSession.id)
+    } else {
+      appState.removeWorkspace(first.id)
+    }
+    await appState.workspaceState.flushPendingSaves()
+    let attachmentStore = ChatAttachmentStore(baseURL: root.appending(path: "app/Attachments"))
+    let imageURL = try attachmentStore.validateStoredFile(for: attachment)
+    #expect(
+      NativeTranscriptImageFileLoader.thumbnailImage(from: imageURL, maxPixelSize: 180) != nil)
+    let sessions = root.appending(path: "app/WorkspaceLibrary/sessions")
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: sessions.appending(path: "\(userSession.id.uuidString.lowercased()).json").path))
+    appState.removeWorkspace(second.id)
+    await appState.prepareForTermination()
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: sessions.appending(path: "\(assistantSession.id.uuidString.lowercased()).json").path
+      ))
+    #expect(
+      !FileManager.default.fileExists(atPath: attachmentStore.directoryURL(for: attachment.id).path)
+    )
+    #expect(try Data(contentsOf: source) == data)
+    #expect(FileManager.default.fileExists(atPath: root.path))
+    #expect(FileManager.default.fileExists(atPath: secondRoot.path))
+    #expect(appState.workspaceState.persistedWorkspaceIDs == (action == "chat" ? [first.id] : []))
+  }
+
+  @Test
   func chatFacadeProjectsEngineStateAndRoutesUserOperations() async throws {
     let sessionID = UUID()
     let workspace = Workspace(
@@ -272,6 +377,9 @@ struct AppStateTests {
       runtime: AppStateTestRuntime(),
       browserToolService: browserToolService,
       skillCatalog: try testSkillCatalog(),
+      attachmentLifecycle: ChatAttachmentLifecycle(
+        store: ChatAttachmentStore(
+          baseURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString))),
       turnTracer: turnTracer
     )
     let appState = AppState(
@@ -1606,6 +1714,9 @@ struct AppStateTests {
       modelSettingsStore: InMemoryModelSettingsStore(),
       runtime: AppStateTestRuntime(),
       skillCatalog: try testSkillCatalog(),
+      attachmentLifecycle: ChatAttachmentLifecycle(
+        store: ChatAttachmentStore(
+          baseURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString))),
       turnTracer: NoopTurnTracer()
     )
 
@@ -1628,6 +1739,9 @@ struct AppStateTests {
         await webAccessSettingsStore.snapshot()
       },
       skillCatalog: try testSkillCatalog(),
+      attachmentLifecycle: ChatAttachmentLifecycle(
+        store: ChatAttachmentStore(
+          baseURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString))),
       turnTracer: NoopTurnTracer()
     )
     let appState = AppState(
@@ -1766,6 +1880,9 @@ struct AppStateTests {
         await webAccessSettingsStore.snapshot()
       },
       skillCatalog: try testSkillCatalog(),
+      attachmentLifecycle: ChatAttachmentLifecycle(
+        store: ChatAttachmentStore(
+          baseURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString))),
       turnTracer: NoopTurnTracer()
     )
 
@@ -2253,6 +2370,7 @@ struct AppStateTests {
       blockedSaveNumber: 1
     )
     let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
       mcpServersStore: store,
@@ -2511,6 +2629,10 @@ private func mcpToolNames(in context: ChatRuntimeToolContext) -> [String] {
 }
 
 private actor InMemoryWorkspaceStore: WorkspaceStoring {
+  nonisolated let attachmentLifecycle = ChatAttachmentLifecycle(
+    store: ChatAttachmentStore(
+      baseURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString))
+  )
   private var library: WorkspaceLibrary
   private var savedLibraries: [WorkspaceLibrary] = []
 
@@ -2522,9 +2644,15 @@ private actor InMemoryWorkspaceStore: WorkspaceStoring {
     WorkspaceLibraryLoadResult(library: library)
   }
 
-  func saveLibrary(_ library: WorkspaceLibrary) async throws {
+  func saveLibrary(_ library: WorkspaceLibrary) async throws -> WorkspaceLibrarySaveResult {
     self.library = library
     savedLibraries.append(library)
+    attachmentLifecycle.recordCommittedReferences(library.attachmentIDs)
+    return WorkspaceLibrarySaveResult()
+  }
+
+  func retryCleanup() async -> [FileCleanupIssue] {
+    await attachmentLifecycle.cleanup()
   }
 
   func latestSavedLibrary() -> WorkspaceLibrary? {
@@ -2533,6 +2661,10 @@ private actor InMemoryWorkspaceStore: WorkspaceStoring {
 }
 
 private actor SlowSaveWorkspaceStore: WorkspaceStoring {
+  nonisolated let attachmentLifecycle = ChatAttachmentLifecycle(
+    store: ChatAttachmentStore(
+      baseURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString))
+  )
   private var library: WorkspaceLibrary
   private var savedLibraries: [WorkspaceLibrary] = []
 
@@ -2544,10 +2676,16 @@ private actor SlowSaveWorkspaceStore: WorkspaceStoring {
     WorkspaceLibraryLoadResult(library: library)
   }
 
-  func saveLibrary(_ library: WorkspaceLibrary) async throws {
+  func saveLibrary(_ library: WorkspaceLibrary) async throws -> WorkspaceLibrarySaveResult {
     try await Task.sleep(for: .milliseconds(50))
     self.library = library
     savedLibraries.append(library)
+    attachmentLifecycle.recordCommittedReferences(library.attachmentIDs)
+    return WorkspaceLibrarySaveResult()
+  }
+
+  func retryCleanup() async -> [FileCleanupIssue] {
+    await attachmentLifecycle.cleanup()
   }
 
   func latestSavedLibrary() -> WorkspaceLibrary? {

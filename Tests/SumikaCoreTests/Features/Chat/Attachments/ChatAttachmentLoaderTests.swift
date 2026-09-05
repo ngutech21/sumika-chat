@@ -16,11 +16,13 @@ struct ChatAttachmentLoaderTests {
     let existingURL = try write(
       Data(String(repeating: "a", count: 30_000).utf8), to: "existing.txt")
     let existing = try await loader.loadAttachments(from: [existingURL], existingAttachments: [])
+      .attachments
     let firstURL = try write(Data(String(repeating: "b", count: 2_000).utf8), to: "first.txt")
     let secondURL = try write(Data("c".utf8), to: "second.txt")
 
     await #expect(throws: (any Error).self) {
       try await loader.loadAttachments(from: [firstURL, secondURL], existingAttachments: existing)
+        .attachments
     }
 
     let stored = try FileManager.default.contentsOfDirectory(
@@ -47,7 +49,7 @@ struct ChatAttachmentLoaderTests {
     let attachments = try await loader.loadAttachments(
       from: [fileURL],
       existingAttachments: []
-    )
+    ).attachments
 
     let attachment = try #require(attachments.first)
     #expect(attachments.count == 1)
@@ -64,11 +66,12 @@ struct ChatAttachmentLoaderTests {
 
   @Test
   func loadAttachmentsRejectsDOCXWithoutDocumentConverter() async throws {
-    let loader = ChatAttachmentLoader()
+    let loader = ChatAttachmentLoader(
+      attachmentStore: ChatAttachmentStore(baseURL: try makeTemporaryDirectory()))
     let fileURL = try write(Data("DOCX fixture bytes".utf8), to: "Report.docx")
 
     do {
-      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: [])
+      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: []).attachments
       Issue.record("Expected unsupported file type error")
     } catch ChatAttachmentError.unsupportedFileType(let name) {
       #expect(name == "Report.docx")
@@ -80,14 +83,16 @@ struct ChatAttachmentLoaderTests {
   @Test
   func loadAttachmentsRejectsDOCXOverTheSourceSizeLimitBeforeConversion() async throws {
     let converter = RecordingDocumentMarkdownConverter(markdown: "unused")
-    let loader = ChatAttachmentLoader(documentMarkdownConverter: converter)
+    let loader = ChatAttachmentLoader(
+      attachmentStore: ChatAttachmentStore(baseURL: try makeTemporaryDirectory()),
+      documentMarkdownConverter: converter)
     let fileURL = try write(
       Data(repeating: 0x61, count: ChatAttachmentLimits.maxDocumentFileBytes + 1),
       to: "large.docx"
     )
 
     do {
-      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: [])
+      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: []).attachments
       Issue.record("Expected document file too large error")
     } catch ChatAttachmentError.fileTooLarge(let name, let limit) {
       #expect(name == "large.docx")
@@ -103,6 +108,7 @@ struct ChatAttachmentLoaderTests {
     let didReadData = LockedBoolean()
     let converter = RecordingDocumentMarkdownConverter(markdown: "unused")
     let loader = ChatAttachmentLoader(
+      attachmentStore: ChatAttachmentStore(baseURL: try makeTemporaryDirectory()),
       documentMarkdownConverter: converter,
       fileAccess: AttachmentFileAccess(
         startAccessingSecurityScopedResource: { _ in true },
@@ -117,7 +123,7 @@ struct ChatAttachmentLoaderTests {
     let fileURL = URL(filePath: "/tmp/unknown-size.docx")
 
     do {
-      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: [])
+      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: []).attachments
       Issue.record("Expected unavailable file size error")
     } catch ChatAttachmentError.fileSizeUnavailable(let name) {
       #expect(name == "unknown-size.docx")
@@ -161,7 +167,7 @@ struct ChatAttachmentLoaderTests {
     let attachments = try await loader.loadAttachments(
       from: [URL(filePath: "/tmp/security-scoped.docx")],
       existingAttachments: []
-    )
+    ).attachments
 
     #expect(attachments.first?.content == "Converted")
     #expect(
@@ -193,7 +199,7 @@ struct ChatAttachmentLoaderTests {
     let fileURL = try write(Data("DOCX fixture bytes".utf8), to: "large-output.docx")
 
     do {
-      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: [])
+      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: []).attachments
       Issue.record("Expected converted document too large error")
     } catch ChatAttachmentError.convertedDocumentTooLarge(let name, let limit) {
       #expect(name == "large-output.docx")
@@ -221,7 +227,7 @@ struct ChatAttachmentLoaderTests {
     let fileURL = try write(Data("not a DOCX".utf8), to: "broken.docx")
 
     do {
-      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: [])
+      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: []).attachments
       Issue.record("Expected document conversion failure")
     } catch ChatAttachmentError.documentConversionFailed(let name) {
       #expect(name == "broken.docx")
@@ -238,11 +244,13 @@ struct ChatAttachmentLoaderTests {
   @Test
   func loadAttachmentsPreservesDocumentConversionCancellation() async throws {
     let converter = RecordingDocumentMarkdownConverter(behavior: .cancellation)
-    let loader = ChatAttachmentLoader(documentMarkdownConverter: converter)
+    let loader = ChatAttachmentLoader(
+      attachmentStore: ChatAttachmentStore(baseURL: try makeTemporaryDirectory()),
+      documentMarkdownConverter: converter)
     let fileURL = try write(Data("DOCX fixture bytes".utf8), to: "cancelled.docx")
 
     do {
-      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: [])
+      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: []).attachments
       Issue.record("Expected cancellation")
     } catch is CancellationError {
     } catch {
@@ -266,7 +274,7 @@ struct ChatAttachmentLoaderTests {
     let fileURL = try write(Data("DOCX fixture bytes".utf8), to: "cancelled-store.docx")
 
     let loadTask = Task {
-      try await loader.loadAttachments(from: [fileURL], existingAttachments: [])
+      try await loader.loadAttachments(from: [fileURL], existingAttachments: []).attachments
     }
     await writer.waitUntilStarted()
     loadTask.cancel()
@@ -289,10 +297,12 @@ struct ChatAttachmentLoaderTests {
 
   @Test
   func loadAttachmentsReadsUTF8TextFiles() async throws {
-    let loader = ChatAttachmentLoader()
+    let loader = ChatAttachmentLoader(
+      attachmentStore: ChatAttachmentStore(baseURL: try makeTemporaryDirectory()))
     let fileURL = try write("let value = 1", to: "Source.swift")
 
     let attachments = try await loader.loadAttachments(from: [fileURL], existingAttachments: [])
+      .attachments
 
     let attachment = try #require(attachments.first)
     #expect(attachments.count == 1)
@@ -303,11 +313,12 @@ struct ChatAttachmentLoaderTests {
 
   @Test
   func loadAttachmentsRejectsUnsupportedExtensions() async throws {
-    let loader = ChatAttachmentLoader()
+    let loader = ChatAttachmentLoader(
+      attachmentStore: ChatAttachmentStore(baseURL: try makeTemporaryDirectory()))
     let fileURL = try write("binary", to: "image.gif")
 
     do {
-      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: [])
+      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: []).attachments
       Issue.record("Expected unsupported file type error")
     } catch ChatAttachmentError.unsupportedFileType(let name) {
       #expect(name == "image.gif")
@@ -318,11 +329,13 @@ struct ChatAttachmentLoaderTests {
 
   @Test
   func loadAttachmentsReadsSupportedImageFilesWithoutBinaryContent() async throws {
-    let loader = ChatAttachmentLoader()
+    let store = ChatAttachmentStore(baseURL: try makeTemporaryDirectory())
+    let loader = ChatAttachmentLoader(attachmentStore: store)
     let imageData = try tinyPNGData()
     let fileURL = try write(imageData, to: "screenshot.png")
 
     let attachments = try await loader.loadAttachments(from: [fileURL], existingAttachments: [])
+      .attachments
 
     let attachment = try #require(attachments.first)
     #expect(attachments.count == 1)
@@ -340,20 +353,21 @@ struct ChatAttachmentLoaderTests {
     #expect(payload.mimeType == "image/png")
     #expect(payload.byteSize == imageData.count)
     #expect(!payload.contentSHA256.isEmpty)
-    let storedURL = try ChatAttachmentStore().localURL(for: attachment.id)
+    let storedURL = try store.localURL(for: attachment.id)
     #expect(try Data(contentsOf: storedURL) == imageData)
   }
 
   @Test
   func loadAttachmentsAcceptsJPEGAndWebPExtensionsWhenImageDataIsReadable() async throws {
-    let loader = ChatAttachmentLoader()
+    let loader = ChatAttachmentLoader(
+      attachmentStore: ChatAttachmentStore(baseURL: try makeTemporaryDirectory()))
     let jpegURL = try write(try tinyPNGData(), to: "mock.jpg")
     let webpURL = try write(try tinyPNGData(), to: "mock.webp")
 
     let attachments = try await loader.loadAttachments(
       from: [jpegURL, webpURL],
       existingAttachments: []
-    )
+    ).attachments
 
     #expect(attachments.map(\.kind) == [.image, .image])
     #expect(attachments.map(\.mimeType) == ["image/jpeg", "image/webp"])
@@ -361,14 +375,15 @@ struct ChatAttachmentLoaderTests {
 
   @Test
   func loadAttachmentsRejectsFilesOverTheSizeLimit() async throws {
-    let loader = ChatAttachmentLoader()
+    let loader = ChatAttachmentLoader(
+      attachmentStore: ChatAttachmentStore(baseURL: try makeTemporaryDirectory()))
     let fileURL = try write(
       Data(repeating: 0x61, count: ChatAttachmentLimits.maxTextFileBytes + 1),
       to: "large.txt"
     )
 
     do {
-      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: [])
+      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: []).attachments
       Issue.record("Expected file too large error")
     } catch ChatAttachmentError.fileTooLarge(let name, let limit) {
       #expect(name == "large.txt")
@@ -380,14 +395,15 @@ struct ChatAttachmentLoaderTests {
 
   @Test
   func loadAttachmentsRejectsImagesOverTheImageSizeLimit() async throws {
-    let loader = ChatAttachmentLoader()
+    let loader = ChatAttachmentLoader(
+      attachmentStore: ChatAttachmentStore(baseURL: try makeTemporaryDirectory()))
     let fileURL = try write(
       Data(repeating: 0x89, count: ChatAttachmentLimits.maxImageFileBytes + 1),
       to: "large.png"
     )
 
     do {
-      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: [])
+      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: []).attachments
       Issue.record("Expected image file too large error")
     } catch ChatAttachmentError.fileTooLarge(let name, let limit) {
       #expect(name == "large.png")
@@ -399,11 +415,12 @@ struct ChatAttachmentLoaderTests {
 
   @Test
   func loadAttachmentsRejectsInvalidUTF8() async throws {
-    let loader = ChatAttachmentLoader()
+    let loader = ChatAttachmentLoader(
+      attachmentStore: ChatAttachmentStore(baseURL: try makeTemporaryDirectory()))
     let fileURL = try write(Data([0xff, 0xfe, 0xfd]), to: "binary.txt")
 
     do {
-      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: [])
+      _ = try await loader.loadAttachments(from: [fileURL], existingAttachments: []).attachments
       Issue.record("Expected unreadable text error")
     } catch ChatAttachmentError.unreadableText(let name) {
       #expect(name == "binary.txt")
@@ -414,7 +431,8 @@ struct ChatAttachmentLoaderTests {
 
   @Test
   func loadAttachmentsSkipsExistingAttachmentPaths() async throws {
-    let loader = ChatAttachmentLoader()
+    let loader = ChatAttachmentLoader(
+      attachmentStore: ChatAttachmentStore(baseURL: try makeTemporaryDirectory()))
     let fileURL = try write("first", to: "README.md")
     let existing = makeTextChatAttachment(
       displayName: "README.md",
@@ -424,20 +442,21 @@ struct ChatAttachmentLoaderTests {
     let attachments = try await loader.loadAttachments(
       from: [fileURL],
       existingAttachments: [existing]
-    )
+    ).attachments
 
     #expect(attachments.isEmpty)
   }
 
   @Test
   func loadAttachmentsRejectsRequestsOverTheRemainingSlotLimit() async throws {
-    let loader = ChatAttachmentLoader()
+    let loader = ChatAttachmentLoader(
+      attachmentStore: ChatAttachmentStore(baseURL: try makeTemporaryDirectory()))
     let urls = (0...ChatAttachmentLimits.maxAttachmentCount).map {
       URL(filePath: "/tmp/file-\($0).swift")
     }
 
     do {
-      _ = try await loader.loadAttachments(from: urls, existingAttachments: [])
+      _ = try await loader.loadAttachments(from: urls, existingAttachments: []).attachments
       Issue.record("Expected too many files error")
     } catch ChatAttachmentError.tooManyFiles(let limit) {
       #expect(limit == ChatAttachmentLimits.maxAttachmentCount)

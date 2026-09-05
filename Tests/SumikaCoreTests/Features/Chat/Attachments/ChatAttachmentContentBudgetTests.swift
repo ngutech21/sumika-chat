@@ -14,22 +14,24 @@ struct ChatAttachmentContentBudgetTests {
     let first = try await loader.loadAttachments(
       from: [try write(String(repeating: character, count: 30_000), name: "first.txt")],
       existingAttachments: []
-    )
+    ).attachments
     let second = try await loader.loadAttachments(
       from: [try write(String(repeating: character, count: 2_000), name: "second.txt")],
       existingAttachments: first
-    )
+    ).attachments
     #expect((first + second).map(\.content).reduce(0) { $0 + $1.count } == 32_000)
     let extraURL = try write(character, name: "extra.txt")
     do {
       _ = try await loader.loadAttachments(from: [extraURL], existingAttachments: first + second)
+        .attachments
       Issue.record("Expected character limit rejection")
     } catch ChatAttachmentError.contentTooLarge(let actual, let limit) {
       #expect(actual == 32_001)
       #expect(limit == 32_000)
     }
     let afterRemoval = try await loader.loadAttachments(
-      from: [extraURL], existingAttachments: first)
+      from: [extraURL], existingAttachments: first
+    ).attachments
     #expect(afterRemoval.count == 1)
     #expect(try store.validateStoredFile(for: first[0]).lastPathComponent == "first.txt")
   }
@@ -46,6 +48,7 @@ struct ChatAttachmentContentBudgetTests {
     let source = try write("tiny source", name: "table.xlsx")
     do {
       let attachments = try await loader.loadAttachments(from: [source], existingAttachments: [])
+        .attachments
       #expect(count == 32_000)
       #expect(attachments.first?.content == markdown)
     } catch ChatAttachmentError.contentTooLarge(let actual, let limit) {
@@ -71,7 +74,7 @@ struct ChatAttachmentContentBudgetTests {
     )
     let files = try await loader.loadAttachments(
       from: [try write("source bytes", name: "document.\(fileExtension)")], existingAttachments: []
-    )
+    ).attachments
     #expect(files.first?.content == "converted END")
   }
 
@@ -87,7 +90,7 @@ struct ChatAttachmentContentBudgetTests {
     let files = try await loader.loadAttachments(
       from: [try write(contents, name: "table.csv"), try write("image bytes", name: "image.png")],
       existingAttachments: []
-    )
+    ).attachments
     #expect(files[0].content == contents)
     #expect(files[1].kind == .image)
   }
@@ -102,6 +105,7 @@ struct ChatAttachmentContentBudgetTests {
     let source = try scopedTemporaryDirectory().appending(path: "large.pdf")
     try Data(repeating: 0, count: 8 * 1024 * 1024 + 1).write(to: source)
     let files = try await loader.loadAttachments(from: [source], existingAttachments: [])
+      .attachments
     #expect(files[0].byteSize == 8 * 1024 * 1024 + 1)
     #expect(files[0].content == "small END")
     #expect(ChatAttachmentLimits.maxDocumentFileBytes == 64 * 1024 * 1024)
@@ -118,7 +122,7 @@ struct ChatAttachmentContentBudgetTests {
       _ = try await loader.loadAttachments(
         from: [try write("text", name: "first.txt"), try write("scan", name: "scan.pdf")],
         existingAttachments: []
-      )
+      ).attachments
       Issue.record("Expected conversion failure")
     } catch is CancellationError {
       #expect(cancelled)

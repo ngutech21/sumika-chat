@@ -9,10 +9,11 @@ package enum DocumentMarkdownConversionError: Error {
 }
 
 package protocol ChatAttachmentLoading: Sendable {
+  var lifecycle: ChatAttachmentLifecycle { get }
   func loadAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment]
-  ) async throws -> [ChatAttachment]
+  ) async throws -> ChatAttachmentImport
 }
 
 struct AttachmentFileAccess: Sendable {
@@ -91,9 +92,28 @@ struct AttachmentFileAccess: Sendable {
 }
 
 package struct ChatAttachmentLoader: ChatAttachmentLoading {
-  private let attachmentStore: ChatAttachmentStore
+  package let lifecycle: ChatAttachmentLifecycle
   private let documentMarkdownConverter: (any DocumentMarkdownConverting)?
   private let fileAccess: AttachmentFileAccess
+
+  package init(
+    lifecycle: ChatAttachmentLifecycle,
+    documentMarkdownConverter: (any DocumentMarkdownConverting)? = nil
+  ) {
+    self.lifecycle = lifecycle
+    self.documentMarkdownConverter = documentMarkdownConverter
+    self.fileAccess = .live
+  }
+
+  init(
+    attachmentStore: ChatAttachmentStore = ChatAttachmentStore(),
+    documentMarkdownConverter: (any DocumentMarkdownConverting)? = nil,
+    fileAccess: AttachmentFileAccess
+  ) {
+    self.lifecycle = ChatAttachmentLifecycle(store: attachmentStore)
+    self.documentMarkdownConverter = documentMarkdownConverter
+    self.fileAccess = fileAccess
+  }
 
   package init(
     attachmentStore: ChatAttachmentStore = ChatAttachmentStore(),
@@ -106,26 +126,17 @@ package struct ChatAttachmentLoader: ChatAttachmentLoading {
     )
   }
 
-  init(
-    attachmentStore: ChatAttachmentStore = ChatAttachmentStore(),
-    documentMarkdownConverter: (any DocumentMarkdownConverting)? = nil,
-    fileAccess: AttachmentFileAccess
-  ) {
-    self.attachmentStore = attachmentStore
-    self.documentMarkdownConverter = documentMarkdownConverter
-    self.fileAccess = fileAccess
-  }
-
   package func loadAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment]
-  ) async throws -> [ChatAttachment] {
+  ) async throws -> ChatAttachmentImport {
     let remainingSlots = ChatAttachmentLimits.maxAttachmentCount - existingAttachments.count
     guard urls.count <= remainingSlots else {
       throw ChatAttachmentError.tooManyFiles(ChatAttachmentLimits.maxAttachmentCount)
     }
 
     let existingNames = Set(existingAttachments.map(\.displayName))
+    let lease = lifecycle.protect([])
     var attachments: [ChatAttachment] = []
     do {
       for url in urls {
@@ -134,40 +145,44 @@ package struct ChatAttachmentLoader: ChatAttachmentLoading {
           continue
         }
 
-        attachments.append(try await readAttachment(from: url))
+        attachments.append(try await readAttachment(from: url, lease: lease))
       }
       try Task.checkCancellation()
       try ChatAttachmentLimits.validateContent(of: existingAttachments + attachments)
-      return attachments
+      return ChatAttachmentImport(attachments: attachments, lease: lease)
     } catch {
-      for attachment in attachments {
-        await attachmentStore.removeStoredAttachment(attachment)
-      }
+      lease.release()
+      await lifecycle.cleanup()
       throw error
     }
   }
 
-  private func readAttachment(from url: URL) async throws -> ChatAttachment {
+  private func readAttachment(from url: URL, lease: ChatAttachmentLease) async throws
+    -> ChatAttachment
+  {
     let fileName = url.lastPathComponent
     let fileExtension = url.pathExtension.lowercased()
     if ChatAttachmentLimits.supportedImageFileExtensions.contains(fileExtension) {
-      return try await readImageAttachment(from: url)
+      return try await readImageAttachment(from: url, lease: lease)
     }
     if ChatAttachmentLimits.supportedTextFileExtensions.contains(fileExtension) {
-      return try await readTextAttachment(from: url)
+      return try await readTextAttachment(from: url, lease: lease)
     }
     if ChatAttachmentLimits.supportedDocumentFileExtensions.contains(fileExtension),
       let documentMarkdownConverter
     {
       return try await readDocumentAttachment(
         from: url,
-        converter: documentMarkdownConverter
+        converter: documentMarkdownConverter,
+        lease: lease
       )
     }
     throw ChatAttachmentError.unsupportedFileType(fileName)
   }
 
-  private func readTextAttachment(from url: URL) async throws -> ChatAttachment {
+  private func readTextAttachment(from url: URL, lease: ChatAttachmentLease) async throws
+    -> ChatAttachment
+  {
     let fileName = url.lastPathComponent
     let data = try await fileAccess.readData(
       from: url,
@@ -179,13 +194,15 @@ package struct ChatAttachmentLoader: ChatAttachmentLoading {
     return try await storeTextAttachment(
       content: content,
       originalData: data,
-      fileName: fileName
+      fileName: fileName,
+      lease: lease
     )
   }
 
   private func readDocumentAttachment(
     from url: URL,
-    converter: any DocumentMarkdownConverting
+    converter: any DocumentMarkdownConverting,
+    lease: ChatAttachmentLease
   ) async throws -> ChatAttachment {
     let fileName = url.lastPathComponent
     let data = try await fileAccess.readData(
@@ -216,20 +233,23 @@ package struct ChatAttachmentLoader: ChatAttachmentLoading {
     return try await storeTextAttachment(
       content: markdown,
       originalData: data,
-      fileName: fileName
+      fileName: fileName,
+      lease: lease
     )
   }
 
   private func storeTextAttachment(
     content: String,
     originalData: Data,
-    fileName: String
+    fileName: String,
+    lease: ChatAttachmentLease
   ) async throws -> ChatAttachment {
     let id = AttachmentID()
-    _ = try await attachmentStore.storeFile(
+    try await lifecycle.storeFile(
       data: originalData,
       id: id,
-      displayName: fileName
+      displayName: fileName,
+      lease: lease
     )
     return ChatAttachment(
       id: id,
@@ -244,7 +264,9 @@ package struct ChatAttachmentLoader: ChatAttachmentLoading {
     )
   }
 
-  private func readImageAttachment(from url: URL) async throws -> ChatAttachment {
+  private func readImageAttachment(from url: URL, lease: ChatAttachmentLease) async throws
+    -> ChatAttachment
+  {
     let fileName = url.lastPathComponent
     let fileExtension = url.pathExtension.lowercased()
     let imageData = try await fileAccess.readData(
@@ -255,7 +277,7 @@ package struct ChatAttachmentLoader: ChatAttachmentLoading {
     let mimeType = mimeType(forExtension: fileExtension) ?? "image"
     let contentSHA256 = ChatAttachmentStore.contentSHA256(for: imageData)
     let id = AttachmentID()
-    _ = try await attachmentStore.storeFile(data: imageData, id: id, displayName: fileName)
+    try await lifecycle.storeFile(data: imageData, id: id, displayName: fileName, lease: lease)
     return ChatAttachment(
       id: id,
       displayName: fileName,

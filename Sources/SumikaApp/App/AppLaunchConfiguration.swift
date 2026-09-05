@@ -207,6 +207,7 @@ enum AppLaunchConfiguration {
         (try? await webAccessSettingsStore.load()) ?? .disabled
       },
       skillCatalog: skillCatalog,
+      attachmentLifecycle: workspaceStore.attachmentLifecycle,
       turnTracer: turnTracer
     )
 
@@ -233,6 +234,7 @@ enum AppLaunchConfiguration {
       .disabled
     },
     skillCatalog: SkillCatalog,
+    attachmentLifecycle: ChatAttachmentLifecycle,
     turnTracer: any TurnTracing
   ) -> Sumika {
     Sumika(
@@ -245,6 +247,7 @@ enum AppLaunchConfiguration {
         browserToolService: browserToolService,
         webAccessSettingsProvider: webAccessSettingsProvider,
         chatAttachmentLoader: ChatAttachmentLoader(
+          lifecycle: attachmentLifecycle,
           documentMarkdownConverter: AnyDocDocumentMarkdownConverter()
         ),
         skillCatalog: skillCatalog,
@@ -278,6 +281,7 @@ enum AppLaunchConfiguration {
 }
 
 private actor UITestWorkspaceStore: WorkspaceStoring {
+  nonisolated var attachmentLifecycle: ChatAttachmentLifecycle { backingStore.attachmentLifecycle }
   private let manifestURL: URL
   private let legacyLibraryURL: URL
   private let backingStore: WorkspaceStore
@@ -313,8 +317,12 @@ private actor UITestWorkspaceStore: WorkspaceStoring {
     return result
   }
 
-  func saveLibrary(_ library: WorkspaceLibrary) async throws {
+  func saveLibrary(_ library: WorkspaceLibrary) async throws -> WorkspaceLibrarySaveResult {
     self.library = library
-    try await backingStore.saveLibrary(library)
+    return try await backingStore.saveLibrary(library)
+  }
+
+  func retryCleanup() async -> [FileCleanupIssue] {
+    await backingStore.retryCleanup()
   }
 }

@@ -5,10 +5,26 @@ import AppKit
 /// otherwise be killed mid-write on quit. A timeout backstop keeps a hanging
 /// write from blocking termination indefinitely.
 final class SumikaAppDelegate: NSObject, NSApplicationDelegate {
-  private static let terminationFlushTimeout: Duration = .seconds(3)
+  private let waitForTimeout: @MainActor () async -> Void
+  private let terminationReply: @MainActor (NSApplication) -> Void
 
   var prepareForTermination: (@MainActor () async -> Void)?
   private var hasRepliedToTermination = false
+
+  override convenience init() {
+    self.init(
+      waitForTimeout: { try? await Task.sleep(for: .seconds(3)) },
+      terminationReply: { $0.reply(toApplicationShouldTerminate: true) }
+    )
+  }
+
+  init(
+    waitForTimeout: @escaping @MainActor () async -> Void,
+    terminationReply: @escaping @MainActor (NSApplication) -> Void
+  ) {
+    self.waitForTimeout = waitForTimeout
+    self.terminationReply = terminationReply
+  }
 
   func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
     guard let prepareForTermination else {
@@ -20,8 +36,8 @@ final class SumikaAppDelegate: NSObject, NSApplicationDelegate {
       await prepareForTermination()
       self?.replyToTermination(sender)
     }
-    Task { [weak self] in
-      try? await Task.sleep(for: Self.terminationFlushTimeout)
+    Task { [weak self, waitForTimeout] in
+      await waitForTimeout()
       self?.replyToTermination(sender)
     }
     return .terminateLater
@@ -32,6 +48,6 @@ final class SumikaAppDelegate: NSObject, NSApplicationDelegate {
       return
     }
     hasRepliedToTermination = true
-    sender.reply(toApplicationShouldTerminate: true)
+    terminationReply(sender)
   }
 }

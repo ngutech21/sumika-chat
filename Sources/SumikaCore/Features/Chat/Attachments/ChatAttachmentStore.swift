@@ -6,20 +6,26 @@ import Foundation
 package struct ChatAttachmentStore: Sendable {
   package let baseURL: URL
   private let writeFile: @Sendable (Data, URL) async throws -> Void
+  private let removeItem: @Sendable (URL) throws -> Void
 
   package init(baseURL: URL = LocalAttachmentDirectory.defaultBaseURL) {
     self.baseURL = baseURL
     self.writeFile = { data, destinationURL in
       try await Self.writeAtomically(data, to: destinationURL)
     }
+    self.removeItem = { try FileManager.default.removeItem(at: $0) }
   }
 
   init(
     baseURL: URL,
-    writeFile: @escaping @Sendable (Data, URL) async throws -> Void
+    writeFile: @escaping @Sendable (Data, URL) async throws -> Void,
+    removeItem: @escaping @Sendable (URL) throws -> Void = {
+      try FileManager.default.removeItem(at: $0)
+    }
   ) {
     self.baseURL = baseURL
     self.writeFile = writeFile
+    self.removeItem = removeItem
   }
 
   package func storeFile(
@@ -33,27 +39,10 @@ package struct ChatAttachmentStore: Sendable {
       directoryHint: .notDirectory
     )
 
-    do {
-      try Task.checkCancellation()
-      try await writeFile(data, destinationURL)
-      try Task.checkCancellation()
-      return destinationURL
-    } catch {
-      await removeStoredFile(at: destinationURL, directoryURL: directoryURL)
-      if error is CancellationError {
-        throw CancellationError()
-      }
-      throw error
-    }
-  }
-
-  // Only the loader's uncommitted batch is removed here; existing attachments keep their identity.
-  func removeStoredAttachment(_ attachment: ChatAttachment) async {
-    let directoryURL = directoryURL(for: attachment.id)
-    await removeStoredFile(
-      at: directoryURL.appending(path: storedFileName(for: attachment.displayName)),
-      directoryURL: directoryURL
-    )
+    try Task.checkCancellation()
+    try await writeFile(data, destinationURL)
+    try Task.checkCancellation()
+    return destinationURL
   }
 
   package func localURL(for id: AttachmentID) throws -> URL {
@@ -117,22 +106,37 @@ package struct ChatAttachmentStore: Sendable {
     }
   }
 
-  private func removeStoredFile(at destinationURL: URL, directoryURL: URL) async {
-    let cleanupTask = Task.detached(priority: .utility) {
-      let fileManager = FileManager.default
-      if fileManager.fileExists(atPath: destinationURL.path(percentEncoded: false)) {
-        try? fileManager.removeItem(at: destinationURL)
+  func storedAttachmentIDs() throws -> Set<AttachmentID> {
+    guard try FileCleanupSafety.hasDirectory(at: baseURL) else { return [] }
+    let entries = try FileManager.default.contentsOfDirectory(
+      at: baseURL, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+    )
+    return try Set(
+      entries.compactMap { url in
+        guard let id = UUID(uuidString: url.lastPathComponent),
+          url.lastPathComponent == id.uuidString
+            || url.lastPathComponent == id.uuidString.lowercased(),
+          try FileCleanupSafety.isDirectory(at: url)
+        else { return nil }
+        return id
+      })
+  }
+
+  /// Called only by the lifecycle actor, with the reference reservation held.
+  func removeStoredAttachment(id: AttachmentID) throws {
+    guard try FileCleanupSafety.hasDirectory(at: baseURL) else { return }
+    for name in [id.uuidString, id.uuidString.lowercased()] {
+      let directory = baseURL.appending(path: name, directoryHint: .isDirectory)
+      guard FileManager.default.fileExists(atPath: directory.path),
+        try FileCleanupSafety.isDirectory(at: directory)
+      else { continue }
+      let files = try FileManager.default.contentsOfDirectory(
+        at: directory, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey]
+      )
+      guard try files.allSatisfy({ try FileCleanupSafety.isRegularFile(at: $0) }) else {
+        continue
       }
-      if let remainingFiles = try? fileManager.contentsOfDirectory(
-        at: directoryURL,
-        includingPropertiesForKeys: nil,
-        options: []
-      ),
-        remainingFiles.isEmpty
-      {
-        try? fileManager.removeItem(at: directoryURL)
-      }
+      try removeItem(directory)
     }
-    await cleanupTask.value
   }
 }

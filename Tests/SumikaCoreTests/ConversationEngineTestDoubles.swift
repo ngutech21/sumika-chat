@@ -535,6 +535,7 @@ actor DelayedClearContextRuntime: ChatModelRuntime {
 }
 
 actor BlockingFirstAttachmentLoader: ChatAttachmentLoading {
+  nonisolated let lifecycle = isolatedAttachmentLifecycle()
   private var firstLoadContinuation: CheckedContinuation<Void, Never>?
   private(set) var startedCount = 0
   private(set) var completedCount = 0
@@ -542,7 +543,7 @@ actor BlockingFirstAttachmentLoader: ChatAttachmentLoading {
   func loadAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment]
-  ) async throws -> [ChatAttachment] {
+  ) async throws -> ChatAttachmentImport {
     _ = existingAttachments
     startedCount += 1
     let callNumber = startedCount
@@ -556,14 +557,15 @@ actor BlockingFirstAttachmentLoader: ChatAttachmentLoading {
     completedCount += 1
 
     guard let url = urls.first else {
-      return []
+      return fixtureAttachmentImport([], lifecycle: lifecycle)
     }
-    return [
-      makeTextChatAttachment(
-        displayName: url.lastPathComponent,
-        content: callNumber == 1 ? "first" : "second"
-      )
-    ]
+    return fixtureAttachmentImport(
+      [
+        makeTextChatAttachment(
+          displayName: url.lastPathComponent,
+          content: callNumber == 1 ? "first" : "second"
+        )
+      ], lifecycle: lifecycle)
   }
 
   func releaseFirstLoad() {
@@ -573,15 +575,16 @@ actor BlockingFirstAttachmentLoader: ChatAttachmentLoading {
 }
 
 struct FixtureAttachmentLoader: ChatAttachmentLoading {
+  nonisolated let lifecycle = isolatedAttachmentLifecycle()
   let attachments: [ChatAttachment]
 
   func loadAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment]
-  ) async throws -> [ChatAttachment] {
+  ) async throws -> ChatAttachmentImport {
     _ = urls
     _ = existingAttachments
-    return attachments
+    return fixtureAttachmentImport(attachments, lifecycle: lifecycle)
   }
 }
 

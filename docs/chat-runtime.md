@@ -106,7 +106,8 @@ state.
 1. `sendMessage` requires an active conversation and validates UI-facing state
    and the combined attachment character budget before accepting the submission.
    A rejected submission preserves the draft and pending attachments. An accepted
-   submission clears them and starts the active turn.
+   submission transfers attachments into the new turn and its queued save
+   before clearing the composer.
 2. The conversation owner computes the current prompt context, then emits events
    that create a `ChatTurn` with status `.running`, append the user message with
    its frozen `promptContext`, and append the assistant placeholder.
@@ -249,6 +250,36 @@ preserves these snapshots, including historical truncated excerpts and their
 explicit warning that workspace tools cannot retrieve the omitted content.
 No RAG index, automatic summary, OCR service, history compaction, or persisted
 token ledger is introduced.
+
+### Attachment ownership and cleanup
+
+App composition shares one `ChatAttachmentLifecycle` actor between the loader,
+conversation owner, and workspace store. Imports return an explicit batch lease:
+each UUID is protected before its bytes are written, then the coordinator either
+adopts the batch or discards it. Failed, cancelled, and superseded requests are
+drained and released explicitly, including requests superseded before shutdown.
+
+Durable references are derived from user and assistant attachments in every
+retained `ChatSession.turns` / `ChatTurn.items` item. Cancelled turns and turns
+excluded from model context still own their files. Temporary leases also protect
+live transcript references, pending composer attachments, imports, and every
+queued or in-flight library snapshot. Ownership transfers precede release of the
+previous lease, including accepted sends and conversation replacement.
+
+Removing pending attachments, clearing history, replacing or deactivating a
+conversation, and deleting chats/workspaces schedule targeted cleanup. A file
+shared by any surviving owner remains available, including image previews.
+Reference changes and the final ownership check plus removal are serialized;
+ordinary changes do not scan the whole attachment store. Cleanup failures appear
+in the existing error UI with sanitized diagnostics and are retried on subsequent
+changes or shutdown, without a continuous retry loop.
+
+Termination cancels and drains imports, flushes session saves, and awaits cleanup
+within the app delegate's existing three-second termination limit. Trusted startup
+reconciliation completes interrupted cleanup; unavailable libraries suspend
+collection. See [persistence](persistence.md) for deletion ordering and recovery.
+Original source files, workspace directories, and debug traces are never targets
+of attachment or chat/workspace cleanup.
 
 ## Generation output limits
 

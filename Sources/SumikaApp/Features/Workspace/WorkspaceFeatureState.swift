@@ -28,6 +28,7 @@ final class WorkspaceFeatureState {
   private(set) var activeWorkspaceContext: WorkspaceChatContext?
   private(set) var activeSessionID: ChatSession.ID?
   private(set) var sidebarState = WorkspaceSidebarState()
+  private(set) var persistedWorkspaceIDs: Set<Workspace.ID>?
 
   var library: WorkspaceLibrary {
     workspaceLibraryController.library
@@ -82,6 +83,9 @@ final class WorkspaceFeatureState {
   {
     updateDefaultSessionFactory(defaultSessionFactory)
     let loadResult = await workspaceStore.loadLibrary()
+    if loadResult.canPersist, loadResult.origin == .persisted {
+      updatePersistedWorkspaceIDs(loadResult.library)
+    }
     isPersistenceBlocked = !loadResult.canPersist
     if loadResult.canPersist,
       case .missing(let defaultWorkspaceRootURL) = loadResult.origin
@@ -109,6 +113,8 @@ final class WorkspaceFeatureState {
     if let loadIssueMessage = Self.loadIssueMessage(for: loadResult.issues) {
       errorMessage = loadIssueMessage
       errorMessageReflectsSaveFailure = false
+    } else if !loadResult.cleanupIssues.isEmpty {
+      errorMessage = FileCleanupIssue.message
     }
     isLoading = false
     return .changed(activeSessionID)
@@ -277,11 +283,13 @@ final class WorkspaceFeatureState {
     }
 
     let initialLibrary = controller.library
-    try await Self.persistLibrary(
+    let result = try await Self.persistLibrary(
       initialLibrary,
       workspaceStore: workspaceStore,
       turnTracer: turnTracer
     )
+    updatePersistedWorkspaceIDs(initialLibrary)
+    reportCleanupIssues(result.cleanupIssues)
     return initialLibrary
   }
 
@@ -321,6 +329,20 @@ final class WorkspaceFeatureState {
   private func syncWorkspaceProjections() {
     syncActiveWorkspaceProjection()
     syncSidebarProjection()
+  }
+
+  private func updatePersistedWorkspaceIDs(_ library: WorkspaceLibrary) {
+    let ids = Set(library.workspaces.map(\.id))
+    if persistedWorkspaceIDs != ids {
+      persistedWorkspaceIDs = ids
+    }
+  }
+
+  func reportCleanupIssues(_ issues: [FileCleanupIssue]) {
+    guard !errorMessageReflectsSaveFailure,
+      errorMessage == nil || errorMessage == FileCleanupIssue.message
+    else { return }
+    errorMessage = issues.isEmpty ? nil : FileCleanupIssue.message
   }
 
   private func syncActiveWorkspaceProjection() {
@@ -368,16 +390,20 @@ final class WorkspaceFeatureState {
 
   private func saveLibrary() {
     let library = library
+    let lease = workspaceStore.attachmentLifecycle.protect(library.attachmentIDs)
     let previousSaveTask = saveLibraryTask
     saveLibraryTask = Task { [turnTracer, workspaceStore] in
+      defer { lease.release() }
       await previousSaveTask?.value
+      var cleanupIssues: [FileCleanupIssue] = []
       do {
-        try await Self.persistLibrary(
+        let outcome = try await Self.persistLibrary(
           library,
           workspaceStore: workspaceStore,
           turnTracer: turnTracer
         )
         await MainActor.run {
+          updatePersistedWorkspaceIDs(library)
           // Only clear messages this save path produced; a pending load-issue
           // notice must survive until the user dismisses it.
           if errorMessageReflectsSaveFailure {
@@ -385,28 +411,34 @@ final class WorkspaceFeatureState {
             errorMessageReflectsSaveFailure = false
           }
         }
+        cleanupIssues = outcome.cleanupIssues
       } catch {
         await MainActor.run {
           errorMessage = error.localizedDescription
           errorMessageReflectsSaveFailure = true
         }
       }
+      lease.release()
+      cleanupIssues += await workspaceStore.attachmentLifecycle.cleanup()
+      reportCleanupIssues(cleanupIssues)
     }
   }
 
+  @discardableResult
   nonisolated private static func persistLibrary(
     _ library: WorkspaceLibrary,
     workspaceStore: any WorkspaceStoring,
     turnTracer: any TurnTracing
-  ) async throws {
+  ) async throws -> WorkspaceLibrarySaveResult {
     let startedAt = Date()
-    try await workspaceStore.saveLibrary(library)
+    let result = try await workspaceStore.saveLibrary(library)
     await turnTracer.recordTurnTraceEvent(
       TurnTraceEvent(
         phase: .persist,
         durationMs: Date().timeIntervalSince(startedAt) * 1000
       )
     )
+    return result
   }
 
   /// Waits until every queued library write has reached the store. Saves are
@@ -414,6 +446,8 @@ final class WorkspaceFeatureState {
   /// queue.
   func flushPendingSaves() async {
     await saveLibraryTask?.value
+    let issues = await workspaceStore.retryCleanup()
+    reportCleanupIssues(issues)
   }
 
   private func openActiveWorkspace(destination: WorkspaceOpenDestination) {

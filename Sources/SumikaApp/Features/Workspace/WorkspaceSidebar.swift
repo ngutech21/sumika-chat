@@ -3,6 +3,7 @@ import SwiftUI
 
 struct WorkspaceSidebar: View {
   let sidebarState: WorkspaceSidebarState
+  let persistedWorkspaceIDs: Set<Workspace.ID>?
   let busySessionID: ChatSession.ID?
   let processResourceMonitor: ProcessResourceMonitor
   @Binding var selection: AppRoute?
@@ -44,6 +45,7 @@ struct WorkspaceSidebar: View {
       )
     }
     .onAppear {
+      pruneCollapsedWorkspaces()
       syncSessionPagination()
     }
     .onChange(of: selection) {
@@ -52,6 +54,7 @@ struct WorkspaceSidebar: View {
     .onChange(of: sidebarState) {
       sessionPagination.retainWorkspaces(sidebarState.workspaces)
     }
+    .onChange(of: persistedWorkspaceIDs) { pruneCollapsedWorkspaces() }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .alert("Rename Chat", isPresented: renameAlertBinding) {
       TextField("Chat name", text: $renameTitle)
@@ -249,6 +252,20 @@ struct WorkspaceSidebar: View {
       }
       collapsedWorkspaceIDsRaw = ids.map(\.uuidString).sorted().joined(separator: ",")
     }
+  }
+
+  private func pruneCollapsedWorkspaces() {
+    guard let persistedWorkspaceIDs else { return }
+    collapsedWorkspaceIDsRaw = Self.retainedCollapsedWorkspaceIDs(
+      collapsedWorkspaceIDsRaw, retaining: persistedWorkspaceIDs
+    )
+  }
+
+  static func retainedCollapsedWorkspaceIDs(_ raw: String, retaining ids: Set<Workspace.ID>)
+    -> String
+  {
+    Set(raw.split(separator: ",").compactMap { UUID(uuidString: String($0)) })
+      .intersection(ids).map(\.uuidString).sorted().joined(separator: ",")
   }
 
   private func syncSessionPagination() {

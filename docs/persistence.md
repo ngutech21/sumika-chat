@@ -41,3 +41,51 @@ Downloaded model `config.json` and `generation_config.json` files are model
 artifacts owned by their publishers, not Sumika configuration schemas. Debug
 traces and attachment payloads are operational data and likewise are outside
 this versioning contract.
+
+## Workspace deletion and attachment recovery
+
+`WorkspaceStore.saveLibrary` writes changed session documents, then commits the
+manifest before removing obsolete session files. A successful return means the
+save committed; its typed result may separately contain cleanup warnings. The
+store updates its persisted snapshot at commit, even when a later unlink fails.
+No schema or directory-layout change and no persisted attachment ownership ledger
+are required.
+
+The shared `ChatAttachmentLifecycle` derives committed attachment references from
+all retained user and assistant turn items, including cancelled and model-excluded
+turns. These references are combined with leases for live conversations, pending
+attachments, imports, and queued/in-flight save snapshots. Removing the final
+reference reclaims the imported copy. Surviving conversations keep shared files.
+The import and conversation transfer rules are documented in
+[chat runtime](chat-runtime.md#attachment-ownership-and-cleanup).
+
+A failed write before commit invalidates cached persistence assumptions and
+suspends collection while retaining protection. The store must reload the complete
+authoritative manifest and every referenced session before reconciling again.
+Unreadable, malformed, unsupported, and partially loaded libraries cannot authorize
+cleanup; an empty UI fallback is never evidence that stored attachments are unused.
+An initially missing library authorizes full cleanup only after its first save.
+If its initial write fails, the same store retains the known-empty initial state
+so a later save can retry without a manifest. Attachment and session cleanup stay
+suspended until that save commits. A newly opened store still rejects an existing
+library directory without a manifest.
+
+After a trusted startup load, recovery reload, or initial successful save, Sumika
+scans for unreferenced attachment directories and orphaned session documents. This
+completes deletion interrupted after manifest commit, as well as abandoned imports.
+Ordinary saves clean only newly unreferenced data and previous failures. Cleanup
+warnings are distinct from save failures, use the existing error UI and sanitized
+logging, and retry on ownership changes, successful saves, startup, or shutdown.
+Shutdown keeps its three-second limit, so the next startup can finish pending work.
+
+Deletion targets are restricted to validated app-owned UUID directories under
+`Attachments` and recognized UUID session documents under
+`WorkspaceLibrary/sessions`. Unknown entries and symlinks are preserved. Attachment
+filenames, original source URLs, and workspace roots never determine cleanup
+targets. Removing a workspace removes its Sumika records, not its directory.
+Debug traces under `debug` are explicitly excluded and retain their existing
+independent retention behavior.
+
+The sidebar's collapsed-workspace IDs are pruned against successfully loaded or
+committed workspace membership. This covers both workspace-removal entry points;
+startup placeholders and failed-load fallbacks do not prune preferences.

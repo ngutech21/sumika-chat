@@ -24,6 +24,7 @@ struct AnyDocDocumentMarkdownConverterTests {
       attachmentStore: store, documentMarkdownConverter: AnyDocDocumentMarkdownConverter()
     )
     let attachments = try await loader.loadAttachments(from: [url], existingAttachments: [])
+      .attachments
     let attachment = try #require(attachments.first)
     #expect(attachment.content.contains(expected))
     #expect(try Data(contentsOf: store.validateStoredFile(for: attachment)) == data)
@@ -38,7 +39,7 @@ struct AnyDocDocumentMarkdownConverterTests {
       attachmentStore: store, documentMarkdownConverter: AnyDocDocumentMarkdownConverter()
     )
     do {
-      _ = try await loader.loadAttachments(from: [url], existingAttachments: [])
+      _ = try await loader.loadAttachments(from: [url], existingAttachments: []).attachments
       Issue.record("Expected OCR-required error without partial content")
     } catch ChatAttachmentError.documentNeedsOCR(let name) {
       #expect(name == fileName)
@@ -57,6 +58,7 @@ struct AnyDocDocumentMarkdownConverterTests {
       documentMarkdownConverter: AnyDocDocumentMarkdownConverter()
     )
     let attachments = try await loader.loadAttachments(from: [url], existingAttachments: [])
+      .attachments
     #expect(attachments.first?.content.contains("Fixture Document") == true)
   }
 
@@ -76,7 +78,7 @@ struct AnyDocDocumentMarkdownConverterTests {
     let attachments = try await loader.loadAttachments(
       from: [sourceURL],
       existingAttachments: []
-    )
+    ).attachments
 
     let attachment = try #require(attachments.first)
     #expect(attachments.count == 1)

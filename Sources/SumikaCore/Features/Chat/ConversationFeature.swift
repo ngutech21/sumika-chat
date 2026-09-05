@@ -122,10 +122,20 @@ package final class ConversationFeature {
     sessionCoordinator.deactivate()
   }
 
+  package func drainAttachments() async {
+    await engine.drainAttachments()
+  }
+
   package func setSessionChangeHandler(
     _ handler: (@MainActor @Sendable (Workspace.ID, ChatSession) -> Void)?
   ) {
     engine.setSessionChangeHandler(handler)
+  }
+
+  package func setAttachmentCleanupFailureHandler(
+    _ handler: @escaping @MainActor @Sendable ([FileCleanupIssue]) -> Void
+  ) {
+    engine.setAttachmentCleanupFailureHandler(handler)
   }
 
   package func sendMessage(_ submission: MessageSubmission) async throws {

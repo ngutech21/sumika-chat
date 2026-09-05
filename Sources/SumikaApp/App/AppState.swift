@@ -53,6 +53,7 @@ final class AppState {
         (try? await webAccessSettingsStore.load()) ?? .disabled
       },
       skillCatalog: skillCatalog,
+      attachmentLifecycle: workspaceStore.attachmentLifecycle,
       turnTracer: turnTracer
     )
     self.init(
@@ -129,6 +130,9 @@ final class AppState {
     self.sumika.conversation.setSessionChangeHandler { [weak self] workspaceID, session in
       self?.persistSession(session, in: workspaceID)
       self?.reconcileMCPConnectionsIfNeeded()
+    }
+    self.sumika.conversation.setAttachmentCleanupFailureHandler { [weak workspaceState] issues in
+      workspaceState?.reportCleanupIssues(issues)
     }
     self.sumika.agent.setStatusChangeHandler { [weak self] statuses in
       self?.settingsState.mcpServerStatuses = statuses
@@ -477,11 +481,13 @@ final class AppState {
   /// spawned MCP server processes so they do not outlive the app.
   func prepareForTermination() async {
     sumika.conversation.deactivate()
+    async let drainedAttachments: Void = sumika.conversation.drainAttachments()
     await mcpServersUpdateTask?.value
     await settingsState.flushPendingSaves()
     await sumika.models.prepareForTermination()
     await workspaceState.flushPendingSaves()
     await sumika.agent.prepareForTermination()
+    await drainedAttachments
   }
 
   @discardableResult

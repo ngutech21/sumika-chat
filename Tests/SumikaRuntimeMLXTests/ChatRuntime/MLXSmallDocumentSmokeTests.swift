@@ -236,7 +236,7 @@ nonisolated final class MLXSmallDocumentSmokeTests: XCTestCase {
     let attachments = try await ChatAttachmentLoader(
       attachmentStore: ChatAttachmentStore(baseURL: root.appending(path: "stored"))
     )
-    .loadAttachments(from: [source], existingAttachments: [])
+    .loadAttachments(from: [source], existingAttachments: []).attachments
     let context = ChatModelContextBuilder().currentPromptContext(
       mode: .chat, focusedFileState: .empty, attachments: attachments)
     let prompt =

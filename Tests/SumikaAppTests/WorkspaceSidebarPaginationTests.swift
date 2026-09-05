@@ -8,6 +8,17 @@ import Testing
 @MainActor
 struct WorkspaceSidebarPaginationTests {
   @Test
+  func prunesOnlyCollapsedIDsMissingFromCommittedMembership() {
+    let retained = UUID()
+    let removed = UUID()
+    let raw = "\(removed),invalid,\(retained),\(retained)"
+    #expect(
+      WorkspaceSidebar.retainedCollapsedWorkspaceIDs(raw, retaining: [retained])
+        == retained.uuidString)
+    #expect(WorkspaceSidebar.retainedCollapsedWorkspaceIDs(raw, retaining: []).isEmpty)
+  }
+
+  @Test
   func initiallyShowsAtMostFiveSessions() {
     let shortWorkspace = makeWorkspace(sessionCount: 5)
     let longWorkspace = makeWorkspace(sessionCount: 6)

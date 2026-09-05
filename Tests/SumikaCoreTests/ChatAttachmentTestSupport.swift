@@ -41,3 +41,17 @@ func makeImageChatAttachment(
     )
   )
 }
+
+func isolatedAttachmentLifecycle() -> ChatAttachmentLifecycle {
+  ChatAttachmentLifecycle(
+    store: ChatAttachmentStore(
+      baseURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString))
+  )
+}
+
+func fixtureAttachmentImport(_ attachments: [ChatAttachment], lifecycle: ChatAttachmentLifecycle)
+  -> ChatAttachmentImport
+{
+  ChatAttachmentImport(
+    attachments: attachments, lease: lifecycle.protect(Set(attachments.map(\.id))))
+}

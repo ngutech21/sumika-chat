@@ -1,6 +1,7 @@
 import Foundation
 import SumikaCore
 import SumikaTestSupport
+import Synchronization
 import Testing
 
 @testable import SumikaApp
@@ -8,6 +9,116 @@ import Testing
 @Suite(.serialized, TemporaryDirectoryTrait(named: "sumika-workspace-feature-state-tests"))
 @MainActor
 struct WorkspaceFeatureStateTests {
+  @Test
+  func cleanupFailureReportsACommittedDeletionAndClearsAfterRetry() async throws {
+    let root = try scopedTemporaryDirectory()
+    let fail = Mutex(true)
+    let store = WorkspaceStore(
+      baseURL: root,
+      removeFile: { url in
+        if fail.withLock({ $0 }) { throw CocoaError(.fileWriteNoPermission) }
+        try FileManager.default.removeItem(at: url)
+      })
+    let workspace = Workspace(name: "Project", rootURL: root, sessions: [ChatSession()])
+    try await store.saveLibrary(WorkspaceLibrary(workspaces: [workspace]))
+    let state = WorkspaceFeatureState(
+      workspaceStore: store, workspaceOpener: WorkspaceFeatureRecordingOpener(),
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(), turnTracer: NoopTurnTracer()
+    )
+    await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
+    await state.flushPendingSaves()
+    state.removeWorkspace(workspace.id)
+    await state.flushPendingSaves()
+    #expect(state.persistedWorkspaceIDs == [])
+    #expect(state.errorMessage == FileCleanupIssue.message)
+    #expect(!state.isPersistenceBlocked)
+    fail.withLock { $0 = false }
+    await state.flushPendingSaves()
+    #expect(state.errorMessage == nil)
+    let files = try FileManager.default.contentsOfDirectory(
+      at: root.appending(path: "WorkspaceLibrary/sessions"), includingPropertiesForKeys: nil
+    )
+    #expect(files.isEmpty)
+  }
+
+  @Test
+  func collapsedMembershipWaitsForCommitAndSurvivesSaveFailure() async throws {
+    let root = try scopedTemporaryDirectory()
+    let fail = Mutex(false)
+    let store = WorkspaceStore(
+      baseURL: root,
+      writeData: { data, url in
+        if fail.withLock({ $0 }) { throw CocoaError(.fileWriteNoPermission) }
+        try data.write(to: url, options: .atomic)
+      })
+    let workspace = Workspace(name: "Project", rootURL: root)
+    try await store.saveLibrary(WorkspaceLibrary(workspaces: [workspace]))
+    let state = WorkspaceFeatureState(
+      workspaceStore: store, workspaceOpener: WorkspaceFeatureRecordingOpener(),
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(), turnTracer: NoopTurnTracer()
+    )
+    #expect(state.persistedWorkspaceIDs == nil)
+    await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
+    await state.flushPendingSaves()
+    #expect(state.persistedWorkspaceIDs == [workspace.id])
+    fail.withLock { $0 = true }
+    state.removeWorkspace(workspace.id)
+    #expect(state.persistedWorkspaceIDs == [workspace.id])
+    await state.flushPendingSaves()
+    #expect(state.persistedWorkspaceIDs == [workspace.id])
+    #expect(state.errorMessage != nil)
+    fail.withLock { $0 = false }
+    state.addWorkspace(from: root)
+    await state.flushPendingSaves()
+    #expect(state.persistedWorkspaceIDs == Set(state.library.workspaces.map(\.id)))
+    #expect(state.persistedWorkspaceIDs?.contains(workspace.id) == false)
+    #expect(state.errorMessage == nil)
+  }
+
+  @Test
+  func queuedSaveProtectsAttachmentsBeforeAnEarlierWriteCompletes() async throws {
+    let root = try scopedTemporaryDirectory()
+    let backingStore = WorkspaceStore(baseURL: root)
+    let session = ChatSession(title: "Original")
+    let workspace = Workspace(name: "Project", rootURL: root, sessions: [session])
+    try await backingStore.saveLibrary(WorkspaceLibrary(workspaces: [workspace]))
+    let store = PausingWorkspaceFeatureStore(backingStore: backingStore)
+    let state = WorkspaceFeatureState(
+      workspaceStore: store, workspaceOpener: WorkspaceFeatureRecordingOpener(),
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(), turnTracer: NoopTurnTracer()
+    )
+    await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
+    await state.flushPendingSaves()
+    await store.pauseNextSave()
+    defer { Task { await store.releaseSave() } }
+    state.renameSession(session.id, title: "Older queued save")
+    await store.waitForSave()
+    let source = root.appending(path: "source.txt")
+    try Data("queued".utf8).write(to: source)
+    let batch = try await ChatAttachmentLoader(lifecycle: store.attachmentLifecycle)
+      .loadAttachments(from: [source], existingAttachments: [])
+    let attachment = try #require(batch.attachments.first)
+    let snapshot = ChatSession(
+      id: session.id,
+      turns: [
+        ChatTurn(
+          status: .completed,
+          items: [
+            .userMessage(UserTurnMessage(content: "queued", attachments: [attachment]))
+          ])
+      ])
+    state.persistSessionSnapshot(snapshot, in: workspace.id)
+    await batch.discard()
+    await store.attachmentLifecycle.cleanup(reconcile: true)
+    let files = ChatAttachmentStore(baseURL: root.appending(path: "Attachments"))
+    #expect(try files.validateStoredFile(for: attachment).lastPathComponent == "source.txt")
+    await store.releaseSave()
+    await state.flushPendingSaves()
+    let loaded = await WorkspaceStore(baseURL: root).loadLibrary()
+    #expect(loaded.library.attachmentIDs == [attachment.id])
+    #expect(try files.validateStoredFile(for: attachment).lastPathComponent == "source.txt")
+  }
+
   @Test
   func sidebarOrdersSessionsNewestFirst() {
     let oldestSession = ChatSession(
@@ -60,6 +171,7 @@ struct WorkspaceFeatureStateTests {
 
     let personalWorkspace = try #require(state.library.workspaces.first)
     let initialSession = try #require(personalWorkspace.sessions.first)
+    #expect(state.persistedWorkspaceIDs == [personalWorkspace.id])
     #expect(change == .changed(initialSession.id))
     #expect(personalWorkspace.name == "Personal")
     #expect(
@@ -233,6 +345,7 @@ struct WorkspaceFeatureStateTests {
     #expect(state.activeWorkspace == nil)
     #expect(state.activeSession == nil)
     #expect(state.errorMessage?.hasPrefix("Personal workspace could not be created.") == true)
+    #expect(state.persistedWorkspaceIDs == nil)
     #expect(
       !FileManager.default.fileExists(
         atPath:
@@ -673,6 +786,7 @@ struct WorkspaceFeatureStateTests {
     )
 
     #expect(state.isPersistenceBlocked)
+    #expect(state.persistedWorkspaceIDs == nil)
     #expect(state.errorMessage?.contains("invalid") == true)
     #expect(createChange == .unchanged)
     #expect(selectionChange == .unchanged)
@@ -699,7 +813,50 @@ struct WorkspaceFeatureStateTests {
   }
 }
 
+private actor PausingWorkspaceFeatureStore: WorkspaceStoring {
+  nonisolated let attachmentLifecycle: ChatAttachmentLifecycle
+  private let backingStore: WorkspaceStore
+  private var shouldPause = false
+  private var saveContinuation: CheckedContinuation<Void, Never>?
+  private var startContinuations: [CheckedContinuation<Void, Never>] = []
+
+  init(backingStore: WorkspaceStore) {
+    self.backingStore = backingStore
+    self.attachmentLifecycle = backingStore.attachmentLifecycle
+  }
+
+  func pauseNextSave() { shouldPause = true }
+  func waitForSave() async {
+    if saveContinuation == nil {
+      await withCheckedContinuation { startContinuations.append($0) }
+    }
+  }
+
+  func releaseSave() {
+    saveContinuation?.resume()
+    saveContinuation = nil
+  }
+
+  func loadLibrary() async -> WorkspaceLibraryLoadResult { await backingStore.loadLibrary() }
+  func retryCleanup() async -> [FileCleanupIssue] { await backingStore.retryCleanup() }
+  func saveLibrary(_ library: WorkspaceLibrary) async throws -> WorkspaceLibrarySaveResult {
+    if shouldPause {
+      shouldPause = false
+      await withCheckedContinuation { continuation in
+        saveContinuation = continuation
+        for waiter in startContinuations { waiter.resume() }
+        startContinuations.removeAll()
+      }
+    }
+    return try await backingStore.saveLibrary(library)
+  }
+}
+
 private actor WorkspaceFeatureInMemoryStore: WorkspaceStoring {
+  nonisolated let attachmentLifecycle = ChatAttachmentLifecycle(
+    store: ChatAttachmentStore(
+      baseURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString))
+  )
   private var library: WorkspaceLibrary
   private let loadIssues: [WorkspaceLibraryLoadIssue]
   private let loadOrigin: WorkspaceLibraryLoadOrigin
@@ -726,12 +883,18 @@ private actor WorkspaceFeatureInMemoryStore: WorkspaceStoring {
     )
   }
 
-  func saveLibrary(_ library: WorkspaceLibrary) async throws {
+  func saveLibrary(_ library: WorkspaceLibrary) async throws -> WorkspaceLibrarySaveResult {
     if shouldFailSaves {
       throw WorkspaceFeatureStoreError.saveFailed
     }
     self.library = library
     savedLibraries.append(library)
+    attachmentLifecycle.recordCommittedReferences(library.attachmentIDs)
+    return WorkspaceLibrarySaveResult()
+  }
+
+  func retryCleanup() async -> [FileCleanupIssue] {
+    await attachmentLifecycle.cleanup()
   }
 
   func latestSavedLibrary() -> WorkspaceLibrary? {

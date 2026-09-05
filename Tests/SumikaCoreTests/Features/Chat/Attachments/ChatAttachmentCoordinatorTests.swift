@@ -153,7 +153,8 @@ struct ChatAttachmentCoordinatorTests {
   }
 }
 
-private final class AttachmentFakeLoader: ChatAttachmentLoading, @unchecked Sendable {
+private struct AttachmentFakeLoader: ChatAttachmentLoading {
+  let lifecycle = isolatedAttachmentLifecycle()
   private let result: Result<[ChatAttachment], Error>
 
   init(result: Result<[ChatAttachment], Error>) {
@@ -163,14 +164,15 @@ private final class AttachmentFakeLoader: ChatAttachmentLoading, @unchecked Send
   func loadAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment]
-  ) async throws -> [ChatAttachment] {
+  ) async throws -> ChatAttachmentImport {
     _ = urls
     _ = existingAttachments
-    return try result.get()
+    return fixtureAttachmentImport(try result.get(), lifecycle: lifecycle)
   }
 }
 
 private actor AttachmentControlledLoader: ChatAttachmentLoading {
+  nonisolated let lifecycle = isolatedAttachmentLifecycle()
   private var calls: [CheckedContinuation<[ChatAttachment], Never>?] = []
   private var completedCalls = 0
 
@@ -181,12 +183,13 @@ private actor AttachmentControlledLoader: ChatAttachmentLoading {
   func loadAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment]
-  ) async throws -> [ChatAttachment] {
+  ) async throws -> ChatAttachmentImport {
     _ = urls
     _ = existingAttachments
-    return await withCheckedContinuation { continuation in
+    let attachments: [ChatAttachment] = await withCheckedContinuation { continuation in
       calls.append(continuation)
     }
+    return fixtureAttachmentImport(attachments, lifecycle: lifecycle)
   }
 
   func resolve(at index: Int, with attachments: [ChatAttachment]) {

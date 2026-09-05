@@ -5,8 +5,19 @@ import Foundation
 #endif
 
 package protocol WorkspaceStoring: Sendable {
+  var attachmentLifecycle: ChatAttachmentLifecycle { get }
   func loadLibrary() async -> WorkspaceLibraryLoadResult
-  func saveLibrary(_ library: WorkspaceLibrary) async throws
+  @discardableResult
+  func saveLibrary(_ library: WorkspaceLibrary) async throws -> WorkspaceLibrarySaveResult
+  func retryCleanup() async -> [FileCleanupIssue]
+}
+
+package struct WorkspaceLibrarySaveResult: Equatable, Sendable {
+  package let cleanupIssues: [FileCleanupIssue]
+
+  package init(cleanupIssues: [FileCleanupIssue] = []) {
+    self.cleanupIssues = cleanupIssues
+  }
 }
 
 /// The loaded library plus every issue encountered while loading it. An empty
@@ -15,15 +26,18 @@ package struct WorkspaceLibraryLoadResult: Equatable, Sendable {
   package let library: WorkspaceLibrary
   package let issues: [WorkspaceLibraryLoadIssue]
   package let origin: WorkspaceLibraryLoadOrigin
+  package let cleanupIssues: [FileCleanupIssue]
 
   package init(
     library: WorkspaceLibrary,
     issues: [WorkspaceLibraryLoadIssue] = [],
-    origin: WorkspaceLibraryLoadOrigin = .persisted
+    origin: WorkspaceLibraryLoadOrigin = .persisted,
+    cleanupIssues: [FileCleanupIssue] = []
   ) {
     self.library = library
     self.issues = issues
     self.origin = origin
+    self.cleanupIssues = cleanupIssues
   }
 
   package var canPersist: Bool {
@@ -61,20 +75,32 @@ package enum WorkspaceLibraryLoadIssue: Equatable, Sendable {
 }
 
 package actor WorkspaceStore: WorkspaceStoring {
+  package nonisolated let attachmentLifecycle: ChatAttachmentLifecycle
   nonisolated private let baseURL: URL
   nonisolated private let libraryDirectoryURL: URL
   nonisolated private let manifestURL: URL
   nonisolated private let sessionsDirectoryURL: URL
   nonisolated private let legacyLibraryURL: URL
   nonisolated private let now: @Sendable () -> Date
+  private let writeData: @Sendable (Data, URL) throws -> Void
+  private let removeFile: @Sendable (URL) throws -> Void
 
   private var isPersistenceBlocked = false
   private var lastPersistedLibrary: WorkspaceLibrary?
   private var lastPersistedManifest: WorkspaceLibraryManifest?
+  private var pendingSessionRemovalIDs: Set<ChatSession.ID> = []
+  private var needsSessionScan = true
+  private var needsAttachmentScan = true
 
   package init(
     baseURL: URL = LocalModelDirectory.defaultBaseURL.deletingLastPathComponent(),
-    now: @escaping @Sendable () -> Date = { Date() }
+    now: @escaping @Sendable () -> Date = { Date() },
+    writeData: @escaping @Sendable (Data, URL) throws -> Void = {
+      try $0.write(to: $1, options: .atomic)
+    },
+    removeFile: @escaping @Sendable (URL) throws -> Void = {
+      try FileManager.default.removeItem(at: $0)
+    }
   ) {
     self.baseURL = baseURL
     self.libraryDirectoryURL = baseURL.appending(
@@ -94,6 +120,11 @@ package actor WorkspaceStore: WorkspaceStoring {
       directoryHint: .notDirectory
     )
     self.now = now
+    self.writeData = writeData
+    self.removeFile = removeFile
+    self.attachmentLifecycle = ChatAttachmentLifecycle(
+      store: ChatAttachmentStore(baseURL: baseURL.appending(path: "Attachments"))
+    )
   }
 
   package func loadLibrary() async -> WorkspaceLibraryLoadResult {
@@ -126,6 +157,12 @@ package actor WorkspaceStore: WorkspaceStoring {
       lastPersistedLibrary = loaded.library
       lastPersistedManifest = loaded.manifest
       isPersistenceBlocked = false
+      attachmentLifecycle.recordCommittedReferences(loaded.library.attachmentIDs)
+      needsSessionScan = true
+      let sessionIssues = reconcileSessionFiles(in: loaded.library)
+      needsAttachmentScan = false
+      let attachmentIssues = await attachmentLifecycle.cleanup(reconcile: true)
+      let cleanupIssues = sessionIssues + attachmentIssues
 
       if FileManager.default.fileExists(atPath: legacyLibraryURL.path(percentEncoded: false)) {
         do {
@@ -137,13 +174,15 @@ package actor WorkspaceStore: WorkspaceStoring {
           logIssue(message)
           return WorkspaceLibraryLoadResult(
             library: loaded.library,
-            issues: [.legacyCleanupFailed(message: message)]
+            issues: [.legacyCleanupFailed(message: message)],
+            cleanupIssues: cleanupIssues
           )
         }
       }
 
-      return WorkspaceLibraryLoadResult(library: loaded.library)
+      return WorkspaceLibraryLoadResult(library: loaded.library, cleanupIssues: cleanupIssues)
     } catch {
+      attachmentLifecycle.suspendReconciliation()
       isPersistenceBlocked = true
       lastPersistedLibrary = nil
       lastPersistedManifest = nil
@@ -159,17 +198,43 @@ package actor WorkspaceStore: WorkspaceStoring {
       .appending(path: "Personal", directoryHint: .isDirectory)
   }
 
-  package func saveLibrary(_ library: WorkspaceLibrary) async throws {
+  @discardableResult
+  package func saveLibrary(_ library: WorkspaceLibrary) async throws -> WorkspaceLibrarySaveResult {
+    let lease = attachmentLifecycle.protect(library.attachmentIDs)
+    defer { lease.release() }
+    do {
+      try await commitLibrary(library)
+    } catch {
+      // A known-empty initial library can retry without a manifest to reload.
+      if lastPersistedManifest != nil {
+        lastPersistedLibrary = nil
+        lastPersistedManifest = nil
+      }
+      attachmentLifecycle.suspendReconciliation()
+      throw error
+    }
+    attachmentLifecycle.recordCommittedReferences(library.attachmentIDs)
+    let sessionIssues = reconcileSessionFiles(in: library)
+    lease.release()
+    let reconcileAttachments = needsAttachmentScan
+    needsAttachmentScan = false
+    let attachmentIssues = await attachmentLifecycle.cleanup(reconcile: reconcileAttachments)
+    return WorkspaceLibrarySaveResult(cleanupIssues: sessionIssues + attachmentIssues)
+  }
+
+  package func retryCleanup() async -> [FileCleanupIssue] {
+    guard !isPersistenceBlocked, lastPersistedManifest != nil,
+      let library = lastPersistedLibrary
+    else { return [] }
+    let issues = reconcileSessionFiles(in: library)
+    return issues + (await attachmentLifecycle.cleanup())
+  }
+
+  private func commitLibrary(_ library: WorkspaceLibrary) async throws {
     guard !isPersistenceBlocked else {
       throw WorkspacePersistenceError.persistenceBlocked
     }
-    if lastPersistedLibrary == nil,
-      FileManager.default.fileExists(atPath: manifestURL.path(percentEncoded: false))
-        || FileManager.default.fileExists(atPath: legacyLibraryURL.path(percentEncoded: false))
-        || FileManager.default.fileExists(
-          atPath: libraryDirectoryURL.path(percentEncoded: false)
-        )
-    {
+    if lastPersistedLibrary == nil {
       let loadResult = await loadLibrary()
       guard loadResult.canPersist else {
         throw WorkspacePersistenceError.persistenceBlocked
@@ -218,14 +283,11 @@ package actor WorkspaceStore: WorkspaceStoring {
       try writeManifest(nextManifest, to: manifestURL)
     }
 
-    for sessionID in removedSessionIDs {
-      try removeSessionFileIfPresent(sessionID, from: sessionsDirectoryURL)
-    }
-
     lastPersistedLibrary = library
     if manifestChanged {
       lastPersistedManifest = nextManifest
     }
+    pendingSessionRemovalIDs.formUnion(removedSessionIDs)
   }
 
   private func migrateLegacyLibrary() throws -> LoadedWorkspaceLibrary {
@@ -527,7 +589,7 @@ package actor WorkspaceStore: WorkspaceStoring {
 
   private func writeManifest(_ manifest: WorkspaceLibraryManifest, to url: URL) throws {
     let data = try WorkspacePersistenceCoding.makeEncoder().encode(manifest)
-    try data.write(to: url, options: .atomic)
+    try writeData(data, url)
   }
 
   private func writeSession(_ session: ChatSession, to directoryURL: URL) throws {
@@ -538,23 +600,64 @@ package actor WorkspaceStore: WorkspaceStoring {
     let data = try WorkspacePersistenceCoding.makeEncoder().encode(
       WorkspaceSessionDocument(session: session)
     )
-    try data.write(to: url, options: .atomic)
+    try writeData(data, url)
   }
 
-  private func removeSessionFileIfPresent(
-    _ sessionID: ChatSession.ID,
-    from directoryURL: URL
-  ) throws {
-    let url = directoryURL.appending(
-      path: WorkspacePersistenceCoding.sessionFileName(for: sessionID),
-      directoryHint: .notDirectory
-    )
-    guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
-      return
+  private func reconcileSessionFiles(in library: WorkspaceLibrary) -> [FileCleanupIssue] {
+    var issues: [FileCleanupIssue] = []
+    let retainedIDs = Set(Self.sessionsByID(in: library).keys)
+    pendingSessionRemovalIDs.subtract(retainedIDs)
+    do {
+      guard try FileCleanupSafety.hasDirectory(at: libraryDirectoryURL),
+        try FileCleanupSafety.hasDirectory(at: sessionsDirectoryURL)
+      else { return [] }
+      if needsSessionScan {
+        let files = try FileManager.default.contentsOfDirectory(
+          at: sessionsDirectoryURL,
+          includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey]
+        )
+        for file in files {
+          guard let id = UUID(uuidString: file.deletingPathExtension().lastPathComponent),
+            file.lastPathComponent == WorkspacePersistenceCoding.sessionFileName(for: id),
+            !retainedIDs.contains(id), try FileCleanupSafety.isRegularFile(at: file)
+          else { continue }
+          // Unknown/corrupt documents are preserved rather than guessed to be ours.
+          let data = try readData(from: file)
+          guard
+            let document = try? WorkspacePersistenceCoding.makeDecoder().decode(
+              WorkspaceSessionDocument.self, from: data
+            ), document.version == WorkspaceSessionDocument.currentVersion,
+            document.session.id == id
+          else { continue }
+          pendingSessionRemovalIDs.insert(id)
+        }
+        needsSessionScan = false
+      }
+    } catch {
+      issues.append(FileCleanupIssue(error))
+      return issues
     }
-    try FileManager.default.removeItem(at: url)
+    for id in pendingSessionRemovalIDs {
+      let file = sessionsDirectoryURL.appending(
+        path: WorkspacePersistenceCoding.sessionFileName(for: id)
+      )
+      do {
+        if FileManager.default.fileExists(atPath: file.path),
+          try FileCleanupSafety.isRegularFile(at: file)
+        {
+          try removeFile(file)
+        }
+        pendingSessionRemovalIDs.remove(id)
+      } catch {
+        issues.append(FileCleanupIssue(error))
+      }
+    }
+    return issues
   }
 
+}
+
+extension WorkspaceStore {
   private static func sessionsByID(
     in library: WorkspaceLibrary?
   ) -> [ChatSession.ID: ChatSession] {

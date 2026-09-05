@@ -21,6 +21,7 @@ struct ContentView: View {
     NavigationSplitView {
       WorkspaceSidebar(
         sidebarState: appState.workspaceState.sidebarState,
+        persistedWorkspaceIDs: appState.workspaceState.persistedWorkspaceIDs,
         busySessionID: chatState.busySessionID,
         processResourceMonitor: processResourceMonitor,
         selection: routeSelection,
