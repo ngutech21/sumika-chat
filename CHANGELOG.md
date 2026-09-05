@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.1](https://github.com/ngutech21/sumika-chat/compare/v1.10.0...v1.10.1) (2026-09-05)
+
+
+### Bug Fixes
+
+* imported attachment files survive removal and chat/workspace deletion ([fc1d44c](https://github.com/ngutech21/sumika-chat/commit/fc1d44cf036a258b226df502c9a41fd1131c5c86)), closes [#246](https://github.com/ngutech21/sumika-chat/issues/246)
+
 ## [1.10.0](https://github.com/ngutech21/sumika-chat/compare/v1.9.0...v1.10.0) (2026-09-05)
 
 
