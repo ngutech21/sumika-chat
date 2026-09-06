@@ -39,7 +39,7 @@ let package = Package(
     .package(url: "https://github.com/ml-explore/mlx-swift/", from: "0.31.6"),
     .package(
       url: "https://github.com/ngutech21/mlx-swift-lm",
-      revision: "f288168f553b2f4434b4d27e23c8b8ced735bb6a"),
+      revision: "e3eae6ceb08e17a3d071352195844a9bd86a866e"),
     .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.3"),
     .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.10.0"),
     .package(
