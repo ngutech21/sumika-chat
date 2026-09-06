@@ -12,6 +12,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
   }
 
   private var modelContainer: ModelContainer?
+  private var loadedSpeculativeDecoding: SpeculativeDecodingConfig?
   private var loadedModelSupportsImageInput = false
   private var loadedReasoningTraceFormat: ReasoningTraceFormat = .none
   private var loadedModelPreservesHistoricalReasoning = false
@@ -23,9 +24,11 @@ final actor MLXChatRuntime: ChatModelRuntime {
   private var runtimeCacheDiagnostics: MLXRuntimeCacheDiagnostics?
   private let attachmentStore = ChatAttachmentStore()
   private var contextTokenLimit: Int?
+  private var generationSetupOwnership = MLXGenerationSetupOwnership()
   private var generationOwnership = MLXGenerationOwnership()
   private var activeGenerationRegistry = MLXActiveGenerationRegistry()
   private var lifecycleTransitionInProgress = false
+  private var lifecycleRevision: UInt64 = 0
   private let memoryCacheClearer: MLXMemoryCacheClearer
   private let debugTraceStore: MLXDebugTraceStore
   private let generationActivity: MLXGenerationActivity
@@ -63,9 +66,10 @@ final actor MLXChatRuntime: ChatModelRuntime {
       throw MLXChatRuntimeError.unsupportedArchitecture
     #endif
 
-    lifecycleTransitionInProgress = true
-    defer { lifecycleTransitionInProgress = false }
+    let transitionRevision = beginLifecycleTransition()
+    defer { endLifecycleTransition(transitionRevision) }
     await cancelAndDrainActiveGeneration(reason: .modelChanged)
+    try validateLifecycleTransition(transitionRevision)
     configureMLXMemory()
 
     let tokenizerLoader = makeHuggingFaceTokenizerLoader()
@@ -84,14 +88,29 @@ final actor MLXChatRuntime: ChatModelRuntime {
             using: tokenizerLoader
           )
         }
+      try validateLifecycleTransition(transitionRevision)
 
-      runtimeCacheDiagnostics =
+      let speculativeDecoding: SpeculativeDecodingConfig? =
+        if configuration.usesBundledMTPDrafter {
+          try SpeculativeDecodingConfig(
+            mtpDrafter: try await BundledOptiQMTPDrafterLoader.load(for: container),
+            blockSize: 2
+          )
+        } else {
+          nil
+        }
+      try validateLifecycleTransition(transitionRevision)
+
+      let cacheDiagnostics: MLXRuntimeCacheDiagnostics? =
         if MLXDebugTraceStore.isEnabled {
           await MLXRuntimeCacheDiagnostics.install(on: container)
         } else {
           nil
         }
+      try validateLifecycleTransition(transitionRevision)
       modelContainer = container
+      loadedSpeculativeDecoding = speculativeDecoding
+      runtimeCacheDiagnostics = cacheDiagnostics
       loadedModelSupportsImageInput = configuration.supportsImageInput
       loadedReasoningTraceFormat = configuration.reasoningTraceFormat
       loadedModelPreservesHistoricalReasoning =
@@ -117,11 +136,15 @@ final actor MLXChatRuntime: ChatModelRuntime {
   }
 
   func unload() async {
-    lifecycleTransitionInProgress = true
-    defer { lifecycleTransitionInProgress = false }
+    let transitionRevision = beginLifecycleTransition()
+    defer { endLifecycleTransition(transitionRevision) }
     await cancelAndDrainActiveGeneration(reason: .modelChanged)
+    guard isCurrentLifecycleTransition(transitionRevision) else {
+      return
+    }
     invalidateCachedSession(reason: .modelChanged)
     modelContainer = nil
+    loadedSpeculativeDecoding = nil
     runtimeCacheDiagnostics = nil
     loadedModelSupportsImageInput = false
     loadedReasoningTraceFormat = .none
@@ -141,9 +164,12 @@ final actor MLXChatRuntime: ChatModelRuntime {
   }
 
   func clearContext() async {
-    lifecycleTransitionInProgress = true
-    defer { lifecycleTransitionInProgress = false }
+    let transitionRevision = beginLifecycleTransition()
+    defer { endLifecycleTransition(transitionRevision) }
     await cancelAndDrainActiveGeneration(reason: .signatureMismatch)
+    guard isCurrentLifecycleTransition(transitionRevision) else {
+      return
+    }
     invalidateCachedSession(reason: .signatureMismatch)
     await runtimeCacheDiagnostics?.invalidate()
     lastRuntimeCacheDebugSnapshot = nil
@@ -230,9 +256,15 @@ final actor MLXChatRuntime: ChatModelRuntime {
     guard !lifecycleTransitionInProgress else {
       throw CancellationError()
     }
+    let expectedLifecycleRevision = lifecycleRevision
     guard let modelContainer else {
       throw MLXChatRuntimeError.modelNotLoaded
     }
+    let speculativeDecoding = loadedSpeculativeDecoding
+    let reasoningTraceFormat = loadedReasoningTraceFormat
+    let cacheDiagnostics = runtimeCacheDiagnostics
+    let modelContextTokenLimit = contextTokenLimit
+    let thinkingBudgetPolicy = loadedThinkingBudgetPolicy
     let imageAttachments = attachments.filter { $0.kind == .image }
     guard imageAttachments.isEmpty || loadedModelSupportsImageInput else {
       throw MLXChatRuntimeError.unsupportedImageInput
@@ -251,6 +283,10 @@ final actor MLXChatRuntime: ChatModelRuntime {
         loadedModelPreservesHistoricalReasoning
     )
     let generateParameters = Self.generateParameters(from: settings)
+    let speculativeDecodingMode = MLXSpeculativeDecodingMode.resolve(
+      hasLoadedMTPDrafter: speculativeDecoding != nil,
+      isMTPEnabled: settings.isMTPEnabled
+    )
     let additionalContext = generationInput.additionalContext
     let systemPrompt = promptPlan.stableInstructions
     let toolSpecs = MLXToolMapper.toolSpecs(from: promptPlan.toolContext)
@@ -269,6 +305,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     let finalPrompt = promptMessages.map(\.content).joined(separator: "\n\n")
     let traceMetadata = TurnTraceContext.current
     let traceID = traceMetadata?.generationID ?? UUID()
+    let generationSetupID = generationSetupOwnership.beginSetup()
     let thinkingBudgetPlan = try await prepareThinkingBudgetPlan(
       modelContainer: modelContainer,
       generateParameters: generateParameters,
@@ -279,9 +316,21 @@ final actor MLXChatRuntime: ChatModelRuntime {
       systemPrompt: systemPrompt,
       history: history,
       finalPrompt: finalPrompt,
-      imageAttachments: imageAttachments
+      imageAttachments: imageAttachments,
+      policy: thinkingBudgetPolicy,
+      contextTokenLimit: modelContextTokenLimit,
+      mtpDrafterLoaded: speculativeDecoding != nil,
+      speculativeDecodingMode: speculativeDecodingMode
+    )
+    try validateLifecycleRevision(
+      expectedLifecycleRevision,
+      generationSetupID: generationSetupID
     )
     await supersedeActiveGenerationBeforeStartingNew()
+    try validateLifecycleRevision(
+      expectedLifecycleRevision,
+      generationSetupID: generationSetupID
+    )
     let generationID = generationOwnership.beginGeneration()
     let prepareSessionInterval = ChatDiagnostics.beginInterval(
       "MLX prepare session",
@@ -299,6 +348,8 @@ final actor MLXChatRuntime: ChatModelRuntime {
       additionalContext: additionalContext,
       projectionMode: projectionMode,
       thinkingBudgetIdentity: thinkingBudgetPlan.identity,
+      speculativeDecodingMode: speculativeDecodingMode,
+      speculativeDecoding: speculativeDecoding,
       components: thinkingBudgetPlan.components,
       generationID: generationID
     )
@@ -317,7 +368,15 @@ final actor MLXChatRuntime: ChatModelRuntime {
       effectiveReasoningSelection: effectiveReasoningSelection,
       imageAttachments: imageAttachments,
       thinkingBudget: thinkingBudgetPlan.trace,
+      contextTokenLimit: modelContextTokenLimit,
+      mtpDrafterLoaded: speculativeDecoding != nil,
+      speculativeDecodingMode: speculativeDecodingMode,
       interactionMode: interactionMode
+    )
+    try validateLifecycleRevision(
+      expectedLifecycleRevision,
+      generationSetupID: generationSetupID,
+      generationID: generationID
     )
 
     let createStreamInterval = ChatDiagnostics.beginInterval(
@@ -327,31 +386,36 @@ final actor MLXChatRuntime: ChatModelRuntime {
     let estimateGeneratedTokenCount = await generationTokenEstimator(
       modelContainer: modelContainer
     )
+    try validateLifecycleRevision(
+      expectedLifecycleRevision,
+      generationSetupID: generationSetupID,
+      generationID: generationID
+    )
     let runtimeCacheDiagnostics = try await beginRuntimeCacheDiagnostics(
+      diagnostics: cacheDiagnostics,
       modelContainer: modelContainer,
       generateParameters: generateParameters,
       cachePlan: cachePlan,
       traceID: traceID
     )
-    let memoryTraceScope = await debugTraceStore.beginMemoryScope(
-      phase: .generationStart,
-      generationID: traceID,
-      traceMetadata: traceMetadata
+    try validateLifecycleRevision(
+      expectedLifecycleRevision,
+      generationSetupID: generationSetupID,
+      generationID: generationID
     )
-    let startedGeneration = generationActivity.start {
-      cachePlan.session.streamDetails(to: cachePlan.streamMessages)
-    }
+    let generationStartedAt = Date()
+    let generationActivityLease = generationActivity.beginLease()
     var activityLeaseHandedOff = false
     defer {
       if !activityLeaseHandedOff {
-        startedGeneration.activityLease.end()
+        generationActivityLease.end()
       }
     }
     let generationProgressTracer = makeGenerationProgressTracer(
       traceID: traceID,
       traceMetadata: traceMetadata,
-      startedAt: startedGeneration.startedAt,
-      generationActivityRequest: startedGeneration.activityLease.request,
+      startedAt: generationStartedAt,
+      generationActivityRequest: generationActivityLease.request,
       estimateTokenCount: estimateGeneratedTokenCount
     )
     ChatDiagnostics.endInterval(createStreamInterval)
@@ -363,12 +427,32 @@ final actor MLXChatRuntime: ChatModelRuntime {
       messageCount: transcript.entries.count,
       imageAttachments: imageAttachments,
       applicationState: applicationStateSnapshotProvider(),
-      generationActivityRequest: startedGeneration.activityLease.request
+      generationActivityRequest: generationActivityLease.request
+    )
+    try validateLifecycleRevision(
+      expectedLifecycleRevision,
+      generationSetupID: generationSetupID,
+      generationID: generationID
+    )
+    let memoryTraceScope = await debugTraceStore.beginMemoryScope(
+      phase: .generationStart,
+      generationID: traceID,
+      traceMetadata: traceMetadata
+    )
+    try validateLifecycleRevision(
+      expectedLifecycleRevision,
+      generationSetupID: generationSetupID,
+      generationID: generationID
+    )
+    let startedGeneration = MLXStartedGeneration(
+      stream: cachePlan.session.streamDetails(to: cachePlan.streamMessages),
+      startedAt: generationStartedAt,
+      activityLease: generationActivityLease
     )
     let streamPlan = MLXModelStreamProcessor.modelStreamPlan(
       from: startedGeneration.stream,
       reasoningTraceFormat: effectiveReasoningSelection.isEnabled
-        ? loadedReasoningTraceFormat : .none,
+        ? reasoningTraceFormat : .none,
       traceID: traceID,
       traceMetadata: traceMetadata,
       cacheTrace: cachePlan.trace,
@@ -447,19 +531,20 @@ extension MLXChatRuntime {
   }
 
   private func beginRuntimeCacheDiagnostics(
+    diagnostics: MLXRuntimeCacheDiagnostics?,
     modelContainer: ModelContainer,
     generateParameters: GenerateParameters,
     cachePlan: MLXSessionCachePlan,
     traceID: UUID
   ) async throws -> MLXRuntimeCacheDiagnostics? {
-    guard let runtimeCacheDiagnostics else {
+    guard let diagnostics else {
       return nil
     }
     let cacheCapabilities = try await MLXRuntimeCacheDiagnostics.capabilities(
       of: modelContainer,
       parameters: generateParameters
     )
-    await runtimeCacheDiagnostics.begin(
+    await diagnostics.begin(
       generationID: traceID,
       expectsReuse: cachePlan.trace.cacheMode == .reusedSession
         || cachePlan.trace.cacheMode == .appendDelta,
@@ -468,7 +553,7 @@ extension MLXChatRuntime {
       },
       capabilities: cacheCapabilities
     )
-    return runtimeCacheDiagnostics
+    return diagnostics
   }
 
   private func prepareThinkingBudgetPlan(
@@ -481,16 +566,20 @@ extension MLXChatRuntime {
     systemPrompt: String,
     history: [Chat.Message],
     finalPrompt: String,
-    imageAttachments: [ChatAttachment]
+    imageAttachments: [ChatAttachment],
+    policy: ThinkingBudgetPolicy,
+    contextTokenLimit: Int?,
+    mtpDrafterLoaded: Bool,
+    speculativeDecodingMode: MLXSpeculativeDecodingMode
   ) async throws -> MLXThinkingBudgetPlan {
     let attemptedTrace = MLXThinkingBudgetPlanner.trace(
-      policy: loadedThinkingBudgetPolicy,
+      policy: policy,
       reasoningEnabled: effectiveReasoningSelection.isEnabled,
       interactionMode: interactionMode
     )
     do {
       return try await MLXThinkingBudgetPlanner.makePlan(
-        policy: loadedThinkingBudgetPolicy,
+        policy: policy,
         reasoningEnabled: effectiveReasoningSelection.isEnabled,
         interactionMode: interactionMode,
         modelContainer: modelContainer,
@@ -506,6 +595,9 @@ extension MLXChatRuntime {
         effectiveReasoningSelection: effectiveReasoningSelection,
         imageAttachments: imageAttachments,
         thinkingBudget: attemptedTrace,
+        contextTokenLimit: contextTokenLimit,
+        mtpDrafterLoaded: mtpDrafterLoaded,
+        speculativeDecodingMode: speculativeDecodingMode,
         interactionMode: interactionMode
       )
       await debugTraceStore.traceResponse(
@@ -531,6 +623,9 @@ extension MLXChatRuntime {
     effectiveReasoningSelection: ReasoningSelection,
     imageAttachments: [ChatAttachment],
     thinkingBudget: MLXThinkingBudgetTrace,
+    contextTokenLimit: Int?,
+    mtpDrafterLoaded: Bool,
+    speculativeDecodingMode: MLXSpeculativeDecodingMode,
     interactionMode: WorkspaceInteractionMode?
   ) async throws {
     let traceMessages = try MLXHistoryRenderer.runtimeHistoryMessages(
@@ -556,6 +651,8 @@ extension MLXChatRuntime {
       contextTokenLimit: contextTokenLimit,
       imageAttachments: imageAttachments,
       thinkingBudget: thinkingBudget,
+      mtpDrafterLoaded: mtpDrafterLoaded,
+      speculativeDecodingMode: speculativeDecodingMode.rawValue,
       interactionMode: interactionMode
     )
   }
@@ -609,13 +706,65 @@ extension MLXChatRuntime {
     await cancelAndDrainActiveGeneration(reason: .cancelled)
   }
 
+  private func beginLifecycleTransition() -> UInt64 {
+    lifecycleRevision &+= 1
+    lifecycleTransitionInProgress = true
+    return lifecycleRevision
+  }
+
+  private func endLifecycleTransition(_ revision: UInt64) {
+    guard lifecycleRevision == revision else {
+      return
+    }
+    lifecycleTransitionInProgress = false
+  }
+
+  private func isCurrentLifecycleTransition(_ revision: UInt64) -> Bool {
+    lifecycleRevision == revision
+  }
+
+  private func validateLifecycleTransition(_ revision: UInt64) throws {
+    guard isCurrentLifecycleTransition(revision) else {
+      throw CancellationError()
+    }
+  }
+
+  private func validateLifecycleRevision(
+    _ revision: UInt64,
+    generationSetupID: MLXGenerationSetupID? = nil,
+    generationID: MLXGenerationID? = nil
+  ) throws {
+    let lifecycleIsCurrent =
+      !lifecycleTransitionInProgress && lifecycleRevision == revision
+    let generationSetupIsCurrent =
+      generationSetupID.map(generationSetupOwnership.isCurrent) ?? true
+    let generationIsCurrent =
+      generationID.map {
+        generationOwnership.activeGenerationID == $0
+      } ?? true
+    guard
+      lifecycleIsCurrent,
+      generationSetupIsCurrent,
+      generationIsCurrent
+    else {
+      if let generationID {
+        markCachedSessionInvalid(
+          generationID: generationID,
+          reason: lifecycleIsCurrent ? .cancelled : .modelChanged
+        )
+      }
+      throw CancellationError()
+    }
+  }
+
   private func cancelAndDrainActiveGeneration(reason: MLXSessionInvalidationReason) async {
-    guard let superseded = activeGenerationRegistry.supersedeActiveGeneration() else {
+    guard let superseded = activeGenerationRegistry.beginOrJoinDrain() else {
       return
     }
 
     markCachedSessionInvalid(generationID: superseded.id, reason: reason)
     await superseded.task.value
+    activeGenerationRegistry.finishDrainIfCurrent(superseded.id)
   }
 
   private func prepareSession(
@@ -630,6 +779,8 @@ extension MLXChatRuntime {
     additionalContext: [String: any Sendable],
     projectionMode: ModelContextProjectionMode,
     thinkingBudgetIdentity: MLXThinkingBudgetIdentity?,
+    speculativeDecodingMode: MLXSpeculativeDecodingMode,
+    speculativeDecoding: SpeculativeDecodingConfig?,
     components: GenerationComponents,
     generationID: MLXGenerationID
   ) -> MLXSessionCachePlan {
@@ -639,7 +790,8 @@ extension MLXChatRuntime {
       projectionMode: projectionMode,
       toolSpecs: toolSpecs,
       additionalContext: additionalContext,
-      thinkingBudgetIdentity: thinkingBudgetIdentity
+      thinkingBudgetIdentity: thinkingBudgetIdentity,
+      speculativeDecodingMode: speculativeDecodingMode
     )
     let cached = cachedSession
     let appendOnly: Bool
@@ -750,6 +902,7 @@ extension MLXChatRuntime {
       modelContainer,
       instructions: ModelFacingPromptRenderer.normalizedSystemPrompt(systemPrompt),
       history: history,
+      speculativeDecoding: speculativeDecodingMode.configuration(from: speculativeDecoding),
       generateParameters: generateParameters,
       components: components,
       processing: Self.modelNativeMediaProcessing,

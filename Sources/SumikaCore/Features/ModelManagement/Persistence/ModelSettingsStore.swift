@@ -474,6 +474,7 @@ private enum GenerationSettingsOverrideV4CodingKeys: String, CodingKey {
   case presencePenalty
   case reasoningSelection
   case reasoningEnabled
+  case isMTPEnabled
 }
 
 private struct GenerationSettingsOverrideV4: Decodable, Sendable {
@@ -486,6 +487,7 @@ private struct GenerationSettingsOverrideV4: Decodable, Sendable {
   var repetitionContextSize: Int?
   var presencePenalty: Double?
   var reasoningSelection: ReasoningSelection?
+  var isMTPEnabled: Bool?
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: GenerationSettingsOverrideV4CodingKeys.self)
@@ -511,6 +513,7 @@ private struct GenerationSettingsOverrideV4: Decodable, Sendable {
     )
     presencePenalty = try container.decodeIfPresent(Double.self, forKey: .presencePenalty)
     reasoningSelection = try Self.decodeReasoningSelection(from: container)
+    isMTPEnabled = try container.decodeIfPresent(Bool.self, forKey: .isMTPEnabled)
   }
 
   var current: GenerationSettingsOverride {
@@ -523,7 +526,8 @@ private struct GenerationSettingsOverrideV4: Decodable, Sendable {
       repetitionPenalty: repetitionPenalty,
       repetitionContextSize: repetitionContextSize,
       presencePenalty: presencePenalty,
-      reasoningSelection: reasoningSelection
+      reasoningSelection: reasoningSelection,
+      isMTPEnabled: isMTPEnabled
     )
   }
 

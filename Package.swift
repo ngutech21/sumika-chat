@@ -38,8 +38,8 @@ let package = Package(
     .package(url: "https://github.com/tree-sitter/tree-sitter-typescript", exact: "0.23.2"),
     .package(url: "https://github.com/ml-explore/mlx-swift/", from: "0.31.6"),
     .package(
-      url: "https://github.com/ml-explore/mlx-swift-lm",
-      revision: "e3d4a20e9e20e7b8ab39aded7bbfad4ae22c9438"),
+      url: "https://github.com/ngutech21/mlx-swift-lm",
+      revision: "e3eae6ceb08e17a3d071352195844a9bd86a866e"),
     .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.3"),
     .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.10.0"),
     .package(
@@ -89,6 +89,7 @@ let package = Package(
       dependencies: [
         "SumikaCore",
         .product(name: "MLX", package: "mlx-swift"),
+        .product(name: "MLXNN", package: "mlx-swift"),
         .product(name: "MLXLLM", package: "mlx-swift-lm"),
         .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
         .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
@@ -163,6 +164,7 @@ let package = Package(
         .product(name: "MLXLLM", package: "mlx-swift-lm"),
         .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
         .product(name: "MLXNN", package: "mlx-swift"),
+        .product(name: "MLXVLM", package: "mlx-swift-lm"),
       ],
       swiftSettings: appConcurrencyChecking
     ),

@@ -126,6 +126,14 @@ package struct ChatModeSettingsSet: Codable, Equatable, Sendable {
     return resolved
   }
 
+  package func resolvingMTPAvailability(_ isAvailable: Bool) -> ChatModeSettingsSet {
+    guard !isAvailable else { return self }
+    var resolved = self
+    resolved.chat.generationSettings.isMTPEnabled = false
+    resolved.agent.generationSettings.isMTPEnabled = false
+    return resolved
+  }
+
   package static let defaultSettings = ChatModeSettingsSet(
     chat: ChatModeSettings(
       systemPrompt: ChatPromptDefaults.chatSystemPrompt,
