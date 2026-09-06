@@ -758,9 +758,7 @@ private final class NativeTranscriptMarkdownASTRenderer {
             ofSize: NativeTranscriptMarkdownRenderer.bodyFontSize,
             weight: .regular
           ),
-          paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle(
-            spacingAfter: NativeTranscriptMarkdownRenderer.bodyParagraphSpacing
-          )
+          paragraphStyle: NativeTranscriptCodeRenderer.paragraphStyle()
         )
       )
 
@@ -1226,6 +1224,13 @@ enum NativeMarkdownTableMetrics {
 }
 
 enum NativeTranscriptCodeRenderer {
+  fileprivate static func paragraphStyle() -> NSParagraphStyle {
+    let style = NSMutableParagraphStyle()
+    style.lineSpacing = 1
+    style.paragraphSpacing = 0
+    return style
+  }
+
   static func attributedString(for highlightedCode: HighlightedCode) -> NSAttributedString {
     let code = highlightedCode.code.isEmpty ? " " : highlightedCode.code
     let attributedString = NSMutableAttributedString(
@@ -1236,9 +1241,7 @@ enum NativeTranscriptCodeRenderer {
           weight: .regular
         ),
         .foregroundColor: NSColor.labelColor,
-        .paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle(
-          spacingAfter: NativeTranscriptMarkdownRenderer.bodyParagraphSpacing
-        ),
+        .paragraphStyle: paragraphStyle(),
       ]
     )
     for span in highlightedCode.spans {

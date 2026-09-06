@@ -468,10 +468,8 @@ struct NativeTranscriptTextRenderingTests {
 
     #expect(rendered.foregroundColor(inText: "let") == NSColor.systemPink)
     #expect(rendered.foregroundColor(inText: "\"hi\"") == NSColor.systemGreen)
-    #expect(
-      rendered.paragraphStyle(inText: "let")?.lineSpacing
-        == NativeTranscriptMarkdownRenderer.bodyLineSpacing
-    )
+    #expect(rendered.paragraphStyle(inText: "let")?.lineSpacing == 1)
+    #expect(rendered.paragraphStyle(inText: "let")?.paragraphSpacing == 0)
   }
 
   @Test

@@ -388,8 +388,8 @@ final class NativeToolCallView: NSView {
     askUserPopUpButton = nil
     header.actionHandler = nil
     disclosureButton.actionHandler = nil
-    NativeReusableRowViewStyle.removeAllArrangedSubviews(from: dynamicHost)
     dynamicHost.isHidden = true
+    NativeReusableRowViewStyle.removeAllArrangedSubviews(from: dynamicHost)
   }
 
   private func setupLayout() {
@@ -487,6 +487,8 @@ final class NativeToolCallView: NSView {
     state: NativeTranscriptCellState,
     actions: NativeTranscriptCellActions
   ) {
+    // An empty visible details stack still contributes required header spacing.
+    dynamicHost.isHidden = true
     NativeReusableRowViewStyle.removeAllArrangedSubviews(from: dynamicHost)
 
     if state.isToolExpanded, currentHasDetails {
