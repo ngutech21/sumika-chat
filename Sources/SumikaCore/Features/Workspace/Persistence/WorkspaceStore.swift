@@ -524,10 +524,9 @@ package actor WorkspaceStore: WorkspaceStoring {
         WorkspacePersistenceVersionProbe.self, from: data
       ).version
       let decoder = WorkspacePersistenceCoding.makeDecoder(diagnostics: diagnostics)
-      switch version {
-      case 1:
-        let legacy = try decoder.decode(WorkspaceSessionDocumentV1.self, from: data)
-        document = WorkspaceSessionDocument(session: legacy.session.value)
+      document = try WorkspacePersistenceCoding.decodeSession(
+        from: data, version: version, decoder: decoder, path: url.path(percentEncoded: false))
+      if version != WorkspaceSessionDocument.currentVersion {
         let replacement = try WorkspacePersistenceCoding.makeEncoder().encode(document)
         let roundTrip = try decoder.decode(WorkspaceSessionDocument.self, from: replacement)
         // Non-string dictionary keys encode as arrays whose order is not stable.
@@ -538,12 +537,6 @@ package actor WorkspaceStore: WorkspaceStoring {
           )
         }
         upgrade = .init(url: url, original: data, replacement: replacement)
-      case WorkspaceSessionDocument.currentVersion:
-        document = try decoder.decode(WorkspaceSessionDocument.self, from: data)
-      default:
-        throw WorkspacePersistenceError.unsupportedVersion(
-          path: url.path(percentEncoded: false), found: version,
-          supported: WorkspaceSessionDocument.currentVersion)
       }
     } catch let error as WorkspacePersistenceError {
       throw error
@@ -862,6 +855,26 @@ private struct PreparedSessionUpgrade {
   let url: URL
   let original: Data
   let replacement: Data
+}
+
+extension WorkspacePersistenceCoding {
+  fileprivate static func decodeSession(
+    from data: Data, version: Int, decoder: JSONDecoder, path: String
+  ) throws -> WorkspaceSessionDocument {
+    switch version {
+    case 1:
+      return WorkspaceSessionDocument(
+        session: try decoder.decode(WorkspaceSessionDocumentV1.self, from: data).session.value)
+    case 2:
+      return WorkspaceSessionDocument(
+        session: try decoder.decode(WorkspaceSessionDocumentV2.self, from: data).session.value)
+    case WorkspaceSessionDocument.currentVersion:
+      return try decoder.decode(WorkspaceSessionDocument.self, from: data)
+    default:
+      throw WorkspacePersistenceError.unsupportedVersion(
+        path: path, found: version, supported: WorkspaceSessionDocument.currentVersion)
+    }
+  }
 }
 
 private enum WorkspacePersistenceError: LocalizedError {

@@ -552,6 +552,38 @@ extension ConversationEngine {
     }
   }
 
+  private func resolvePendingCommandDuplicates(
+    containing batchAnchorID: ToolCallRecord.ID,
+    in workspace: Workspace,
+    turnID: ChatTurn.ID,
+    registry: ToolRegistry
+  ) {
+    // Older saved batches may predate the barrier. Resolve their unstarted duplicates
+    // against every sibling before any manual or automatic approval can execute.
+    guard let turn = chatSession.turns.first(where: { $0.id == turnID }),
+      let batch = turn.toolCallBatch(containing: batchAnchorID)
+    else {
+      return
+    }
+    let blockedCommands = RunCommandBatchPolicy.blockedRecords(
+      for: batch.records.map {
+        ToolCallRequestValidator().validate($0.request.raw, registry: registry)
+      }, workspace: workspace)
+    var resolvedDuplicates = false
+    for var record in batch.pendingApprovalRecords {
+      guard let blocked = blockedCommands[record.id] else { continue }
+      record.evaluation = blocked.evaluation
+      record.state = blocked.state
+      record.approvalSource = nil
+      applyWorkflowEvents(
+        toolResumeCoordinator.approvedToolResult(
+          record: record, focusedFileState: chatSession.focusedFileState, turnID: turnID
+        ).events)
+      resolvedDuplicates = true
+    }
+    if resolvedDuplicates { notifySessionDidChange() }
+  }
+
   private func resumeApprovedToolCalls(
     _ existingRecords: [ToolCallRecord],
     batchAnchorID: ToolCallRecord.ID,
@@ -561,6 +593,9 @@ extension ConversationEngine {
     approvalSource: ToolApprovalSource,
     runtime: ChatTurnRuntimeContext
   ) async throws -> ChatTurnTaskOutcome {
+    resolvePendingCommandDuplicates(
+      containing: batchAnchorID, in: workspace, turnID: turnID,
+      registry: toolOrchestrator.toolRegistry)
     var processedRecordIDs = Set<ToolCallRecord.ID>()
     for requestedRecord in existingRecords {
       guard !processedRecordIDs.contains(requestedRecord.id) else {

@@ -9,6 +9,7 @@ struct ToolResultPayloadTests {
     let duplicatePreviousCallID = try #require(
       UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
     let payloads: [ToolResultPayload] = [
+      .runCommandDuplicate(.init(originalCallID: duplicatePreviousCallID)),
       .readFile(
         .page(
           try ReadFilePage(

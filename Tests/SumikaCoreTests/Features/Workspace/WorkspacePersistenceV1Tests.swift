@@ -55,7 +55,7 @@ struct WorkspacePersistenceV1Tests {
     let sessionObject = try #require(
       JSONSerialization.jsonObject(with: sessionData) as? [String: Any]
     )
-    #expect(document.version == 2)
+    #expect(document.version == 3)
     #expect(document.session.id == library.workspaces[0].sessions[0].id)
     #expect(sessionObject["workspaceID"] == nil)
     #expect(sessionObject["transcriptPath"] == nil)
@@ -353,7 +353,7 @@ struct WorkspacePersistenceV1Tests {
 
     try await assertSessionMutationFailsClosed(
       expectedIssue: { issue in
-        guard case .unsupportedVersion(_, 9, 2) = issue else {
+        guard case .unsupportedVersion(_, 9, 3) = issue else {
           return false
         }
         return true

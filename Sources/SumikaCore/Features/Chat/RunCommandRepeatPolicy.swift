@@ -1,8 +1,8 @@
 import Foundation
 
 /// `run_command` is deliberately excluded from the read-only duplicate machinery
-/// (`ToolLoopCoordinator.supportsDuplicateObservation`) because it has side effects and
-/// re-running can be legitimate. This is its dedicated loop brake: when the same shell
+/// because it has side effects and retries in later responses can be legitimate.
+/// This is its dedicated loop brake: when the same shell
 /// command fails twice in a row within a turn, a small model is stuck re-proposing a
 /// command it cannot fix (e.g. a tokenizer-mangled `git add.` instead of `git add .`).
 ///
@@ -30,7 +30,7 @@ enum RunCommandRepeatPolicy {
   static func repeatedFailure(inTailOf items: [ChatTurnItem]) -> RunCommandResult? {
     guard
       let lastIndex = items.lastIndex(where: { item in
-        if case .tool = item { return true }
+        if case .tool(let record) = item { return !record.isUnexecutedCommandDuplicate }
         return false
       }),
       case .tool(let last) = items[lastIndex],
@@ -46,8 +46,8 @@ enum RunCommandRepeatPolicy {
     return result
   }
 
-  /// Walking back from the end and skipping non-tool items and any record with
-  /// `excludingID`, the first tool record encountered must be a failed run_command with
+  /// Walking back from the end and skipping non-tool items, unexecuted command duplicates,
+  /// and `excludingID`, the first tool record encountered must be a failed run_command with
   /// the same command. A different tool, a different command, or a successful run resets
   /// the streak (returns `false`), so "inspected/edited, then re-ran" does not trigger.
   private static func precededByFailure(
@@ -56,7 +56,9 @@ enum RunCommandRepeatPolicy {
     in items: [ChatTurnItem]
   ) -> Bool {
     for item in items.reversed() {
-      guard case .tool(let record) = item, record.id != excludingID else {
+      guard case .tool(let record) = item, record.id != excludingID,
+        !record.isUnexecutedCommandDuplicate
+      else {
         continue
       }
       guard let priorCommand = failedRunCommandResult(record)?.command else {

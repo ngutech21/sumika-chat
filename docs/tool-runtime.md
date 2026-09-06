@@ -252,16 +252,39 @@ flowchart TD
   `forbidden_repeat: true`. `replayed_result_kind` is emitted only when a replayed
   observation exists (i.e. not for blocked duplicates). Side-effect-capable tools
   such as `run_command` are never replayed as duplicates.
-- `run_command` has its own loop brake instead of dedup (`RunCommandRepeatPolicy`).
+- `RunCommandBatchPolicy` blocks later matching `run_command` requests within one
+  assistant response before approval. It scans validated calls in model order,
+  including nonadjacent repeats. Identity uses the exact decoded command bytes,
+  resolved workspace-root path, and effective timeout (default 120 seconds,
+  clamped to 1-120); `reason` is excluded. Approval previews and execution use the
+  same timeout normalization. Whole-batch rejection rules retain precedence.
+  The first occurrence keeps normal validation and approval; denial, failure, or
+  cancellation never promotes a duplicate sibling. Explicit resume applies the
+  same guard to the entire canonical batch, including completed and denied
+  originals, and resolves only still-pending duplicates. Loading never executes
+  pending commands or rewrites historical executed results.
+- Each blocked command remains a `.failed` record with a policy-denied evaluation,
+  no approval source, and `runCommandDuplicate(RunCommandDuplicateResult)` storing
+  only `originalCallID`. Its observation has `kind: "duplicate_in_batch"`,
+  `status: "failed"`, `duplicate: true`, `not_executed: true`, and `duplicate_of`
+  referencing the original model-facing call ID. Transcript details say
+  "Not executed: duplicate command in this response" with that reference. No
+  command output or original result is fabricated or replayed. Every original
+  request, ID, ordering position, and result remains in `ChatTurn.items`; signatures
+  are transient. After resolution the batch continues normally, subject to
+  existing termination rules. Later assistant responses and user turns may run
+  the same command again.
+- `run_command` also retains its failure brake (`RunCommandRepeatPolicy`).
   When the same command (`RunCommandResult.command`) fails on two consecutive
-  `run_command` records in a turn, the next generation is forced into the
+  executed `run_command` records in a turn, the next generation is forced into the
   tools-stripped final mode and `ToolFollowUpNoticePolicy` emits a user escalation
   (names the failing command and error, asks the user to run/fix it manually or
   rephrase) instead of the generic final notice. The model still gets one
   self-correction attempt: the brake fires only on the second consecutive identical
   failure, so a corrected or successful retry between the two resets the streak. The
-  failed result is not withheld — only the follow-up mode and notice change. This is
-  control flow only; no persisted schema field is added.
+  failed result is not withheld — only the follow-up mode and notice change.
+  Execution-history lookups skip unexecuted command duplicates: they neither count
+  as failures nor hide or reset an actual failure or its follow-up notice.
 - Tool follow-up notices are prioritized model-facing additions stored on the
   canonical `ToolCallRecord.modelFollowUpNotice`, separate from
   `ToolResultPayload`. `ToolFollowUpNoticePolicy` derives exactly one notice for

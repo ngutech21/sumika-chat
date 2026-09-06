@@ -903,10 +903,11 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
-  func identicalRunCommandCallsExecuteWithoutDuplicateReplay() async throws {
+  func identicalRunCommandCallsAreBlockedBeforeApproval() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let orchestrator = CountingToolOrchestrator(tools: [.runCommand])
+    let orchestrator = ToolOrchestrator(
+      executorRegistry: ToolExecutorRegistry([AnyToolExecutor(RunCommandToolExecutor())]))
     let result = try await runToolLoop(
       using: orchestrator,
       request(
@@ -930,25 +931,14 @@ struct ToolLoopCoordinatorTests {
       )
     )
 
-    #expect(await orchestrator.executionCount == 3)
     let records = toolCallRecords(from: result)
     #expect(records.count == 3)
-    #expect(
-      records.allSatisfy { record in
-        if case .runCommand = record.resultPayload {
-          return true
-        }
-        return false
-      })
-    #expect(
-      records.allSatisfy { record in
-        if case .duplicateToolCall = record.resultPayload {
-          return false
-        }
-        return true
-      })
-    #expect(toolResults(from: result).map(\.callID) == records.map(\.id))
-    #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
+    #expect(records.map(\.status) == [.awaitingApproval, .failed, .failed])
+    for record in records.dropFirst() {
+      #expect(record.resultPayload == .runCommandDuplicate(.init(originalCallID: records[0].id)))
+    }
+    #expect(toolResults(from: result).map(\.callID) == records.dropFirst().map(\.id))
+    #expect(result?.continuation == .awaitingApproval)
   }
 
   @Test

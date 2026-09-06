@@ -19,6 +19,68 @@ struct WorkspaceSessionMigrationTests {
   }
 
   @Test
+  func frozenV2GoldenSessionMapsWithoutLoss() throws {
+    let url = try #require(
+      Bundle.module.url(forResource: "workspace-session-v2-golden", withExtension: "json"))
+    let decoder = WorkspacePersistenceCoding.makeDecoder()
+    let document = try decoder.decode(WorkspaceSessionDocumentV2.self, from: Data(contentsOf: url))
+    #expect(document.version == 2)
+    #expect(
+      document.session.value
+        == WorkspaceLibraryGoldenFixture.makeLibrary().workspaces[0].sessions[0])
+  }
+
+  @Test
+  func v2DocumentResultsMigrateLosslesslyAlongsideV1Sessions() async throws {
+    let (base, original) = try await prepareLegacySessions()
+    var library = original
+    let workspace = library.workspaces[0]
+    var session = workspace.sessions[1]
+    let timestamp = session.updatedAt
+    let request = ToolCallRequest.validated(
+      raw: RawToolCallRequest(
+        workspaceID: workspace.id, sessionID: session.id, toolName: .readDocument,
+        arguments: ["path": .string("report.pdf")], createdAt: timestamp),
+      payload: .readDocument(.init(path: "report.pdf")))
+    let content = try ReadDocumentContent(path: .init(rawValue: "report.pdf"), markdown: "Document")
+    session.turns[0].recordToolCall(
+      ToolCallRecord(
+        request: request, evaluation: .init(decision: .allowed, reason: "Read", riskLevel: .low),
+        state: .completed(.readDocument(.success(content)))), at: timestamp)
+    library.workspaces[0].sessions[1] = session
+    let bytes = try WorkspacePersistenceCoding.makeEncoder().encode(
+      WorkspaceSessionDocument(version: 2, session: session))
+    try bytes.write(to: sessionURL(base: base, id: session.id))
+
+    let result = await WorkspaceStore(baseURL: base).loadLibrary()
+    #expect(result.canPersist)
+    #expect(result.library == library)
+    for saved in result.library.workspaces[0].sessions {
+      #expect(try version(at: sessionURL(base: base, id: saved.id)) == 3)
+    }
+  }
+
+  @Test(arguments: [1, 2], ["result", "preview"])
+  func commandDuplicatesAreRejectedByOlderSchemas(version: Int, location: String) async throws {
+    let (base, library) = try await prepareLegacySessions()
+    var session = WorkspaceLibraryGoldenFixture.makeCurrentSession()
+    if location == "preview" {
+      var record = try #require(session.toolCalls.last)
+      record.state = .awaitingApproval(
+        preview: .init(text: "Preview", resultPayload: record.resultPayload))
+      session.turns[0].updateToolCallRecord(record)
+    }
+    let url = sessionURL(base: base, id: session.id)
+    let bytes = try WorkspacePersistenceCoding.makeEncoder().encode(
+      WorkspaceSessionDocument(version: version, session: session))
+    try bytes.write(to: url)
+    let store = WorkspaceStore(baseURL: base)
+    #expect(await store.loadLibrary().canPersist == false)
+    await #expect(throws: Error.self) { try await store.saveLibrary(library) }
+    #expect(try Data(contentsOf: url) == bytes)
+  }
+
+  @Test
   func migrationPreservesMultipleFocusedFileSnapshots() async throws {
     let (base, original) = try await prepareLegacySessions()
     var library = original
@@ -40,7 +102,7 @@ struct WorkspaceSessionMigrationTests {
 
     #expect(result.canPersist)
     #expect(result.library == library)
-    #expect(try version(at: url) == 2)
+    #expect(try version(at: url) == 3)
     #expect(await WorkspaceStore(baseURL: base).loadLibrary().library == library)
   }
 
@@ -107,7 +169,7 @@ struct WorkspaceSessionMigrationTests {
 
     #expect(result.canPersist)
     #expect(result.library.workspaces.first?.sessions.first?.turns.count == turns.count)
-    #expect(try version(at: url) == 2)
+    #expect(try version(at: url) == 3)
   }
 
   @Test
@@ -139,7 +201,7 @@ struct WorkspaceSessionMigrationTests {
     let result = await WorkspaceStore(baseURL: base).loadLibrary()
     #expect(result.canPersist)
     #expect(result.library.workspaces.first?.sessions.first == expected)
-    #expect(try version(at: url) == 2)
+    #expect(try version(at: url) == 3)
   }
 
   @Test
@@ -152,7 +214,7 @@ struct WorkspaceSessionMigrationTests {
     #expect(result.library == library)
     #expect(try Data(contentsOf: manifest) == before)
     for session in library.workspaces[0].sessions {
-      #expect(try version(at: sessionURL(base: base, id: session.id)) == 2)
+      #expect(try version(at: sessionURL(base: base, id: session.id)) == 3)
     }
     let restarted = await WorkspaceStore(baseURL: base).loadLibrary()
     #expect(restarted.library == library)
@@ -174,14 +236,14 @@ struct WorkspaceSessionMigrationTests {
     let failed = await store.loadLibrary()
     #expect(!failed.canPersist)
     #expect(failed.library == library)
-    #expect(try version(at: sessionURL(base: base, id: ids[0])) == 2)
+    #expect(try version(at: sessionURL(base: base, id: ids[0])) == 3)
     #expect(try Data(contentsOf: second) == original)
     await #expect(throws: Error.self) { try await store.saveLibrary(library) }
     #expect(await store.retryCleanup().isEmpty)
     let retried = await WorkspaceStore(baseURL: base).loadLibrary()
     #expect(retried.issues.isEmpty)
     #expect(retried.library == library)
-    #expect(try version(at: second) == 2)
+    #expect(try version(at: second) == 3)
   }
 
   @Test
@@ -232,13 +294,13 @@ struct WorkspaceSessionMigrationTests {
   }
 
   @Test
-  func preservesFutureAndCorruptOrphans() async throws {
+  func preservesLegacyFutureAndCorruptOrphans() async throws {
     let (base, _) = try await prepareLegacySessions()
-    for version in [2, 9] {
+    for version in [1, 2, 3, 9] {
       let session = ChatSession()
       var bytes = try WorkspacePersistenceCoding.makeEncoder().encode(
         WorkspaceSessionDocument(version: version, session: session))
-      if version == 2 {
+      if version == 3 {
         var object = try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
         var body = try #require(object["session"] as? [String: Any])
         body["turns"] = [["items": [["kind": "future", "payload": [:]]]]]

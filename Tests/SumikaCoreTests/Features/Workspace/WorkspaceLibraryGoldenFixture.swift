@@ -37,6 +37,24 @@ enum WorkspaceLibraryGoldenFixture {
     )
   }
 
+  /// Current session format also includes a duplicate referencing its original denied call.
+  static func makeCurrentSession() -> ChatSession {
+    var session = makeAgentSession()
+    let original = makeDeniedRunCommandRecord()
+    let raw = RawToolCallRequest(
+      id: fixedUUID("DDDDDDDD-0000-0000-0000-000000000006"),
+      workspaceID: original.request.workspaceID, sessionID: original.request.sessionID,
+      toolName: original.request.toolName, arguments: original.request.raw.arguments,
+      createdAt: original.request.raw.createdAt)
+    let result = RunCommandDuplicateResult(originalCallID: original.id)
+    let duplicate = ToolCallRecord(
+      request: .validated(raw: raw, payload: original.request.payload),
+      evaluation: .init(decision: .denied, reason: result.preview.text, riskLevel: .high),
+      state: .failed(.runCommandDuplicate(result)))
+    session.turns[0].recordToolCall(duplicate, at: date(6_000))
+    return session
+  }
+
   /// Minimal chat-mode session: one completed user/assistant exchange.
   private static func makeChatSession() -> ChatSession {
     ChatSession(

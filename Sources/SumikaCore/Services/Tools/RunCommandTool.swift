@@ -2,10 +2,16 @@ import Foundation
 
 package struct RunCommandInput: Codable, Equatable, Sendable {
   package static let defaultTimeoutSeconds = 120
+  static let minimumTimeoutSeconds = 1
+  static let maximumTimeoutSeconds = 120
 
   package let command: String
   package let timeoutSeconds: Int
   package let reason: String?
+
+  var effectiveTimeoutSeconds: Int {
+    min(max(timeoutSeconds, Self.minimumTimeoutSeconds), Self.maximumTimeoutSeconds)
+  }
 
   private enum CodingKeys: String, CodingKey {
     case command
@@ -34,6 +40,47 @@ package struct RunCommandInput: Codable, Equatable, Sendable {
       throw RunCommandInputValidationError.invalidTimeout
     }
     reason = try container.decodeIfPresent(String.self, forKey: .reason)
+  }
+}
+
+struct RunCommandExecutionSignature: Hashable {
+  // Shell input is byte-sensitive, unlike Swift String's Unicode-equivalent equality.
+  private let commandUTF8: Data
+  private let workingDirectory: String
+  private let timeoutSeconds: Int
+
+  init(input: RunCommandInput, workspace: Workspace) throws {
+    commandUTF8 = Data(input.command.utf8)
+    workingDirectory = try workspace.resolveAllowedPath(".").path(percentEncoded: false)
+    timeoutSeconds = input.effectiveTimeoutSeconds
+  }
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.commandUTF8 == rhs.commandUTF8
+      && lhs.workingDirectory == rhs.workingDirectory
+      && lhs.timeoutSeconds == rhs.timeoutSeconds
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine(commandUTF8)
+    hasher.combine(workingDirectory)
+    hasher.combine(timeoutSeconds)
+  }
+}
+
+package struct RunCommandDuplicateResult: Codable, Equatable, Sendable {
+  package let originalCallID: UUID
+
+  package init(originalCallID: UUID) {
+    self.originalCallID = originalCallID
+  }
+
+  var preview: ToolResultPreview {
+    ToolResultPreview(
+      status: .failed,
+      text: "Not executed: duplicate command in this response. "
+        + "Original call: \(RuntimeToolCallID.string(for: originalCallID))."
+    )
   }
 }
 
@@ -208,9 +255,9 @@ nonisolated extension ToolDefinition {
         description: "Timeout in seconds. Defaults to 120 when omitted.",
         isRequired: false,
         valueType: .integer,
-        defaultValue: .number(120),
-        minimum: 1,
-        maximum: 120
+        defaultValue: .number(Double(RunCommandInput.defaultTimeoutSeconds)),
+        minimum: Double(RunCommandInput.minimumTimeoutSeconds),
+        maximum: Double(RunCommandInput.maximumTimeoutSeconds)
       ),
       ToolParameterDefinition(
         name: "reason",
@@ -257,9 +304,6 @@ struct RunCommandToolExecutor: TypedToolExecutor {
       return input
     }
   )
-
-  static let minimumTimeoutSeconds = 1
-  static let maximumTimeoutSeconds = 120
 
   private let bashExecutableURL: URL
   private let environment: [String: String]
@@ -321,7 +365,7 @@ struct RunCommandToolExecutor: TypedToolExecutor {
       text: [
         "Command requires approval.",
         "Workspace: \(context.workspace.normalizedRootPath)",
-        "Timeout: \(clampedTimeout(input.timeoutSeconds)) seconds",
+        "Timeout: \(input.effectiveTimeoutSeconds) seconds",
         input.reason.map { "Reason: \($0)" },
         "Command:\n\(input.command)",
       ].compactMap(\.self).joined(separator: "\n"),
@@ -333,7 +377,7 @@ struct RunCommandToolExecutor: TypedToolExecutor {
     do {
       return try await context.workspace.withAsyncSecurityScopedAccess {
         let workspaceRoot = try context.workspace.resolveAllowedPath(".")
-        let timeoutSeconds = clampedTimeout(input.timeoutSeconds)
+        let timeoutSeconds = input.effectiveTimeoutSeconds
         let request = CommandProcessRequest(
           executableURL: bashExecutableURL,
           arguments: ["-c", input.command],
@@ -416,10 +460,6 @@ struct RunCommandToolExecutor: TypedToolExecutor {
       .joined(separator: ":")
     resolved["PATH"] = prefix.isEmpty ? existingPath : prefix + ":" + existingPath
     return resolved
-  }
-
-  private func clampedTimeout(_ timeoutSeconds: Int) -> Int {
-    min(max(timeoutSeconds, Self.minimumTimeoutSeconds), Self.maximumTimeoutSeconds)
   }
 
   private func previewLimits(exitCode: Int32?) -> (stdoutBytes: Int, stderrBytes: Int) {

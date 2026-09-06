@@ -70,6 +70,14 @@ reasoning-only output are not successful stop conditions.
 - The first identical read/list/search replay becomes a compact duplicate
   observation and may continue. A second consecutive identical replay is
   blocked and selects the tools-free finalization path.
+- Within one assistant response, each canonical `run_command` is eligible for
+  execution only once. Later duplicates receive structured, unexecuted failure
+  results before approval; denial, failure, and cancellation never promote them.
+  Explicit resume guards saved batches too. Once the batch resolves, continue
+  normally unless an existing denial, cancellation, budget, or failure rule
+  stops it. Duplicate results alone do not select tools-free finalization, count
+  as command failures, or reset the two-actual-failure brake. The same command is
+  eligible again in a later response or user turn.
 - Write, edit, command, and other side-effecting tools keep their approval flow.
   Approval pauses the loop; a successful approval resumes the normal loop from
   the updated turn history. Explicit denial records an observation and follows

@@ -8,6 +8,12 @@ A partially restored library is an in-memory read model: it retains every valida
 workspace and only readable sessions. Its load issues block persistence and cleanup,
 so this projection never replaces the complete manifest or unavailable session files.
 
+Blocked command duplicates remain canonical `.tool` items with `.failed` state,
+a policy-denied evaluation, and no approval source. `RunCommandDuplicateResult`
+stores only the original call UUID; request identity, batch order, and presentation
+derive from the existing transcript. No signature cache or parallel call list is
+persisted, and historical executed results remain intact.
+
 ```mermaid
 classDiagram
   direction TB
@@ -393,6 +399,7 @@ classDiagram
     writeFile(WriteFileResult)
     editFile(EditFileResult)
     runCommand(RunCommandResult)
+    runCommandDuplicate(RunCommandDuplicateResult)
     todoWrite(TodoWriteResult)
     askUser(AskUserResult)
     finishTask(FinishTaskResult)
@@ -404,6 +411,10 @@ classDiagram
     duplicateToolCall(DuplicateToolCallResult)
     invalidTool(InvalidToolResult)
     failure(ToolFailure)
+  }
+
+  class RunCommandDuplicateResult {
+    originalCallID: UUID
   }
 
   class ReadDocumentResult {
@@ -682,6 +693,8 @@ classDiagram
   ToolCallState --> ToolResultPayload : result payload
   ToolResultPayload --> ToolResultPreview : derived preview
   ToolResultPayload --> ReadDocumentResult : converted document
+  ToolResultPayload --> RunCommandDuplicateResult : unexecuted command
+  RunCommandDuplicateResult --> ToolCallRecord : original call ID
   ReadDocumentResult --> ReadDocumentContent : complete Markdown
   ToolResultPreview --> ToolResultPayload : optional approval payload
   ToolResultPreview --> ToolResultStatus

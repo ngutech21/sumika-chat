@@ -2105,6 +2105,7 @@ Cases:
 - `readFile(ReadFileResult)`
 - `readSkillResource(ReadSkillResourceResult)`
 - `runCommand(RunCommandResult)`
+- `runCommandDuplicate(RunCommandDuplicateResult)`
 - `searchFiles(SearchFilesResult)`
 - `todoWrite(TodoWriteResult)`
 - `webFetch(WebFetchToolResult)`

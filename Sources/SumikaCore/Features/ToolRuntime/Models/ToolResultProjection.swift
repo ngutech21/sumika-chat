@@ -373,6 +373,23 @@ package enum ToolResultProjector {
       return projectEditFile(result, request: request)
     case .runCommand(let result):
       return projectRunCommand(result, request: request)
+    case .runCommandDuplicate(let result):
+      let text = result.preview.text
+      return toolResultProjection(
+        display: .summary(status: .failed, text: text, affectedPaths: []),
+        observation: .structured(
+          toolName: request.toolName, status: .failed, affectedPaths: [],
+          blocks: [.summary(text)]),
+        kind: "duplicate_in_batch",
+        metadataFields: [
+          .init(name: "not_executed", value: .bool(true)),
+          .init(
+            name: "duplicate_of",
+            value: .string(RuntimeToolCallID.string(for: result.originalCallID))),
+        ],
+        nextAllowedActions: [],
+        duplicate: true
+      )
     case .todoWrite(let result):
       return projectTodoWrite(result, request: request)
     case .finishTask(let result):

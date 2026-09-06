@@ -185,12 +185,17 @@ struct ToolLoopCoordinator: Sendable {
     var batchAnchorID: ToolCallRecord.ID?
     let mutationGroups = samePathMutationGroups(outputs, workspace: request.workspace)
     var preparedMutationRecords: [ToolCallRecord.ID: ToolCallRecord] = [:]
+    let blockedCommands = RunCommandBatchPolicy.blockedRecords(
+      for: outputs.map { ToolCallRequestValidator().validate($0.request, registry: registry) },
+      workspace: request.workspace
+    )
 
     for (index, output) in outputs.enumerated() {
       var record = await preparedRecord(
         for: output,
         at: index,
         outputs: outputs,
+        blockedCommands: blockedCommands,
         mutationGroups: mutationGroups,
         preparedMutationRecords: &preparedMutationRecords,
         registry: registry,
@@ -305,6 +310,7 @@ struct ToolLoopCoordinator: Sendable {
     for output: ToolCallParseOutput,
     at index: Int,
     outputs: [ToolCallParseOutput],
+    blockedCommands: [ToolCallRecord.ID: ToolCallRecord],
     mutationGroups: [Int: SamePathMutationGroup],
     preparedMutationRecords: inout [ToolCallRecord.ID: ToolCallRecord],
     registry: ToolRegistry,
@@ -312,6 +318,9 @@ struct ToolLoopCoordinator: Sendable {
     request: ToolLoopRequest,
     toolOrchestrator: any ToolOrchestrating
   ) async -> ToolCallRecord {
+    if let blocked = blockedCommands[output.request.id] {
+      return blocked
+    }
     if let mutationGroup = mutationGroups[index] {
       if index == mutationGroup.indices[0] {
         let groupedOutputs = mutationGroup.indices.map { outputs[$0] }

@@ -52,19 +52,19 @@ struct WorkspaceLibrarySchemaTests {
         updatedAt: Date(timeIntervalSinceReferenceDate: 9_500)
       )
     )
-    let session = try #require(library.workspaces.first?.sessions.first)
+    let session = WorkspaceLibraryGoldenFixture.makeCurrentSession()
     let sessionData = try WorkspacePersistenceCoding.makeEncoder().encode(
       WorkspaceSessionDocument(session: session)
     )
 
     if ProcessInfo.processInfo.environment["SUMIKA_REGENERATE_FIXTURES"] == "1" {
       try manifestData.write(to: Self.manifestV1FixtureURL)
-      try sessionData.write(to: Self.sessionV2FixtureURL)
+      try sessionData.write(to: Self.sessionV3FixtureURL)
       return
     }
 
     let expectedManifestData = try Data(contentsOf: Self.manifestV1FixtureURL)
-    let expectedSessionData = try Data(contentsOf: Self.sessionV2FixtureURL)
+    let expectedSessionData = try Data(contentsOf: Self.sessionV3FixtureURL)
     #expect(manifestData == expectedManifestData)
     #expect(sessionData == expectedSessionData)
   }
@@ -87,7 +87,7 @@ struct WorkspaceLibrarySchemaTests {
       diagnostics: sessionDiagnostics
     ).decode(
       WorkspaceSessionDocument.self,
-      from: Data(contentsOf: Self.sessionV2FixtureURL)
+      from: Data(contentsOf: Self.sessionV3FixtureURL)
     )
 
     #expect(
@@ -97,7 +97,9 @@ struct WorkspaceLibrarySchemaTests {
           updatedAt: Date(timeIntervalSinceReferenceDate: 9_500)
         )
     )
-    #expect(sessionDocument == WorkspaceSessionDocument(session: library.workspaces[0].sessions[0]))
+    #expect(
+      sessionDocument
+        == WorkspaceSessionDocument(session: WorkspaceLibraryGoldenFixture.makeCurrentSession()))
     #expect(manifestDiagnostics.droppedElements.isEmpty)
     #expect(sessionDiagnostics.droppedElements.isEmpty)
   }
@@ -276,9 +278,9 @@ struct WorkspaceLibrarySchemaTests {
     )
   }
 
-  private static var sessionV2FixtureURL: URL {
+  private static var sessionV3FixtureURL: URL {
     fixtureDirectoryURL.appending(
-      path: "workspace-session-v2-golden.json",
+      path: "workspace-session-v3-golden.json",
       directoryHint: .notDirectory
     )
   }

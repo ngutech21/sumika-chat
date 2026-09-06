@@ -906,6 +906,7 @@ package enum ToolResultPayload: Codable, Equatable, Sendable {
   case writeFile(WriteFileResult)
   case editFile(EditFileResult)
   case runCommand(RunCommandResult)
+  case runCommandDuplicate(RunCommandDuplicateResult)
   case todoWrite(TodoWriteResult)
   case askUser(AskUserResult)
   case finishTask(FinishTaskResult)
@@ -944,6 +945,7 @@ package enum ToolResultPayload: Codable, Equatable, Sendable {
     case webFetch
     case mcp
     case duplicateToolCall
+    case runCommandDuplicate
     case invalidTool
     case failure
   }
@@ -977,6 +979,9 @@ package enum ToolResultPayload: Codable, Equatable, Sendable {
       self = .editFile(try container.decode(EditFileResult.self, forKey: .payload))
     case .runCommand:
       self = .runCommand(try container.decode(RunCommandResult.self, forKey: .payload))
+    case .runCommandDuplicate:
+      self = .runCommandDuplicate(
+        try container.decode(RunCommandDuplicateResult.self, forKey: .payload))
     case .todoWrite:
       self = .todoWrite(try container.decode(TodoWriteResult.self, forKey: .payload))
     case .askUser:
@@ -1030,6 +1035,8 @@ package enum ToolResultPayload: Codable, Equatable, Sendable {
       try container.encode(result, forKey: .payload)
     case .runCommand(let result):
       try container.encode(result, forKey: .payload)
+    case .runCommandDuplicate(let result):
+      try container.encode(result, forKey: .payload)
     case .todoWrite(let result):
       try container.encode(result, forKey: .payload)
     case .askUser(let result):
@@ -1077,6 +1084,7 @@ package enum ToolResultPayload: Codable, Equatable, Sendable {
     case .webFetch: .webFetch
     case .mcp: .mcp
     case .duplicateToolCall: .duplicateToolCall
+    case .runCommandDuplicate: .runCommandDuplicate
     case .invalidTool: .invalidTool
     case .failure: .failure
     }
@@ -1368,6 +1376,8 @@ nonisolated extension ToolResultPayload {
     case .editFile(let result):
       return result.preview
     case .runCommand(let result):
+      return result.preview
+    case .runCommandDuplicate(let result):
       return result.preview
     case .todoWrite(let result):
       return result.preview

@@ -373,6 +373,15 @@ smaller response; they do not report a derived conversation-context allowance.
   transient user prompt or trailing prose block. Rebuilds must read this from the
   current `ChatTurn.items` state, not from an old prompt ledger or reused
   `ModelContextEntry`.
+- Blocked same-response commands retain every original call ID and position in
+  the canonical batch. Each projects one result with `kind: "duplicate_in_batch"`,
+  `status: "failed"`, `duplicate: true`, `not_executed: true`, and `duplicate_of`
+  containing the original model-facing call ID. `RunCommandDuplicateResult`
+  stores only that original UUID; it carries no output or replayed result.
+  Transcript details show "Not executed: duplicate command in this response"
+  with the reference. Pending siblings still suppress projection of the entire
+  partial batch. Resolving the batch produces one follow-up, and skipped
+  duplicates do not hide an actual command failure notice.
 - Successful `read_document` results project their complete Markdown and source
   path from the canonical tool record. Their body is validated at 32,000 Swift
   characters and 256 KiB before success and again on decode. The metadata wrapper

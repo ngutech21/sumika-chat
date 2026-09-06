@@ -531,7 +531,7 @@ struct ToolFollowUpNoticePolicy: Sendable {
 
   private func latestToolRecord(in turn: ChatTurn) -> ToolCallRecord? {
     for item in turn.items.reversed() {
-      guard case .tool(let record) = item else {
+      guard case .tool(let record) = item, !record.isUnexecutedCommandDuplicate else {
         continue
       }
       return record

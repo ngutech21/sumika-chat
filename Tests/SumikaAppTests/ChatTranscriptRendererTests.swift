@@ -861,6 +861,41 @@ struct ChatTranscriptRendererTests {
   }
 
   @Test
+  func duplicateCommandsKeepTheirFailedTranscriptRowAndOriginalReference() throws {
+    let ids = [UUID(), UUID(), UUID()]
+    var records = ids.map { id in
+      ToolCallRecord(
+        request: .validated(
+          raw: RawToolCallRequest(
+            id: id, workspaceID: UUID(), sessionID: UUID(), toolName: .runCommand,
+            arguments: ["command": .string("check")]),
+          payload: .runCommand(RunCommandInput(command: "check", timeoutSeconds: 120))),
+        evaluation: .init(
+          decision: .requiresApproval, reason: "Approval required", riskLevel: .high),
+        state: .awaitingApproval(preview: nil))
+    }
+    records[2].evaluation = .init(decision: .denied, reason: "Duplicate command", riskLevel: .high)
+    records[2].state = .failed(.runCommandDuplicate(.init(originalCallID: ids[0])))
+    let turn = ChatTurn(status: .awaitingApproval, items: records.map(ChatTurnItem.tool))
+    let rendered = ChatTranscriptRenderer().items(for: [turn])
+    let renderedIDs = rendered.compactMap { item -> UUID? in
+      guard case .tool(let record) = item.item else { return nil }
+      return record.id
+    }
+    #expect(renderedIDs == ids)
+    let presentation = try #require(rendered.last?.toolBatchPresentation)
+    #expect(presentation.pendingApprovalCount == 2)
+    #expect(records[2].status == .failed)
+    #expect(!presentation.showsApproveAll)
+    #expect(!presentation.showsResumeAutomation)
+    let details = NativeToolDetailContent(record: records[2])
+    #expect(
+      details.outputText?.contains("Not executed: duplicate command in this response") == true)
+    #expect(details.outputText?.contains(RuntimeToolCallID.string(for: ids[0])) == true)
+    #expect(details.permissionLines.isEmpty)
+  }
+
+  @Test
   func sameFileEditPresentationShowsOneAtomicApprovalAction() throws {
     let first = try makeEditApprovalRecord(path: "README.md", normalizedPath: "/tmp/README.md")
     let second = try makeEditApprovalRecord(
