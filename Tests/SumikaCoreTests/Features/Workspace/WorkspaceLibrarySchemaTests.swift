@@ -59,12 +59,12 @@ struct WorkspaceLibrarySchemaTests {
 
     if ProcessInfo.processInfo.environment["SUMIKA_REGENERATE_FIXTURES"] == "1" {
       try manifestData.write(to: Self.manifestV1FixtureURL)
-      try sessionData.write(to: Self.sessionV3FixtureURL)
+      try sessionData.write(to: Self.sessionV4FixtureURL)
       return
     }
 
     let expectedManifestData = try Data(contentsOf: Self.manifestV1FixtureURL)
-    let expectedSessionData = try Data(contentsOf: Self.sessionV3FixtureURL)
+    let expectedSessionData = try Data(contentsOf: Self.sessionV4FixtureURL)
     #expect(manifestData == expectedManifestData)
     #expect(sessionData == expectedSessionData)
   }
@@ -87,7 +87,7 @@ struct WorkspaceLibrarySchemaTests {
       diagnostics: sessionDiagnostics
     ).decode(
       WorkspaceSessionDocument.self,
-      from: Data(contentsOf: Self.sessionV3FixtureURL)
+      from: Data(contentsOf: Self.sessionV4FixtureURL)
     )
 
     #expect(
@@ -278,9 +278,9 @@ struct WorkspaceLibrarySchemaTests {
     )
   }
 
-  private static var sessionV3FixtureURL: URL {
+  private static var sessionV4FixtureURL: URL {
     fixtureDirectoryURL.appending(
-      path: "workspace-session-v3-golden.json",
+      path: "workspace-session-v4-golden.json",
       directoryHint: .notDirectory
     )
   }

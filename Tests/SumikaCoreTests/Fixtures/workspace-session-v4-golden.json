@@ -1,0 +1,449 @@
+{
+  "session" : {
+    "createdAt" : "2001-01-01T01:06:40.000Z",
+    "focusedFileState" : {
+      "activePath" : "Sources\/App.swift",
+      "recentPaths" : [
+        {
+          "confidence" : "active",
+          "path" : "Sources\/App.swift",
+          "source" : "editFile",
+          "updatedAt" : "2001-01-01T01:31:40.000Z"
+        }
+      ],
+      "snapshots" : [
+        "Sources\/App.swift",
+        {
+          "contentHash" : "abc123",
+          "excerpt" : "struct App {}",
+          "fullContentAvailable" : true,
+          "updatedAt" : "2001-01-01T01:33:20.000Z"
+        }
+      ]
+    },
+    "id" : "BBBBBBBB-0000-0000-0000-000000000002",
+    "interactionMode" : "agent",
+    "modeSettings" : {
+      "agent" : {
+        "generationSettings" : {
+          "maxTokens" : 8192,
+          "presencePenalty" : 0.5,
+          "reasoningSelection" : "on",
+          "repetitionContextSize" : 256,
+          "repetitionPenalty" : 1,
+          "temperature" : 0.3,
+          "topK" : 64,
+          "topP" : 0.95
+        },
+        "systemPrompt" : "Agent prompt"
+      },
+      "chat" : {
+        "generationSettings" : {
+          "maxTokens" : 2048,
+          "presencePenalty" : 0,
+          "reasoningSelection" : "on",
+          "repetitionContextSize" : 20,
+          "repetitionPenalty" : 1,
+          "temperature" : 1,
+          "topK" : 0,
+          "topP" : 1
+        },
+        "systemPrompt" : "Chat prompt"
+      }
+    },
+    "selectedMCPServerIDs" : [
+
+    ],
+    "selectedModelID" : "gemma4-12b-qat-4bit",
+    "title" : "Agent Session",
+    "todoState" : {
+      "items" : [
+        {
+          "content" : "Read the file",
+          "id" : "read",
+          "status" : "completed"
+        },
+        {
+          "content" : "Apply the change",
+          "id" : "edit",
+          "status" : "inProgress"
+        }
+      ],
+      "updatedAt" : "2001-01-01T01:38:20.000Z"
+    },
+    "toolApprovalPolicy" : "manual",
+    "turns" : [
+      {
+        "createdAt" : "2001-01-01T01:23:20.000Z",
+        "id" : "EEEEEEEE-0000-0000-0000-000000000002",
+        "items" : [
+          {
+            "kind" : "userMessage",
+            "payload" : {
+              "attachments" : [
+
+              ],
+              "content" : "Update the app file",
+              "id" : "CCCCCCCC-0000-0000-0000-000000000004",
+              "promptContext" : {
+                "empty" : 4000,
+                "kind" : "empty"
+              }
+            }
+          },
+          {
+            "kind" : "tool",
+            "payload" : {
+              "evaluation" : {
+                "decision" : "allowed",
+                "normalizedPaths" : [
+                  "\/tmp\/golden-project\/README.md"
+                ],
+                "reason" : "Reading files inside the workspace is allowed.",
+                "riskLevel" : "low",
+                "workspaceRelativePaths" : [
+                  "README.md"
+                ]
+              },
+              "request" : {
+                "payload" : {
+                  "kind" : "readFile",
+                  "payload" : {
+                    "path" : "README.md"
+                  }
+                },
+                "raw" : {
+                  "arguments" : {
+                    "path" : "README.md"
+                  },
+                  "createdAt" : "2001-01-01T01:23:30.000Z",
+                  "id" : "DDDDDDDD-0000-0000-0000-000000000001",
+                  "sessionID" : "BBBBBBBB-0000-0000-0000-000000000002",
+                  "toolName" : "read_file",
+                  "workspaceID" : "AAAAAAAA-0000-0000-0000-000000000001"
+                }
+              },
+              "state" : {
+                "kind" : "completed",
+                "payload" : {
+                  "kind" : "readFile",
+                  "payload" : {
+                    "success" : {
+                      "content" : {
+                        "redacted" : false,
+                        "text" : "# Golden",
+                        "truncated" : false
+                      },
+                      "path" : "README.md"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "kind" : "tool",
+            "payload" : {
+              "evaluation" : {
+                "decision" : "requiresApproval",
+                "normalizedPaths" : [
+                  "\/tmp\/golden-project\/Sources\/App.swift"
+                ],
+                "reason" : "Writing files inside the workspace requires approval.",
+                "riskLevel" : "high",
+                "workspaceRelativePaths" : [
+                  "Sources\/App.swift"
+                ]
+              },
+              "request" : {
+                "payload" : {
+                  "kind" : "writeFile",
+                  "payload" : {
+                    "content" : "struct App {}",
+                    "path" : "Sources\/App.swift"
+                  }
+                },
+                "raw" : {
+                  "arguments" : {
+                    "content" : "struct App {}",
+                    "path" : "Sources\/App.swift"
+                  },
+                  "createdAt" : "2001-01-01T01:23:40.000Z",
+                  "id" : "DDDDDDDD-0000-0000-0000-000000000002",
+                  "sessionID" : "BBBBBBBB-0000-0000-0000-000000000002",
+                  "toolName" : "write_file",
+                  "workspaceID" : "AAAAAAAA-0000-0000-0000-000000000001"
+                }
+              },
+              "state" : {
+                "kind" : "awaitingApproval",
+                "preview" : {
+                  "affectedPaths" : [
+                    "Sources\/App.swift"
+                  ],
+                  "redacted" : false,
+                  "status" : "success",
+                  "text" : "Write 13 bytes to Sources\/App.swift.",
+                  "truncated" : false
+                }
+              }
+            }
+          },
+          {
+            "kind" : "tool",
+            "payload" : {
+              "evaluation" : {
+                "decision" : "requiresApproval",
+                "normalizedPaths" : [
+
+                ],
+                "reason" : "Shell commands require approval.",
+                "riskLevel" : "high",
+                "workspaceRelativePaths" : [
+
+                ]
+              },
+              "modelFollowUpNotice" : "The user denied run_command.",
+              "request" : {
+                "payload" : {
+                  "kind" : "runCommand",
+                  "payload" : {
+                    "command" : "rm -rf build",
+                    "timeoutSeconds" : 120
+                  }
+                },
+                "raw" : {
+                  "arguments" : {
+                    "command" : "rm -rf build"
+                  },
+                  "createdAt" : "2001-01-01T01:23:50.000Z",
+                  "id" : "DDDDDDDD-0000-0000-0000-000000000003",
+                  "sessionID" : "BBBBBBBB-0000-0000-0000-000000000002",
+                  "toolName" : "run_command",
+                  "workspaceID" : "AAAAAAAA-0000-0000-0000-000000000001"
+                }
+              },
+              "state" : {
+                "kind" : "denied",
+                "payload" : {
+                  "kind" : "failure",
+                  "payload" : {
+                    "reason" : {
+                      "permissionDenied" : {
+
+                      }
+                    },
+                    "toolName" : "run_command"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "kind" : "tool",
+            "payload" : {
+              "evaluation" : {
+                "decision" : "requiresApproval",
+                "normalizedPaths" : [
+
+                ],
+                "reason" : "Editing files inside the workspace requires approval.",
+                "riskLevel" : "medium",
+                "workspaceRelativePaths" : [
+                  "Sources\/App.swift"
+                ]
+              },
+              "request" : {
+                "payload" : {
+                  "kind" : "editFile",
+                  "payload" : {
+                    "new_text" : "struct App {}",
+                    "old_text" : "struct Old {}",
+                    "path" : "Sources\/App.swift"
+                  }
+                },
+                "raw" : {
+                  "arguments" : {
+                    "new_text" : "struct App {}",
+                    "old_text" : "struct Old {}",
+                    "path" : "Sources\/App.swift"
+                  },
+                  "createdAt" : "2001-01-01T01:24:00.000Z",
+                  "id" : "DDDDDDDD-0000-0000-0000-000000000004",
+                  "sessionID" : "BBBBBBBB-0000-0000-0000-000000000002",
+                  "toolName" : "edit_file",
+                  "workspaceID" : "AAAAAAAA-0000-0000-0000-000000000001"
+                }
+              },
+              "state" : {
+                "kind" : "failed",
+                "payload" : {
+                  "kind" : "failure",
+                  "payload" : {
+                    "path" : "Sources\/App.swift",
+                    "reason" : {
+                      "executionError" : {
+                        "_0" : "old_text not found"
+                      }
+                    },
+                    "recovery" : {
+                      "readFile" : {
+                        "path" : "Sources\/App.swift"
+                      }
+                    },
+                    "toolName" : "edit_file"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "kind" : "tool",
+            "payload" : {
+              "evaluation" : {
+                "decision" : "allowed",
+                "normalizedPaths" : [
+
+                ],
+                "reason" : "Searching files inside the workspace is allowed.",
+                "riskLevel" : "low",
+                "workspaceRelativePaths" : [
+
+                ]
+              },
+              "request" : {
+                "payload" : {
+                  "kind" : "searchFiles",
+                  "payload" : {
+                    "pattern" : "TODO"
+                  }
+                },
+                "raw" : {
+                  "arguments" : {
+                    "pattern" : "TODO"
+                  },
+                  "createdAt" : "2001-01-01T01:24:10.000Z",
+                  "id" : "DDDDDDDD-0000-0000-0000-000000000005",
+                  "sessionID" : "BBBBBBBB-0000-0000-0000-000000000002",
+                  "toolName" : "search_files",
+                  "workspaceID" : "AAAAAAAA-0000-0000-0000-000000000001"
+                }
+              },
+              "state" : {
+                "kind" : "cancelled"
+              }
+            }
+          },
+          {
+            "kind" : "tool",
+            "payload" : {
+              "evaluation" : {
+                "decision" : "denied",
+                "normalizedPaths" : [
+
+                ],
+                "reason" : "Not executed: duplicate command in this response. Original call: call_dddddddd000000000000000000000003.",
+                "riskLevel" : "high",
+                "workspaceRelativePaths" : [
+
+                ]
+              },
+              "request" : {
+                "payload" : {
+                  "kind" : "runCommand",
+                  "payload" : {
+                    "command" : "rm -rf build",
+                    "timeoutSeconds" : 120
+                  }
+                },
+                "raw" : {
+                  "arguments" : {
+                    "command" : "rm -rf build"
+                  },
+                  "createdAt" : "2001-01-01T01:23:50.000Z",
+                  "id" : "DDDDDDDD-0000-0000-0000-000000000006",
+                  "sessionID" : "BBBBBBBB-0000-0000-0000-000000000002",
+                  "toolName" : "run_command",
+                  "workspaceID" : "AAAAAAAA-0000-0000-0000-000000000001"
+                }
+              },
+              "state" : {
+                "kind" : "failed",
+                "payload" : {
+                  "kind" : "runCommandDuplicate",
+                  "payload" : {
+                    "originalCallID" : "DDDDDDDD-0000-0000-0000-000000000003"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "kind" : "tool",
+            "payload" : {
+              "evaluation" : {
+                "decision" : "allowed",
+                "normalizedPaths" : [
+
+                ],
+                "reason" : "Review",
+                "riskLevel" : "low",
+                "workspaceRelativePaths" : [
+
+                ]
+              },
+              "request" : {
+                "payload" : {
+                  "kind" : "workspaceDiff",
+                  "payload" : {
+
+                  }
+                },
+                "raw" : {
+                  "arguments" : {
+
+                  },
+                  "createdAt" : "2001-01-01T01:40:01.000Z",
+                  "id" : "DDDDDDDD-0000-0000-0000-000000000007",
+                  "sessionID" : "BBBBBBBB-0000-0000-0000-000000000002",
+                  "toolName" : "workspace_diff",
+                  "workspaceID" : "AAAAAAAA-0000-0000-0000-000000000001"
+                }
+              },
+              "state" : {
+                "kind" : "completed",
+                "payload" : {
+                  "kind" : "workspaceDiff",
+                  "payload" : {
+                    "snapshot" : {
+                      "files" : [
+                        {
+                          "path" : "new.txt",
+                          "unstaged" : {
+                            "additions" : 1,
+                            "deletions" : 0,
+                            "kind" : "untracked",
+                            "patch" : {
+                              "redacted" : false,
+                              "text" : "+hello",
+                              "truncated" : false
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "modelContextPolicy" : "included",
+        "status" : "awaitingApproval",
+        "updatedAt" : "2001-01-01T01:40:01.000Z"
+      }
+    ],
+    "updatedAt" : "2001-01-01T01:48:20.000Z"
+  },
+  "version" : 4
+}

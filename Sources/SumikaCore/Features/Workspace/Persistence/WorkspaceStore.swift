@@ -329,9 +329,9 @@ package actor WorkspaceStore: WorkspaceStoring {
     let library: WorkspaceLibrary
     do {
       library = try Self.makeLegacyDecoder(diagnostics: diagnostics).decode(
-        WorkspaceLibrary.self,
+        WorkspaceLibraryV0.self,
         from: legacyData
-      )
+      ).value
     } catch {
       throw WorkspacePersistenceError.invalidLegacy(
         "Legacy workspace library could not be decoded. error=\(String(reflecting: error))"
@@ -868,6 +868,9 @@ extension WorkspacePersistenceCoding {
     case 2:
       return WorkspaceSessionDocument(
         session: try decoder.decode(WorkspaceSessionDocumentV2.self, from: data).session.value)
+    case 3:
+      return WorkspaceSessionDocument(
+        session: try decoder.decode(WorkspaceSessionDocumentV3.self, from: data).session.value)
     case WorkspaceSessionDocument.currentVersion:
       return try decoder.decode(WorkspaceSessionDocument.self, from: data)
     default:

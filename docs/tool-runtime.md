@@ -783,16 +783,36 @@ declarations.
   fails the tool call after a fixed timeout instead of blocking the Agent loop
   indefinitely. If no preview page is active yet, both tools fail with a clear
   instruction to open `/preview <path-to-html-file>` first.
-- `workspace_diff` is a read-only review tool available in the Agent registry.
-  It validates the optional workspace-relative `path`, then runs
-  Git through `Process` argv, not shell interpolation. The first version is
-  Git-only: it returns `git status --short`, `git diff --stat`, and unified
-  `git diff` output for tracked changes. Untracked files are reported in status
-  without dumping their contents. Each of the three subprocesses retains at
-  most 48 KiB stdout and 8 KiB stderr at ingestion, for a combined capture
-  ceiling of 168 KiB. The rendered result has its own 48 KiB cap. Capture and
-  display truncation both mark the result as truncated; no temporary output
-  files are created.
+- `workspace_diff` is a read-only Agent review tool with an optional literal,
+  workspace-relative `path`. It returns a typed snapshot ordered by workspace-relative
+  path, with separate staged and unstaged changes, rename sources, optional line
+  counts, and bounded patches. Counts are not a net diff against HEAD. Untracked
+  text previews are included by default; their addition counts remain unknown when
+  the bounded 64 KiB source read does not reach EOF. Binary files, symlinks,
+  submodules, and conflicts carry explicit omission reasons without invented counts.
+- Git inventory uses porcelain v2 with NUL delimiters and individual untracked
+  files; staged and unstaged numstat metadata are collected independently before
+  per-file patches. Commands use literal argv pathspecs, disable external diff and
+  textconv execution and optional index refreshes, and use the shared process runner.
+  Each metadata command retains at most 48 KiB stdout and 8 KiB stderr. Truncated or
+  malformed metadata fails the request with a narrower-path hint. No partial success
+  is returned after a command failure. At most two Git commands run concurrently;
+  process timeouts remain 10 seconds and the whole request has a 30-second deadline.
+- Each diff file retains at most 4 KiB of patch text, shared across its staged and
+  unstaged changes, within an aggregate 48 KiB patch allowance. Display output is
+  capped at 48 KiB and the complete hybrid model observation at 8,000 characters.
+  Each presentation reserves file metadata first, then shares remaining patch space
+  across files and their change portions. Metadata overflow selects a deterministic
+  prefix and reports omitted-file counts. Per-file and overall truncation are
+  explicit; binary omission is distinct from truncation. Model JSON contains file
+  objects and separate stage totals; patches stay adjacent to file metadata in
+  CONTENT. File-aware limiting happens before hybrid serialization, including for
+  duplicate replays, so final string truncation cannot damage control JSON.
+- Workspace diff paths and patches remain inside the requested scope, including
+  nested workspaces. A rename crossing that scope is shown as the in-scope addition
+  or deletion without exposing its other endpoint. Historical textual diff results
+  remain displayable after migration; their missing file metadata is never inferred
+  from the old text. New executions produce structured snapshots only.
 - Write tools and command tools must enter the approval-required path before
   execution. The active Agent session's manual or automatic policy decides
   whether that path pauses for user input.

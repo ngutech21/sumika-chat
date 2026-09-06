@@ -71,7 +71,8 @@ package enum ModelFacingPromptRenderer {
     let rawContent = ToolModelObservationRenderer.render(
       projection,
       callID: toolResult.callID,
-      modelFollowUpNotice: modelFollowUpNotice
+      modelFollowUpNotice: modelFollowUpNotice,
+      maxCharacters: policy.modelObservationLimit.maxCharacters
     )
     let content = limitedToolObservationContent(
       rawContent,
@@ -156,6 +157,7 @@ package enum ModelFacingPromptRenderer {
     request: ToolCallRequest,
     policy: ToolResultProjectionPolicy
   ) -> String {
+    if request.toolName == .workspaceDiff { return content }
     if request.toolName == .readDocument,
       case .readDocument(.success) = toolResult.payload
     {
@@ -207,6 +209,7 @@ enum ToolReceiptFactory {
     }
 
     let affectedPaths = preview.affectedPaths.compactMap { path -> WorkspaceRelativePath? in
+      if toolName == .workspaceDiff { return path.rawValue.isEmpty ? nil : path }
       let trimmed = path.rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
       guard !trimmed.isEmpty else {
         return nil
@@ -257,6 +260,137 @@ enum ToolReceiptRenderer {
 
 enum ToolModelObservationRenderer {
   static func render(
+    _ projection: ToolResultProjection,
+    callID: UUID,
+    modelFollowUpNotice: String? = nil,
+    maxCharacters: Int = ProjectionLimit.defaultModelObservation.maxCharacters
+  ) -> String {
+    guard projection.observation.toolName == .workspaceDiff else {
+      return renderUnbounded(projection, callID: callID, modelFollowUpNotice: modelFollowUpNotice)
+    }
+    let notice = modelFollowUpNotice.map {
+      $0.count > 512 ? String($0.prefix(512)) + "\n[follow-up truncated]" : $0
+    }
+    func render(_ value: ToolResultProjection) -> String {
+      renderUnbounded(value, callID: callID, modelFollowUpNotice: notice)
+    }
+    let bounded: ToolResultProjection
+    if let snapshot = projection.workspaceDiff {
+      bounded = WorkspaceDiffPresentation.boundedModelProjection(
+        snapshot, maxCharacters: maxCharacters, render: render)
+    } else {
+      bounded = boundedDiffReplay(projection, maxCharacters: maxCharacters, render: render)
+    }
+    let result = render(bounded)
+    guard result.count > maxCharacters else { return result }
+    // A pathological path/header still yields valid control JSON, never a sliced envelope.
+    var metadata = projection.metadata
+    metadata.fields =
+      [.init(name: "truncated", value: .bool(true))]
+      + projection.metadata.fields.filter { $0.name == "redacted" }
+    if let snapshot = projection.workspaceDiff {
+      metadata.fields.append(.init(name: "omitted_files", value: .int(snapshot.files.count)))
+    }
+    metadata.nextStep = nil
+    let fallback = ToolResultProjection(
+      display: projection.display,
+      observation: projection.observation.replacing(
+        blocks: [.summary("Diff metadata omitted; use a narrower path.")], affectedPaths: []),
+      metadata: metadata)
+    return renderUnbounded(fallback, callID: callID)
+  }
+
+  private static func boundedDiffReplay(
+    _ original: ToolResultProjection, maxCharacters: Int,
+    render: (ToolResultProjection) -> String
+  ) -> ToolResultProjection {
+    let contents = original.observation.blocks.compactMap { block -> ToolTextOutput? in
+      if case .fileContent(_, let content) = block { return content }
+      return nil
+    }
+    var metadata = original.metadata
+    for (name, value) in [
+      ("truncated", contents.contains(where: \.truncated)),
+      ("redacted", contents.contains(where: \.redacted)),
+    ] where value {
+      metadata.fields.removeAll { $0.name == name }
+      metadata.fields.append(.init(name: name, value: .bool(true)))
+    }
+    let projection = ToolResultProjection(
+      display: original.display, observation: original.observation, metadata: metadata)
+    if render(projection).count <= maxCharacters { return projection }
+    var blocks = projection.observation.blocks
+    var omittedFiles = 0
+    func candidate(_ allowance: Int) -> ToolResultProjection {
+      let portions = blocks.reduce(into: [WorkspaceRelativePath: Int]()) { counts, block in
+        if case .fileContent(let path, _) = block { counts[path, default: 0] += 1 }
+      }
+      let limited = blocks.map { block -> ToolObservationBlock in
+        if case .fileContent(let path, var content) = block {
+          let text = WorkspaceDiffPresentation.prefix(
+            content.text, bytes: allowance / max(1, portions[path, default: 1]))
+          content.truncated = content.truncated || text.utf8.count < content.text.utf8.count
+          content.text = text
+          return .fileContent(path: path, content: content)
+        }
+        return block
+      }
+      var metadata = projection.metadata
+      metadata.fields.removeAll { $0.name == "truncated" || $0.name == "omitted_files" }
+      metadata.fields.append(.init(name: "truncated", value: .bool(true)))
+      if omittedFiles > 0 {
+        metadata.fields.append(.init(name: "omitted_files", value: .int(omittedFiles)))
+      }
+      return ToolResultProjection(
+        display: projection.display,
+        observation: projection.observation.replacing(blocks: limited, affectedPaths: []),
+        metadata: metadata)
+    }
+    while render(candidate(0)).count > maxCharacters,
+      let last = blocks.lastIndex(where: {
+        if case .fileContent = $0 { return true }
+        return false
+      })
+    {
+      var first = last
+      if case .fileContent(let path, _) = blocks[last] {
+        while first > 0, case .fileContent(let previousPath, _) = blocks[first - 1],
+          previousPath == path
+        {
+          first -= 1
+        }
+      }
+      blocks.removeSubrange(first...last)
+      if first > 0, case .summary = blocks[first - 1] { blocks.remove(at: first - 1) }
+      omittedFiles += 1
+    }
+    if render(candidate(0)).count > maxCharacters {
+      // Historical text cannot be reconstructed into file records.
+      let count = max(1, blocks.count)
+      blocks = blocks.map { block in
+        if case .summary(let text) = block {
+          return .summary(String(text.prefix(max(0, maxCharacters - 1536) / count)))
+        }
+        if case .failure(let text) = block {
+          return .failure(String(text.prefix(max(0, maxCharacters - 1536) / count)))
+        }
+        return block
+      }
+    }
+    var low = 0
+    var high = 4 * 1024
+    while low < high {
+      let middle = (low + high + 1) / 2
+      if render(candidate(middle)).count <= maxCharacters {
+        low = middle
+      } else {
+        high = middle - 1
+      }
+    }
+    return candidate(low)
+  }
+
+  private static func renderUnbounded(
     _ projection: ToolResultProjection,
     callID _: UUID,
     modelFollowUpNotice: String? = nil
@@ -348,6 +482,8 @@ enum ToolModelObservationRenderer {
     switch value {
     case .array(let values):
       return .array(values.map { jsonValue($0) })
+    case .object(let fields):
+      return .object(fields.map { ($0.name, jsonValue($0.value)) })
     case .string(let value):
       return .string(value)
     case .int(let value):

@@ -56,14 +56,14 @@ struct WorkspaceSessionMigrationTests {
     #expect(result.canPersist)
     #expect(result.library == library)
     for saved in result.library.workspaces[0].sessions {
-      #expect(try version(at: sessionURL(base: base, id: saved.id)) == 3)
+      #expect(try version(at: sessionURL(base: base, id: saved.id)) == 4)
     }
   }
 
   @Test(arguments: [1, 2], ["result", "preview"])
   func commandDuplicatesAreRejectedByOlderSchemas(version: Int, location: String) async throws {
     let (base, library) = try await prepareLegacySessions()
-    var session = WorkspaceLibraryGoldenFixture.makeCurrentSession()
+    var session = WorkspaceLibraryGoldenFixture.makeV3Session()
     if location == "preview" {
       var record = try #require(session.toolCalls.last)
       record.state = .awaitingApproval(
@@ -102,7 +102,7 @@ struct WorkspaceSessionMigrationTests {
 
     #expect(result.canPersist)
     #expect(result.library == library)
-    #expect(try version(at: url) == 3)
+    #expect(try version(at: url) == 4)
     #expect(await WorkspaceStore(baseURL: base).loadLibrary().library == library)
   }
 
@@ -169,7 +169,7 @@ struct WorkspaceSessionMigrationTests {
 
     #expect(result.canPersist)
     #expect(result.library.workspaces.first?.sessions.first?.turns.count == turns.count)
-    #expect(try version(at: url) == 3)
+    #expect(try version(at: url) == 4)
   }
 
   @Test
@@ -201,7 +201,7 @@ struct WorkspaceSessionMigrationTests {
     let result = await WorkspaceStore(baseURL: base).loadLibrary()
     #expect(result.canPersist)
     #expect(result.library.workspaces.first?.sessions.first == expected)
-    #expect(try version(at: url) == 3)
+    #expect(try version(at: url) == 4)
   }
 
   @Test
@@ -214,7 +214,7 @@ struct WorkspaceSessionMigrationTests {
     #expect(result.library == library)
     #expect(try Data(contentsOf: manifest) == before)
     for session in library.workspaces[0].sessions {
-      #expect(try version(at: sessionURL(base: base, id: session.id)) == 3)
+      #expect(try version(at: sessionURL(base: base, id: session.id)) == 4)
     }
     let restarted = await WorkspaceStore(baseURL: base).loadLibrary()
     #expect(restarted.library == library)
@@ -236,14 +236,14 @@ struct WorkspaceSessionMigrationTests {
     let failed = await store.loadLibrary()
     #expect(!failed.canPersist)
     #expect(failed.library == library)
-    #expect(try version(at: sessionURL(base: base, id: ids[0])) == 3)
+    #expect(try version(at: sessionURL(base: base, id: ids[0])) == 4)
     #expect(try Data(contentsOf: second) == original)
     await #expect(throws: Error.self) { try await store.saveLibrary(library) }
     #expect(await store.retryCleanup().isEmpty)
     let retried = await WorkspaceStore(baseURL: base).loadLibrary()
     #expect(retried.issues.isEmpty)
     #expect(retried.library == library)
-    #expect(try version(at: second) == 3)
+    #expect(try version(at: second) == 4)
   }
 
   @Test
@@ -296,11 +296,11 @@ struct WorkspaceSessionMigrationTests {
   @Test
   func preservesLegacyFutureAndCorruptOrphans() async throws {
     let (base, _) = try await prepareLegacySessions()
-    for version in [1, 2, 3, 9] {
+    for version in [1, 2, 3, 4, 9] {
       let session = ChatSession()
       var bytes = try WorkspacePersistenceCoding.makeEncoder().encode(
         WorkspaceSessionDocument(version: version, session: session))
-      if version == 3 {
+      if version == 4 {
         var object = try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
         var body = try #require(object["session"] as? [String: Any])
         body["turns"] = [["items": [["kind": "future", "payload": [:]]]]]
@@ -312,6 +312,83 @@ struct WorkspaceSessionMigrationTests {
       #expect(await WorkspaceStore(baseURL: base).loadLibrary().canPersist)
       #expect(try Data(contentsOf: url) == bytes)
     }
+  }
+
+  @Test
+  func frozenV3GoldenSessionMapsWithoutLoss() throws {
+    let url = try #require(
+      Bundle.module.url(forResource: "workspace-session-v3-golden", withExtension: "json"))
+    let document = try WorkspacePersistenceCoding.makeDecoder().decode(
+      WorkspaceSessionDocumentV3.self, from: Data(contentsOf: url))
+    #expect(document.session.value == WorkspaceLibraryGoldenFixture.makeV3Session())
+  }
+
+  @Test(arguments: [0, 1, 2, 3], [false, true])
+  func structuredDiffCannotEnterHistoricalSchemas(version: Int, preview: Bool) async throws {
+    let (base, original) = try await prepareLegacySessions()
+    var library = original
+    var session = library.workspaces[0].sessions[1]
+    var record = try #require(WorkspaceLibraryGoldenFixture.makeCurrentSession().toolCalls.last)
+    if preview {
+      record.state = .awaitingApproval(
+        preview: .init(text: "Preview", resultPayload: record.resultPayload))
+    }
+    session.turns[0].recordToolCall(record, at: session.updatedAt)
+    library.workspaces[0].sessions[1] = session
+    let url: URL
+    let bytes: Data
+    if version == 0 {
+      try FileManager.default.removeItem(at: base.appending(path: "WorkspaceLibrary"))
+      url = base.appending(path: "workspaces.json")
+      bytes = try JSONEncoder().encode(library)
+    } else {
+      url = sessionURL(base: base, id: session.id)
+      bytes = try WorkspacePersistenceCoding.makeEncoder().encode(
+        WorkspaceSessionDocument(version: version, session: session))
+    }
+    try bytes.write(to: url)
+    let store = WorkspaceStore(baseURL: base)
+    #expect(await store.loadLibrary().canPersist == false)
+    await #expect(throws: Error.self) { try await store.saveLibrary(original) }
+    #expect(try Data(contentsOf: url) == bytes)
+  }
+
+  @Test(arguments: [0, 1, 2, 3], [false, true])
+  func historicalDiffTextMigratesWithoutInventingFileRecords(version: Int, preview: Bool)
+    async throws
+  {
+    let (base, original) = try await prepareLegacySessions()
+    var library = original
+    var session = library.workspaces[0].sessions[1]
+    let payload = ToolResultPayload.workspaceDiff(
+      .legacySuccess(
+        path: nil, content: .init(text: "Historical diff text", truncated: true, redacted: true)))
+    let request = ToolCallRequest.validated(
+      raw: .init(
+        workspaceID: library.workspaces[0].id, sessionID: session.id,
+        toolName: .workspaceDiff, arguments: [:], createdAt: session.updatedAt),
+      payload: .workspaceDiff(.init()))
+    session.turns[0].recordToolCall(
+      .init(
+        request: request, evaluation: .init(decision: .allowed, reason: "Review", riskLevel: .low),
+        state: preview
+          ? .awaitingApproval(preview: .init(text: "Preview", resultPayload: payload))
+          : .completed(payload)),
+      at: session.updatedAt)
+    library.workspaces[0].sessions[1] = session
+    if version == 0 {
+      try FileManager.default.removeItem(at: base.appending(path: "WorkspaceLibrary"))
+      try JSONEncoder().encode(library).write(to: base.appending(path: "workspaces.json"))
+    } else {
+      try WorkspacePersistenceCoding.makeEncoder().encode(
+        WorkspaceSessionDocument(version: version, session: session)
+      )
+      .write(to: sessionURL(base: base, id: session.id))
+    }
+    let result = await WorkspaceStore(baseURL: base).loadLibrary()
+    #expect(result.canPersist)
+    #expect(result.library == library)
+    #expect(try self.version(at: sessionURL(base: base, id: session.id)) == 4)
   }
 
   private func prepareLegacySessions() async throws -> (URL, WorkspaceLibrary) {

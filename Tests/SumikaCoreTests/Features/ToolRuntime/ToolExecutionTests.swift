@@ -1059,10 +1059,10 @@ struct ToolExecutionTests {
     )
 
     #expect(result.status == .success)
-    #expect(result.text.contains("Status:\nModified:\n  README.md"))
-    #expect(result.text.contains("Diff stat:"))
+    #expect(result.text.contains("Unstaged: modified +1/-1"))
+    #expect(result.text.contains("Changed files: 1"))
     #expect(result.text.contains("README.md"))
-    #expect(result.text.contains("Diff:\n"))
+    #expect(result.text.contains("Unstaged patch:"))
     #expect(result.text.contains("-old"))
     #expect(result.text.contains("+new"))
   }
@@ -1117,15 +1117,15 @@ struct ToolExecutionTests {
 
     #expect(defaultResult.text == explicitRootResult.text)
     #expect(defaultResult.status == .success)
-    #expect(defaultResult.text.contains("Sources/App.swift"))
+    #expect(defaultResult.text.contains("App.swift"))
     #expect(defaultResult.text.contains("+new app"))
     #expect(!defaultResult.text.contains("docs/Guide.md"))
     #expect(!defaultResult.text.contains("+new guide"))
-    #expect(defaultResult.affectedPaths == [WorkspaceRelativePath(rawValue: ".")])
+    #expect(defaultResult.affectedPaths == [WorkspaceRelativePath(rawValue: "App.swift")])
   }
 
   @Test
-  func workspaceDiffShowsUntrackedStatusWithoutContents() async throws {
+  func workspaceDiffShowsBoundedUntrackedContents() async throws {
     let workspace = try makeWorkspace()
     try initializeGitRepository(in: workspace)
     try write("secret untracked content\n", to: "notes.txt", in: workspace)
@@ -1136,9 +1136,9 @@ struct ToolExecutionTests {
     )
 
     #expect(result.status == .success)
-    #expect(result.text.contains("Status:\nUntracked:\n  notes.txt"))
+    #expect(result.text.contains("Untracked: untracked +1/-0"))
     #expect(!result.text.contains("?? notes.txt"))
-    #expect(!result.text.contains("secret untracked content"))
+    #expect(result.text.contains("+secret untracked content"))
     #expect(!result.text.contains("Diff:\n"))
   }
 
@@ -1169,11 +1169,11 @@ struct ToolExecutionTests {
 
     #expect(result.status == .success)
     #expect(result.truncated)
-    #expect(result.text.contains("[workspace_diff output truncated]"))
+    #expect(result.text.contains("[patch truncated]"))
   }
 
   @Test
-  func workspaceDiffBoundsEveryCaptureAndReportsCaptureTruncation() async throws {
+  func workspaceDiffRejectsTruncatedMetadata() async throws {
     let workspace = try makeWorkspace()
     let runner = SpyCommandProcessRunner(
       result: CommandProcessResult(
@@ -1189,12 +1189,11 @@ struct ToolExecutionTests {
       context: ToolContext(workspace: workspace)
     )
 
-    #expect(result.status == .success)
-    #expect(result.truncated)
-    #expect(result.text.contains("capture truncated; retained output only"))
+    #expect(result.status == .failed)
+    #expect(result.text.contains("narrower path"))
     #expect(result.text.utf8.count <= 120)
     let requests = await runner.requests
-    #expect(requests.count == 3)
+    #expect(requests.count == 1)
     #expect(requests.allSatisfy { $0.maxStdoutBytes == 48 * 1024 })
     #expect(requests.allSatisfy { $0.maxStderrBytes == 8 * 1024 })
     #expect(requests.allSatisfy { $0.stdoutRetention == .prefix && $0.stderrRetention == .prefix })
@@ -1220,7 +1219,6 @@ struct ToolExecutionTests {
     #expect(await runner.spawnCount == 1)
     if maxBytes == 220 {
       #expect(result.text.contains("git status exited with status 1"))
-      #expect(result.text.contains("capture truncated; retained output only"))
     }
   }
 

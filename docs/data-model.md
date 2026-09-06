@@ -100,6 +100,7 @@ flowchart TD
   ToolCallParseOutput --> ToolCallModelMessage
   ToolCallPayload --> InvalidToolInput
   ToolCallPayload --> ReadDocumentInput
+  ToolCallPayload --> WorkspaceDiffInput
   ToolCallRecord --> ToolApprovalSource
   ToolCallRecord --> ToolCallRequest
   ToolCallRecord --> ToolCallState
@@ -158,10 +159,12 @@ flowchart TD
   ToolResultModelMessage --> ToolResultPayload
   ToolResultModelMetadata --> ToolResultModelMetadataField
   ToolResultModelMetadataField --> ToolResultModelMetadataValue
+  ToolResultModelMetadataValue --> ToolResultModelMetadataField
   ToolResultPayload --> DuplicateToolCallResult
   ToolResultPayload --> InvalidToolResult
   ToolResultPayload --> ReadDocumentResult
   ToolResultPayload --> ToolFailure
+  ToolResultPayload --> WorkspaceDiffResult
   ToolResultPreview --> ToolResultPayload
   ToolResultPreview --> ToolResultStatus
   ToolResultPreview --> WorkspaceRelativePath
@@ -184,6 +187,10 @@ flowchart TD
   WorkspaceDiagnostic --> WorkspaceDiagnosticSeverity
   WorkspaceDiagnostic --> WorkspaceDiagnosticSource
   WorkspaceDiagnostic --> WorkspaceRelativePath
+  WorkspaceDiffResult --> ToolFailureReason
+  WorkspaceDiffResult --> ToolTextOutput
+  WorkspaceDiffResult --> WorkspaceDiffSnapshot
+  WorkspaceDiffResult --> WorkspaceRelativePath
   WorkspaceFileEntry --> WorkspaceFileKind
   WorkspaceFileEntry --> WorkspaceRelativePath
   WorkspaceInstructionsPromptContext --> WorkspaceInstructionsRemoval
@@ -1577,6 +1584,7 @@ Relations:
 
 - `InvalidToolInput`
 - `ReadDocumentInput`
+- `WorkspaceDiffInput`
 
 ### ToolCallRecord
 
@@ -2081,7 +2089,12 @@ Cases:
 - `bool(Bool)`
 - `int(Int)`
 - `null`
+- `object([ToolResultModelMetadataField])`
 - `string(String)`
+
+Relations:
+
+- `ToolResultModelMetadataField`
 
 ### ToolResultPayload
 
@@ -2121,6 +2134,7 @@ Relations:
 - `InvalidToolResult`
 - `ReadDocumentResult`
 - `ToolFailure`
+- `WorkspaceDiffResult`
 
 ### ToolResultPreview
 
@@ -2418,6 +2432,41 @@ Cases:
 Cases:
 
 - `lastCommandOutput`
+
+### WorkspaceDiffInput
+
+- Kind: `struct`
+- Source: `Sources/SumikaCore/Services/Tools/WorkspaceDiffTool.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
+- `path: String?`
+
+### WorkspaceDiffResult
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Services/Tools/WorkspaceDiffTool.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Cases:
+
+- `failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)`
+- `legacySuccess(path: WorkspaceRelativePath?, content: ToolTextOutput)`
+- `snapshot(WorkspaceDiffSnapshot)`
+
+Relations:
+
+- `ToolFailureReason`
+- `ToolTextOutput`
+- `WorkspaceDiffSnapshot`
+- `WorkspaceRelativePath`
+
+### WorkspaceDiffSnapshot
+
+- Kind: `struct`
+- Source: `Sources/SumikaCore/Services/Tools/WorkspaceDiffTool.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
 
 ### WorkspaceFileEntry
 

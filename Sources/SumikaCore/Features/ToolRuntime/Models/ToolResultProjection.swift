@@ -4,6 +4,7 @@ package struct ToolResultProjection: Equatable, Sendable {
   package let display: ToolDisplayPayload
   package let observation: ToolModelObservation
   package let metadata: ToolResultModelMetadata
+  var workspaceDiff: WorkspaceDiffSnapshot?
 }
 
 package struct ToolResultModelMetadata: Equatable, Sendable {
@@ -55,6 +56,7 @@ package struct ToolResultModelMetadataField: Equatable, Sendable {
 
 package indirect enum ToolResultModelMetadataValue: Equatable, Sendable {
   case array([ToolResultModelMetadataValue])
+  case object([ToolResultModelMetadataField])
   case string(String)
   case int(Int)
   case bool(Bool)
@@ -172,6 +174,10 @@ package struct ToolModelObservation: Codable, Equatable, Sendable {
     self.status = status
     self.affectedPaths = affectedPaths
     self.blocks = blocks
+  }
+
+  func replacing(blocks: [ToolObservationBlock], affectedPaths: [WorkspaceRelativePath]) -> Self {
+    Self(toolName: toolName, status: status, affectedPaths: affectedPaths, blocks: blocks)
   }
 
   static func success(
@@ -1205,7 +1211,9 @@ private func projectWorkspaceDiff(
   request: ToolCallRequest
 ) -> ToolResultProjection {
   switch result {
-  case .success(let path, let content):
+  case .snapshot(let snapshot):
+    return WorkspaceDiffPresentation.projection(snapshot)
+  case .legacySuccess(let path, let content):
     let affectedPaths = [path ?? WorkspaceRelativePath(rawValue: ".")]
     return toolResultProjection(
       display: .workspaceDiff(path: path, content: content),

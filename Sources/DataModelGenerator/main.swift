@@ -32,6 +32,10 @@ let modelFiles = [
     path: "Sources/SumikaCore/Services/Tools/ReadDocumentTool.swift",
     directoryHint: .notDirectory
   ),
+  repositoryRoot.appending(
+    path: "Sources/SumikaCore/Services/Tools/WorkspaceDiffTool.swift",
+    directoryHint: .notDirectory
+  ),
 ]
 let outputURL = repositoryRoot.appending(
   path: "docs/data-model.md",
