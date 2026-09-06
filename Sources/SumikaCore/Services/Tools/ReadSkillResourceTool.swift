@@ -143,13 +143,13 @@ nonisolated extension ReadSkillResourceResult {
       ToolResultPreview(
         text: page.textOutput.text,
         truncated: page.textOutput.truncated,
-        affectedPaths: [page.affectedPath.rawValue]
+        affectedPaths: [page.affectedPath]
       )
     case .failed(let skillID, let path, let message, let status):
       ToolResultPreview(
         status: status,
         text: message,
-        affectedPaths: ["\(skillID.rawValue)/\(path)"]
+        affectedPaths: [WorkspaceRelativePath(rawValue: "\(skillID.rawValue)/\(path)")]
       )
     }
   }

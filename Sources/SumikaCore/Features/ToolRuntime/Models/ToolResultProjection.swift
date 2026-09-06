@@ -1096,7 +1096,7 @@ private func projectReadSkillResource(
       toolName: request.toolName,
       status: status,
       text: message,
-      affectedPaths: result.preview.affectedPaths.map(WorkspaceRelativePath.init(rawValue:)),
+      affectedPaths: result.preview.affectedPaths,
       kind: "skill_resource_failure"
     )
   }

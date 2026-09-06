@@ -433,7 +433,7 @@ classDiagram
     text: String
     truncated: Bool
     redacted: Bool
-    affectedPaths: [String]
+    affectedPaths: [WorkspaceRelativePath]
     resultPayload: ToolResultPayload?
   }
 
@@ -698,6 +698,7 @@ classDiagram
   ReadDocumentResult --> ReadDocumentContent : complete Markdown
   ToolResultPreview --> ToolResultPayload : optional approval payload
   ToolResultPreview --> ToolResultStatus
+  ToolResultPreview --> WorkspaceRelativePath
 
   ModelPromptProjection "1" --> "*" ModelContextEntry
   ModelPromptProjection --> ModelContextProjectionMode

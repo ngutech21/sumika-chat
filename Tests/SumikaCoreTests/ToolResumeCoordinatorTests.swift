@@ -89,7 +89,7 @@ struct ToolResumeCoordinatorTests {
     )
     #expect(projection.metadata.kind == "user_denied")
     #expect(projection.observation.blocks == [.failure("Tool call denied by user.")])
-    #expect(resultMessage.payload.preview.affectedPaths == [path.rawValue])
+    #expect(resultMessage.payload.preview.affectedPaths == [path])
     #expect(turnStatus(from: result.events) == nil)
   }
 

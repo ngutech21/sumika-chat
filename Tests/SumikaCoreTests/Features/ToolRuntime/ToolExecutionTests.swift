@@ -24,7 +24,7 @@ struct ToolExecutionTests {
     #expect(result.status == .success)
     #expect(result.text == "1: let value = 1")
     #expect(result.truncated == false)
-    #expect(result.affectedPaths == ["Sources/App.swift"])
+    #expect(result.affectedPaths == [WorkspaceRelativePath(rawValue: "Sources/App.swift")])
     guard case .readFile(.page(let page)) = result else {
       Issue.record("Expected read_file page payload.")
       return
@@ -107,7 +107,7 @@ struct ToolExecutionTests {
     #expect(missingHTML.status == .failed)
     #expect(missingHTML.text.contains("Did you mean one of these?"))
     #expect(missingHTML.text.contains("index.html"))
-    #expect(missingHTML.affectedPaths == ["landing.html"])
+    #expect(missingHTML.affectedPaths == [WorkspaceRelativePath(rawValue: "landing.html")])
     guard
       case .readFile(.failed(let path, .fileNotFound(_, let suggestions))) = missingHTML
     else {
@@ -942,7 +942,7 @@ struct ToolExecutionTests {
     #expect(result.status == .success)
     #expect(result.text == "No workspace changes.")
     #expect(result.truncated == false)
-    #expect(result.affectedPaths == ["."])
+    #expect(result.affectedPaths == [WorkspaceRelativePath(rawValue: ".")])
   }
 
   @Test
@@ -1086,7 +1086,7 @@ struct ToolExecutionTests {
     #expect(result.text.contains("+new app"))
     #expect(!result.text.contains("README.md"))
     #expect(!result.text.contains("+new readme"))
-    #expect(result.affectedPaths == ["Sources/App.swift"])
+    #expect(result.affectedPaths == [WorkspaceRelativePath(rawValue: "Sources/App.swift")])
   }
 
   @Test
@@ -1121,7 +1121,7 @@ struct ToolExecutionTests {
     #expect(defaultResult.text.contains("+new app"))
     #expect(!defaultResult.text.contains("docs/Guide.md"))
     #expect(!defaultResult.text.contains("+new guide"))
-    #expect(defaultResult.affectedPaths == ["."])
+    #expect(defaultResult.affectedPaths == [WorkspaceRelativePath(rawValue: ".")])
   }
 
   @Test
@@ -1424,7 +1424,7 @@ struct ToolExecutionTests {
     )
 
     #expect(result.status == .success)
-    #expect(result.affectedPaths == ["Sources/App.swift"])
+    #expect(result.affectedPaths == [WorkspaceRelativePath(rawValue: "Sources/App.swift")])
     guard case .writeFile(.success(let path, let bytesWritten)) = result else {
       Issue.record("Expected write_file success payload.")
       return

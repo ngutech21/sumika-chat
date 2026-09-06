@@ -30,7 +30,8 @@ struct ToolEditExecutionTests {
     )
 
     #expect(pending.map(\.status) == [.awaitingApproval, .awaitingApproval])
-    #expect(pending[0].approvalPreview?.affectedPaths == ["notes.txt"])
+    #expect(
+      pending[0].approvalPreview?.affectedPaths == [WorkspaceRelativePath(rawValue: "notes.txt")])
     #expect(pending[0].approvalPreview?.text.contains("-one") == true)
     #expect(pending[0].approvalPreview?.text.contains("+ONE") == true)
     #expect(pending[0].approvalPreview?.text.contains("-four") == true)
@@ -315,7 +316,8 @@ struct ToolEditExecutionTests {
         WorkspaceRelativePath(rawValue: "Sources/App.swift")
       ])
     #expect(result.state.preview?.status == .success)
-    #expect(result.state.preview?.affectedPaths == ["Sources/App.swift"])
+    #expect(
+      result.state.preview?.affectedPaths == [WorkspaceRelativePath(rawValue: "Sources/App.swift")])
     #expect(result.state.preview?.text.contains("-let title = \"Old\"") == true)
     #expect(result.state.preview?.text.contains("+let title = \"New\"") == true)
     #expect(
@@ -903,7 +905,8 @@ struct ToolEditExecutionTests {
     #expect(missing.state.preview?.text.contains("File not found: landing.html") == true)
     #expect(missing.state.preview?.text.contains("Did you mean one of these?") == true)
     #expect(missing.state.preview?.text.contains("index.html") == true)
-    #expect(missing.state.preview?.affectedPaths == ["landing.html"])
+    #expect(
+      missing.state.preview?.affectedPaths == [WorkspaceRelativePath(rawValue: "landing.html")])
   }
 
   @Test

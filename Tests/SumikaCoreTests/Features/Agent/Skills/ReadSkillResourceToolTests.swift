@@ -86,7 +86,10 @@ struct ReadSkillResourceToolTests {
     #expect(page.endLine == 2)
     #expect(page.content == "two")
     #expect(page.continuation == .next(offset: 3, reason: .lineLimit))
+    #expect(result.affectedPaths == [WorkspaceRelativePath(rawValue: "project:review/notes.md")])
     #expect(inactiveResult.status == .denied)
+    #expect(
+      inactiveResult.affectedPaths == [WorkspaceRelativePath(rawValue: "personal:review/notes.md")])
   }
 
   @Test

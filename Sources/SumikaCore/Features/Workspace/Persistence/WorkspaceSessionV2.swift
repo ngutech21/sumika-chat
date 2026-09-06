@@ -157,7 +157,8 @@ private struct WorkspaceToolPreviewV2: Decodable {
   var value: ToolResultPreview {
     ToolResultPreview(
       status: status, text: text, truncated: truncated, redacted: redacted,
-      affectedPaths: affectedPaths, resultPayload: resultPayload?.value)
+      affectedPaths: affectedPaths.map(WorkspaceRelativePath.init(rawValue:)),
+      resultPayload: resultPayload?.value)
   }
 }
 

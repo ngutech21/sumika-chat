@@ -286,7 +286,7 @@ struct NativeToolDetailContent: Equatable {
     } else if let preview = record.approvalPreview {
       outputTitle = "Preview"
       outputText = preview.text.isEmpty ? nil : preview.text
-      affectedPaths = preview.affectedPaths
+      affectedPaths = preview.affectedPaths.map(\.rawValue)
       flags = preview.nativeFlags
     } else {
       outputTitle = nil

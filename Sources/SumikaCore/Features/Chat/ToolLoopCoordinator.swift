@@ -712,7 +712,7 @@ extension ToolLoopCoordinator {
     from previousRecord: ToolCallRecord
   ) -> [WorkspaceRelativePath] {
     if let resultPayload = previousRecord.resultPayload {
-      let paths = resultPayload.affectedPaths.map(WorkspaceRelativePath.init(rawValue:))
+      let paths = resultPayload.affectedPaths
       if !paths.isEmpty {
         return paths
       }

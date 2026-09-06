@@ -122,7 +122,7 @@ struct ToolDiscoveryExecutionTests {
 
     #expect(result.status == .success)
     #expect(result.text == "index.html:2: function startFlight() {}")
-    #expect(result.affectedPaths == ["index.html"])
+    #expect(result.affectedPaths == [WorkspaceRelativePath(rawValue: "index.html")])
     #expect(!result.truncated)
   }
 
@@ -138,7 +138,7 @@ struct ToolDiscoveryExecutionTests {
 
     #expect(result.status == .success)
     #expect(result.text == "(no matches)")
-    #expect(result.affectedPaths == ["index.html"])
+    #expect(result.affectedPaths == [WorkspaceRelativePath(rawValue: "index.html")])
     #expect(!result.truncated)
   }
 

@@ -1269,7 +1269,7 @@ package struct ToolResultPreview: Codable, Equatable, Sendable {
   package var text: String
   package var truncated: Bool
   package var redacted: Bool
-  package var affectedPaths: [String]
+  package var affectedPaths: [WorkspaceRelativePath]
   package var resultPayload: ToolResultPayload?
 
   package init(
@@ -1277,7 +1277,7 @@ package struct ToolResultPreview: Codable, Equatable, Sendable {
     text: String,
     truncated: Bool = false,
     redacted: Bool = false,
-    affectedPaths: [String] = [],
+    affectedPaths: [WorkspaceRelativePath] = [],
     resultPayload: ToolResultPayload? = nil
   ) {
     self.status = status
@@ -1305,7 +1305,7 @@ package struct ToolResultPreview: Codable, Equatable, Sendable {
     truncated = try container.decodeIfPresent(Bool.self, forKey: .truncated, default: false)
     redacted = try container.decodeIfPresent(Bool.self, forKey: .redacted, default: false)
     affectedPaths = try container.decodeIfPresent(
-      [String].self, forKey: .affectedPaths, default: [])
+      [WorkspaceRelativePath].self, forKey: .affectedPaths, default: [])
     resultPayload = try container.decodeIfPresent(ToolResultPayload.self, forKey: .resultPayload)
   }
 
@@ -1349,7 +1349,7 @@ nonisolated extension ToolResultPayload {
     preview.redacted
   }
 
-  package var affectedPaths: [String] {
+  package var affectedPaths: [WorkspaceRelativePath] {
     preview.affectedPaths
   }
 
@@ -1399,7 +1399,7 @@ nonisolated extension ToolResultPayload {
       return ToolResultPreview(
         status: .success,
         text: result.message,
-        affectedPaths: result.affectedPaths.map(\.rawValue)
+        affectedPaths: result.affectedPaths
       )
     case .invalidTool(let result):
       return ToolResultPreview(
@@ -1410,7 +1410,7 @@ nonisolated extension ToolResultPayload {
       return ToolResultPreview(
         status: failure.reason.previewStatus,
         text: failure.previewText,
-        affectedPaths: failure.path.map { [$0.rawValue] } ?? []
+        affectedPaths: failure.path.map { [$0] } ?? []
       )
     }
   }

@@ -164,14 +164,14 @@ nonisolated extension EditFileResult {
     case .success(let receipt):
       return ToolResultPreview(
         text: "Edited \(receipt.path.rawValue).",
-        affectedPaths: [receipt.path.rawValue]
+        affectedPaths: [receipt.path]
       )
     case .legacySuccess(let path, let diff, let matchStrategy):
       let strategyText =
         matchStrategy == .exact ? "" : " using \(matchStrategy.rawValue) match strategy"
       return ToolResultPreview(
         text: diff ?? "Edited \(path.rawValue)\(strategyText).",
-        affectedPaths: [path.rawValue]
+        affectedPaths: [path]
       )
     case .oldTextNotFound(let path, let currentContent, let recovery):
       let contentText =
@@ -184,7 +184,7 @@ nonisolated extension EditFileResult {
           "edit_file failed: old_text was not found in \(path.rawValue).\(contentText)\n\n\(recovery.message)",
         truncated: currentContent?.truncated ?? false,
         redacted: currentContent?.redacted ?? false,
-        affectedPaths: [path.rawValue],
+        affectedPaths: [path],
         resultPayload: .editFile(self)
       )
     case .multipleMatches(let path, let matchCount, let recovery):
@@ -192,18 +192,18 @@ nonisolated extension EditFileResult {
         status: .failed,
         text:
           "edit_file failed: old_text matched more than once in \(path.rawValue) (\(matchCount) matches). \(recovery.message)",
-        affectedPaths: [path.rawValue]
+        affectedPaths: [path]
       )
     case .unchanged(let path):
       return ToolResultPreview(
         text: "No changes were needed for \(path.rawValue).",
-        affectedPaths: [path.rawValue]
+        affectedPaths: [path]
       )
     case .failed(let path, let reason):
       return ToolResultPreview(
         status: reason.previewStatus,
         text: reason.message,
-        affectedPaths: path.map { [$0.rawValue] } ?? []
+        affectedPaths: path.map { [$0] } ?? []
       )
     }
   }
@@ -904,7 +904,7 @@ extension EditFileToolExecutor {
         ToolResultPreview(
           status: .failed,
           text: atomicGroupFailureMessage(cause: failure.cause),
-          affectedPaths: [path.rawValue]
+          affectedPaths: [path]
         ))
     }
     return previews
@@ -1265,7 +1265,7 @@ nonisolated private struct EditFileTransaction {
       let group = try validatedGroup(inputs, context: context)
       return ToolResultPreview(
         text: combinedPreviewDiff(for: group),
-        affectedPaths: [group.path.rawValue]
+        affectedPaths: [group.path]
       )
     }
   }

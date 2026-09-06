@@ -1663,6 +1663,23 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func nativeToolDetailsRenderPreviewPathsWithoutNormalization() throws {
+    let rawPaths = [
+      "  README.md  ", ".", "personal:review/references/example.md", "README.md", "",
+    ]
+    var record = nativeApprovalToolRecord()
+    var preview = try #require(record.approvalPreview)
+    preview.affectedPaths = rawPaths.map(WorkspaceRelativePath.init(rawValue:))
+    record.state = .awaitingApproval(preview: preview)
+
+    let details = NativeToolDetailContent(record: record)
+
+    #expect(details.affectedPaths == rawPaths)
+    #expect(details.outputTitle == "Preview")
+    #expect(details.outputText == "Runs tests.")
+  }
+
+  @Test
   func nativeToolDetailsIncludeAutomaticApprovalSource() {
     var record = nativeCompletedCommandToolRecord()
     record.approvalSource = .automatic
@@ -3493,7 +3510,7 @@ private func nativeApprovalToolRecord(
       preview: ToolResultPreview(
         text: "Runs tests.",
         truncated: true,
-        affectedPaths: ["Package.swift"]
+        affectedPaths: [WorkspaceRelativePath(rawValue: "Package.swift")]
       ))
   )
 }

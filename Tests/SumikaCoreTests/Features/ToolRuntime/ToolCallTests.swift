@@ -521,7 +521,7 @@ struct ToolCallTests {
     let preview = ToolResultPreview(
       status: .success,
       text: "Will update README.md.",
-      affectedPaths: ["README.md"]
+      affectedPaths: [WorkspaceRelativePath(rawValue: "README.md")]
     )
     let state = ToolCallState.awaitingApproval(preview: preview)
 

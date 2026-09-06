@@ -31,7 +31,7 @@ nonisolated extension GlobFilesResult {
         ? "(no matches)"
         : matches.map(\.rawValue).joined(separator: "\n"),
       truncated: truncated,
-      affectedPaths: [root.rawValue]
+      affectedPaths: [root]
     )
   }
 }

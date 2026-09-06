@@ -534,10 +534,10 @@ nonisolated extension WorkspaceDiagnosticsResult {
   }
 
   var preview: ToolResultPreview {
-    let affectedPaths: [String]
+    let affectedPaths: [WorkspaceRelativePath]
     switch self {
     case .legacyDiagnostics(_, let diagnostics):
-      affectedPaths = diagnostics.map(\.path.rawValue)
+      affectedPaths = diagnostics.map(\.path)
     case .read, .search:
       affectedPaths = []
     }

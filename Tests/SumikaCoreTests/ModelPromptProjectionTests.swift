@@ -476,6 +476,47 @@ struct ModelPromptProjectionTests {
   }
 
   @Test
+  func toolReceiptsPreservePathNormalizationAndRendering() throws {
+    let preview = ToolResultPreview(
+      text: "Preview",
+      affectedPaths: [
+        WorkspaceRelativePath(rawValue: "  README.md\n"),
+        WorkspaceRelativePath(rawValue: ""),
+        WorkspaceRelativePath(rawValue: " \t\n"),
+        WorkspaceRelativePath(rawValue: "."),
+        WorkspaceRelativePath(rawValue: "personal:review/references/example.md"),
+        WorkspaceRelativePath(rawValue: "README.md"),
+      ]
+    )
+    let callID = UUID()
+    let receipt = try #require(
+      ToolReceiptFactory.make(callID: callID, toolName: .readFile, preview: preview))
+
+    #expect(
+      receipt.affectedPaths == [
+        WorkspaceRelativePath(rawValue: "README.md"),
+        WorkspaceRelativePath(rawValue: "."),
+        WorkspaceRelativePath(rawValue: "personal:review/references/example.md"),
+        WorkspaceRelativePath(rawValue: "README.md"),
+      ])
+    #expect(preview.affectedPaths.first?.rawValue == "  README.md\n")
+    #expect(
+      ToolReceiptRenderer.render(receipt) == """
+        Tool receipt: read_file
+        Call ID: \(callID.uuidString)
+        Status: success
+        Affected paths:
+        - README.md
+        - .
+        - personal:review/references/example.md
+        - README.md
+        Summary:
+        Preview
+        Receipt is not full file or code context; read_file is required for exact content.
+        """)
+  }
+
+  @Test
   func toolReceiptSummaryIsDeterministicallyTruncated() throws {
     let longContent = String(repeating: "a", count: 700)
     let entry = try readFileToolResultEntry(callID: UUID(), content: longContent)

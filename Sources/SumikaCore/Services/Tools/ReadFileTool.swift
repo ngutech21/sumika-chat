@@ -483,47 +483,47 @@ nonisolated extension ReadFileResult {
         text: content.text,
         truncated: content.truncated,
         redacted: content.redacted,
-        affectedPaths: [page.path.rawValue]
+        affectedPaths: [page.path]
       )
     case .legacySuccess(let path, let content):
       return ToolResultPreview(
         text: content.text,
         truncated: content.truncated,
         redacted: content.redacted,
-        affectedPaths: [path.rawValue]
+        affectedPaths: [path]
       )
     case .unchanged(let path, let readKey):
       let rangeText = readKey.range.map { " for \($0)" } ?? ""
       return ToolResultPreview(
         text:
           "File unchanged since previous read: \(path.rawValue)\(rangeText). Use the existing context instead of reading it again.",
-        affectedPaths: [path.rawValue]
+        affectedPaths: [path]
       )
     case .repeatedReadWarning(let path, let count):
       return ToolResultPreview(
         text:
           "Repeated read_file loop detected for \(path.rawValue) after \(count) reads. Stop reading this file again unless it changed or you need a different range.",
-        affectedPaths: [path.rawValue]
+        affectedPaths: [path]
       )
     case .lineTooLong(let path, let line, let byteCount):
       return ToolResultPreview(
         status: .failed,
         text:
           "Line \(line) in \(path.rawValue) is \(byteCount) bytes and cannot fit in one read_file page. Use search_files for a targeted snippet.",
-        affectedPaths: [path.rawValue]
+        affectedPaths: [path]
       )
     case .offsetOutOfRange(let path, let requestedOffset, let lineCount):
       return ToolResultPreview(
         status: .failed,
         text:
           "read_file offset \(requestedOffset) is past the end of \(path.rawValue), which has \(lineCount) lines.",
-        affectedPaths: [path.rawValue]
+        affectedPaths: [path]
       )
     case .failed(let path, let reason):
       return ToolResultPreview(
         status: reason.previewStatus,
         text: reason.message,
-        affectedPaths: path.map { [$0.rawValue] } ?? []
+        affectedPaths: path.map { [$0] } ?? []
       )
     }
   }

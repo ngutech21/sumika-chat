@@ -16,13 +16,13 @@ nonisolated extension WriteFileResult {
     case .success(let path, let bytesWritten):
       return ToolResultPreview(
         text: "Wrote \(bytesWritten) bytes to \(path.rawValue).",
-        affectedPaths: [path.rawValue]
+        affectedPaths: [path]
       )
     case .failed(let path, let reason):
       return ToolResultPreview(
         status: reason.previewStatus,
         text: reason.message,
-        affectedPaths: path.map { [$0.rawValue] } ?? []
+        affectedPaths: path.map { [$0] } ?? []
       )
     }
   }

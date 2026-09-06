@@ -381,7 +381,7 @@ struct AnyToolExecutor: Sendable {
         ?? ToolResultPayload.failure(
           ToolFailure(
             toolName: record.request.toolName,
-            path: firstPath(in: preview),
+            path: preview.affectedPaths.first,
             reason: .executionError(preview.text)
           ))
       record.state = .failed(payload)
@@ -391,7 +391,7 @@ struct AnyToolExecutor: Sendable {
         ToolResultPayload.failure(
           ToolFailure(
             toolName: record.request.toolName,
-            path: firstPath(in: preview),
+            path: preview.affectedPaths.first,
             reason: .permissionDenied,
             recovery: .askUser(message: preview.text)
           )))
@@ -431,10 +431,6 @@ struct AnyToolExecutor: Sendable {
           )))
       return false
     }
-  }
-
-  private static func firstPath(in preview: ToolResultPreview) -> WorkspaceRelativePath? {
-    preview.affectedPaths.first.map { WorkspaceRelativePath(rawValue: $0) }
   }
 
   private static func runEvaluatedTool<T: DynamicToolExecutor>(
@@ -1023,7 +1019,7 @@ struct ToolOrchestrator: Sendable {
             ?? .failure(
               ToolFailure(
                 toolName: .editFile,
-                path: preview.affectedPaths.first.map(WorkspaceRelativePath.init(rawValue:)),
+                path: preview.affectedPaths.first,
                 reason: .executionError(preview.text)
               ))
           return ToolCallRecord(

@@ -151,7 +151,7 @@ nonisolated extension BrowserInspectResult {
         text: lines.joined(separator: "\n"),
         truncated: text.truncated || (html?.truncated ?? false),
         redacted: text.redacted || (html?.redacted ?? false),
-        affectedPaths: path.map { [$0.rawValue] } ?? []
+        affectedPaths: path.map { [$0] } ?? []
       )
     case .failed(let reason):
       return ToolResultPreview(status: reason.previewStatus, text: reason.message)

@@ -33,7 +33,7 @@ nonisolated extension SearchFilesResult {
         : matches.map { "\($0.path.rawValue):\($0.line): \($0.snippet)" }
           .joined(separator: "\n"),
       truncated: truncated,
-      affectedPaths: [root.rawValue]
+      affectedPaths: [root]
     )
   }
 }

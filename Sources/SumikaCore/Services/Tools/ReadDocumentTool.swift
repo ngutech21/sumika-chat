@@ -106,13 +106,13 @@ package enum ReadDocumentResult: Codable, Equatable, Sendable {
     case .success(let content):
       ToolResultPreview(
         text: "Read document \(content.path.rawValue).",
-        affectedPaths: [content.path.rawValue]
+        affectedPaths: [content.path]
       )
     case .failed(let path, let reason):
       ToolResultPreview(
         status: reason.status,
         text: reason.message,
-        affectedPaths: path.map { [$0.rawValue] } ?? []
+        affectedPaths: path.map { [$0] } ?? []
       )
     }
   }

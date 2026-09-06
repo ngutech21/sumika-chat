@@ -73,7 +73,7 @@ nonisolated extension BrowserRefreshResult {
       let urlLine = url.map { "URL: \($0)\n" } ?? ""
       return ToolResultPreview(
         text: "\(pathLine)\(urlLine)Reloaded current preview.\nHard reload: \(hard)",
-        affectedPaths: path.map { [$0.rawValue] } ?? []
+        affectedPaths: path.map { [$0] } ?? []
       )
     case .failed(let reason):
       return ToolResultPreview(status: reason.previewStatus, text: reason.message)

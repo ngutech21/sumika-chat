@@ -21,13 +21,13 @@ nonisolated extension WorkspaceDiffResult {
         text: content.text,
         truncated: content.truncated,
         redacted: content.redacted,
-        affectedPaths: [path?.rawValue ?? "."]
+        affectedPaths: [path ?? WorkspaceRelativePath(rawValue: ".")]
       )
     case .failed(let path, let reason):
       return ToolResultPreview(
         status: reason.previewStatus,
         text: reason.message,
-        affectedPaths: path.map { [$0.rawValue] } ?? []
+        affectedPaths: path.map { [$0] } ?? []
       )
     }
   }

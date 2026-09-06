@@ -164,6 +164,7 @@ flowchart TD
   ToolResultPayload --> ToolFailure
   ToolResultPreview --> ToolResultPayload
   ToolResultPreview --> ToolResultStatus
+  ToolResultPreview --> WorkspaceRelativePath
   ToolResultProjection -. derives .-> ToolDisplayPayload
   ToolResultProjection -. derives .-> ToolModelObservation
   ToolResultProjection -. derives .-> ToolResultModelMetadata
@@ -2129,7 +2130,7 @@ Relations:
 
 Properties:
 
-- `affectedPaths: [String]`
+- `affectedPaths: [WorkspaceRelativePath]`
 - `redacted: Bool`
 - `resultPayload: ToolResultPayload?`
 - `status: ToolResultStatus`
@@ -2140,6 +2141,7 @@ Relations:
 
 - `ToolResultPayload`
 - `ToolResultStatus`
+- `WorkspaceRelativePath`
 
 ### ToolResultProjection
 

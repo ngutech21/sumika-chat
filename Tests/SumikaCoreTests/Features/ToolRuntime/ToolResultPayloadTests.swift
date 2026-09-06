@@ -470,6 +470,51 @@ struct ToolResultPayloadTests {
   }
 
   @Test
+  func previewAffectedPathsKeepExistingStringArrayJSON() throws {
+    let json = """
+      {
+        "status": "denied",
+        "text": "Preview",
+        "truncated": true,
+        "redacted": true,
+        "affectedPaths": [
+          "README.md", ".", "personal:review/references/example.md",
+          "README.md", "", "  notes with spaces.txt  "
+        ]
+      }
+      """
+    let rawPaths = [
+      "README.md", ".", "personal:review/references/example.md",
+      "README.md", "", "  notes with spaces.txt  ",
+    ]
+    let preview = try JSONDecoder().decode(ToolResultPreview.self, from: Data(json.utf8))
+
+    #expect(preview.affectedPaths == rawPaths.map(WorkspaceRelativePath.init(rawValue:)))
+    #expect(preview.status == .denied)
+    #expect(preview.truncated)
+    #expect(preview.redacted)
+
+    let encoded = try JSONEncoder().encode(preview)
+    let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    #expect(try #require(object["affectedPaths"] as? [String]) == rawPaths)
+    #expect(try JSONDecoder().decode(ToolResultPreview.self, from: encoded) == preview)
+  }
+
+  @Test(arguments: [
+    #"{"text":"Preview"}"#,
+    #"{"text":"Preview","affectedPaths":null}"#,
+    #"{"text":"Preview","affectedPaths":[]}"#,
+  ])
+  func previewAffectedPathsDefaultToEmpty(json: String) throws {
+    let preview = try JSONDecoder().decode(ToolResultPreview.self, from: Data(json.utf8))
+    #expect(preview.affectedPaths.isEmpty)
+
+    let encoded = try JSONEncoder().encode(preview)
+    let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    #expect(try #require(object["affectedPaths"] as? [String]).isEmpty)
+  }
+
+  @Test
   func previewRendersFromStructuredPayload() {
     let payload = ToolResultPayload.editFile(
       .multipleMatches(
@@ -483,7 +528,7 @@ struct ToolResultPayloadTests {
     #expect(preview.status == .failed)
     #expect(preview.text.contains("matched more than once"))
     #expect(preview.text.contains("Retry with a larger exact old_text block"))
-    #expect(preview.affectedPaths == ["Sources/App.swift"])
+    #expect(preview.affectedPaths == [WorkspaceRelativePath(rawValue: "Sources/App.swift")])
   }
 
   @Test
@@ -546,7 +591,7 @@ struct ToolResultPayloadTests {
 
     #expect(preview.status == .success)
     #expect(preview.text.contains(RuntimeToolCallID.string(for: previousCallID)))
-    #expect(preview.affectedPaths == ["README.md"])
+    #expect(preview.affectedPaths == [WorkspaceRelativePath(rawValue: "README.md")])
   }
 
   @Test
@@ -556,7 +601,9 @@ struct ToolResultPayloadTests {
     #expect(runCommandPayload(exitCode: 0, timedOut: true).preview.status == .failed)
     #expect(runCommandPayload(exitCode: 0, cancelled: true).preview.status == .failed)
     #expect(runCommandPayload(exitCode: nil).preview.status == .failed)
-    #expect(runCommandPayload(exitCode: 0).preview.affectedPaths == ["."])
+    #expect(
+      runCommandPayload(exitCode: 0).preview.affectedPaths == [WorkspaceRelativePath(rawValue: ".")]
+    )
   }
 
   @Test

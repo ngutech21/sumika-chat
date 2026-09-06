@@ -245,7 +245,7 @@ enum WorkspaceLibraryGoldenFixture {
       state: .awaitingApproval(
         preview: ToolResultPreview(
           text: "Write 13 bytes to Sources/App.swift.",
-          affectedPaths: ["Sources/App.swift"]
+          affectedPaths: [WorkspaceRelativePath(rawValue: "Sources/App.swift")]
         )
       )
     )

@@ -454,7 +454,9 @@ struct ConversationEngineWriteApprovalTests {
     #expect(!engine.hasPendingApproval)
     #expect(engine.chatSession.turns.first?.status == .completed)
     #expect(engine.chatSession.toolCalls[0].status == .denied)
-    #expect(engine.chatSession.toolCalls[0].state.preview?.affectedPaths == ["README.md"])
+    #expect(
+      engine.chatSession.toolCalls[0].state.preview?.affectedPaths
+        == [WorkspaceRelativePath(rawValue: "README.md")])
     #expect(engine.chatSession.testMessages.count == 3)
     #expect(engine.chatSession.testMessages[1].toolResult?.preview.status == .denied)
     #expect(engine.chatSession.testMessages[2].content == "I will leave README.md unchanged.")

@@ -314,6 +314,11 @@ flowchart TD
 - `ToolResultPreview` is limited to approval previews and derived compatibility
   summaries. It must not be persisted as the result body or used as the source
   of truth when `ToolResultPayload` is available.
+- Preview affected paths retain `WorkspaceRelativePath` through tool-result
+  consumers and encode as JSON strings. The existing path type is unchecked and
+  also carries portable skill-resource identifiers such as
+  `personal:review/references/example.md`; it does not establish filesystem access
+  permission. Executors still validate access before file IO.
 - `ToolContext` carries runtime context such as the active workspace, active
   session ID, read tracker, and latest command result store.
 - `ToolDefinition` describes a tool for prompts and provider adapters,

@@ -207,7 +207,7 @@ enum ToolReceiptFactory {
     }
 
     let affectedPaths = preview.affectedPaths.compactMap { path -> WorkspaceRelativePath? in
-      let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+      let trimmed = path.rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
       guard !trimmed.isEmpty else {
         return nil
       }

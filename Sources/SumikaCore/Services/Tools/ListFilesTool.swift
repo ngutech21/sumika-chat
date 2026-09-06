@@ -29,7 +29,7 @@ nonisolated extension ListFilesResult {
           entry.kind == .directory ? entry.path.rawValue + "/" : entry.path.rawValue
         }.joined(separator: "\n"),
       truncated: truncated,
-      affectedPaths: [root.rawValue]
+      affectedPaths: [root]
     )
   }
 }

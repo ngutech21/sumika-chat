@@ -194,7 +194,7 @@ nonisolated extension RunCommandResult {
       status: outcomeStatus,
       text: previewText,
       truncated: outputTruncated,
-      affectedPaths: ["."]
+      affectedPaths: [WorkspaceRelativePath(rawValue: ".")]
     )
   }
 
@@ -369,7 +369,7 @@ struct RunCommandToolExecutor: TypedToolExecutor {
         input.reason.map { "Reason: \($0)" },
         "Command:\n\(input.command)",
       ].compactMap(\.self).joined(separator: "\n"),
-      affectedPaths: ["."]
+      affectedPaths: [WorkspaceRelativePath(rawValue: ".")]
     )
   }
 
