@@ -557,7 +557,7 @@ struct MLXDebugTraceStoreTests {
       systemPromptChanged: nil
     )
     let plan = MLXModelStreamProcessor.modelStreamPlan(
-      from: source,
+      from: MLXGuardedGeneration(makeStream: { source }, synchronize: {}),
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: cacheTrace,

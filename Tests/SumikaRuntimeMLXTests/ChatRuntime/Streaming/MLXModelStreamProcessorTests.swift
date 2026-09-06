@@ -220,7 +220,7 @@ struct MLXModelStreamProcessorTests {
       continuation.finish()
     }
     let stream = MLXModelStreamProcessor.modelStreamPlan(
-      from: source,
+      from: MLXGuardedGeneration(makeStream: { source }, synchronize: {}),
       reasoningTraceFormat: .qwenThinkTags,
       traceID: UUID(),
       traceMetadata: nil,
@@ -259,7 +259,7 @@ struct MLXModelStreamProcessorTests {
       continuation.finish()
     }
     let stream = MLXModelStreamProcessor.modelStreamPlan(
-      from: source,
+      from: MLXGuardedGeneration(makeStream: { source }, synchronize: {}),
       reasoningTraceFormat: .qwenThinkTags,
       traceID: UUID(),
       traceMetadata: nil,
@@ -477,7 +477,7 @@ struct MLXModelStreamProcessorTests {
       }
     }
     var plan: MLXModelStreamPlan? = MLXModelStreamProcessor.modelStreamPlan(
-      from: source,
+      from: MLXGuardedGeneration(makeStream: { source }, synchronize: {}),
       traceID: traceID,
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
@@ -1516,7 +1516,7 @@ struct MLXModelStreamProcessorTests {
       continuation.finish()
     }
     let stream = MLXModelStreamProcessor.modelStreamPlan(
-      from: source,
+      from: MLXGuardedGeneration(makeStream: { source }, synchronize: {}),
       reasoningTraceFormat: .qwenThinkTags,
       traceID: UUID(),
       traceMetadata: nil,
@@ -1590,7 +1590,7 @@ struct MLXModelStreamProcessorTests {
       continuation.finish()
     }
     let stream = MLXModelStreamProcessor.modelStreamPlan(
-      from: source,
+      from: MLXGuardedGeneration(makeStream: { source }, synchronize: {}),
       reasoningTraceFormat: .qwenThinkTags,
       traceID: UUID(),
       traceMetadata: nil,
@@ -1829,7 +1829,7 @@ struct MLXModelStreamProcessorTests {
     memoryCacheClearer: MLXMemoryCacheClearer = .live
   ) -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     MLXModelStreamProcessor.modelStreamPlan(
-      from: stream,
+      from: MLXGuardedGeneration(makeStream: { stream }, synchronize: {}),
       reasoningTraceFormat: reasoningTraceFormat,
       traceID: traceID,
       traceMetadata: traceMetadata,
@@ -1927,7 +1927,7 @@ struct MLXModelStreamProcessorTests {
     let invalidationRecorder = MLXStreamInvalidationRecorder()
     let memoryClearRecorder = MLXMemoryClearRecorder()
     let stream = MLXModelStreamProcessor.modelStreamPlan(
-      from: source,
+      from: MLXGuardedGeneration(makeStream: { source }, synchronize: {}),
       reasoningTraceFormat: .qwenThinkTags,
       traceID: UUID(),
       traceMetadata: nil,

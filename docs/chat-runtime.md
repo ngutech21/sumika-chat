@@ -223,6 +223,48 @@ state.
   rule disable tools. If the model still emits a native tool attempt, the caller
   treats the follow-up as final and does not execute another tool.
 
+## Recoverable MLX failures
+
+`MLXGuardedGeneration` owns the upstream generation stream for Chat, Agent,
+tool continuations, and approval resumptions. It creates `ChatSession.streamDetails`
+inside a scoped `MLX.withErrorHandler`; the pinned upstream producer and decode
+tasks inherit that task-local handler. The callback records only the first native
+`MLXError.caught` diagnostic under a mutex, requests cancellation of the current
+producer task, and cancels the forwarding task. It does not throw, wait, touch the
+GPU, or update presentation state. Model loading and app-owned preparation use
+scoped `MLX.withError` checks before successful state is published.
+
+The guard checks for captured failures before forwarding output and after upstream
+termination. It holds completion information and pending native tool calls until
+upstream consumption has finished, `ChatSession.synchronize()` has acquired and
+released the upstream cache lock, and the MLX stream has synchronized under the
+scoped handler. A failure during final synchronization therefore cannot become a
+successful completion. There is no additional per-token GPU synchronization.
+
+On failure, the stream processor cancels and drains the guard before invalidating
+the session. A captured MLX error takes precedence over cancellation caused by that
+error. The runtime removes the affected cached-session reference and clears the
+upstream session, releasing live KV arrays before `Memory.clearCache()` clears
+reusable allocations. Generation IDs reject stale cache callbacks. The active task
+remains registered through cleanup; cancellation and lifecycle requests wait for
+it, and serialized setup prevents a new inference or model change from racing the
+drain. Successful sessions retain warm-cache reuse. Ordinary cancellation keeps
+its existing cancelled-turn behavior and does not clear the reusable memory pool.
+
+The original diagnostic flows through the existing failed-turn presentation and
+`MLXDebugTraceStore`, with terminal outcome `failed`. Already-delivered partial
+assistant content and completed tool results remain under the transcript rules
+above. The loaded model weights remain available; the next user-initiated request
+builds a fresh session. There is no automatic retry, conversation cap, KV window,
+or change to configured output limits. Normal prefill explicitly uses balanced
+chunks with a configured maximum step of 512 positions. MTP is outside this path.
+
+This is in-process protection for MLX callback failures that allow native code to
+return safely. Cancellation takes effect at the pinned library's cancellation
+checkpoints. Sumika cannot insert a check inside upstream `.item()`, interrupt an
+active native operation, or guarantee recovery from native corruption, hard
+assertions, GPU hangs, callbacks outside the inherited task scope, or OS termination.
+
 ## Small-document attachments
 
 `ChatAttachmentLoader` admits document filenames supported by the pinned

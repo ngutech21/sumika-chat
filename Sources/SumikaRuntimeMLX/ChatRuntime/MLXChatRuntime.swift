@@ -25,33 +25,23 @@ final actor MLXChatRuntime: ChatModelRuntime {
   private var contextTokenLimit: Int?
   private var generationOwnership = MLXGenerationOwnership()
   private var activeGenerationRegistry = MLXActiveGenerationRegistry()
-  private var lifecycleTransitionInProgress = false
+  private var preparationInProgress = false
+  private var preparationWaiters: [CheckedContinuation<Void, Never>] = []
   private let memoryCacheClearer: MLXMemoryCacheClearer
   private let debugTraceStore: MLXDebugTraceStore
   private let generationActivity: MLXGenerationActivity
   private let applicationStateSnapshotProvider: RuntimeApplicationStateSnapshotProvider
 
   init(
-    debugTraceStore: MLXDebugTraceStore,
-    applicationStateSnapshotProvider: @escaping RuntimeApplicationStateSnapshotProvider = {
-      .unavailable
-    },
-    generationActivity: MLXGenerationActivity = .live
-  ) {
-    self.memoryCacheClearer = .live
-    self.debugTraceStore = debugTraceStore
-    self.generationActivity = generationActivity
-    self.applicationStateSnapshotProvider = applicationStateSnapshotProvider
-  }
-
-  init(
     memoryCacheClearer: MLXMemoryCacheClearer = .live,
     debugTraceStore: MLXDebugTraceStore,
+    modelContainer: ModelContainer? = nil,
     applicationStateSnapshotProvider: @escaping RuntimeApplicationStateSnapshotProvider = {
       .unavailable
     },
     generationActivity: MLXGenerationActivity = .live
   ) {
+    self.modelContainer = modelContainer
     self.memoryCacheClearer = memoryCacheClearer
     self.debugTraceStore = debugTraceStore
     self.generationActivity = generationActivity
@@ -63,8 +53,9 @@ final actor MLXChatRuntime: ChatModelRuntime {
       throw MLXChatRuntimeError.unsupportedArchitecture
     #endif
 
-    lifecycleTransitionInProgress = true
-    defer { lifecycleTransitionInProgress = false }
+    await beginPreparation()
+    defer { endPreparation() }
+    try Task.checkCancellation()
     await cancelAndDrainActiveGeneration(reason: .modelChanged)
     configureMLXMemory()
 
@@ -72,18 +63,24 @@ final actor MLXChatRuntime: ChatModelRuntime {
     let memoryTraceScope = await debugTraceStore.beginMemoryScope(phase: .modelLoadBefore)
 
     do {
-      let container =
-        if configuration.supportsImageInput {
-          try await VLMModelFactory.shared.loadContainer(
-            from: configuration.localModelDirectory,
-            using: tokenizerLoader
-          )
-        } else {
-          try await LLMModelFactory.shared.loadContainer(
-            from: configuration.localModelDirectory,
-            using: tokenizerLoader
-          )
-        }
+      let container = try await MLX.withError { error in
+        let container =
+          if configuration.supportsImageInput {
+            try await VLMModelFactory.shared.loadContainer(
+              from: configuration.localModelDirectory,
+              using: tokenizerLoader
+            )
+          } else {
+            try await LLMModelFactory.shared.loadContainer(
+              from: configuration.localModelDirectory,
+              using: tokenizerLoader
+            )
+          }
+        StreamOrDevice.default.stream.synchronize()
+        try error.check()
+        try Task.checkCancellation()
+        return container
+      }
 
       runtimeCacheDiagnostics =
         if MLXDebugTraceStore.isEnabled {
@@ -117,8 +114,8 @@ final actor MLXChatRuntime: ChatModelRuntime {
   }
 
   func unload() async {
-    lifecycleTransitionInProgress = true
-    defer { lifecycleTransitionInProgress = false }
+    await beginPreparation()
+    defer { endPreparation() }
     await cancelAndDrainActiveGeneration(reason: .modelChanged)
     invalidateCachedSession(reason: .modelChanged)
     modelContainer = nil
@@ -141,8 +138,8 @@ final actor MLXChatRuntime: ChatModelRuntime {
   }
 
   func clearContext() async {
-    lifecycleTransitionInProgress = true
-    defer { lifecycleTransitionInProgress = false }
+    await beginPreparation()
+    defer { endPreparation() }
     await cancelAndDrainActiveGeneration(reason: .signatureMismatch)
     invalidateCachedSession(reason: .signatureMismatch)
     await runtimeCacheDiagnostics?.invalidate()
@@ -178,7 +175,8 @@ final actor MLXChatRuntime: ChatModelRuntime {
       repetitionPenalty: mlxRepetitionPenalty(from: settings),
       repetitionContextSize: settings.repetitionContextSize,
       presencePenalty: Float(settings.presencePenalty),
-      presenceContextSize: settings.repetitionContextSize
+      presenceContextSize: settings.repetitionContextSize,
+      prefill: .init(stepSize: 512, chunking: .balanced)
     )
   }
 
@@ -227,9 +225,11 @@ final actor MLXChatRuntime: ChatModelRuntime {
       ChatDiagnostics.endInterval(setupInterval)
     }
     let streamStartStartedAt = Date()
-    guard !lifecycleTransitionInProgress else {
-      throw CancellationError()
-    }
+    await beginPreparation()
+    defer { endPreparation() }
+    try Task.checkCancellation()
+    await supersedeActiveGenerationBeforeStartingNew()
+    try Task.checkCancellation()
     guard let modelContainer else {
       throw MLXChatRuntimeError.modelNotLoaded
     }
@@ -281,138 +281,169 @@ final actor MLXChatRuntime: ChatModelRuntime {
       finalPrompt: finalPrompt,
       imageAttachments: imageAttachments
     )
-    await supersedeActiveGenerationBeforeStartingNew()
     let generationID = generationOwnership.beginGeneration()
-    let prepareSessionInterval = ChatDiagnostics.beginInterval(
-      "MLX prepare session",
-      category: .generation
-    )
-    let cachePlan = prepareSession(
-      modelContainer: modelContainer,
-      history: history,
-      historySnapshot: historySnapshot,
-      promptMessages: promptMessages,
-      systemPrompt: systemPrompt,
-      toolSpecs: toolSpecs,
-      settings: settings,
-      generateParameters: generateParameters,
-      additionalContext: additionalContext,
-      projectionMode: projectionMode,
-      thinkingBudgetIdentity: thinkingBudgetPlan.identity,
-      components: thinkingBudgetPlan.components,
-      generationID: generationID
-    )
-    ChatDiagnostics.endInterval(prepareSessionInterval)
-    lastRuntimeCacheDebugSnapshot = MLXSessionCachePolicy.runtimeCacheDebugSnapshot(
-      from: cachePlan.trace,
-      appendDeltaStartIndex: cachePlan.appendDeltaStartIndex,
-      generationID: traceID
-    )
-    try await traceDebugRequest(
-      id: traceID,
-      systemPrompt: systemPrompt,
-      history: history,
-      prompt: finalPrompt,
-      settings: settings,
-      effectiveReasoningSelection: effectiveReasoningSelection,
-      imageAttachments: imageAttachments,
-      thinkingBudget: thinkingBudgetPlan.trace,
-      interactionMode: interactionMode
-    )
+    do {
+      let prepareSessionInterval = ChatDiagnostics.beginInterval(
+        "MLX prepare session",
+        category: .generation
+      )
+      let cachePlan = try MLX.withError {
+        prepareSession(
+          modelContainer: modelContainer,
+          history: history,
+          historySnapshot: historySnapshot,
+          promptMessages: promptMessages,
+          systemPrompt: systemPrompt,
+          toolSpecs: toolSpecs,
+          settings: settings,
+          generateParameters: generateParameters,
+          additionalContext: additionalContext,
+          projectionMode: projectionMode,
+          thinkingBudgetIdentity: thinkingBudgetPlan.identity,
+          components: thinkingBudgetPlan.components,
+          generationID: generationID
+        )
+      }
+      ChatDiagnostics.endInterval(prepareSessionInterval)
+      lastRuntimeCacheDebugSnapshot = MLXSessionCachePolicy.runtimeCacheDebugSnapshot(
+        from: cachePlan.trace,
+        appendDeltaStartIndex: cachePlan.appendDeltaStartIndex,
+        generationID: traceID
+      )
+      try await traceDebugRequest(
+        id: traceID,
+        systemPrompt: systemPrompt,
+        history: history,
+        prompt: finalPrompt,
+        settings: settings,
+        effectiveReasoningSelection: effectiveReasoningSelection,
+        imageAttachments: imageAttachments,
+        thinkingBudget: thinkingBudgetPlan.trace,
+        interactionMode: interactionMode
+      )
 
-    let createStreamInterval = ChatDiagnostics.beginInterval(
-      "MLX create stream",
-      category: .generation
-    )
-    let estimateGeneratedTokenCount = await generationTokenEstimator(
-      modelContainer: modelContainer
-    )
-    let runtimeCacheDiagnostics = try await beginRuntimeCacheDiagnostics(
-      modelContainer: modelContainer,
-      generateParameters: generateParameters,
-      cachePlan: cachePlan,
-      traceID: traceID
-    )
-    let memoryTraceScope = await debugTraceStore.beginMemoryScope(
-      phase: .generationStart,
-      generationID: traceID,
-      traceMetadata: traceMetadata
-    )
-    let startedGeneration = generationActivity.start {
-      cachePlan.session.streamDetails(to: cachePlan.streamMessages)
-    }
-    var activityLeaseHandedOff = false
-    defer {
-      if !activityLeaseHandedOff {
-        startedGeneration.activityLease.end()
+      let createStreamInterval = ChatDiagnostics.beginInterval(
+        "MLX create stream",
+        category: .generation
+      )
+      let estimateGeneratedTokenCount = await generationTokenEstimator(
+        modelContainer: modelContainer
+      )
+      let runtimeCacheDiagnostics = try await beginRuntimeCacheDiagnostics(
+        modelContainer: modelContainer,
+        generateParameters: generateParameters,
+        cachePlan: cachePlan,
+        traceID: traceID
+      )
+      let memoryTraceScope = await debugTraceStore.beginMemoryScope(
+        phase: .generationStart,
+        generationID: traceID,
+        traceMetadata: traceMetadata
+      )
+      try Task.checkCancellation()
+      let startedGeneration = generationActivity.start {
+        MLXGuardedGeneration(session: cachePlan.session, messages: cachePlan.streamMessages)
       }
-    }
-    let generationProgressTracer = makeGenerationProgressTracer(
-      traceID: traceID,
-      traceMetadata: traceMetadata,
-      startedAt: startedGeneration.startedAt,
-      generationActivityRequest: startedGeneration.activityLease.request,
-      estimateTokenCount: estimateGeneratedTokenCount
-    )
-    ChatDiagnostics.endInterval(createStreamInterval)
-    await recordRuntimeStreamStart(
-      traceID: traceID,
-      traceMetadata: traceMetadata,
-      cachePlan: cachePlan,
-      streamStartStartedAt: streamStartStartedAt,
-      messageCount: transcript.entries.count,
-      imageAttachments: imageAttachments,
-      applicationState: applicationStateSnapshotProvider(),
-      generationActivityRequest: startedGeneration.activityLease.request
-    )
-    let streamPlan = MLXModelStreamProcessor.modelStreamPlan(
-      from: startedGeneration.stream,
-      reasoningTraceFormat: effectiveReasoningSelection.isEnabled
-        ? loadedReasoningTraceFormat : .none,
-      traceID: traceID,
-      traceMetadata: traceMetadata,
-      cacheTrace: cachePlan.trace,
-      debugTraceStore: debugTraceStore,
-      runtimeCacheDiagnostics: runtimeCacheDiagnostics,
-      generationProgressTracer: generationProgressTracer,
-      generationStartedAt: startedGeneration.startedAt,
-      memoryTraceScope: memoryTraceScope,
-      generationActivityLease: startedGeneration.activityLease,
-      applicationStateSnapshotProvider: applicationStateSnapshotProvider,
-      thinkingBudgetTrace: thinkingBudgetPlan.trace,
-      thinkingBudgetEnforcementState: thinkingBudgetPlan.enforcementState,
-      markCompleted: { [weak self] assistant in
-        await self?.markSessionCompleted(
-          generationID: generationID,
-          historyPrefix: historySnapshot,
-          promptSnapshot: promptSnapshot,
-          assistant: assistant
-        )
-      },
-      markNativeToolCallBoundary: { [weak self] assistant, nativeToolCalls in
-        await self?.markSessionNativeToolCallBoundary(
-          generationID: generationID,
-          historyPrefix: historySnapshot,
-          promptSnapshot: promptSnapshot,
-          assistant: assistant,
-          nativeToolCalls: nativeToolCalls
-        )
-      },
-      markCancelled: { [weak self, runtimeCacheDiagnostics] reason in
-        await runtimeCacheDiagnostics?.invalidate()
-        await self?.markCachedSessionInvalid(generationID: generationID, reason: reason)
+      var activityLeaseHandedOff = false
+      defer {
+        if !activityLeaseHandedOff {
+          startedGeneration.activityLease.end()
+        }
       }
-    )
-    activityLeaseHandedOff = true
-    activeGenerationRegistry.register(id: generationID, task: streamPlan.task)
-    if generationOwnership.activeGenerationID != generationID {
-      activeGenerationRegistry.clearIfCurrent(generationID)
+      let generationProgressTracer = makeGenerationProgressTracer(
+        traceID: traceID,
+        traceMetadata: traceMetadata,
+        startedAt: startedGeneration.startedAt,
+        generationActivityRequest: startedGeneration.activityLease.request,
+        estimateTokenCount: estimateGeneratedTokenCount
+      )
+      ChatDiagnostics.endInterval(createStreamInterval)
+      await recordRuntimeStreamStart(
+        traceID: traceID,
+        traceMetadata: traceMetadata,
+        cachePlan: cachePlan,
+        streamStartStartedAt: streamStartStartedAt,
+        messageCount: transcript.entries.count,
+        imageAttachments: imageAttachments,
+        applicationState: applicationStateSnapshotProvider(),
+        generationActivityRequest: startedGeneration.activityLease.request
+      )
+      let streamPlan = MLXModelStreamProcessor.modelStreamPlan(
+        from: startedGeneration.stream,
+        reasoningTraceFormat: effectiveReasoningSelection.isEnabled
+          ? loadedReasoningTraceFormat : .none,
+        traceID: traceID,
+        traceMetadata: traceMetadata,
+        cacheTrace: cachePlan.trace,
+        debugTraceStore: debugTraceStore,
+        runtimeCacheDiagnostics: runtimeCacheDiagnostics,
+        generationProgressTracer: generationProgressTracer,
+        generationStartedAt: startedGeneration.startedAt,
+        memoryTraceScope: memoryTraceScope,
+        generationActivityLease: startedGeneration.activityLease,
+        applicationStateSnapshotProvider: applicationStateSnapshotProvider,
+        thinkingBudgetTrace: thinkingBudgetPlan.trace,
+        thinkingBudgetEnforcementState: thinkingBudgetPlan.enforcementState,
+        markCompleted: { [weak self] assistant in
+          await self?.markSessionCompleted(
+            generationID: generationID,
+            historyPrefix: historySnapshot,
+            promptSnapshot: promptSnapshot,
+            assistant: assistant
+          )
+        },
+        markNativeToolCallBoundary: { [weak self] assistant, nativeToolCalls in
+          await self?.markSessionNativeToolCallBoundary(
+            generationID: generationID,
+            historyPrefix: historySnapshot,
+            promptSnapshot: promptSnapshot,
+            assistant: assistant,
+            nativeToolCalls: nativeToolCalls
+          )
+        },
+        markCancelled: { [weak self] reason in
+          await self?.markCachedSessionInvalid(generationID: generationID, reason: reason)
+        },
+        memoryCacheClearer: memoryCacheClearer
+      )
+      activityLeaseHandedOff = true
+      activeGenerationRegistry.register(id: generationID, task: streamPlan.task)
+      return streamPlan.stream
+    } catch {
+      await markCachedSessionInvalid(
+        generationID: generationID, reason: error is CancellationError ? .cancelled : .runtimeError)
+      if !(error is CancellationError) {
+        await MLXModelStreamProcessor.clearMemoryCache(
+          reason: .runtimeError, traceID: traceID, traceMetadata: traceMetadata,
+          cacheTrace: nil, debugTraceStore: debugTraceStore, memoryCacheClearer: memoryCacheClearer)
+        await debugTraceStore.traceResponse(
+          id: traceID, output: "", metrics: nil, error: error.localizedDescription,
+          thinkingBudgetOutcome: .notApplied)
+      }
+      throw error
     }
-    return streamPlan.stream
   }
 }
 
 extension MLXChatRuntime {
+  // Serialize setup and lifecycle operations across actor suspension points.
+  // Streaming callbacks can still enter the actor while their producer drains.
+  private func beginPreparation() async {
+    if preparationInProgress {
+      await withCheckedContinuation { preparationWaiters.append($0) }
+    } else {
+      preparationInProgress = true
+    }
+  }
+
+  private func endPreparation() {
+    if preparationWaiters.isEmpty {
+      preparationInProgress = false
+    } else {
+      preparationWaiters.removeFirst().resume()
+    }
+  }
+
   private func makeGenerationProgressTracer(
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
@@ -455,10 +486,12 @@ extension MLXChatRuntime {
     guard let runtimeCacheDiagnostics else {
       return nil
     }
-    let cacheCapabilities = try await MLXRuntimeCacheDiagnostics.capabilities(
-      of: modelContainer,
-      parameters: generateParameters
-    )
+    let cacheCapabilities = try await MLX.withError {
+      try await MLXRuntimeCacheDiagnostics.capabilities(
+        of: modelContainer,
+        parameters: generateParameters
+      )
+    }
     await runtimeCacheDiagnostics.begin(
       generationID: traceID,
       expectsReuse: cachePlan.trace.cacheMode == .reusedSession
@@ -483,19 +516,22 @@ extension MLXChatRuntime {
     finalPrompt: String,
     imageAttachments: [ChatAttachment]
   ) async throws -> MLXThinkingBudgetPlan {
+    let policy = loadedThinkingBudgetPolicy
     let attemptedTrace = MLXThinkingBudgetPlanner.trace(
-      policy: loadedThinkingBudgetPolicy,
+      policy: policy,
       reasoningEnabled: effectiveReasoningSelection.isEnabled,
       interactionMode: interactionMode
     )
     do {
-      return try await MLXThinkingBudgetPlanner.makePlan(
-        policy: loadedThinkingBudgetPolicy,
-        reasoningEnabled: effectiveReasoningSelection.isEnabled,
-        interactionMode: interactionMode,
-        modelContainer: modelContainer,
-        generateParameters: generateParameters
-      )
+      return try await MLX.withError {
+        try await MLXThinkingBudgetPlanner.makePlan(
+          policy: policy,
+          reasoningEnabled: effectiveReasoningSelection.isEnabled,
+          interactionMode: interactionMode,
+          modelContainer: modelContainer,
+          generateParameters: generateParameters
+        )
+      }
     } catch {
       try await traceDebugRequest(
         id: traceID,
@@ -610,12 +646,13 @@ extension MLXChatRuntime {
   }
 
   private func cancelAndDrainActiveGeneration(reason: MLXSessionInvalidationReason) async {
-    guard let superseded = activeGenerationRegistry.supersedeActiveGeneration() else {
+    guard let superseded = activeGenerationRegistry.cancelAndJoinActiveGeneration() else {
       return
     }
 
-    markCachedSessionInvalid(generationID: superseded.id, reason: reason)
     await superseded.task.value
+    await markCachedSessionInvalid(generationID: superseded.id, reason: reason)
+    activeGenerationRegistry.clearIfCurrent(superseded.id)
   }
 
   private func prepareSession(
@@ -787,7 +824,6 @@ extension MLXChatRuntime {
     guard let cached = cachedSession,
       let completedState = cached.state.completing(generationID: generationID)
     else {
-      activeGenerationRegistry.clearIfCurrent(generationID)
       return
     }
 
@@ -809,7 +845,6 @@ extension MLXChatRuntime {
       identity: cached.identity,
       state: completedState
     )
-    activeGenerationRegistry.clearIfCurrent(generationID)
   }
 
   private func markSessionNativeToolCallBoundary(
@@ -826,7 +861,6 @@ extension MLXChatRuntime {
     guard let cached = cachedSession,
       let completedState = cached.state.completing(generationID: generationID)
     else {
-      activeGenerationRegistry.clearIfCurrent(generationID)
       return
     }
 
@@ -849,21 +883,31 @@ extension MLXChatRuntime {
       identity: cached.identity,
       state: completedState
     )
-    activeGenerationRegistry.clearIfCurrent(generationID)
   }
 
   private func markCachedSessionInvalid(
     generationID: MLXGenerationID,
     reason: MLXSessionInvalidationReason
-  ) {
+  ) async {
     guard generationOwnership.invalidateIfCurrent(generationID) else {
       return
     }
 
+    await runtimeCacheDiagnostics?.invalidate()
+
     guard let cached = cachedSession,
       let dirtyState = cached.state.invalidating(generationID: generationID, reason: reason)
     else {
-      activeGenerationRegistry.clearIfCurrent(generationID)
+      return
+    }
+
+    if reason == .runtimeError || reason == .interrupted {
+      cachedSession = nil
+      pendingCacheInvalidationReason = reason
+      // The registered generation has drained; setup remains serialized until
+      // this callback finishes. No other caller can mutate the retired session.
+      nonisolated(unsafe) let retiredSession = cached.session
+      await retiredSession.clear()
       return
     }
 
@@ -873,7 +917,6 @@ extension MLXChatRuntime {
       identity: cached.identity,
       state: dirtyState
     )
-    activeGenerationRegistry.clearIfCurrent(generationID)
   }
 
   private func invalidateCachedSession(reason: MLXSessionInvalidationReason) {

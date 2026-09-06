@@ -24,7 +24,7 @@ enum MLXModelStreamProcessor {
   // cancellation, cache invalidation, and terminal trace coordination.
   // swiftlint:disable:next function_body_length
   static func modelStreamPlan(
-    from stream: AsyncThrowingStream<Generation, Error>,
+    from generation: MLXGuardedGeneration,
     reasoningTraceFormat: ReasoningTraceFormat = .none,
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
@@ -84,13 +84,14 @@ enum MLXModelStreamProcessor {
             )
           }
         )
-        generationLoop: for try await generation in stream {
+        generationLoop: for try await event in generation.stream {
+          try generation.checkFailure()
           try Task.checkCancellation()
           try thinkingBudgetEnforcementState?.checkAuthoritative()
 
           if let memoryTraceScope,
             !didRecordFirstOutputMemory,
-            isFirstOutput(generation)
+            isFirstOutput(event)
           {
             didRecordFirstOutputMemory = true
             await debugTraceStore.recordMemorySnapshot(
@@ -99,11 +100,11 @@ enum MLXModelStreamProcessor {
             )
           }
 
-          if let rejection = generation.rejectedToolCall {
+          if let rejection = event.rejectedToolCall {
             throw RejectedToolCallError(rejection)
           }
 
-          if let chunk = generation.chunk {
+          if let chunk = event.chunk {
             firstChunkAt = await recordRuntimeTTFTIfNeeded(
               firstChunkAt,
               traceID: traceID,
@@ -113,6 +114,7 @@ enum MLXModelStreamProcessor {
             )
             output += chunk
             await generationProgressTracer.record(output: output)
+            try generation.checkFailure()
             if try yieldModelChunk(
               chunk,
               pendingChunk: &pendingChunk,
@@ -126,7 +128,8 @@ enum MLXModelStreamProcessor {
             }
           }
 
-          if let toolCall = generation.toolCall {
+          if let toolCall = event.toolCall {
+            try generation.checkFailure()
             let terminatedAtToolCallBoundary =
               try closeReasoningAtNativeToolCallBoundary(
                 pendingChunk: &pendingChunk,
@@ -147,7 +150,7 @@ enum MLXModelStreamProcessor {
             }
           }
 
-          if let info = generation.info {
+          if let info = event.info {
             await recordRuntimePrefill(
               info,
               traceID: traceID,
@@ -196,6 +199,13 @@ enum MLXModelStreamProcessor {
           }
         }
 
+        if termination.terminatedDownstream {
+          await generation.cancelAndDrain()
+        } else {
+          await generation.drain()
+        }
+        try generation.checkFailure()
+        try Task.checkCancellation()
         try thinkingBudgetEnforcementState?.checkAuthoritative()
 
         if !termination.terminatedDownstream,
@@ -256,35 +266,39 @@ enum MLXModelStreamProcessor {
           markCancelled: markCancelled,
           memoryCacheClearer: memoryCacheClearer
         )
-      } catch is CancellationError {
-        terminalOutcome = await handleCancellation(
-          output: output,
-          completedMetrics: completedMetrics,
-          continuation: continuation,
-          traceID: traceID,
-          debugTraceStore: debugTraceStore,
-          memoryTraceScope: memoryTraceScope,
-          thinkingBudgetTrace: thinkingBudgetTrace,
-          thinkingBudgetEnforcementState: thinkingBudgetEnforcementState,
-          didTerminateDownstream: streamCancellationState.didTerminateDownstream,
-          markCancelled: markCancelled
-        )
       } catch {
-        terminalOutcome = await handleRuntimeFailure(
-          error,
-          output: output,
-          completedMetrics: completedMetrics,
-          continuation: continuation,
-          traceID: traceID,
-          traceMetadata: traceMetadata,
-          cacheTrace: cacheTrace,
-          debugTraceStore: debugTraceStore,
-          memoryTraceScope: memoryTraceScope,
-          thinkingBudgetTrace: thinkingBudgetTrace,
-          thinkingBudgetEnforcementState: thinkingBudgetEnforcementState,
-          markCancelled: markCancelled,
-          memoryCacheClearer: memoryCacheClearer
-        )
+        await generation.cancelAndDrain()
+        let failure = generation.capturedError ?? error
+        if failure is CancellationError {
+          terminalOutcome = await handleCancellation(
+            output: output,
+            completedMetrics: completedMetrics,
+            continuation: continuation,
+            traceID: traceID,
+            debugTraceStore: debugTraceStore,
+            memoryTraceScope: memoryTraceScope,
+            thinkingBudgetTrace: thinkingBudgetTrace,
+            thinkingBudgetEnforcementState: thinkingBudgetEnforcementState,
+            didTerminateDownstream: streamCancellationState.didTerminateDownstream,
+            markCancelled: markCancelled
+          )
+        } else {
+          terminalOutcome = await handleRuntimeFailure(
+            failure,
+            output: output,
+            completedMetrics: completedMetrics,
+            continuation: continuation,
+            traceID: traceID,
+            traceMetadata: traceMetadata,
+            cacheTrace: cacheTrace,
+            debugTraceStore: debugTraceStore,
+            memoryTraceScope: memoryTraceScope,
+            thinkingBudgetTrace: thinkingBudgetTrace,
+            thinkingBudgetEnforcementState: thinkingBudgetEnforcementState,
+            markCancelled: markCancelled,
+            memoryCacheClearer: memoryCacheClearer
+          )
+        }
       }
       await recordRuntimeStreamEnd(
         outcome: terminalOutcome,
@@ -302,10 +316,7 @@ enum MLXModelStreamProcessor {
     observeDownstreamCancellation(
       of: continuation,
       task: task,
-      cancellationState: streamCancellationState,
-      memoryTraceScope: memoryTraceScope,
-      debugTraceStore: debugTraceStore,
-      markCancelled: markCancelled
+      cancellationState: streamCancellationState
     )
 
     return MLXModelStreamPlan(stream: outputStream, task: task)
@@ -349,27 +360,14 @@ extension MLXModelStreamProcessor {
   private static func observeDownstreamCancellation(
     of continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
     task: Task<Void, Never>,
-    cancellationState: MLXStreamCancellationState,
-    memoryTraceScope: MLXMemoryTraceScope?,
-    debugTraceStore: MLXDebugTraceStore,
-    markCancelled: @escaping @Sendable (MLXSessionInvalidationReason) async -> Void
+    cancellationState: MLXStreamCancellationState
   ) {
     continuation.onTermination = { termination in
       guard case .cancelled = termination else {
         return
       }
       cancellationState.markDownstreamTerminated()
-      Task {
-        if let memoryTraceScope {
-          await debugTraceStore.recordMemorySnapshot(
-            phase: .generationTerminal,
-            scope: memoryTraceScope,
-            runtimeStreamOutcome: .downstreamTerminated
-          )
-        }
-        await markCancelled(.downstreamTerminated)
-        task.cancel()
-      }
+      task.cancel()
     }
   }
 

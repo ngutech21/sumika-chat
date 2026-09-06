@@ -10,6 +10,17 @@ import Testing
 #endif
 @Suite()
 struct MLXRuntimeConfigurationTests {
+  @Test
+  func prefillIsBalancedAndNeverExceeds512PositionsPerConfiguredStep() {
+    let settings = ChatGenerationSettings(temperature: 0, topP: 1, topK: 0, maxTokens: 32_768)
+    let parameters = MLXChatRuntime.generateParameters(from: settings)
+    #expect(parameters.prefill.stepSize == 512)
+    #expect(parameters.prefill.chunkLength(forChunking: 1_025) == 342)
+    #expect(parameters.prefill.chunkLength(forChunking: 49_356) == 509)
+    #expect(parameters.maxKVSize == nil)
+    #expect(parameters.maxTokens == 32_768)
+  }
+
   @Test(arguments: ManagedModelCatalog.models.filter { $0.reasoningTraceFormat == .qwenThinkTags })
   func qwenDefaultOutputAllowanceReachesMLXUnchanged(model: ManagedModel) {
     let recommended = ModelSettingsResolver.recommendedSettings(for: model, generationConfig: nil)

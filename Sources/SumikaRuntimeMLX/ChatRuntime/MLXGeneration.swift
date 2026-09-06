@@ -46,11 +46,10 @@ struct MLXActiveGenerationRegistry: Sendable {
     activeGeneration = ActiveMLXGeneration(id: id, task: task)
   }
 
-  mutating func supersedeActiveGeneration() -> ActiveMLXGeneration? {
+  func cancelAndJoinActiveGeneration() -> ActiveMLXGeneration? {
     guard let activeGeneration else {
       return nil
     }
-    self.activeGeneration = nil
     activeGeneration.task.cancel()
     return activeGeneration
   }

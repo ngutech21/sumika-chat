@@ -50,7 +50,7 @@ struct MLXGenerationActivityTests {
     let traceRecorder = TerminalTraceRecorder(activityRecorder: activityRecorder)
     let traceID = UUID()
     let plan = MLXModelStreamProcessor.modelStreamPlan(
-      from: started.stream,
+      from: MLXGuardedGeneration(makeStream: { started.stream }, synchronize: {}),
       traceID: traceID,
       traceMetadata: TurnTraceMetadata(
         turnID: nil,

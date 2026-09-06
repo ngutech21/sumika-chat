@@ -1,3 +1,4 @@
+import CoreImage
 import Foundation
 import MLX
 import XCTest
@@ -6,6 +7,38 @@ import XCTest
 @testable import SumikaRuntimeMLX
 
 nonisolated final class MLXSmallDocumentSmokeTests: XCTestCase {
+  func testInstalledModelGeneratesWithImage() async throws {
+    try await withInstalledModel { runtime, model, root, _ in
+      guard model.supportsImageInput else { throw XCTSkip("Selected model has no image support.") }
+      let source = root.appending(path: "red-square.png")
+      let image = CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 224, height: 224))
+      try CIContext().writePNGRepresentation(
+        of: image, to: source, format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+      let data = try Data(contentsOf: source)
+      let store = ChatAttachmentStore()
+      let id = AttachmentID()
+      _ = try await store.storeFile(data: data, id: id, displayName: source.lastPathComponent)
+      defer { try? FileManager.default.removeItem(at: store.directoryURL(for: id)) }
+      let attachment = ChatAttachment(
+        id: id, displayName: source.lastPathComponent,
+        payload: .image(
+          .init(
+            mimeType: "image/png", byteSize: data.count,
+            contentSHA256: ChatAttachmentStore.contentSHA256(for: data))))
+      let prompt = try ModelFacingPromptRenderer.userPromptEntry(
+        prompt: "Name the dominant color. Reply with one word.", attachments: [attachment])
+      var settings = ModelSettingsResolver.recommendedSettings(for: model, generationConfig: nil)
+        .modeSettings.chat.generationSettings
+      settings.temperature = 0
+      settings.reasoningSelection = .off
+      let output = try await Self.reply(
+        runtime: runtime, entries: [prompt], plan: .init(stableInstructions: "Answer briefly."),
+        settings: settings, attachments: [attachment])
+      XCTAssertTrue(output.lowercased().contains("red"), "Unexpected image response: \(output)")
+      print("IMAGE SMOKE: model=\(model.id), output=\(output)")
+    }
+  }
+
   func testInstalledModelReadsDocumentEnding() async throws {
     try await withInstalledModel { runtime, model, root, traceURL in
       try await Self.verifyEnding(runtime: runtime, model: model, root: root, traceURL: traceURL)
@@ -139,8 +172,19 @@ nonisolated final class MLXSmallDocumentSmokeTests: XCTestCase {
     entries.append(
       try ModelFacingPromptRenderer.userPromptEntry(
         prompt: "Confirm receipt again. Reply only READY."))
-    _ = try await reply(runtime: runtime, entries: entries, plan: plan, settings: settings)
+    let second = try await reply(runtime: runtime, entries: entries, plan: plan, settings: settings)
     try verifyLongPrefill(traceURL: traceURL, settings: settings, label: "warm", expectsReuse: true)
+
+    entries.append(try ModelFacingPromptRenderer.assistantOutputEntry(content: second))
+    entries.append(try ModelFacingPromptRenderer.userPromptEntry(prompt: "Reply only READY."))
+    let toolPlan = ChatRuntimePromptPlan(
+      stableInstructions: plan.stableInstructions,
+      toolContext: .init(registry: ToolExecutorRegistry.codingAgent.toolRegistry))
+    _ = try await reply(
+      runtime: runtime, entries: entries, plan: toolPlan, settings: settings, mode: .agent)
+    let rebuilt = await runtime.runtimeCacheDebugSnapshot()
+    XCTAssertEqual(rebuilt?.cacheReason, "tool_schemas_changed")
+    try verifyLongPrefill(traceURL: traceURL, settings: settings, label: "tool_schema_rebuild")
 
     await runtime.clearContext()
     let rawRequest = RawToolCallRequest(
@@ -168,7 +212,8 @@ nonisolated final class MLXSmallDocumentSmokeTests: XCTestCase {
 
   private static func reply(
     runtime: MLXChatRuntime, entries: [ModelContextEntry], plan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings, mode: WorkspaceInteractionMode = .chat
+    settings: ChatGenerationSettings, mode: WorkspaceInteractionMode = .chat,
+    attachments: [ChatAttachment] = []
   ) async throws -> String {
     let metadata = TurnTraceContext.current.map {
       TurnTraceMetadata(
@@ -176,7 +221,7 @@ nonisolated final class MLXSmallDocumentSmokeTests: XCTestCase {
     }
     let stream = try await TurnTraceContext.$current.withValue(metadata) {
       try await runtime.streamReply(
-        for: ModelPromptProjection(entries: entries), attachments: [],
+        for: ModelPromptProjection(entries: entries), attachments: attachments,
         promptPlan: plan, settings: settings, interactionMode: mode)
     }
     var output = ""
@@ -211,7 +256,17 @@ nonisolated final class MLXSmallDocumentSmokeTests: XCTestCase {
     let recordedSettings = try XCTUnwrap(request["settings"] as? [String: Any])
     XCTAssertEqual(recordedSettings["maxTokens"] as? Int, settings.maxTokens)
     let reused = prefill["reusedPromptTokens"] as? Int ?? 0
-    if expectsReuse { XCTAssertGreaterThan(reused, 0) }
+    if expectsReuse {
+      XCTAssertEqual(prefill["cacheMode"] as? String, "reused_session")
+      if prefill["inputMaskPresent"] as? Bool == true {
+        // The pinned prompt-cache policy deliberately rebuilds masked inputs.
+        XCTAssertEqual(prefill["mlxCacheDecision"] as? String, "full_prefill")
+        XCTAssertEqual(prefill["mlxCacheMismatchReason"] as? String, "prepared_input_mask")
+        XCTAssertEqual(reused, 0)
+      } else {
+        XCTAssertGreaterThan(reused, 0)
+      }
+    }
     print(
       "CONVERSATION SMOKE \(label): promptTokens=\(fullTokens), reused=\(reused), maxTokens=\(settings.maxTokens)"
     )
