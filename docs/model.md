@@ -4,6 +4,10 @@ This diagram is a curated view of the persisted chat/tool model and its derived
 model-context projection. See [`data-model.md`](data-model.md) for the generated,
 source-complete `SumikaCore` model inventory.
 
+A partially restored library is an in-memory read model: it retains every validated
+workspace and only readable sessions. Its load issues block persistence and cleanup,
+so this projection never replaces the complete manifest or unavailable session files.
+
 ```mermaid
 classDiagram
   direction TB
@@ -310,6 +314,7 @@ classDiagram
   class ToolCallPayload {
     <<enum>>
     readFile(ReadFileInput)
+    readDocument(ReadDocumentInput)
     showFile(ReadFileInput)
     listFiles(ListFilesInput)
     globFiles(GlobFilesInput)
@@ -379,6 +384,7 @@ classDiagram
   class ToolResultPayload {
     <<enum>>
     readFile(ReadFileResult)
+    readDocument(ReadDocumentResult)
     listFiles(ListFilesResult)
     globFiles(GlobFilesResult)
     searchFiles(SearchFilesResult)
@@ -398,6 +404,17 @@ classDiagram
     duplicateToolCall(DuplicateToolCallResult)
     invalidTool(InvalidToolResult)
     failure(ToolFailure)
+  }
+
+  class ReadDocumentResult {
+    <<enum>>
+    success(ReadDocumentContent)
+    failed(WorkspaceRelativePath?, ReadDocumentFailure)
+  }
+
+  class ReadDocumentContent {
+    path: WorkspaceRelativePath
+    markdown: String
   }
 
   class ToolResultPreview {
@@ -664,6 +681,8 @@ classDiagram
   ToolCallState --> ToolResultPreview : approval preview
   ToolCallState --> ToolResultPayload : result payload
   ToolResultPayload --> ToolResultPreview : derived preview
+  ToolResultPayload --> ReadDocumentResult : converted document
+  ReadDocumentResult --> ReadDocumentContent : complete Markdown
   ToolResultPreview --> ToolResultPayload : optional approval payload
   ToolResultPreview --> ToolResultStatus
 

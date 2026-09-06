@@ -236,8 +236,11 @@ flowchart TD
   reuse the previous completed `ToolResultPayload` instead of invoking the executor
   again. Workspace paths are resolved through the same workspace boundary as tool
   execution; root defaults and `read_file`'s default offset are normalized, while
-  invalid or rejected paths are never reusable. The first duplicate carries a
-  replayed `ToolModelObservation` so the prompt tail contains the prior result blocks
+  invalid or rejected paths are never reusable. `read_document` shares its
+  relative-path resolver with execution and reuses only successful conversions.
+  A completed write/edit to the same canonical path or any completed command
+  invalidates document reuse; unrelated file writes do not. The first duplicate
+  carries a replayed `ToolModelObservation` so the prompt tail contains the prior result blocks
   again. From the second consecutive identical duplicate the payload
   is `blocked` (`DuplicateToolCallResult.blocked == true`): the replayed observation
   is withheld and the model-facing observation is framed non-success
@@ -266,6 +269,10 @@ flowchart TD
   no-tools guidance, failed `run_command`, repeated same-command `run_command`,
   listing/read-loop escalations, duplicate replays, and the generic same-turn
   follow-up are mutually exclusive within this slot.
+- Listing-loop detection counts list, glob, and search calls since the latest
+  successful text or document read. A successful `read_document` resets this
+  state; failed document reads do not. Recovery guidance routes text and source
+  code to `read_file`, and supported documents to `read_document` when available.
 - `ModelFacingPromptRenderer` renders a tool follow-up notice only in the
   model-facing `tool` message, inside the `TOOL_RESULT_JSON.next_step` field.
   Ordinary tools-enabled continuations use one short local instruction; detailed
@@ -628,8 +635,9 @@ declarations.
   `N: content`; the gutter, line content, separators, and newlines all count
   toward the budget. The first limit reached ends the page, and the tool never
   returns a partial line. Complete `read_file` pages have a separate 20,000
-  character model-observation budget; other tools retain the shared 8,000
-  character observation budget.
+  character model-observation budget. Successful `read_document` results use
+  the complete-output path described below; other tools retain the shared
+  8,000-character observation budget.
 - A page continuation is one of: end of file, a safe next offset with
   `byte_limit` or `line_limit`, or a blocked line whose full rendered form
   cannot fit a page. If the first requested line is oversized, `read_file`
@@ -652,6 +660,37 @@ declarations.
   `ReadFilePage.content` remains raw normalized text in persistence, and stored
   legacy `success(path:content:)` payloads decode without invented
   continuation metadata.
+- `read_document(path)` analyzes supported workspace documents as complete
+  converted Markdown. Its typed definition, codec, executor, and results live
+  together in `Services/Tools/ReadDocumentTool.swift`. It is registered only when
+  a `DocumentMarkdownConverting` implementation is supplied. Production shares
+  one local AnyDoc converter with attachments and retains it through Agent
+  registry rebuilds, including settings and MCP selection changes. Chat excludes
+  the tool.
+- Document input must be workspace-relative: absolute paths and URLs are
+  rejected explicitly, then the workspace resolver rejects traversal and symlink
+  escapes. Execution revalidates before bounded regular-file reads under
+  security-scoped workspace access, off the main actor. Source size must be
+  known and at most 64 MiB. Converted Markdown must fit both 256 KiB of UTF-8
+  and 32,000 Swift characters. The supported formats and limits share
+  `DocumentContentPolicy` with attachment loading; attachment aggregation remains
+  unchanged. Cancellation is checked around the native conversion phase, which
+  cannot itself be interrupted; cancelled work never publishes success.
+- Document failures return typed errors without partial content, including
+  unreadable or missing files, directories, unsupported formats, unknown size,
+  limit violations, empty extraction, OCR requirements, and conversion errors.
+  Agent guidance treats document content as reference material, uses supplied
+  attachment content directly, and reports extraction failures without guessing
+  or proposing command-based conversion fallbacks.
+- `ReadDocumentResult.success` stores only its canonical workspace-relative path
+  and complete Markdown on the existing `ToolCallRecord`. Previews, native
+  expandable details labeled **Converted Markdown**, and model observations are
+  derived. `ModelFacingPromptRenderer` preserves the full validated body plus
+  its metadata wrapper, bypassing the generic observation limiter for successful
+  document results. Live continuation and reconstructed history use this same
+  renderer; reload never rereads the original file. Documents neither update
+  focused-file snapshots nor offer editing actions. Citations, OCR, indexing,
+  chunking, pagination, and a dedicated document viewer are outside this tool.
 - `read_skill_resource` is registered only in an Agent turn that activated at
   least one skill. Its executor receives an immutable map of the exact scoped
   `SkillID` values and canonical skill roots captured during that turn's send

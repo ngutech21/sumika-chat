@@ -143,6 +143,7 @@ internal enum ProjectionLimiter {
 }
 
 package enum ToolDisplayPayload: Equatable, Sendable {
+  case documentContent(ReadDocumentContent)
   case fileContent(path: WorkspaceRelativePath, content: ToolTextOutput)
   case fileList(root: WorkspaceRelativePath, entries: [WorkspaceFileEntry], truncated: Bool)
   case searchResults(
@@ -350,6 +351,8 @@ package enum ToolResultProjector {
     policy: ToolResultProjectionPolicy
   ) -> ToolResultProjection {
     switch payload {
+    case .readDocument(let result):
+      return projectReadDocument(result, request: request)
     case .readFile(let result):
       return projectReadFile(result, request: request, policy: policy)
     case .readSkillResource(let result):
@@ -1838,5 +1841,31 @@ nonisolated extension ToolFailureReason {
       .toolBudgetExceeded, .unsupportedFileType, .invalidArguments, .executionError, .cancelled:
       .failed
     }
+  }
+}
+
+private func projectReadDocument(
+  _ result: ReadDocumentResult, request: ToolCallRequest
+) -> ToolResultProjection {
+  switch result {
+  case .success(let content):
+    return toolResultProjection(
+      display: .documentContent(content),
+      observation: .success(
+        toolName: request.toolName,
+        affectedPaths: [content.path],
+        blocks: [.summary("Complete converted Markdown:\n\(content.markdown)")]
+      ),
+      kind: "document_content",
+      metadataFields: [
+        ToolResultModelMetadataField(name: "path", value: .string(content.path.rawValue))
+      ],
+      nextAllowedActions: []
+    )
+  case .failed(let path, let reason):
+    return summaryProjection(
+      toolName: request.toolName, status: reason.status, text: reason.message,
+      affectedPaths: path.map { [$0] } ?? []
+    )
   }
 }

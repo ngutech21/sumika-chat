@@ -17,7 +17,8 @@ package struct TodoState: Codable, Equatable, Sendable {
   package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     items = try container.decodeLossyArray([TodoItem].self, forKey: .items)
-    updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt, default: Date())
+    updatedAt = try container.decodeIfPresent(
+      Date.self, forKey: .updatedAt, default: decoder.defaultDate)
   }
 
   package func encode(to encoder: Encoder) throws {

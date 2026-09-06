@@ -86,6 +86,7 @@ struct WorkspaceChatComposerHost: View {
       onSend: onSend,
       onCancel: chatState.cancelGeneration
     )
+    .disabled(chatState.readOnlyMessage != nil)
   }
 
   private var downloadedModels: [ManagedModel] {
@@ -93,7 +94,8 @@ struct WorkspaceChatComposerHost: View {
   }
 
   private var presentedErrorMessage: String? {
-    composerErrorMessage
+    chatState.readOnlyMessage
+      ?? composerErrorMessage
       ?? previewState.errorMessage
       ?? modelManagementState.errorMessage
       ?? chatState.composer.errorMessage

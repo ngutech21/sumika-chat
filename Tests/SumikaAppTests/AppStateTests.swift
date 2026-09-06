@@ -9,6 +9,40 @@ import Testing
 @MainActor
 struct AppStateTests {
   @Test
+  func partialRestoreShowsHistoryWithoutStartingUnsavedConversation() async throws {
+    let root = try scopedTemporaryDirectory()
+    let healthy = ChatSession(
+      title: "Readable history",
+      turns: [ChatTurn(status: .completed, items: [.userMessage(.init(content: "Saved message"))])])
+    let unavailable = ChatSession()
+    let workspace = Workspace(name: "Project", rootURL: root, sessions: [unavailable, healthy])
+    let store = WorkspaceStore(baseURL: root)
+    try await store.saveLibrary(
+      WorkspaceLibrary(
+        workspaces: [workspace], activeWorkspaceID: workspace.id,
+        activeSessionID: unavailable.id))
+    let unavailableURL = root.appending(
+      path: "WorkspaceLibrary/sessions/\(unavailable.id.uuidString.lowercased()).json")
+    let invalid = Data("invalid".utf8)
+    try invalid.write(to: unavailableURL)
+    let appState = AppState(
+      workspaceStore: store, modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      appBehaviorSettingsStore: InMemoryAppBehaviorSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(), runtime: AppStateTestRuntime())
+    try await waitUntil { !appState.workspaceState.isLoading }
+
+    #expect(appState.selectChat(workspaceID: workspace.id, sessionID: healthy.id))
+    #expect(appState.chatFeatureState.transcript.turns.first?.items == healthy.turns.first?.items)
+    #expect(appState.chatFeatureState.readOnlyMessage != nil)
+    #expect(!appState.chatFeatureState.activateSelectedConversation())
+    #expect(await appState.sendMessage(MessageSubmission(text: "Must not generate")) == false)
+    #expect(appState.chatFeatureState.transcript.turns.count == 1)
+    await appState.prepareForTermination()
+    #expect(try Data(contentsOf: unavailableURL) == invalid)
+  }
+
+  @Test
   func terminationDiscardsPendingAttachmentCopies() async throws {
     let root = try scopedTemporaryDirectory()
     let source = root.appending(path: "source.txt")

@@ -2876,7 +2876,7 @@ struct ConversationEngineToolLoopTests {
   private var listingWanderingNoticeText: String {
     """
     You are looping on listings/searches. Stop listing.
-    Choose one path from the latest entries or matches and call read_file, or call finish_task with the appropriate status and final summary.
+    Choose one path from the latest entries or matches. Use read_file for UTF-8 text or source code, or read_document for supported documents if available. Otherwise call finish_task with the appropriate status and final summary.
     Do not call list_files, glob_files, or search_files again for broad exploration.
     Only use them again for one specific missing filename.
     """

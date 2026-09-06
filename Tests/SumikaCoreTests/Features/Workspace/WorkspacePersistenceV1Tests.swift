@@ -55,7 +55,7 @@ struct WorkspacePersistenceV1Tests {
     let sessionObject = try #require(
       JSONSerialization.jsonObject(with: sessionData) as? [String: Any]
     )
-    #expect(document.version == 1)
+    #expect(document.version == 2)
     #expect(document.session.id == library.workspaces[0].sessions[0].id)
     #expect(sessionObject["workspaceID"] == nil)
     #expect(sessionObject["transcriptPath"] == nil)
@@ -63,7 +63,7 @@ struct WorkspacePersistenceV1Tests {
   }
 
   @Test
-  func migrationMovesLegacyFixtureLosslesslyIntoV1AndDeletesLegacy() async throws {
+  func migrationMovesLegacyFixtureLosslesslyIntoCurrentSessionsAndDeletesLegacy() async throws {
     let baseURL = try temporaryBaseURL()
     try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
     let legacyData = try Data(contentsOf: legacyFixtureURL)
@@ -353,7 +353,7 @@ struct WorkspacePersistenceV1Tests {
 
     try await assertSessionMutationFailsClosed(
       expectedIssue: { issue in
-        guard case .unsupportedVersion(_, 9, 1) = issue else {
+        guard case .unsupportedVersion(_, 9, 2) = issue else {
           return false
         }
         return true

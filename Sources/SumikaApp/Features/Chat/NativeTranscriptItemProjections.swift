@@ -190,6 +190,8 @@ extension ToolCallRecord {
 extension ToolDisplayPayload {
   var nativeOutputTitle: String? {
     switch self {
+    case .documentContent:
+      "Converted Markdown"
     case .fileContent:
       "File content"
     case .fileList:
@@ -206,6 +208,8 @@ extension ToolDisplayPayload {
   var nativeOutputText: String? {
     let text =
       switch self {
+      case .documentContent(let content):
+        content.markdown
       case .fileContent(_, let content):
         content.text
       case .fileList(_, let entries, _):
@@ -229,6 +233,8 @@ extension ToolDisplayPayload {
 
   var nativeAffectedPaths: [String] {
     switch self {
+    case .documentContent(let content):
+      [content.path.rawValue]
     case .fileContent(let path, _):
       [path.rawValue]
     case .fileList(let root, _, _), .searchResults(let root, _, _, _):
@@ -246,7 +252,7 @@ extension ToolDisplayPayload {
       content.nativeFlags
     case .fileList(_, _, let truncated), .searchResults(_, _, _, let truncated):
       truncated ? ["truncated"] : []
-    case .summary:
+    case .documentContent, .summary:
       []
     }
   }
@@ -301,7 +307,7 @@ extension ToolCallModelMessage {
     case .runCommand:
       summary = argumentValue(named: "command")
       lineBreakMode = .byTruncatingTail
-    case .writeFile, .editFile, .readFile, .showFile:
+    case .writeFile, .editFile, .readFile, .readDocument, .showFile:
       summary = argumentValue(named: "path")
       lineBreakMode = .byTruncatingMiddle
     case .webSearch:

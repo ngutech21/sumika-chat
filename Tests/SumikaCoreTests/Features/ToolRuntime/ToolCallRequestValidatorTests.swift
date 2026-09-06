@@ -329,7 +329,10 @@ struct ToolCallRequestValidatorTests {
         (codec.definition.name, codec.definition)
       })
 
-    for definition in ToolExecutorRegistry.codingAgent.definitions {
+    let registry = ToolExecutorRegistry.codingAgentRegistry(
+      todoWriteEnabled: true, documentMarkdownConverter: DocumentMarkdownConverterStub()
+    )
+    for definition in registry.definitions {
       #expect(definitionsByName[definition.name] == definition)
     }
   }

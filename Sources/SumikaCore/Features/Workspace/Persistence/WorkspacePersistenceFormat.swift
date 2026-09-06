@@ -72,7 +72,7 @@ struct PersistedWorkspace: Codable, Equatable, Sendable {
 }
 
 struct WorkspaceSessionDocument: Codable, Equatable, Sendable {
-  static let currentVersion = 1
+  static let currentVersion = 2
 
   let version: Int
   let session: ChatSession
@@ -99,6 +99,7 @@ enum WorkspacePersistenceCoding {
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .formatted(makeDateFormatter())
     decoder.userInfo[.decodeDiagnostics] = diagnostics
+    decoder.userInfo[.defaultDate] = normalizedToMilliseconds(Date())
     return decoder
   }
 

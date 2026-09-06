@@ -38,6 +38,7 @@ package final class Sumika {
     let modelAvailability: @Sendable (ManagedModel) -> Bool
     let browserToolService: any BrowserToolServing
     let webAccessSettingsProvider: @Sendable () async -> WebAccessSettings
+    let documentMarkdownConverter: (any DocumentMarkdownConverting)?
     let chatAttachmentLoader: any ChatAttachmentLoading
     let skillCatalog: SkillCatalog
     let turnTracer: any TurnTracing
@@ -51,6 +52,7 @@ package final class Sumika {
       webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
         .disabled
       },
+      documentMarkdownConverter: (any DocumentMarkdownConverting)? = nil,
       chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
       skillCatalog: SkillCatalog = SkillCatalog(),
       turnTracer: any TurnTracing = NoopTurnTracer()
@@ -62,6 +64,7 @@ package final class Sumika {
         modelAvailability ?? ModelLifecycleCoordinator.defaultModelAvailability
       self.browserToolService = browserToolService
       self.webAccessSettingsProvider = webAccessSettingsProvider
+      self.documentMarkdownConverter = documentMarkdownConverter
       self.chatAttachmentLoader = chatAttachmentLoader
       self.skillCatalog = skillCatalog
       self.turnTracer = turnTracer
@@ -110,9 +113,11 @@ package final class Sumika {
       ),
       toolOrchestrator: ToolOrchestrator.agent(
         todoWriteEnabled: false,
+        documentMarkdownConverter: dependencies.documentMarkdownConverter,
         browserToolService: dependencies.browserToolService,
         webAccessSettingsProvider: dependencies.webAccessSettingsProvider
       ),
+      documentMarkdownConverter: dependencies.documentMarkdownConverter,
       chatAttachmentLoader: dependencies.chatAttachmentLoader,
       workspaceInstructionsLoader: WorkspaceInstructionsLoader(),
       skillCatalog: dependencies.skillCatalog,

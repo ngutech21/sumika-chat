@@ -27,6 +27,7 @@ struct AnyDocDocumentMarkdownConverterTests {
       .attachments
     let attachment = try #require(attachments.first)
     #expect(attachment.content.contains(expected))
+    try await verifyWorkspaceDocument(url: url, expected: attachment.content)
     #expect(try Data(contentsOf: store.validateStoredFile(for: attachment)) == data)
   }
 
@@ -84,11 +85,76 @@ struct AnyDocDocumentMarkdownConverterTests {
     #expect(attachments.count == 1)
     #expect(attachment.content.contains("Sumika document conversion"))
     #expect(attachment.content.contains("Known DOCX body text."))
+    try await verifyWorkspaceDocument(url: sourceURL, expected: attachment.content)
     #expect(attachment.byteSize == documentData.count)
     #expect(
       attachment.contentSHA256 == ChatAttachmentStore.contentSHA256(for: documentData)
     )
     #expect(try Data(contentsOf: attachmentStore.localURL(for: attachment.id)) == documentData)
+  }
+
+  @Test
+  func workspaceOCRFailuresReturnNoContent() async throws {
+    for name in ["handmade-scanned.pdf", "handmade-mixed.pdf"] {
+      let url = try temporaryURL(fileName: name)
+      try fixtureData(named: name).write(to: url)
+      let workspace = Workspace(name: "Documents", rootURL: url.deletingLastPathComponent())
+      let result = await ReadDocumentToolExecutor(converter: AnyDocDocumentMarkdownConverter())
+        .run(.init(path: name), context: ToolContext(workspace: workspace))
+      #expect(result == .readDocument(.failed(path: .init(rawValue: name), reason: .needsOCR)))
+    }
+  }
+
+  @Test
+  func nativeDocumentDetailsKeepAllConvertedMarkdown() throws {
+    let text =
+      "BEGIN" + String(repeating: "x", count: 15_990) + "MIDDLE"
+      + String(repeating: "y", count: 15_996) + "END"
+    let content = try ReadDocumentContent(path: .init(rawValue: "report.pdf"), markdown: text)
+    let display = ToolDisplayPayload.documentContent(content)
+    #expect(display.nativeOutputTitle == "Converted Markdown")
+    #expect(display.nativeOutputText == text)
+    #expect(display.nativeAffectedPaths == ["report.pdf"])
+    #expect(display.nativeFlags.isEmpty)
+    let request = ToolCallRequest.validated(
+      raw: .init(
+        workspaceID: UUID(), sessionID: UUID(), toolName: .readDocument,
+        arguments: ["path": .string("report.pdf")]),
+      payload: .readDocument(.init(path: "report.pdf"))
+    )
+    let record = ToolCallRecord(
+      request: request,
+      evaluation: .init(decision: .allowed, reason: "test", riskLevel: .low),
+      state: .completed(.readDocument(.success(content))))
+    let details = NativeToolDetailContent(record: record)
+    #expect(details.outputTitle == "Converted Markdown")
+    #expect(details.outputText == text)
+    #expect(details.affectedPaths == ["report.pdf"])
+    #expect(record.transcriptToolCall.nativeHeaderPreview?.text == "report.pdf")
+  }
+
+  @Test(arguments: [Data(), Data("malformed document".utf8)])
+  func malformedWorkspaceDocumentsReturnOnlyConversionFailure(data: Data) async throws {
+    let url = try temporaryURL(fileName: "malformed.pdf")
+    try data.write(to: url)
+    let workspace = Workspace(name: "Documents", rootURL: url.deletingLastPathComponent())
+    let result = await ReadDocumentToolExecutor(converter: AnyDocDocumentMarkdownConverter())
+      .run(.init(path: url.lastPathComponent), context: ToolContext(workspace: workspace))
+    #expect(
+      result
+        == .readDocument(
+          .failed(path: .init(rawValue: url.lastPathComponent), reason: .conversionFailed)))
+  }
+
+  private func verifyWorkspaceDocument(url: URL, expected: String) async throws {
+    let workspace = Workspace(name: "Documents", rootURL: url.deletingLastPathComponent())
+    let result = await ReadDocumentToolExecutor(converter: AnyDocDocumentMarkdownConverter())
+      .run(.init(path: url.lastPathComponent), context: ToolContext(workspace: workspace))
+    guard case .readDocument(.success(let content)) = result else {
+      Issue.record("Expected successful workspace document conversion: \(result.preview.text)")
+      return
+    }
+    #expect(content.markdown == expected)
   }
 
   private func fixtureData(named name: String = "minimal.docx") throws -> Data {

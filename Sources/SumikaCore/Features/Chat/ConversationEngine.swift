@@ -74,6 +74,7 @@ final class ConversationEngine {
   @ObservationIgnored private let workflowEventApplier = ChatWorkflowEventApplier()
   @ObservationIgnored private var onSessionDidChange:
     (@MainActor @Sendable (Workspace.ID, ChatSession) -> Void)?
+  @ObservationIgnored private let documentMarkdownConverter: (any DocumentMarkdownConverting)?
   @ObservationIgnored private var agentToolConfiguration: AgentToolConfiguration?
   @ObservationIgnored private var pendingAgentToolExecutorRegistry: ToolExecutorRegistry?
   @ObservationIgnored private var pendingSelectedMCPServerIDs: [UUID]?
@@ -136,12 +137,14 @@ final class ConversationEngine {
     runtimeContextClearCoordinator: RuntimeContextClearCoordinator,
     chatGenerationCoordinator: ChatGenerationCoordinator,
     toolOrchestrator: ToolOrchestrator = ToolOrchestrator.agent(todoWriteEnabled: true),
+    documentMarkdownConverter: (any DocumentMarkdownConverting)? = nil,
     chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
     workspaceInstructionsLoader: any WorkspaceInstructionsLoading =
       WorkspaceInstructionsLoader(),
     skillCatalog: SkillCatalog = SkillCatalog(),
     turnTracer: any TurnTracing = NoopTurnTracer()
   ) {
+    self.documentMarkdownConverter = documentMarkdownConverter
     self.conversationModel = conversationModel
     self.runtimeContextClearCoordinator = runtimeContextClearCoordinator
     self.chatGenerationCoordinator = chatGenerationCoordinator
@@ -618,6 +621,7 @@ extension ConversationEngine {
     mcpExecutorGroups: [MCPAgentToolExecutorGroup]
   ) {
     agentToolConfiguration = AgentToolConfiguration(
+      documentMarkdownConverter: documentMarkdownConverter,
       todoWriteEnabled: todoWriteEnabled,
       mcpExecutorGroups: mcpExecutorGroups
     )

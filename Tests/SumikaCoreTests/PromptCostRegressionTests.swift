@@ -723,7 +723,9 @@ private enum PromptCostMeasurement {
   }
 
   static func measure(_ scenario: PromptCostScenario) throws -> PromptCostSnapshot {
-    let registry = ToolExecutorRegistry.codingAgentRegistry(todoWriteEnabled: false).toolRegistry
+    let registry = ToolExecutorRegistry.codingAgentRegistry(
+      todoWriteEnabled: false, documentMarkdownConverter: DocumentMarkdownConverterStub()
+    ).toolRegistry
     let systemPrompt = ToolPromptPolicy().systemPrompt(
       basePrompt: ChatPromptDefaults.agentSystemPrompt,
       mode: .agent,
@@ -869,50 +871,50 @@ private enum PromptCostBaseline {
     PromptCostSnapshot(
       name: "list_files_read_file",
       toolCount: 2,
-      systemPromptBytes: 3_172,
-      toolSchemaBytes: 9_702,
+      systemPromptBytes: 3_511,
+      toolSchemaBytes: 10_247,
       conversationBytes: 798,
       toolCallBytes: 197,
       toolResultBytes: 745,
-      totalBytes: 13_869,
-      estimatedTokens: 3_468,
-      checkpointEstimatedTokens: [3_350, 3_468]
+      totalBytes: 14_753,
+      estimatedTokens: 3_689,
+      checkpointEstimatedTokens: [3_571, 3_689]
     ),
     PromptCostSnapshot(
       name: "read_file_edit_file_test",
       toolCount: 3,
-      systemPromptBytes: 3_172,
-      toolSchemaBytes: 9_702,
+      systemPromptBytes: 3_511,
+      toolSchemaBytes: 10_247,
       conversationBytes: 1_429,
       toolCallBytes: 480,
       toolResultBytes: 1_354,
-      totalBytes: 14_783,
-      estimatedTokens: 3_696,
-      checkpointEstimatedTokens: [3_355, 3_536, 3_696]
+      totalBytes: 15_667,
+      estimatedTokens: 3_917,
+      checkpointEstimatedTokens: [3_576, 3_757, 3_917]
     ),
     PromptCostSnapshot(
       name: "failed_command_diagnostics",
       toolCount: 2,
-      systemPromptBytes: 3_172,
-      toolSchemaBytes: 9_702,
+      systemPromptBytes: 3_511,
+      toolSchemaBytes: 10_247,
       conversationBytes: 4_898,
       toolCallBytes: 359,
       toolResultBytes: 4_851,
-      totalBytes: 18_131,
-      estimatedTokens: 4_533,
-      checkpointEstimatedTokens: [3_557, 4_533]
+      totalBytes: 19_015,
+      estimatedTokens: 4_754,
+      checkpointEstimatedTokens: [3_778, 4_754]
     ),
     PromptCostSnapshot(
       name: "long_tool_loop",
       toolCount: 9,
-      systemPromptBytes: 3_172,
-      toolSchemaBytes: 9_702,
+      systemPromptBytes: 3_511,
+      toolSchemaBytes: 10_247,
       conversationBytes: 12_875,
       toolCallBytes: 1_386,
       toolResultBytes: 12_785,
-      totalBytes: 27_135,
-      estimatedTokens: 6_784,
-      checkpointEstimatedTokens: [3_359, 3_503, 3_621, 3_802, 4_128, 6_285, 6_421, 6_624, 6_784]
+      totalBytes: 28_019,
+      estimatedTokens: 7_005,
+      checkpointEstimatedTokens: [3_580, 3_724, 3_842, 4_023, 4_349, 6_506, 6_642, 6_845, 7_005]
     ),
   ]
 }

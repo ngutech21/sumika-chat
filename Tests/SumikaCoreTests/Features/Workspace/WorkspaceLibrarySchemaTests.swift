@@ -44,7 +44,7 @@ struct WorkspaceLibrarySchemaTests {
   }
 
   @Test
-  func versionOneGoldenFixturesEncodeByteIdentically() throws {
+  func currentVersionGoldenFixturesEncodeByteIdentically() throws {
     let library = WorkspaceLibraryGoldenFixture.makeLibrary()
     let manifestData = try WorkspacePersistenceCoding.makeEncoder().encode(
       WorkspaceLibraryManifest(
@@ -59,18 +59,18 @@ struct WorkspaceLibrarySchemaTests {
 
     if ProcessInfo.processInfo.environment["SUMIKA_REGENERATE_FIXTURES"] == "1" {
       try manifestData.write(to: Self.manifestV1FixtureURL)
-      try sessionData.write(to: Self.sessionV1FixtureURL)
+      try sessionData.write(to: Self.sessionV2FixtureURL)
       return
     }
 
     let expectedManifestData = try Data(contentsOf: Self.manifestV1FixtureURL)
-    let expectedSessionData = try Data(contentsOf: Self.sessionV1FixtureURL)
+    let expectedSessionData = try Data(contentsOf: Self.sessionV2FixtureURL)
     #expect(manifestData == expectedManifestData)
     #expect(sessionData == expectedSessionData)
   }
 
   @Test
-  func versionOneGoldenFixturesDecodeExactlyWithoutDrops() throws {
+  func currentVersionGoldenFixturesDecodeExactlyWithoutDrops() throws {
     guard ProcessInfo.processInfo.environment["SUMIKA_REGENERATE_FIXTURES"] != "1" else {
       return
     }
@@ -87,7 +87,7 @@ struct WorkspaceLibrarySchemaTests {
       diagnostics: sessionDiagnostics
     ).decode(
       WorkspaceSessionDocument.self,
-      from: Data(contentsOf: Self.sessionV1FixtureURL)
+      from: Data(contentsOf: Self.sessionV2FixtureURL)
     )
 
     #expect(
@@ -276,9 +276,9 @@ struct WorkspaceLibrarySchemaTests {
     )
   }
 
-  private static var sessionV1FixtureURL: URL {
+  private static var sessionV2FixtureURL: URL {
     fixtureDirectoryURL.appending(
-      path: "workspace-session-v1-golden.json",
+      path: "workspace-session-v2-golden.json",
       directoryHint: .notDirectory
     )
   }

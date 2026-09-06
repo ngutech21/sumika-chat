@@ -177,6 +177,10 @@ final class AppState {
 
   @discardableResult
   func sendMessage(_ submission: MessageSubmission) async -> Bool {
+    if let readOnlyMessage = workspaceState.readOnlyMessage {
+      workspaceState.errorMessage = readOnlyMessage
+      return false
+    }
     do {
       guard let workspaceID = workspaceState.activeWorkspace?.id else {
         throw ConversationIntentError.inactive
@@ -495,6 +499,9 @@ final class AppState {
     workspaceID: Workspace.ID,
     sessionID requestedSessionID: ChatSession.ID?
   ) throws -> ChatSession.ID {
+    guard !workspaceState.isPersistenceBlocked else {
+      throw ConversationIntentError.inactive
+    }
     let sessionID: ChatSession.ID
     if let requestedSessionID {
       sessionID = requestedSessionID

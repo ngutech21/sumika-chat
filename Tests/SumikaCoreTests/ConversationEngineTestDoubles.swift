@@ -48,6 +48,7 @@ extension ConversationEngine {
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
       ModelLifecycleCoordinator.defaultModelAvailability,
     toolOrchestrator: ToolOrchestrator = ToolOrchestrator(executorRegistry: .codingAgent),
+    documentMarkdownConverter: (any DocumentMarkdownConverting)? = nil,
     chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
     turnTracer: any TurnTracing = NoopTurnTracer(),
     chatSession: ChatSession = ChatSession(),
@@ -64,6 +65,7 @@ extension ConversationEngine {
       runtime: runtime,
       modelAvailability: modelAvailability,
       toolOrchestrator: toolOrchestrator,
+      documentMarkdownConverter: documentMarkdownConverter,
       chatAttachmentLoader: chatAttachmentLoader,
       skillCatalog: skillCatalog
         ?? SkillCatalog(
@@ -89,6 +91,7 @@ extension ConversationEngine {
     runtime: any ChatModelRuntime,
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool,
     toolOrchestrator: ToolOrchestrator,
+    documentMarkdownConverter: (any DocumentMarkdownConverting)?,
     chatAttachmentLoader: any ChatAttachmentLoading,
     skillCatalog: SkillCatalog,
     turnTracer: any TurnTracing
@@ -124,6 +127,7 @@ extension ConversationEngine {
         turnTracer: turnTracer
       ),
       toolOrchestrator: toolOrchestrator,
+      documentMarkdownConverter: documentMarkdownConverter,
       chatAttachmentLoader: chatAttachmentLoader,
       skillCatalog: skillCatalog,
       turnTracer: turnTracer

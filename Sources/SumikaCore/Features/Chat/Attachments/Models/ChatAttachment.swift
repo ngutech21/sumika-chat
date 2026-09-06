@@ -150,10 +150,7 @@ package struct ImageAttachmentPayload: Codable, Equatable, Sendable {
 package enum ChatAttachmentLimits {
   package static let maxTextFileBytes = 256 * 1024
   package static let maxImageFileBytes = 20 * 1024 * 1024
-  package static let maxDocumentFileBytes = 64 * 1024 * 1024
-  package static let maxConvertedDocumentBytes = 256 * 1024
   package static let maxAttachmentCount = 8
-  package static let maxContentCharacters = 32_000
 
   package static let supportedTextFileExtensions: Set<String> = [
     "c", "cc", "cpp", "css", "csv", "go", "h", "hpp", "html", "java",
@@ -165,18 +162,13 @@ package enum ChatAttachmentLimits {
     "jpeg", "jpg", "png", "webp",
   ]
 
-  // Filename aliases from the pinned AnyDocSwift version. CSV keeps its UTF-8 route.
-  package static let supportedDocumentFileExtensions: Set<String> = [
-    "doc", "docx", "docm", "odt", "pdf", "ppt", "pps", "pot", "pptx", "pptm",
-    "ppsx", "ppsm", "rtf", "epub", "xlsx", "xlsm", "xlsb", "xls", "ods", "odp",
-  ]
-
   static func validateContent(of attachments: [ChatAttachment]) throws {
     let count = attachments.reduce(0) { count, attachment in
       count + (attachment.kind == .text ? attachment.content.count : 0)
     }
-    guard count <= maxContentCharacters else {
-      throw ChatAttachmentError.contentTooLarge(count, maxContentCharacters)
+    guard count <= DocumentContentPolicy.maximumContentCharacters else {
+      throw ChatAttachmentError.contentTooLarge(
+        count, DocumentContentPolicy.maximumContentCharacters)
     }
   }
 }

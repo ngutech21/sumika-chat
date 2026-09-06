@@ -27,7 +27,11 @@ let modelFiles = [
   repositoryRoot.appending(
     path: "Sources/SumikaCore/Observability/TurnTraceEvent.swift",
     directoryHint: .notDirectory
-  )
+  ),
+  repositoryRoot.appending(
+    path: "Sources/SumikaCore/Services/Tools/ReadDocumentTool.swift",
+    directoryHint: .notDirectory
+  ),
 ]
 let outputURL = repositoryRoot.appending(
   path: "docs/data-model.md",

@@ -73,6 +73,7 @@ struct ConversationEngineTests {
     let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
+      documentMarkdownConverter: DocumentMarkdownConverterStub(),
       chatSession: ChatSession(
         id: sessionID,
         turns: [
@@ -108,6 +109,7 @@ struct ConversationEngineTests {
     let capturedToolContexts = await runtime.capturedToolContexts
     let toolContext = try #require(capturedToolContexts.compactMap { $0 }.last)
     #expect(toolContext.registry.definition(for: .readFile) != nil)
+    #expect(toolContext.registry.definition(for: .readDocument) != nil)
     #expect(toolContext.registry.definition(for: .editFile) != nil)
     #expect(toolContext.registry.definition(for: .todoWrite) == nil)
     #expect(toolContext.registry.definition(for: selectedToolName) != nil)

@@ -5,7 +5,8 @@ package struct ContextBudget: Codable, Equatable, Sendable {
     self.maxCharacters = maxCharacters
   }
 
-  static let attachments = ContextBudget(maxCharacters: ChatAttachmentLimits.maxContentCharacters)
+  static let attachments = ContextBudget(
+    maxCharacters: DocumentContentPolicy.maximumContentCharacters)
   package static let focusedFileDefault = ContextBudget(maxCharacters: 4_000)
   package static let workspaceInstructionsDefault = ContextBudget(maxCharacters: 8_000)
 

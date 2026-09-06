@@ -11,6 +11,7 @@ package struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentabl
 
   package static let listFiles = ToolName(rawValue: "list_files")
   package static let globFiles = ToolName(rawValue: "glob_files")
+  package static let readDocument = ToolName(rawValue: "read_document")
   package static let readFile = ToolName(rawValue: "read_file")
   package static let readSkillResource = ToolName(rawValue: "read_skill_resource")
   package static let showFile = ToolName(rawValue: "show_file")
@@ -232,6 +233,7 @@ package struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
 }
 
 package enum ToolCallPayload: Codable, Equatable, Sendable {
+  case readDocument(ReadDocumentInput)
   case readFile(ReadFileInput)
   case readSkillResource(ReadSkillResourceInput)
   case showFile(ReadFileInput)
@@ -259,6 +261,7 @@ package enum ToolCallPayload: Codable, Equatable, Sendable {
   }
 
   private enum Kind: String, Codable {
+    case readDocument
     case readFile
     case readSkillResource
     case showFile
@@ -284,6 +287,8 @@ package enum ToolCallPayload: Codable, Equatable, Sendable {
   package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     switch try container.decode(Kind.self, forKey: .kind) {
+    case .readDocument:
+      self = .readDocument(try container.decode(ReadDocumentInput.self, forKey: .payload))
     case .readFile:
       self = .readFile(try container.decode(ReadFileInput.self, forKey: .payload))
     case .readSkillResource:
@@ -335,6 +340,8 @@ package enum ToolCallPayload: Codable, Equatable, Sendable {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(kind, forKey: .kind)
     switch self {
+    case .readDocument(let input):
+      try container.encode(input, forKey: .payload)
     case .readFile(let input):
       try container.encode(input, forKey: .payload)
     case .readSkillResource(let input):
@@ -380,6 +387,7 @@ package enum ToolCallPayload: Codable, Equatable, Sendable {
 
   private var kind: Kind {
     switch self {
+    case .readDocument: .readDocument
     case .readFile: .readFile
     case .readSkillResource: .readSkillResource
     case .showFile: .showFile
@@ -407,6 +415,8 @@ package enum ToolCallPayload: Codable, Equatable, Sendable {
 nonisolated extension ToolCallPayload {
   package var toolName: ToolName {
     switch self {
+    case .readDocument:
+      .readDocument
     case .readFile:
       .readFile
     case .readSkillResource:
@@ -885,6 +895,7 @@ package struct WorkspaceRelativePath: RawRepresentable, Codable, Equatable, Hash
 }
 
 package enum ToolResultPayload: Codable, Equatable, Sendable {
+  case readDocument(ReadDocumentResult)
   case readFile(ReadFileResult)
   case readSkillResource(ReadSkillResourceResult)
   case listFiles(ListFilesResult)
@@ -913,6 +924,7 @@ package enum ToolResultPayload: Codable, Equatable, Sendable {
   }
 
   private enum Kind: String, Codable {
+    case readDocument
     case readFile
     case readSkillResource
     case listFiles
@@ -939,6 +951,8 @@ package enum ToolResultPayload: Codable, Equatable, Sendable {
   package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     switch try container.decode(Kind.self, forKey: .kind) {
+    case .readDocument:
+      self = .readDocument(try container.decode(ReadDocumentResult.self, forKey: .payload))
     case .readFile:
       self = .readFile(try container.decode(ReadFileResult.self, forKey: .payload))
     case .readSkillResource:
@@ -994,6 +1008,8 @@ package enum ToolResultPayload: Codable, Equatable, Sendable {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(kind, forKey: .kind)
     switch self {
+    case .readDocument(let result):
+      try container.encode(result, forKey: .payload)
     case .readFile(let result):
       try container.encode(result, forKey: .payload)
     case .readSkillResource(let result):
@@ -1041,6 +1057,7 @@ package enum ToolResultPayload: Codable, Equatable, Sendable {
 
   private var kind: Kind {
     switch self {
+    case .readDocument: .readDocument
     case .readFile: .readFile
     case .readSkillResource: .readSkillResource
     case .listFiles: .listFiles
@@ -1330,6 +1347,8 @@ nonisolated extension ToolResultPayload {
 
   package var preview: ToolResultPreview {
     switch self {
+    case .readDocument(let result):
+      return result.preview
     case .readFile(let result):
       return result.preview
     case .readSkillResource(let result):

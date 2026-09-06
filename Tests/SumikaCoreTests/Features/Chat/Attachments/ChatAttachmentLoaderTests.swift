@@ -87,7 +87,7 @@ struct ChatAttachmentLoaderTests {
       attachmentStore: ChatAttachmentStore(baseURL: try makeTemporaryDirectory()),
       documentMarkdownConverter: converter)
     let fileURL = try write(
-      Data(repeating: 0x61, count: ChatAttachmentLimits.maxDocumentFileBytes + 1),
+      Data(repeating: 0x61, count: DocumentContentPolicy.maximumSourceBytes + 1),
       to: "large.docx"
     )
 
@@ -96,7 +96,7 @@ struct ChatAttachmentLoaderTests {
       Issue.record("Expected document file too large error")
     } catch ChatAttachmentError.fileTooLarge(let name, let limit) {
       #expect(name == "large.docx")
-      #expect(limit == ChatAttachmentLimits.maxDocumentFileBytes)
+      #expect(limit == DocumentContentPolicy.maximumSourceBytes)
       #expect(await converter.requests.isEmpty)
     } catch {
       Issue.record("Unexpected error: \(error)")
@@ -186,7 +186,7 @@ struct ChatAttachmentLoaderTests {
   func loadAttachmentsRejectsConvertedMarkdownOverTheOutputLimit() async throws {
     let markdown = String(
       repeating: "a",
-      count: ChatAttachmentLimits.maxConvertedDocumentBytes + 1
+      count: DocumentContentPolicy.maximumMarkdownBytes + 1
     )
     let converter = RecordingDocumentMarkdownConverter(markdown: markdown)
     let attachmentStore = ChatAttachmentStore(
@@ -203,7 +203,7 @@ struct ChatAttachmentLoaderTests {
       Issue.record("Expected converted document too large error")
     } catch ChatAttachmentError.convertedDocumentTooLarge(let name, let limit) {
       #expect(name == "large-output.docx")
-      #expect(limit == ChatAttachmentLimits.maxConvertedDocumentBytes)
+      #expect(limit == DocumentContentPolicy.maximumMarkdownBytes)
       #expect(
         !FileManager.default.fileExists(
           atPath: attachmentStore.baseURL.path(percentEncoded: false)

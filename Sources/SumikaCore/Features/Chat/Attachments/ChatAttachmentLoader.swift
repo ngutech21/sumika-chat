@@ -1,13 +1,5 @@
 import Foundation
 
-package protocol DocumentMarkdownConverting: Sendable {
-  func markdown(from data: Data) async throws -> String
-}
-
-package enum DocumentMarkdownConversionError: Error {
-  case needsOCR
-}
-
 package protocol ChatAttachmentLoading: Sendable {
   var lifecycle: ChatAttachmentLifecycle { get }
   func loadAttachments(
@@ -168,7 +160,7 @@ package struct ChatAttachmentLoader: ChatAttachmentLoading {
     if ChatAttachmentLimits.supportedTextFileExtensions.contains(fileExtension) {
       return try await readTextAttachment(from: url, lease: lease)
     }
-    if ChatAttachmentLimits.supportedDocumentFileExtensions.contains(fileExtension),
+    if DocumentContentPolicy.supportedFileExtensions.contains(fileExtension),
       let documentMarkdownConverter
     {
       return try await readDocumentAttachment(
@@ -207,7 +199,7 @@ package struct ChatAttachmentLoader: ChatAttachmentLoading {
     let fileName = url.lastPathComponent
     let data = try await fileAccess.readData(
       from: url,
-      maximumBytes: ChatAttachmentLimits.maxDocumentFileBytes
+      maximumBytes: DocumentContentPolicy.maximumSourceBytes
     )
     try Task.checkCancellation()
 
@@ -223,10 +215,10 @@ package struct ChatAttachmentLoader: ChatAttachmentLoading {
     }
 
     try Task.checkCancellation()
-    guard markdown.utf8.count <= ChatAttachmentLimits.maxConvertedDocumentBytes else {
+    guard markdown.utf8.count <= DocumentContentPolicy.maximumMarkdownBytes else {
       throw ChatAttachmentError.convertedDocumentTooLarge(
         fileName,
-        ChatAttachmentLimits.maxConvertedDocumentBytes
+        DocumentContentPolicy.maximumMarkdownBytes
       )
     }
 

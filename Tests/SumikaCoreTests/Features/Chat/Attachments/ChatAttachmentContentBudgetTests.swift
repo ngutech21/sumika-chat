@@ -108,7 +108,7 @@ struct ChatAttachmentContentBudgetTests {
       .attachments
     #expect(files[0].byteSize == 8 * 1024 * 1024 + 1)
     #expect(files[0].content == "small END")
-    #expect(ChatAttachmentLimits.maxDocumentFileBytes == 64 * 1024 * 1024)
+    #expect(DocumentContentPolicy.maximumSourceBytes == 64 * 1024 * 1024)
   }
 
   @Test(arguments: [false, true])

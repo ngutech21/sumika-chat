@@ -233,10 +233,67 @@ struct ToolFollowUpNoticePolicyTests {
     #expect(update.record.id == second.id)
     #expect(
       update.record.modelFollowUpNotice?.contains("You are looping on listings/searches") == true)
+    #expect(
+      update.record.modelFollowUpNotice?.contains("read_file for UTF-8 text or source code")
+        == true)
+    #expect(
+      update.record.modelFollowUpNotice?
+        .contains("read_document for supported documents if available") == true)
     #expect(update.record.modelFollowUpNotice?.contains("- Sources/") == true)
     #expect(
       update.record.modelFollowUpNotice?.contains("Continue using the latest tool observation")
         == false)
+  }
+
+  @Test
+  func successfulDocumentReadsResetListingWandering() throws {
+    let records = [
+      completedListRecord(id: UUID(), entries: ["one/report.pdf"]),
+      try completedDocumentReadRecord(path: "one/report.pdf"),
+      completedListRecord(id: UUID(), entries: ["two/report.pdf"]),
+      try completedDocumentReadRecord(path: "two/report.pdf"),
+    ]
+
+    for count in 3...4 {
+      let update = try #require(
+        ToolFollowUpNoticePolicy().update(
+          session: session(with: Array(records.prefix(count))),
+          turnID: defaultTurnID,
+          promptMode: .afterToolResultCanContinue
+        ))
+
+      #expect(update.record.id == records[count - 1].id)
+      #expect(
+        update.record.modelFollowUpNotice
+          == "Use this tool result. Call another necessary tool, or finish_task if done.")
+    }
+  }
+
+  @Test
+  func failedDocumentReadDoesNotResetListingWandering() throws {
+    let first = completedListRecord(id: UUID(), entries: ["one/report.pdf"])
+    let second = completedListRecord(id: UUID(), entries: ["two/report.pdf"])
+    let failure = ToolResultPayload.readDocument(
+      .failed(path: .init(rawValue: "one/report.pdf"), reason: .needsOCR))
+    var failedRead = toolRecord(
+      id: UUID(),
+      toolName: .readDocument,
+      payload: .readDocument(.init(path: "one/report.pdf")),
+      result: failure
+    )
+    failedRead.state = .failed(failure)
+
+    let update = try #require(
+      ToolFollowUpNoticePolicy().update(
+        session: session(with: [first, failedRead, second]),
+        turnID: defaultTurnID,
+        promptMode: .afterToolResultCanContinue
+      ))
+
+    #expect(update.record.id == second.id)
+    #expect(
+      update.record.modelFollowUpNotice?.contains("You are looping on listings/searches") == true)
+    #expect(update.record.modelFollowUpNotice?.contains("- two/report.pdf") == true)
   }
 
   @Test
@@ -507,6 +564,19 @@ private func completedReadPageRecord(
         )
       )
     )
+  )
+}
+
+private func completedDocumentReadRecord(path: String) throws -> ToolCallRecord {
+  toolRecord(
+    id: UUID(),
+    toolName: .readDocument,
+    payload: .readDocument(.init(path: path)),
+    result: .readDocument(
+      .success(
+        try ReadDocumentContent(
+          path: .init(rawValue: path), markdown: "Document content for \(path)"
+        )))
   )
 }
 

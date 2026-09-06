@@ -2790,8 +2790,11 @@ struct ToolExecutionTests {
         .workspaceDiagnostics,
       ])
     #expect(
-      ToolExecutorRegistry.codingAgent.definitions == [
+      ToolExecutorRegistry.codingAgentRegistry(
+        todoWriteEnabled: true, documentMarkdownConverter: DocumentMarkdownConverterStub()
+      ).definitions == [
         .readFile,
+        .readDocument,
         .showFile,
         .listFiles,
         .globFiles,

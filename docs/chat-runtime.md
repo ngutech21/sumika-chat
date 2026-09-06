@@ -5,6 +5,11 @@ context, and the asynchronous work needed to answer a prompt. A visible transcri
 is not the same thing as model context: cancelled turns can remain visible for
 auditability while being excluded from future model prompts.
 
+When workspace recovery restores only part of the library, the app keeps readable
+transcripts available for navigation without activating a conversation. The composer
+shows a read-only notice and is disabled; send and activation boundaries also reject
+new work until the complete library can be restored. See [persistence](persistence.md).
+
 ## Flow
 
 ```mermaid
@@ -228,6 +233,11 @@ contents. `csv` keeps the existing UTF-8 text route. Conversion stays local,
 behind `DocumentMarkdownConverting`; scanned and mixed PDFs requiring OCR
 produce an actionable error and no partial attachment.
 
+The converter interface and `DocumentContentPolicy` belong to Core's document
+service. App composition creates one `AnyDocDocumentMarkdownConverter` and
+injects it into both attachment loading and Agent's `read_document` tool. The
+engine retains that dependency when rebuilding the Agent registry.
+
 Source-byte guards are independent of prompt admission: documents are limited
 to 64 MiB before reading/conversion, plain text to 256 KiB, images to 20 MiB,
 and converted Markdown to 256 KiB. The existing eight-file limit remains.
@@ -300,7 +310,8 @@ context and hardware limits are unchanged.
 The attachment limits above apply to newly supplied document content before a
 turn starts. They do not limit accumulated conversation history. No history
 compaction or document retrieval is introduced, and saved settings and transcript
-schemas are unchanged.
+ownership are unchanged. Session document v2 adds typed workspace-document tool
+results; see [persistence](persistence.md).
 
 A native length stop retains normal output-limit handling, including completed
 tool calls, incomplete protocol tails, thinking delivery, and cache invalidation.
@@ -362,6 +373,13 @@ smaller response; they do not report a derived conversation-context allowance.
   transient user prompt or trailing prose block. Rebuilds must read this from the
   current `ChatTurn.items` state, not from an old prompt ledger or reused
   `ModelContextEntry`.
+- Successful `read_document` results project their complete Markdown and source
+  path from the canonical tool record. Their body is validated at 32,000 Swift
+  characters and 256 KiB before success and again on decode. The metadata wrapper
+  is additional to that body budget. Both immediate continuation and reconstructed
+  history bypass the generic 8,000-character observation limiter for these
+  results, and never reread their source files. They do not populate focused-file
+  snapshots or consume the per-message attachment aggregation budget.
 - `AssistantThinkingMessage` remains the transcript source of truth and is never
   copied into visible assistant content. For a model with explicit historical-
   reasoning support, the builder derives `reasoningContent` from exactly one

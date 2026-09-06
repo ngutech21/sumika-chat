@@ -90,6 +90,8 @@ final class ChatFeatureState {
     )
   }
 
+  var readOnlyMessage: String? { workspaceState.readOnlyMessage }
+
   var modelContextDebug: ChatModelContextDebugPresentation {
     ChatModelContextDebugPresentation(
       state: selectedActiveConversationState?.modelContextDebug ?? ModelContextDebugState()
@@ -105,6 +107,10 @@ final class ChatFeatureState {
 
   @discardableResult
   func activateSelectedConversation() -> Bool {
+    if let readOnlyMessage {
+      intentErrorMessage = readOnlyMessage
+      return false
+    }
     do {
       guard let activateConversation else {
         throw ConversationIntentError.inactive

@@ -237,7 +237,8 @@ enum AppLaunchConfiguration {
     attachmentLifecycle: ChatAttachmentLifecycle,
     turnTracer: any TurnTracing
   ) -> Sumika {
-    Sumika(
+    let documentMarkdownConverter = AnyDocDocumentMarkdownConverter()
+    return Sumika(
       configuration: configuration,
       dependencies: Sumika.Dependencies(
         runtime: runtime,
@@ -246,9 +247,10 @@ enum AppLaunchConfiguration {
         modelAvailability: modelAvailability,
         browserToolService: browserToolService,
         webAccessSettingsProvider: webAccessSettingsProvider,
+        documentMarkdownConverter: documentMarkdownConverter,
         chatAttachmentLoader: ChatAttachmentLoader(
           lifecycle: attachmentLifecycle,
-          documentMarkdownConverter: AnyDocDocumentMarkdownConverter()
+          documentMarkdownConverter: documentMarkdownConverter
         ),
         skillCatalog: skillCatalog,
         turnTracer: turnTracer

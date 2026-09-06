@@ -21,7 +21,8 @@ package struct WorkspaceLibrarySaveResult: Equatable, Sendable {
 }
 
 /// The loaded library plus every issue encountered while loading it. An empty
-/// `issues` array means the on-disk state was read back verbatim.
+/// `issues` array means the complete library was restored. Session failures
+/// retain readable history in memory without authorizing persistence or cleanup.
 package struct WorkspaceLibraryLoadResult: Equatable, Sendable {
   package let library: WorkspaceLibrary
   package let issues: [WorkspaceLibraryLoadIssue]
@@ -57,7 +58,7 @@ package enum WorkspaceLibraryLoadIssue: Equatable, Sendable {
   case readFailed(message: String)
   /// A persisted document is invalid for its declared format. All files remain untouched.
   case decodeFailed(message: String)
-  /// The one supported legacy migration could not complete losslessly.
+  /// A supported legacy migration could not complete losslessly.
   case migrationFailed(message: String)
   /// A persisted document belongs to a newer or otherwise unsupported format.
   case unsupportedVersion(path: String, found: Int, supported: Int)
@@ -154,6 +155,9 @@ package actor WorkspaceStore: WorkspaceStoring {
         )
       }
 
+      guard loaded.issues.isEmpty else {
+        return blockedLoadResult(library: loaded.library, issues: loaded.issues)
+      }
       lastPersistedLibrary = loaded.library
       lastPersistedManifest = loaded.manifest
       isPersistenceBlocked = false
@@ -182,14 +186,19 @@ package actor WorkspaceStore: WorkspaceStoring {
 
       return WorkspaceLibraryLoadResult(library: loaded.library, cleanupIssues: cleanupIssues)
     } catch {
-      attachmentLifecycle.suspendReconciliation()
-      isPersistenceBlocked = true
-      lastPersistedLibrary = nil
-      lastPersistedManifest = nil
-      let issue = loadIssue(for: error)
-      logIssue(issue.logMessage)
-      return WorkspaceLibraryLoadResult(library: WorkspaceLibrary(), issues: [issue])
+      return blockedLoadResult(library: WorkspaceLibrary(), issues: [loadIssue(for: error)])
     }
+  }
+
+  private func blockedLoadResult(
+    library: WorkspaceLibrary, issues: [WorkspaceLibraryLoadIssue]
+  ) -> WorkspaceLibraryLoadResult {
+    attachmentLifecycle.suspendReconciliation()
+    isPersistenceBlocked = true
+    lastPersistedLibrary = nil
+    lastPersistedManifest = nil
+    for issue in issues { logIssue(issue.logMessage) }
+    return WorkspaceLibraryLoadResult(library: library, issues: issues)
   }
 
   nonisolated private var defaultWorkspaceRootURL: URL {
@@ -353,6 +362,11 @@ package actor WorkspaceStore: WorkspaceStoring {
         manifestUpdatedAt: migrationTimestamp
       )
       let staged = try loadVersionedLibrary(from: stagingURL)
+      guard staged.issues.isEmpty else {
+        throw WorkspacePersistenceError.invalidLegacy(
+          "Staged workspace sessions could not all be restored."
+        )
+      }
       try validateMigrationResult(
         source: library,
         staged: staged.library,
@@ -446,65 +460,108 @@ package actor WorkspaceStore: WorkspaceStoring {
     try Self.validate(manifest)
 
     var sessions: [ChatSession.ID: ChatSession] = [:]
+    var upgrades: [PreparedSessionUpgrade] = []
+    var issues: [WorkspaceLibraryLoadIssue] = []
     for persistedWorkspace in manifest.workspaces {
       for sessionID in persistedWorkspace.sessionIDs {
         let sessionURL = sessionDirectoryURL.appending(
           path: WorkspacePersistenceCoding.sessionFileName(for: sessionID),
           directoryHint: .notDirectory
         )
-        let sessionData = try readData(from: sessionURL)
-        try validateVersion(
-          in: sessionData,
-          path: sessionURL,
-          supported: WorkspaceSessionDocument.currentVersion
-        )
-        let sessionDiagnostics = DecodeDiagnostics()
-        let document: WorkspaceSessionDocument
         do {
-          document = try WorkspacePersistenceCoding.makeDecoder(
-            diagnostics: sessionDiagnostics
-          ).decode(WorkspaceSessionDocument.self, from: sessionData)
+          let loaded = try loadSession(from: sessionURL, id: sessionID)
+          sessions[sessionID] = loaded.session
+          if let upgrade = loaded.upgrade { upgrades.append(upgrade) }
         } catch {
-          throw WorkspacePersistenceError.decodeFailed(
-            path: sessionURL.path(percentEncoded: false),
-            underlying: error
-          )
+          issues.append(loadIssue(for: error))
         }
-        guard sessionDiagnostics.droppedElements.isEmpty else {
-          throw WorkspacePersistenceError.invalidData(
-            path: sessionURL.path(percentEncoded: false),
-            reason: sessionDiagnostics.summaries.joined(separator: "; ")
-          )
-        }
-        guard document.session.id == sessionID else {
-          throw WorkspacePersistenceError.invalidData(
-            path: sessionURL.path(percentEncoded: false),
-            reason: "Session ID does not match its manifest reference and file name."
-          )
-        }
-        sessions[sessionID] = document.session
       }
     }
 
-    let workspaces = try manifest.workspaces.map { persistedWorkspace in
-      let workspaceSessions = try persistedWorkspace.sessionIDs.map { sessionID in
-        guard let session = sessions[sessionID] else {
-          throw WorkspacePersistenceError.invalidData(
-            path: manifestURL.path(percentEncoded: false),
-            reason: "Manifest references an unloaded session: \(sessionID.uuidString)."
-          )
-        }
-        return session
-      }
-      return persistedWorkspace.workspace(sessions: workspaceSessions)
+    let workspaces = manifest.workspaces.map { persistedWorkspace in
+      persistedWorkspace.workspace(
+        sessions: persistedWorkspace.sessionIDs.compactMap { sessions[$0] })
     }
     let library = WorkspaceLibrary(
       workspaces: workspaces,
       activeWorkspaceID: manifest.activeWorkspaceID,
-      activeSessionID: manifest.activeSessionID
+      activeSessionID: manifest.activeSessionID.flatMap { sessions[$0]?.id }
     )
     try Self.validate(library)
-    return LoadedWorkspaceLibrary(library: library, manifest: manifest)
+    // Prepare and validate the entire library before replacing any legacy session.
+    // Partial restores are browsable but cannot authorize writes or cleanup.
+    if issues.isEmpty {
+      for upgrade in upgrades {
+        do {
+          guard try readData(from: upgrade.url) == upgrade.original else {
+            throw WorkspacePersistenceError.invalidData(
+              path: upgrade.url.path(percentEncoded: false),
+              reason: "Session changed during migration."
+            )
+          }
+          try writeData(upgrade.replacement, upgrade.url)
+        } catch {
+          issues.append(
+            .migrationFailed(
+              message: "Session migration could not be committed at \(upgrade.url.path): "
+                + String(reflecting: error)))
+          break
+        }
+      }
+    }
+    return LoadedWorkspaceLibrary(library: library, manifest: manifest, issues: issues)
+  }
+
+  private func loadSession(
+    from url: URL, id sessionID: ChatSession.ID
+  ) throws -> (session: ChatSession, upgrade: PreparedSessionUpgrade?) {
+    let data = try readData(from: url)
+    let diagnostics = DecodeDiagnostics()
+    let document: WorkspaceSessionDocument
+    var upgrade: PreparedSessionUpgrade?
+    do {
+      let version = try JSONDecoder().decode(
+        WorkspacePersistenceVersionProbe.self, from: data
+      ).version
+      let decoder = WorkspacePersistenceCoding.makeDecoder(diagnostics: diagnostics)
+      switch version {
+      case 1:
+        let legacy = try decoder.decode(WorkspaceSessionDocumentV1.self, from: data)
+        document = WorkspaceSessionDocument(session: legacy.session.value)
+        let replacement = try WorkspacePersistenceCoding.makeEncoder().encode(document)
+        let roundTrip = try decoder.decode(WorkspaceSessionDocument.self, from: replacement)
+        // Non-string dictionary keys encode as arrays whose order is not stable.
+        guard roundTrip.session == document.session else {
+          throw WorkspacePersistenceError.invalidData(
+            path: url.path(percentEncoded: false),
+            reason: "Session migration failed round-trip validation."
+          )
+        }
+        upgrade = .init(url: url, original: data, replacement: replacement)
+      case WorkspaceSessionDocument.currentVersion:
+        document = try decoder.decode(WorkspaceSessionDocument.self, from: data)
+      default:
+        throw WorkspacePersistenceError.unsupportedVersion(
+          path: url.path(percentEncoded: false), found: version,
+          supported: WorkspaceSessionDocument.currentVersion)
+      }
+    } catch let error as WorkspacePersistenceError {
+      throw error
+    } catch {
+      throw WorkspacePersistenceError.decodeFailed(
+        path: url.path(percentEncoded: false), underlying: error)
+    }
+    guard diagnostics.droppedElements.isEmpty else {
+      throw WorkspacePersistenceError.invalidData(
+        path: url.path(percentEncoded: false),
+        reason: diagnostics.summaries.joined(separator: "; "))
+    }
+    guard document.session.id == sessionID else {
+      throw WorkspacePersistenceError.invalidData(
+        path: url.path(percentEncoded: false),
+        reason: "Session ID does not match its manifest reference and file name.")
+    }
+    return (document.session, upgrade)
   }
 
   private func validateMigrationResult(
@@ -623,10 +680,13 @@ package actor WorkspaceStore: WorkspaceStoring {
           else { continue }
           // Unknown/corrupt documents are preserved rather than guessed to be ours.
           let data = try readData(from: file)
+          let diagnostics = DecodeDiagnostics()
           guard
-            let document = try? WorkspacePersistenceCoding.makeDecoder().decode(
-              WorkspaceSessionDocument.self, from: data
-            ), document.version == WorkspaceSessionDocument.currentVersion,
+            let document = try? WorkspacePersistenceCoding.makeDecoder(diagnostics: diagnostics)
+              .decode(
+                WorkspaceSessionDocument.self, from: data
+              ), diagnostics.droppedElements.isEmpty,
+            document.version == WorkspaceSessionDocument.currentVersion,
             document.session.id == id
           else { continue }
           pendingSessionRemovalIDs.insert(id)
@@ -795,6 +855,13 @@ extension WorkspaceStore {
 private struct LoadedWorkspaceLibrary {
   let library: WorkspaceLibrary
   let manifest: WorkspaceLibraryManifest
+  let issues: [WorkspaceLibraryLoadIssue]
+}
+
+private struct PreparedSessionUpgrade {
+  let url: URL
+  let original: Data
+  let replacement: Data
 }
 
 private enum WorkspacePersistenceError: LocalizedError {

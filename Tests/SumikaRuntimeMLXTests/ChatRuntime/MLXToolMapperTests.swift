@@ -71,6 +71,22 @@ struct MLXToolMapperTests {
   }
 
   @Test
+  func readDocumentHasOnlyOneRequiredPathArgument() throws {
+    let context = ChatRuntimeToolContext(
+      registry: ToolExecutorRegistry.codingAgentRegistry(
+        todoWriteEnabled: false, documentMarkdownConverter: MapperDocumentConverter()
+      ).toolRegistry)
+    let specs = try #require(MLXToolMapper.toolSpecs(from: context))
+    let functions = specs.compactMap { $0["function"] as? [String: any Sendable] }
+    let function = try #require(functions.first { $0["name"] as? String == "read_document" })
+    let parameters = try #require(function["parameters"] as? [String: any Sendable])
+    let properties = try #require(parameters["properties"] as? [String: any Sendable])
+    #expect(parameters["required"] as? [String] == ["path"])
+    #expect(parameters["additionalProperties"] as? Bool == false)
+    #expect(Set(properties.keys) == ["path"])
+  }
+
+  @Test
   func nativeMLXNilToolContextProducesNoToolSpecs() {
     #expect(MLXToolMapper.toolSpecs(from: nil) == nil)
   }
@@ -377,4 +393,8 @@ struct MLXToolMapperTests {
         ]))
   }
 
+}
+
+private struct MapperDocumentConverter: DocumentMarkdownConverting {
+  func markdown(from _: Data) async throws -> String { "Document fixture" }
 }

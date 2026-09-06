@@ -751,6 +751,44 @@ struct WorkspaceFeatureStateTests {
   }
 
   @Test
+  func partialRestoreAllowsBrowsingWithoutSavingIncompleteHistory() async throws {
+    let root = try scopedTemporaryDirectory()
+    let healthy = ChatSession(title: "Readable history")
+    let unavailable = ChatSession(title: "Unavailable history")
+    let workspace = Workspace(name: "Project", rootURL: root, sessions: [unavailable, healthy])
+    let library = WorkspaceLibrary(
+      workspaces: [workspace], activeWorkspaceID: workspace.id, activeSessionID: unavailable.id)
+    let store = WorkspaceStore(baseURL: root)
+    try await store.saveLibrary(library)
+    let manifest = root.appending(path: "WorkspaceLibrary/workspaces.json")
+    let manifestBefore = try Data(contentsOf: manifest)
+    let unavailableURL = root.appending(
+      path: "WorkspaceLibrary/sessions/\(unavailable.id.uuidString.lowercased()).json")
+    let invalid = Data("invalid".utf8)
+    try invalid.write(to: unavailableURL)
+    let state = WorkspaceFeatureState(
+      workspaceStore: store, workspaceOpener: WorkspaceFeatureRecordingOpener(),
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(), turnTracer: NoopTurnTracer())
+
+    await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
+
+    #expect(state.library.workspaces.map(\.id) == [workspace.id])
+    #expect(state.library.workspaces.first?.sessions.map(\.id) == [healthy.id])
+    #expect(state.isPersistenceBlocked)
+    #expect(state.errorMessage?.contains("read-only") == true)
+    #expect(state.selectChat(workspaceID: workspace.id, sessionID: healthy.id).selectionChanged)
+    #expect(state.activeSession?.id == healthy.id)
+    #expect(state.selectWorkspace(workspace.id).selectionChanged)
+    #expect(state.activeWorkspace?.id == workspace.id)
+    #expect(state.createSession(in: workspace.id) == .unchanged)
+    state.renameSession(healthy.id, title: "Must not save")
+    await state.flushPendingSaves()
+    #expect(state.library.workspaces.first?.sessions.first?.title == healthy.title)
+    #expect(try Data(contentsOf: manifest) == manifestBefore)
+    #expect(try Data(contentsOf: unavailableURL) == invalid)
+  }
+
+  @Test
   func blockingLoadIssuePreventsWorkspaceMutationsAndSaves() async throws {
     let sessionID = UUID()
     let workspaceID = UUID()
@@ -778,7 +816,6 @@ struct WorkspaceFeatureStateTests {
 
     await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
     let createChange = state.createSession(in: workspaceID)
-    let selectionChange = state.selectWorkspace(workspaceID)
     state.renameSession(sessionID, title: "Must not change")
     state.persistSessionSnapshot(
       ChatSession(id: sessionID, title: "Must not save"),
@@ -787,9 +824,8 @@ struct WorkspaceFeatureStateTests {
 
     #expect(state.isPersistenceBlocked)
     #expect(state.persistedWorkspaceIDs == nil)
-    #expect(state.errorMessage?.contains("invalid") == true)
+    #expect(state.errorMessage?.contains("read-only") == true)
     #expect(createChange == .unchanged)
-    #expect(selectionChange == .unchanged)
     #expect(state.library == initialLibrary)
     #expect(await store.latestSavedLibrary() == nil)
   }

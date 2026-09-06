@@ -6,7 +6,9 @@ import Testing
 struct ToolDefinitionSchemaTests {
   @Test
   func registeredToolsHaveStableExecutableMetadata() {
-    let definitions = ToolExecutorRegistry.codingAgent.definitions
+    let definitions = ToolExecutorRegistry.codingAgentRegistry(
+      todoWriteEnabled: true, documentMarkdownConverter: DocumentMarkdownConverterStub()
+    ).definitions
 
     #expect(!definitions.isEmpty)
 
@@ -251,7 +253,9 @@ struct ToolDefinitionSchemaTests {
 
   @Test
   func toolDefinitionsAreCodable() throws {
-    let definitions = ToolExecutorRegistry.codingAgent.definitions
+    let definitions = ToolExecutorRegistry.codingAgentRegistry(
+      todoWriteEnabled: true, documentMarkdownConverter: DocumentMarkdownConverterStub()
+    ).definitions
 
     let data = try JSONEncoder().encode(definitions)
     let decoded = try JSONDecoder().decode([ToolDefinition].self, from: data)

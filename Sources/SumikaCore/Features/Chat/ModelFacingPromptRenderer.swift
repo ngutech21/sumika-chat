@@ -156,6 +156,12 @@ package enum ModelFacingPromptRenderer {
     request: ToolCallRequest,
     policy: ToolResultProjectionPolicy
   ) -> String {
+    if request.toolName == .readDocument,
+      case .readDocument(.success) = toolResult.payload
+    {
+      // ReadDocumentContent validates the complete body at creation and decode.
+      return content
+    }
     let isCompleteFilePage =
       switch (request.toolName, toolResult.payload) {
       case (.readFile, .readFile(.page)),

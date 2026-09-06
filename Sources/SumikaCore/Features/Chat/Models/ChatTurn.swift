@@ -115,7 +115,8 @@ package struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
       default: .included
     )
     items = try container.decodeLossyArray([ChatTurnItem].self, forKey: .items)
-    createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt, default: Date())
+    createdAt = try container.decodeIfPresent(
+      Date.self, forKey: .createdAt, default: decoder.defaultDate)
     updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt, default: createdAt)
   }
 

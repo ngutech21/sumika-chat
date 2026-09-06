@@ -126,7 +126,8 @@ package struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       selectedModelID: selectedModelID
     )
     todoState = try container.decodeIfPresent(TodoState.self, forKey: .todoState)
-    createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt, default: Date())
+    createdAt = try container.decodeIfPresent(
+      Date.self, forKey: .createdAt, default: decoder.defaultDate)
     updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt, default: createdAt)
   }
 

@@ -30,6 +30,11 @@ final class WorkspaceFeatureState {
   private(set) var sidebarState = WorkspaceSidebarState()
   private(set) var persistedWorkspaceIDs: Set<Workspace.ID>?
 
+  var readOnlyMessage: String? {
+    isPersistenceBlocked
+      ? "Workspace history is read-only until the library can be fully restored." : nil
+  }
+
   var library: WorkspaceLibrary {
     workspaceLibraryController.library
   }
@@ -110,7 +115,12 @@ final class WorkspaceFeatureState {
       )
       syncWorkspaceProjections()
     }
-    if let loadIssueMessage = Self.loadIssueMessage(for: loadResult.issues) {
+    if let readOnlyMessage, !library.workspaces.isEmpty {
+      errorMessage =
+        "Some workspace data could not be restored. "
+        + readOnlyMessage + " Existing files were preserved."
+      errorMessageReflectsSaveFailure = false
+    } else if let loadIssueMessage = Self.loadIssueMessage(for: loadResult.issues) {
       errorMessage = loadIssueMessage
       errorMessageReflectsSaveFailure = false
     } else if !loadResult.cleanupIssues.isEmpty {
@@ -154,9 +164,6 @@ final class WorkspaceFeatureState {
     workspaceID: Workspace.ID,
     sessionID: ChatSession.ID
   ) -> WorkspaceSelectionChange {
-    guard !isPersistenceBlocked else {
-      return .unchanged
-    }
     guard workspaceLibraryController.selectChat(workspaceID: workspaceID, sessionID: sessionID)
     else {
       return .unchanged
@@ -168,9 +175,6 @@ final class WorkspaceFeatureState {
 
   @discardableResult
   func selectWorkspace(_ workspaceID: Workspace.ID) -> WorkspaceSelectionChange {
-    guard !isPersistenceBlocked else {
-      return .unchanged
-    }
     guard workspaceLibraryController.selectWorkspace(workspaceID) else {
       return .unchanged
     }
@@ -389,6 +393,7 @@ final class WorkspaceFeatureState {
   }
 
   private func saveLibrary() {
+    guard !isPersistenceBlocked else { return }
     let library = library
     let lease = workspaceStore.attachmentLifecycle.protect(library.attachmentIDs)
     let previousSaveTask = saveLibraryTask

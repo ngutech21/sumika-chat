@@ -74,6 +74,11 @@ flowchart TD
   RawToolCallRequest --> ToolCallArguments
   RawToolCallRequest --> ToolName
   RawToolCallRequest --> Workspace
+  ReadDocumentContent --> WorkspaceRelativePath
+  ReadDocumentFailure --> ToolFailureReason
+  ReadDocumentResult --> ReadDocumentContent
+  ReadDocumentResult --> ReadDocumentFailure
+  ReadDocumentResult --> WorkspaceRelativePath
   ReadKey --> WorkspaceRelativePath
   ReasoningSelection --> ReasoningEffort
   RecoveryHint --> WorkspaceRelativePath
@@ -94,6 +99,7 @@ flowchart TD
   ToolCallParseOutput --> RawToolCallRequest
   ToolCallParseOutput --> ToolCallModelMessage
   ToolCallPayload --> InvalidToolInput
+  ToolCallPayload --> ReadDocumentInput
   ToolCallRecord --> ToolApprovalSource
   ToolCallRecord --> ToolCallRequest
   ToolCallRecord --> ToolCallState
@@ -107,6 +113,7 @@ flowchart TD
   ToolDefinition --> ToolName
   ToolDefinition --> ToolParameterDefinition
   ToolDefinition --> ToolRiskLevel
+  ToolDisplayPayload --> ReadDocumentContent
   ToolDisplayPayload --> SearchFileMatch
   ToolDisplayPayload --> ToolResultStatus
   ToolDisplayPayload --> ToolTextOutput
@@ -153,6 +160,7 @@ flowchart TD
   ToolResultModelMetadataField --> ToolResultModelMetadataValue
   ToolResultPayload --> DuplicateToolCallResult
   ToolResultPayload --> InvalidToolResult
+  ToolResultPayload --> ReadDocumentResult
   ToolResultPayload --> ToolFailure
   ToolResultPreview --> ToolResultPayload
   ToolResultPreview --> ToolResultStatus
@@ -1130,6 +1138,73 @@ Relations:
 - `ToolName`
 - `Workspace`
 
+### ReadDocumentContent
+
+- Kind: `struct`
+- Source: `Sources/SumikaCore/Services/Tools/ReadDocumentTool.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
+- `markdown: String`
+- `path: WorkspaceRelativePath`
+
+Relations:
+
+- `WorkspaceRelativePath`
+
+### ReadDocumentFailure
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Services/Tools/ReadDocumentTool.swift`
+- Conforms to: `Codable`, `Equatable`, `Error`, `Sendable`
+
+Cases:
+
+- `contentTooLarge`
+- `conversionFailed`
+- `emptyContent`
+- `file(ToolFailureReason)`
+- `markdownTooLarge`
+- `needsOCR`
+- `notRegularFile`
+- `relativePathRequired`
+- `sourceSizeUnavailable`
+- `sourceTooLarge`
+- `unreadableFile`
+- `unsupportedFormat`
+
+Relations:
+
+- `ToolFailureReason`
+
+### ReadDocumentInput
+
+- Kind: `struct`
+- Source: `Sources/SumikaCore/Services/Tools/ReadDocumentTool.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
+- `path: String`
+
+### ReadDocumentResult
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Services/Tools/ReadDocumentTool.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Cases:
+
+- `failed(path: WorkspaceRelativePath?, reason: ReadDocumentFailure)`
+- `success(ReadDocumentContent)`
+
+Relations:
+
+- `ReadDocumentContent`
+- `ReadDocumentFailure`
+- `WorkspaceRelativePath`
+
 ### ReadKey
 
 - Kind: `struct`
@@ -1484,6 +1559,7 @@ Cases:
 - `invalid(InvalidToolInput)`
 - `listFiles(ListFilesInput)`
 - `mcp(MCPToolInput)`
+- `readDocument(ReadDocumentInput)`
 - `readFile(ReadFileInput)`
 - `readSkillResource(ReadSkillResourceInput)`
 - `runCommand(RunCommandInput)`
@@ -1499,6 +1575,7 @@ Cases:
 Relations:
 
 - `InvalidToolInput`
+- `ReadDocumentInput`
 
 ### ToolCallRecord
 
@@ -1632,6 +1709,7 @@ Relations:
 
 Cases:
 
+- `documentContent(ReadDocumentContent)`
 - `fileContent(path: WorkspaceRelativePath, content: ToolTextOutput)`
 - `fileList(root: WorkspaceRelativePath, entries: [WorkspaceFileEntry], truncated: Bool)`
 - `searchResults(root: WorkspaceRelativePath, pattern: String, matches: [SearchFileMatch], truncated: Bool)`
@@ -1640,6 +1718,7 @@ Cases:
 
 Relations:
 
+- `ReadDocumentContent`
 - `SearchFileMatch`
 - `ToolResultStatus`
 - `ToolTextOutput`
@@ -2022,6 +2101,7 @@ Cases:
 - `invalidTool(InvalidToolResult)`
 - `listFiles(ListFilesResult)`
 - `mcp(MCPToolResult)`
+- `readDocument(ReadDocumentResult)`
 - `readFile(ReadFileResult)`
 - `readSkillResource(ReadSkillResourceResult)`
 - `runCommand(RunCommandResult)`
@@ -2037,6 +2117,7 @@ Relations:
 
 - `DuplicateToolCallResult`
 - `InvalidToolResult`
+- `ReadDocumentResult`
 - `ToolFailure`
 
 ### ToolResultPreview

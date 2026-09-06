@@ -46,6 +46,13 @@ internal final class DecodeDiagnostics: Sendable {
 }
 
 extension CodingUserInfoKey {
+  static var defaultDate: CodingUserInfoKey {
+    guard let key = CodingUserInfoKey(rawValue: "chat.sumika.default-date") else {
+      preconditionFailure("Static coding user info key must be representable.")
+    }
+    return key
+  }
+
   package static var decodeDiagnostics: CodingUserInfoKey {
     guard let key = CodingUserInfoKey(rawValue: "chat.sumika.decode-diagnostics") else {
       preconditionFailure("Static coding user info key must be representable.")
@@ -59,6 +66,10 @@ extension CodingUserInfoKey {
     }
     return key
   }
+}
+
+extension Decoder {
+  var defaultDate: Date { userInfo[.defaultDate] as? Date ?? Date() }
 }
 
 struct LossyDecodable<Element: Decodable>: Decodable {

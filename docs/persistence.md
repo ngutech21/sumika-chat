@@ -13,7 +13,7 @@ it atomically only after the current representation round-trips.
 | `mcp-servers.json` | `MCPServersStore` | 1 | Unversioned `{ "servers": [...] }` wrapper |
 | `model-settings.json` | `ModelSettingsStore` | 4 | Unversioned snapshots and versions 2-3 |
 | `WorkspaceLibrary/workspaces.json` | `WorkspaceStore` | 1 | Unversioned monolithic workspace library |
-| `WorkspaceLibrary/sessions/*.json` | `WorkspaceStore` | 1 | Produced by the workspace v1 migration |
+| `WorkspaceLibrary/sessions/*.json` | `WorkspaceStore` | 2 | Session v1 and the monolithic workspace library |
 
 Configuration versions are not an application-wide release number. Bump only
 the file whose persisted contract changes. Keep historical decoding in frozen
@@ -43,6 +43,37 @@ traces and attachment payloads are operational data and likewise are outside
 this versioning contract.
 
 ## Workspace deletion and attachment recovery
+
+Session document v2 adds the `readDocument` tool input and result variants. The
+workspace manifest remains v1. `WorkspaceSessionDocumentV1` freezes the old
+session envelope and tagged tool decoding inside the persistence owner, then
+explicitly maps to the current domain model. Unchanged leaf value types are
+shared; new tool variants cannot be accepted as v1 input.
+
+Startup accepts a mixture of v1 and v2 referenced sessions. It validates the
+complete manifest and every referenced session, prepares v2 replacements, and
+round-trips each prepared document before replacing any v1 file. Validation compares
+decoded session values, not JSON byte order: dictionaries with non-string keys
+encode as arrays with unspecified ordering. Missing timestamp defaults use the
+storage format's millisecond precision so they also survive semantic validation.
+Each replacement
+checks that its source bytes are unchanged and uses an atomic write. A failed
+write may leave a valid v1/v2 mixture; a subsequent load retries the remaining
+upgrades. Invalid data or failed migration writes block normal saves and all
+cleanup while preserving the source data. A valid manifest still restores every
+workspace and each readable session when another session is missing, malformed,
+unsupported, or cannot be migrated. An unavailable active session is deselected
+in memory. The app permits browsing this history with an explicit read-only notice;
+it blocks conversation activation, edits, and saves. No partial manifest is written,
+and session or attachment cleanup cannot run. A later complete load retries migration
+and restores saving. An invalid manifest remains a library-wide failure.
+Monolithic legacy import continues to require complete validation before producing
+the current manifest and session documents.
+
+The version bump also protects v2 files from v1 binaries' orphan cleanup. Current
+cleanup recognizes only valid current-version session documents with matching
+UUIDs and no dropped decode elements. Older-version, future-version, unknown,
+and corrupt orphan files are preserved.
 
 `WorkspaceStore.saveLibrary` writes changed session documents, then commits the
 manifest before removing obsolete session files. A successful return means the

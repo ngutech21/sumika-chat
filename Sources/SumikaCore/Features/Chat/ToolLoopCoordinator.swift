@@ -679,7 +679,7 @@ extension ToolLoopCoordinator {
     in items: ArraySlice<ChatTurnItem>
   ) -> Bool {
     switch previousRecord.request.toolName {
-    case .readFile:
+    case .readFile, .readDocument:
       guard let previousPath = successfulReadPath(from: previousRecord.resultPayload),
         let canonicalPreviousPath = canonicalWorkspacePath(
           previousPath.rawValue,
@@ -764,6 +764,9 @@ extension ToolLoopCoordinator {
   }
 
   private func successfulReadPath(from payload: ToolResultPayload?) -> WorkspaceRelativePath? {
+    if case .readDocument(.success(let content)) = payload {
+      return content.path
+    }
     guard case .readFile(let result) = payload else {
       return nil
     }
@@ -816,6 +819,11 @@ extension ToolLoopCoordinator {
   ) -> ToolCallSignature? {
     let arguments: ToolCallSignature.Arguments
     switch request.payload {
+    case .readDocument(let input):
+      guard let url = try? input.resolve(in: workspace) else {
+        return nil
+      }
+      arguments = .readDocument(path: workspace.relativePath(for: url))
     case .readFile(let input):
       guard let path = canonicalWorkspacePath(input.path, workspace: workspace) else {
         return nil
@@ -949,6 +957,7 @@ private struct ToolCallSignature: Hashable, Sendable {
   }
 
   enum Arguments: Hashable, Sendable {
+    case readDocument(path: WorkspaceRelativePath)
     case readFile(path: WorkspaceRelativePath, offset: Int, limit: Int?)
     case listFiles(path: WorkspaceRelativePath)
     case globFiles(pattern: String, path: WorkspaceRelativePath)
