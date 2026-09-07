@@ -239,7 +239,9 @@ flowchart TD
   invalid or rejected paths are never reusable. `read_document` shares its
   relative-path resolver with execution and reuses only successful conversions.
   A completed write/edit to the same canonical path or any completed command
-  invalidates document reuse; unrelated file writes do not. The first duplicate
+  invalidates document reuse; unrelated file writes do not. `workspace_diff` shares
+  its literal-path resolver across permission checks, execution, and duplicate
+  signatures, preserving leading and trailing filename whitespace. The first duplicate
   carries a replayed `ToolModelObservation` so the prompt tail contains the prior result blocks
   again. From the second consecutive identical duplicate the payload
   is `blocked` (`DuplicateToolCallResult.blocked == true`): the replayed observation
@@ -787,9 +789,12 @@ declarations.
   workspace-relative `path`. It returns a typed snapshot ordered by workspace-relative
   path, with separate staged and unstaged changes, rename sources, optional line
   counts, and bounded patches. Counts are not a net diff against HEAD. Untracked
-  text previews are included by default; their addition counts remain unknown when
-  the bounded 64 KiB source read does not reach EOF. Binary files, symlinks,
+  text previews are included by default and normalize CRLF to LF before counting
+  and rendering lines. Their addition counts remain unknown when the bounded
+  64 KiB source read does not reach EOF. Binary files, symlinks,
   submodules, and conflicts carry explicit omission reasons without invented counts.
+  Known conflicted paths are excluded from numstat aggregation so their repeated
+  records do not block statistics or patches for other files.
 - Git inventory uses porcelain v2 with NUL delimiters and individual untracked
   files; staged and unstaged numstat metadata are collected independently before
   per-file patches. Commands use literal argv pathspecs, disable external diff and

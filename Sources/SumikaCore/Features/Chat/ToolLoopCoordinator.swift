@@ -854,10 +854,10 @@ extension ToolLoopCoordinator {
       }
       arguments = .searchFiles(pattern: input.pattern, path: path, include: input.include)
     case .workspaceDiff(let input):
-      guard let path = canonicalWorkspacePath(input.path ?? ".", workspace: workspace) else {
+      guard let url = try? input.resolve(in: workspace) else {
         return nil
       }
-      arguments = .workspaceDiff(path: path)
+      arguments = .workspaceDiff(path: workspace.relativePath(for: url))
     case .workspaceDiagnostics(let input):
       arguments = .workspaceDiagnostics(input.repeatSignature)
     case .webSearch(let input):

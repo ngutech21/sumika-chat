@@ -7,6 +7,15 @@ package struct WorkspaceDiffInput: Codable, Equatable, Sendable {
   package init(path: String? = nil) {
     self.path = path
   }
+
+  func resolve(in workspace: Workspace) throws -> URL {
+    let path = path ?? "."
+    if path.hasPrefix("/") || URL(string: path)?.scheme != nil {
+      return try workspace.resolveAllowedPath(path)
+    }
+    // Encode relative names before validation so leading/trailing whitespace remains literal.
+    return try workspace.resolveAllowedPath(workspace.rootURL.appending(path: path).absoluteString)
+  }
 }
 
 package enum WorkspaceDiffResult: Codable, Equatable, Sendable {
@@ -188,7 +197,7 @@ struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     _ input: WorkspaceDiffInput, context: ToolContext
   ) -> ToolPermissionEvaluation {
     do {
-      let resolvedPath = try resolveScope(input.path, workspace: context.workspace)
+      let resolvedPath = try input.resolve(in: context.workspace)
       return ToolPermissionEvaluation(
         decision: .allowed, reason: "Showing workspace diff is allowed.", riskLevel: .low,
         normalizedPaths: [resolvedPath.path(percentEncoded: false)],
@@ -206,7 +215,7 @@ struct WorkspaceDiffToolExecutor: TypedToolExecutor {
       return try await context.workspace.withAsyncSecurityScopedAccess {
         let rootURL = try context.workspace.resolveAllowedPath(".")
         let scope = context.workspace.relativePath(
-          for: try resolveScope(input.path, workspace: context.workspace))
+          for: try input.resolve(in: context.workspace))
         scopedPath = input.path == nil ? nil : scope
         let snapshot = try await withThrowingTaskGroup(of: WorkspaceDiffSnapshot.self) { group in
           group.addTask {
@@ -236,15 +245,6 @@ struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     }
   }
 
-  private func resolveScope(_ input: String?, workspace: Workspace) throws -> URL {
-    let path = input ?? "."
-    if path.hasPrefix("/") || URL(string: path)?.scheme != nil {
-      return try workspace.resolveAllowedPath(path)
-    }
-    // Encode relative names before validation so leading/trailing whitespace remains literal.
-    return try workspace.resolveAllowedPath(workspace.rootURL.appending(path: path).absoluteString)
-  }
-
   private func collect(
     rootURL: URL, scope: WorkspaceRelativePath, explicitScope: Bool, workspace: Workspace
   ) async throws -> WorkspaceDiffSnapshot {
@@ -267,6 +267,8 @@ struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     }
     var files = try WorkspaceDiffGitParser.inventory(
       status.stdoutData, repositoryPrefix: String(prefix.dropLast()), scope: scope.rawValue)
+    let conflictedPaths = Set(
+      files.filter { $0.changes.contains { $0.omission == .conflict } }.map(\.path.rawValue))
     let hasStaged = files.contains { $0.staged?.omission == nil && $0.staged != nil }
     let hasUnstaged = files.contains {
       $0.unstaged?.omission == nil && $0.unstaged != nil && $0.unstaged?.kind != .untracked
@@ -279,7 +281,11 @@ struct WorkspaceDiffToolExecutor: TypedToolExecutor {
           let result = try await runGit(
             command, root: rootURL,
             arguments: diffArguments(staged: staged) + ["--numstat", "-z", "--", scope.rawValue])
-          return (staged, try WorkspaceDiffGitParser.statistics(result.stdoutData))
+          return (
+            staged,
+            try WorkspaceDiffGitParser.statistics(
+              result.stdoutData, conflictedPaths: conflictedPaths)
+          )
         }
       }
       var values: [Bool: [String: WorkspaceDiffGitParser.Stat]] = [:]
@@ -415,8 +421,9 @@ struct WorkspaceDiffToolExecutor: TypedToolExecutor {
         } else {
           return WorkspaceDiffChange(kind: .untracked, omission: .binary)
         }
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        if text.hasSuffix("\n") || text.isEmpty { lines.removeLast() }
+        let normalizedText = text.replacingOccurrences(of: "\r\n", with: "\n")
+        var lines = normalizedText.split(separator: "\n", omittingEmptySubsequences: false)
+        if normalizedText.hasSuffix("\n") || normalizedText.isEmpty { lines.removeLast() }
         let patch = lines.map { "+" + $0 }.joined(separator: "\n")
         let limited = WorkspaceDiffPresentation.prefix(patch, bytes: budget)
         return WorkspaceDiffChange(
@@ -651,7 +658,7 @@ private enum WorkspaceDiffGitParser {
     return path
   }
 
-  static func statistics(_ data: Data) throws -> [String: Stat] {
+  static func statistics(_ data: Data, conflictedPaths: Set<String>) throws -> [String: Stat] {
     let records = try records(data)
     var index = 0
     var stats: [String: Stat] = [:]
@@ -674,9 +681,10 @@ private enum WorkspaceDiffGitParser {
       } else {
         path = String(fields[2])
       }
-      guard !path.isEmpty, !path.hasPrefix("/"), !path.split(separator: "/").contains(".."),
-        stats[path] == nil
+      guard !path.isEmpty, !path.hasPrefix("/"), !path.split(separator: "/").contains("..")
       else { throw WorkspaceDiffError.invalidMetadata }
+      if conflictedPaths.contains(path) { continue }
+      guard stats[path] == nil else { throw WorkspaceDiffError.invalidMetadata }
       stats[path] = Stat(additions: additions, deletions: deletions, binary: binary)
     }
     return stats

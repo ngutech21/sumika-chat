@@ -120,6 +120,21 @@ struct WorkspaceDiffTests {
     #expect(result.files[0].truncated == false)
   }
 
+  @Test(arguments: ["\n", "\r\n"], [false, true])
+  func untrackedLineEndingsPreserveCountsAndPatchLines(
+    lineEnding: String, trailingNewline: Bool
+  ) async throws {
+    let workspace = try repository()
+    let text = "one\(lineEnding)two" + (trailingNewline ? lineEnding : "")
+    try write(text, "new.txt", in: workspace)
+
+    let result = try await snapshot(workspace)
+    let change = try #require(result.files.first?.unstaged)
+    #expect(change.additions == 2)
+    #expect(change.patch.text == "+one\n+two")
+    #expect(!change.patch.truncated)
+  }
+
   @Test
   func unusualNamesAndLiteralPathspecsRemainDistinct() async throws {
     let workspace = try repository()
@@ -142,6 +157,49 @@ struct WorkspaceDiffTests {
       preview: WorkspaceDiffResult.snapshot(spaced).preview)
     #expect(receipt?.affectedPaths.map(\.rawValue) == [" leading.txt"])
     _ = try rendered(result)
+  }
+
+  @Test(arguments: [" leading.txt", "trailing.txt "])
+  func literalWhitespaceScopesRemainDistinctDuringDuplicateDetection(path: String) async throws {
+    let workspace = try repository()
+    let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+    try write("ordinary file\n", trimmedPath, in: workspace)
+    try write("literal whitespace file\n", path, in: workspace)
+    let assistantID = UUID()
+    let request = ToolLoopRequest(
+      workspace: workspace, sessionID: UUID(), turnID: UUID(), assistantMessageID: assistantID,
+      items: [
+        .userMessage(.init(content: "Compare these files")),
+        .assistantMessage(.init(id: assistantID, content: "")),
+      ],
+      nativeToolCalls: [trimmedPath, path, workspace.rootURL.appending(path: path).absoluteString]
+        .map { ChatRuntimeToolCall(name: "workspace_diff", arguments: ["path": .string($0)]) })
+    let result = try await ToolLoopCoordinator().run(
+      request,
+      using: ToolOrchestrator(
+        executorRegistry: ToolExecutorRegistry([AnyToolExecutor(WorkspaceDiffToolExecutor())])))
+    let records = (result?.events ?? []).compactMap { event -> ToolCallRecord? in
+      guard case .toolCallAppended(let record, _) = event else { return nil }
+      return record
+    }
+    try #require(records.count == 3)
+    guard case .workspaceDiff(.snapshot(let ordinary)) = records[0].resultPayload,
+      case .workspaceDiff(.snapshot(let literal)) = records[1].resultPayload
+    else {
+      Issue.record("Distinct literal paths must execute independently.")
+      return
+    }
+    #expect(ordinary.files.map(\.path.rawValue) == [trimmedPath])
+    #expect(literal.files.map(\.path.rawValue) == [path])
+    #expect(literal.files.first?.unstaged?.patch.text == "+literal whitespace file")
+    guard case .duplicateToolCall(let duplicate) = records[2].resultPayload else {
+      Issue.record("A file URL for the same literal path must replay its completed result.")
+      return
+    }
+    #expect(duplicate.previousCallID == records[1].id)
+    #expect(duplicate.affectedPaths.map(\.rawValue) == [path])
+    #expect(duplicate.replayedObservation != nil)
+    #expect(!duplicate.blocked)
   }
 
   @Test(arguments: [true, false])
@@ -324,7 +382,10 @@ struct WorkspaceDiffTests {
     #expect(await runner.requests.count == 1)
   }
 
-  @Test(arguments: [DiffFailureMode.statFailure, .statTruncation, .malformedStatus, .patchFailure])
+  @Test(arguments: [
+    DiffFailureMode.statFailure, .statTruncation, .duplicateStatistics,
+    .malformedStatus, .patchFailure,
+  ])
   func collectionFailuresNeverReturnPartialSuccess(mode: DiffFailureMode) async throws {
     let workspace = try repository()
     try write("old\n", "tracked.txt", in: workspace)
@@ -334,7 +395,7 @@ struct WorkspaceDiffTests {
     let result = await WorkspaceDiffToolExecutor(processRunner: runner).run(
       .init(), context: .init(workspace: workspace))
     #expect(result.status == .failed)
-    if mode == .statTruncation || mode == .malformedStatus {
+    if mode == .statTruncation || mode == .duplicateStatistics || mode == .malformedStatus {
       #expect(result.text.contains("narrower path"))
     }
   }
@@ -381,10 +442,13 @@ struct WorkspaceDiffTests {
       })
   }
 
-  @Test
-  func conflictsRetainTheirStatusWithoutInventedStatistics() async throws {
+  @Test(arguments: [false, true])
+  func conflictsRetainTheirStatusWithoutInventedStatistics(includeOrdinaryChanges: Bool)
+    async throws
+  {
     let workspace = try repository()
     try write("base\n", "file", in: workspace)
+    if includeOrdinaryChanges { try write("base\n", "ordinary.txt", in: workspace) }
     try await commit(workspace)
     try await git(["branch", "-m", "base"], workspace)
     try await git(["checkout", "-qb", "side"], workspace)
@@ -403,12 +467,27 @@ struct WorkspaceDiffTests {
         environment: ProcessInfo.processInfo.environment, workingDirectoryURL: workspace.rootURL,
         timeoutSeconds: 10, maxStdoutBytes: 4096, maxStderrBytes: 4096))
     try #require(merged.exitCode == 1)
+    if includeOrdinaryChanges {
+      try write("staged\n", "ordinary.txt", in: workspace)
+      try await git(["add", "ordinary.txt"], workspace)
+      try write("unstaged\n", "ordinary.txt", in: workspace)
+    }
     let result = try await snapshot(workspace)
-    #expect(result.files.count == 1)
+    #expect(result.files.count == (includeOrdinaryChanges ? 2 : 1))
     #expect(
       result.files[0].changes.allSatisfy {
         $0.kind == .unmerged && $0.omission == .conflict && $0.additions == nil
+          && $0.deletions == nil && $0.patch.text.isEmpty
       })
+    if includeOrdinaryChanges {
+      let ordinary = try #require(result.files.first { $0.path.rawValue == "ordinary.txt" })
+      #expect(ordinary.staged?.additions == 1)
+      #expect(ordinary.staged?.deletions == 1)
+      #expect(ordinary.staged?.patch.text.contains("+staged") == true)
+      #expect(ordinary.unstaged?.additions == 1)
+      #expect(ordinary.unstaged?.deletions == 1)
+      #expect(ordinary.unstaged?.patch.text.contains("+unstaged") == true)
+    }
   }
 
   private func repository() throws -> Workspace {
@@ -484,7 +563,7 @@ struct WorkspaceDiffTests {
 private enum DiffTestError: Error { case failed(String) }
 
 enum DiffFailureMode: Sendable {
-  case none, statFailure, statTruncation, malformedStatus, patchFailure
+  case none, statFailure, statTruncation, duplicateStatistics, malformedStatus, patchFailure
 }
 
 private actor DiffRecordingRunner: CommandProcessRunning {
@@ -510,6 +589,11 @@ private actor DiffRecordingRunner: CommandProcessRunning {
       return .init(
         exitCode: 0, durationMs: 0, stdout: "1\t1\ttracked.txt\0", stderr: "", stdoutOmittedBytes: 1
       )
+    }
+    if failure == .duplicateStatistics && request.arguments.contains("--numstat") {
+      return .init(
+        exitCode: 0, durationMs: 0,
+        stdout: "1\t1\ttracked.txt\0" + "1\t1\ttracked.txt\0", stderr: "")
     }
     return try await DefaultCommandProcessRunner().run(request)
   }
