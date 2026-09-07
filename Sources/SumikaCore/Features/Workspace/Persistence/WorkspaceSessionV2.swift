@@ -378,7 +378,8 @@ private struct WorkspaceToolResultV2: Decodable {
     case .searchFiles:
       value = .searchFiles(try container.decode(SearchFilesResult.self, forKey: .payload))
     case .workspaceDiff:
-      value = .workspaceDiff(try container.decode(WorkspaceDiffResult.self, forKey: .payload))
+      value = .workspaceDiff(
+        try container.decode(WorkspaceDiffResultV3.self, forKey: .payload).value)
     case .workspaceDiagnostics:
       value = .workspaceDiagnostics(
         try container.decode(WorkspaceDiagnosticsResult.self, forKey: .payload)

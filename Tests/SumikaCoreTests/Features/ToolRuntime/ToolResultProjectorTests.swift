@@ -478,7 +478,7 @@ struct ToolResultProjectorTests {
       (
         ToolResultProjector.project(
           payload: .workspaceDiff(
-            .success(
+            .legacySuccess(
               path: WorkspaceRelativePath(rawValue: "Sources/App.swift"),
               content: ToolTextOutput(text: "diff --git\n+\(diffSentinel)\n")
             )),
@@ -1232,7 +1232,7 @@ struct ToolResultProjectorTests {
       ),
       ToolResultProjector.project(
         payload: .workspaceDiff(
-          .success(
+          .legacySuccess(
             path: nil,
             content: ToolTextOutput(text: "No workspace changes.")
           )

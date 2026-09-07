@@ -59,7 +59,7 @@ struct ToolResultPayloadTests {
           recovery: .readFile(path: WorkspaceRelativePath(rawValue: "Sources/App.swift"))
         )),
       .workspaceDiff(
-        .success(
+        .legacySuccess(
           path: nil,
           content: ToolTextOutput(text: "No workspace changes.")
         )),

@@ -72,7 +72,7 @@ struct PersistedWorkspace: Codable, Equatable, Sendable {
 }
 
 struct WorkspaceSessionDocument: Codable, Equatable, Sendable {
-  static let currentVersion = 3
+  static let currentVersion = 4
 
   let version: Int
   let session: ChatSession

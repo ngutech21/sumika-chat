@@ -1,17 +1,17 @@
 import Foundation
 
-/// Frozen v1 session envelope and tagged tool decoding. Unchanged leaf value types
-/// are shared; new tool variants must never become valid v1 migration input.
-struct WorkspaceSessionDocumentV1: Decodable {
+/// Frozen v3 session envelope and tagged tool decoding. Unchanged leaf value types
+/// are shared; new tool variants must never become valid v3 migration input.
+struct WorkspaceSessionDocumentV3: Decodable {
   let version: Int
-  let session: WorkspaceSessionV1
+  let session: WorkspaceSessionV3
 }
 
-struct WorkspaceSessionV1: Decodable {
+struct WorkspaceSessionV3: Decodable {
   let id: UUID
   let title: String
   let selectedModelID: ManagedModel.ID
-  let turns: [WorkspaceTurnV1]
+  let turns: [WorkspaceTurnV3]
   let focusedFileState: FocusedFileState
   let modeSettings: ChatModeSettingsSet
   let interactionMode: WorkspaceInteractionMode
@@ -33,7 +33,7 @@ struct WorkspaceSessionV1: Decodable {
     title = try container.decodeIfPresent(String.self, forKey: .title, default: "New Session")
     selectedModelID = try container.decodeIfPresent(
       String.self, forKey: .selectedModelID, default: "gemma4-12b-qat-4bit")
-    turns = try container.decodeLossyArray([WorkspaceTurnV1].self, forKey: .turns)
+    turns = try container.decodeLossyArray([WorkspaceTurnV3].self, forKey: .turns)
     focusedFileState = try container.decodeIfPresent(
       FocusedFileState.self, forKey: .focusedFileState, default: .empty)
     modeSettings = try container.decodeIfPresent(
@@ -66,11 +66,11 @@ struct WorkspaceSessionV1: Decodable {
   }
 }
 
-struct WorkspaceTurnV1: Decodable {
+struct WorkspaceTurnV3: Decodable {
   let id: UUID
   let status: ChatTurnStatus
   let modelContextPolicy: ChatTurnModelContextPolicy
-  let items: [WorkspaceTurnItemV1]
+  let items: [WorkspaceTurnItemV3]
   let createdAt: Date
   let updatedAt: Date
 
@@ -85,7 +85,7 @@ struct WorkspaceTurnV1: Decodable {
       ChatTurnStatus.self, forKey: .status, default: .completed)
     modelContextPolicy = try container.decodeIfPresent(
       ChatTurnModelContextPolicy.self, forKey: .modelContextPolicy, default: .included)
-    items = try container.decodeLossyArray([WorkspaceTurnItemV1].self, forKey: .items)
+    items = try container.decodeLossyArray([WorkspaceTurnItemV3].self, forKey: .items)
     createdAt = try container.decodeIfPresent(
       Date.self, forKey: .createdAt, default: decoder.defaultDate)
     updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt, default: createdAt)
@@ -98,10 +98,10 @@ struct WorkspaceTurnV1: Decodable {
   }
 }
 
-private struct WorkspaceToolRecordV1: Decodable {
-  let request: WorkspaceToolRequestV1
+private struct WorkspaceToolRecordV3: Decodable {
+  let request: WorkspaceToolRequestV3
   let evaluation: ToolPermissionEvaluation
-  let state: WorkspaceToolStateV1
+  let state: WorkspaceToolStateV3
   let approvalSource: ToolApprovalSource?
   let modelFollowUpNotice: String?
 
@@ -112,30 +112,30 @@ private struct WorkspaceToolRecordV1: Decodable {
   }
 }
 
-private struct WorkspaceToolRequestV1: Decodable {
+private struct WorkspaceToolRequestV3: Decodable {
   let value: ToolCallRequest
   private enum CodingKeys: String, CodingKey { case raw, payload }
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     let raw = try container.decode(RawToolCallRequest.self, forKey: .raw)
-    let payload = try container.decode(WorkspaceToolInputV1.self, forKey: .payload).value
+    let payload = try container.decode(WorkspaceToolInputV3.self, forKey: .payload).value
     guard payload.matches(raw.toolName) else {
       throw DecodingError.dataCorruptedError(
         forKey: .payload, in: container,
-        debugDescription: "Mismatched v1 tool request.")
+        debugDescription: "Mismatched v3 tool request.")
     }
     value = .validated(raw: raw, payload: payload)
   }
 }
 
-private struct WorkspaceToolPreviewV1: Decodable {
+private struct WorkspaceToolPreviewV3: Decodable {
   let status: ToolResultStatus
   let text: String
   let truncated: Bool
   let redacted: Bool
   let affectedPaths: [String]
-  let resultPayload: WorkspaceToolResultV1?
+  let resultPayload: WorkspaceToolResultV3?
 
   private enum CodingKeys: String, CodingKey {
     case status, text, truncated, redacted, affectedPaths, resultPayload
@@ -151,7 +151,7 @@ private struct WorkspaceToolPreviewV1: Decodable {
     affectedPaths = try container.decodeIfPresent(
       [String].self, forKey: .affectedPaths, default: [])
     resultPayload = try container.decodeIfPresent(
-      WorkspaceToolResultV1.self, forKey: .resultPayload)
+      WorkspaceToolResultV3.self, forKey: .resultPayload)
   }
 
   var value: ToolResultPreview {
@@ -162,7 +162,7 @@ private struct WorkspaceToolPreviewV1: Decodable {
   }
 }
 
-struct WorkspaceTurnItemV1: Decodable {
+struct WorkspaceTurnItemV3: Decodable {
   let value: ChatTurnItem
 
   private enum CodingKeys: String, CodingKey {
@@ -189,13 +189,13 @@ struct WorkspaceTurnItemV1: Decodable {
     case .assistantMessage:
       value = .assistantMessage(try container.decode(AssistantTurnMessage.self, forKey: .payload))
     case .tool:
-      value = .tool(try container.decode(WorkspaceToolRecordV1.self, forKey: .payload).value)
+      value = .tool(try container.decode(WorkspaceToolRecordV3.self, forKey: .payload).value)
     }
   }
 
 }
 
-private struct WorkspaceToolStateV1: Decodable {
+private struct WorkspaceToolStateV3: Decodable {
   let value: ToolCallState
 
   private enum CodingKeys: String, CodingKey {
@@ -222,18 +222,18 @@ private struct WorkspaceToolStateV1: Decodable {
       value = .pending
     case .awaitingApproval:
       value = .awaitingApproval(
-        preview: try container.decodeIfPresent(WorkspaceToolPreviewV1.self, forKey: .preview)?.value
+        preview: try container.decodeIfPresent(WorkspaceToolPreviewV3.self, forKey: .preview)?.value
       )
     case .awaitingUserAnswer:
       value = .awaitingUserAnswer
     case .running:
       value = .running
     case .completed:
-      value = .completed(try container.decode(WorkspaceToolResultV1.self, forKey: .payload).value)
+      value = .completed(try container.decode(WorkspaceToolResultV3.self, forKey: .payload).value)
     case .denied:
-      value = .denied(try container.decode(WorkspaceToolResultV1.self, forKey: .payload).value)
+      value = .denied(try container.decode(WorkspaceToolResultV3.self, forKey: .payload).value)
     case .failed:
-      value = .failed(try container.decode(WorkspaceToolResultV1.self, forKey: .payload).value)
+      value = .failed(try container.decode(WorkspaceToolResultV3.self, forKey: .payload).value)
     case .cancelled:
       value = .cancelled
     }
@@ -241,7 +241,7 @@ private struct WorkspaceToolStateV1: Decodable {
 
 }
 
-private struct WorkspaceToolInputV1: Decodable {
+private struct WorkspaceToolInputV3: Decodable {
   let value: ToolCallPayload
 
   private enum CodingKeys: String, CodingKey {
@@ -250,6 +250,7 @@ private struct WorkspaceToolInputV1: Decodable {
   }
 
   private enum Kind: String, Codable {
+    case readDocument
     case readFile
     case readSkillResource
     case showFile
@@ -275,6 +276,8 @@ private struct WorkspaceToolInputV1: Decodable {
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     switch try container.decode(Kind.self, forKey: .kind) {
+    case .readDocument:
+      value = .readDocument(try container.decode(ReadDocumentInput.self, forKey: .payload))
     case .readFile:
       value = .readFile(try container.decode(ReadFileInput.self, forKey: .payload))
     case .readSkillResource:
@@ -324,7 +327,7 @@ private struct WorkspaceToolInputV1: Decodable {
 
 }
 
-private struct WorkspaceToolResultV1: Decodable {
+private struct WorkspaceToolResultV3: Decodable {
   let value: ToolResultPayload
 
   private enum CodingKeys: String, CodingKey {
@@ -333,6 +336,7 @@ private struct WorkspaceToolResultV1: Decodable {
   }
 
   private enum Kind: String, Codable {
+    case readDocument
     case readFile
     case readSkillResource
     case listFiles
@@ -343,6 +347,7 @@ private struct WorkspaceToolResultV1: Decodable {
     case writeFile
     case editFile
     case runCommand
+    case runCommandDuplicate
     case todoWrite
     case askUser
     case finishTask
@@ -359,6 +364,8 @@ private struct WorkspaceToolResultV1: Decodable {
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     switch try container.decode(Kind.self, forKey: .kind) {
+    case .readDocument:
+      value = .readDocument(try container.decode(ReadDocumentResult.self, forKey: .payload))
     case .readFile:
       value = .readFile(try container.decode(ReadFileResult.self, forKey: .payload))
     case .readSkillResource:
@@ -382,6 +389,9 @@ private struct WorkspaceToolResultV1: Decodable {
       value = .writeFile(try container.decode(WriteFileResult.self, forKey: .payload))
     case .editFile:
       value = .editFile(try container.decode(EditFileResult.self, forKey: .payload))
+    case .runCommandDuplicate:
+      value = .runCommandDuplicate(
+        try container.decode(RunCommandDuplicateResult.self, forKey: .payload))
     case .runCommand:
       value = .runCommand(try container.decode(RunCommandResult.self, forKey: .payload))
     case .todoWrite:
@@ -411,4 +421,17 @@ private struct WorkspaceToolResultV1: Decodable {
     }
   }
 
+}
+
+/// Frozen textual result shared by v0-v3 migrations, including preview payloads.
+enum WorkspaceDiffResultV3: Decodable {
+  case success(path: WorkspaceRelativePath?, content: ToolTextOutput)
+  case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
+
+  var value: WorkspaceDiffResult {
+    switch self {
+    case .success(let path, let content): .legacySuccess(path: path, content: content)
+    case .failed(let path, let reason): .failed(path: path, reason: reason)
+    }
+  }
 }

@@ -51,7 +51,14 @@ enum ToolLoopDirectResponseRenderer {
           "Displayed list_files result for \(result.root.rawValue) directly to the user."
         )
       )
-    case .workspaceDiff(.success(let path, let content))
+    case .workspaceDiff(.snapshot(let snapshot))
+    where shouldRespondDirectlyToWorkspaceDiff(request):
+      return DirectToolResultResponse(
+        content: directWorkspaceDiffResponse(
+          path: snapshot.path, content: WorkspaceDiffPresentation.display(snapshot)),
+        modelProjectionPolicy: .override("Displayed workspace_diff result directly to the user.")
+      )
+    case .workspaceDiff(.legacySuccess(let path, let content))
     where shouldRespondDirectlyToWorkspaceDiff(request):
       return DirectToolResultResponse(
         content: directWorkspaceDiffResponse(path: path, content: content),

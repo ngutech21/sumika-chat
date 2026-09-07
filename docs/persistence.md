@@ -13,7 +13,7 @@ it atomically only after the current representation round-trips.
 | `mcp-servers.json` | `MCPServersStore` | 1 | Unversioned `{ "servers": [...] }` wrapper |
 | `model-settings.json` | `ModelSettingsStore` | 4 | Unversioned snapshots and versions 2-3 |
 | `WorkspaceLibrary/workspaces.json` | `WorkspaceStore` | 1 | Unversioned monolithic workspace library |
-| `WorkspaceLibrary/sessions/*.json` | `WorkspaceStore` | 3 | Sessions v1-v2 and the monolithic workspace library |
+| `WorkspaceLibrary/sessions/*.json` | `WorkspaceStore` | 4 | Sessions v1-v3 and the monolithic workspace library |
 
 Configuration versions are not an application-wide release number. Bump only
 the file whose persisted contract changes. Keep historical decoding in frozen
@@ -45,27 +45,29 @@ this versioning contract.
 ## Workspace deletion and attachment recovery
 
 Session document v2 added the `readDocument` tool input and result variants.
-Session document v3 adds `runCommandDuplicate`, whose only stored field is
+Session document v3 added `runCommandDuplicate`, whose only stored field is
 `originalCallID`. Blocked duplicates retain their request and canonical batch
 position as failed records with a policy-denied evaluation and no approval source.
-The workspace manifest remains v1. `WorkspaceSessionDocumentV1` and
-`WorkspaceSessionDocumentV2` freeze each old session envelope and tagged tool
-decoding inside the persistence owner, then explicitly map to the current domain
-model. Unchanged leaf value types are shared; v1 cannot accept document tools,
-and neither v1 nor v2 can accept command-duplicate results, including previews.
+Session document v4 adds structured workspace diff snapshots. Historical text
+results remain explicit legacy values, including text, truncation, and redaction;
+migration never invents file records from those strings. The workspace manifest
+remains v1. Frozen v1-v3 session decoders and the monolithic v0 import share a frozen
+textual diff decoder, including nested previews. Older formats cannot accept the
+structured snapshot case. Unchanged leaf types remain shared; v1 cannot accept
+document tools, and neither v1 nor v2 can accept command-duplicate results.
 Loading never executes pending commands. An explicit approval or automatic-batch
 resume applies the current duplicate guard before execution, preserving completed
 historical results and original-call references.
 
-Startup accepts a mixture of v1, v2, and v3 referenced sessions. It validates the
-complete manifest and every referenced session, prepares v3 replacements, and
-round-trips each prepared document before replacing any v1 or v2 file. Validation compares
+Startup accepts a mixture of v1, v2, v3, and v4 referenced sessions. It validates the
+complete manifest and every referenced session, prepares v4 replacements, and
+round-trips each prepared document before replacing any v1, v2, or v3 file. Validation compares
 decoded session values, not JSON byte order: dictionaries with non-string keys
 encode as arrays with unspecified ordering. Missing timestamp defaults use the
 storage format's millisecond precision so they also survive semantic validation.
 Each replacement
 checks that its source bytes are unchanged and uses an atomic write. A failed
-write may leave a valid v1/v2/v3 mixture; a subsequent load retries the remaining
+write may leave a valid v1/v2/v3/v4 mixture; a subsequent load retries the remaining
 upgrades. Invalid data or failed migration writes block normal saves and all
 cleanup while preserving the source data. A valid manifest still restores every
 workspace and each readable session when another session is missing, malformed,
@@ -77,7 +79,7 @@ and restores saving. An invalid manifest remains a library-wide failure.
 Monolithic legacy import continues to require complete validation before producing
 the current manifest and session documents.
 
-The version bump also protects v3 files from older binaries' orphan cleanup. Current
+The version bump also protects v4 files from older binaries' orphan cleanup. Current
 cleanup recognizes only valid current-version session documents with matching
 UUIDs and no dropped decode elements. Older-version, future-version, unknown,
 and corrupt orphan files are preserved.

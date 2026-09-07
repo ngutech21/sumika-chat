@@ -38,7 +38,7 @@ enum WorkspaceLibraryGoldenFixture {
   }
 
   /// Current session format also includes a duplicate referencing its original denied call.
-  static func makeCurrentSession() -> ChatSession {
+  static func makeV3Session() -> ChatSession {
     var session = makeAgentSession()
     let original = makeDeniedRunCommandRecord()
     let raw = RawToolCallRequest(
@@ -52,6 +52,29 @@ enum WorkspaceLibraryGoldenFixture {
       evaluation: .init(decision: .denied, reason: result.preview.text, riskLevel: .high),
       state: .failed(.runCommandDuplicate(result)))
     session.turns[0].recordToolCall(duplicate, at: date(6_000))
+    return session
+  }
+
+  static func makeCurrentSession() -> ChatSession {
+    var session = makeV3Session()
+    let request = ToolCallRequest.validated(
+      raw: RawToolCallRequest(
+        id: fixedUUID("DDDDDDDD-0000-0000-0000-000000000007"),
+        workspaceID: workspaceID, sessionID: session.id, toolName: .workspaceDiff,
+        arguments: [:], createdAt: date(6_001)),
+      payload: .workspaceDiff(.init()))
+    let snapshot = WorkspaceDiffSnapshot(
+      path: nil,
+      files: [
+        .init(
+          path: .init(rawValue: "new.txt"),
+          unstaged: .init(
+            kind: .untracked, additions: 1, deletions: 0, patch: .init(text: "+hello")))
+      ])
+    session.turns[0].recordToolCall(
+      .init(
+        request: request, evaluation: .init(decision: .allowed, reason: "Review", riskLevel: .low),
+        state: .completed(.workspaceDiff(.snapshot(snapshot)))), at: date(6_001))
     return session
   }
 

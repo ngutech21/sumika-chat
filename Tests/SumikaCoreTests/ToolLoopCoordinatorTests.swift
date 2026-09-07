@@ -1682,12 +1682,12 @@ struct ToolLoopCoordinatorTests {
     #expect(toolResults(from: result).map(\.toolName) == [.readFile, .listFiles])
   }
 
-  @Test
-  func workspaceDiffDisplaysDirectlyWithoutModelFollowUp() async throws {
+  @Test(arguments: [false, true])
+  func workspaceDiffDisplaysDirectlyWithoutModelFollowUp(structured: Bool) async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let orchestrator = WorkspaceDiffToolOrchestrator(
-      content: ToolTextOutput(text: "diff --git a/README.md b/README.md")
+      content: ToolTextOutput(text: "diff --git a/README.md b/README.md"), structured: structured
     )
 
     let result = try await runToolLoop(
@@ -2102,7 +2102,7 @@ private actor CountingToolOrchestrator: ToolOrchestrating {
         ))
     case .workspaceDiff(let input):
       payload = .workspaceDiff(
-        .success(
+        .legacySuccess(
           path: input.path.map { Self.canonicalPath($0, workspace: workspace) },
           content: ToolTextOutput(text: "clean")
         ))
@@ -2223,6 +2223,7 @@ private struct FakeSearchService: WebSearching {
 
 private struct WorkspaceDiffToolOrchestrator: ToolOrchestrating {
   let content: ToolTextOutput
+  let structured: Bool
 
   var toolRegistry: ToolRegistry {
     ToolRegistry(tools: [.workspaceDiff])
@@ -2242,7 +2243,18 @@ private struct WorkspaceDiffToolOrchestrator: ToolOrchestrating {
         reason: "Allowed for test.",
         riskLevel: .low
       ),
-      state: .completed(.workspaceDiff(.success(path: nil, content: content)))
+      state: .completed(
+        .workspaceDiff(
+          structured
+            ? .snapshot(
+              .init(
+                path: nil,
+                files: [
+                  .init(
+                    path: .init(rawValue: "README.md"),
+                    unstaged: .init(kind: .modified, additions: 1, deletions: 1, patch: content))
+                ]))
+            : .legacySuccess(path: nil, content: content)))
     )
   }
 
