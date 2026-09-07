@@ -85,14 +85,14 @@ struct ConversationEngineTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
 
-    engine.reconcileAgentTools(
+    engine.configureAgentTools(
       todoWriteEnabled: false,
       mcpExecutorGroups: [
         makeMCPExecutorGroup(serverID: selectedServerID, serverSlug: "selected"),
         makeMCPExecutorGroup(serverID: unselectedServerID, serverSlug: "unselected"),
-      ],
-      selectedMCPServerIDs: [selectedServerID]
+      ]
     )
+    engine.reconcileSelectedMCPServerIDs([selectedServerID])
 
     #expect(engine.chatSession.selectedMCPServerIDs.isEmpty)
     engine.denyToolCall(id: approvalRecord.id)

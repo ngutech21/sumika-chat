@@ -611,9 +611,16 @@ declarations.
   coding tools. `ToolExecutorRegistry` and duplicate-name handling remain
   internal implementation details. The effective registry is recomposed on
   session or selection changes, server connect/disconnect/reconnect, and
-  todo-write setting changes. `ConversationEngine` installs or defers the
-  matching selection and registry together so an active or paused turn keeps
-  its frozen tools. Updating the Agent registry does not reconstruct the shared
+  todo-write setting changes. Connection results update statuses and executor
+  contributions only; session selection remains owned by user actions and
+  explicit configuration reconciliation. Each desired connection configuration
+  has a runtime-only revision, including forced reconciliations. Obsolete queued
+  operations are skipped; results of already running operations are discarded
+  after all asynchronous reads if their revision is no longer current. Active
+  connection tests follow the same rule and report cancellation when superseded.
+  `ConversationEngine` installs or defers registry changes using the current or
+  pending session selection so an active or paused turn keeps its frozen tools.
+  Updating the Agent registry does not reconstruct the shared
   Tool Loop. Chat (web) sessions never expose MCP tools, and user
   selection changes are blocked during generation or unresolved
   approval/user-input interactions.

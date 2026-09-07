@@ -2189,6 +2189,46 @@ struct AppStateTests {
   }
 
   @Test
+  func firstMCPSelectionSurvivesConnectionFailureAndPersists() async throws {
+    let server = MCPServerConfig(name: "Offline", command: "/usr/bin/false")
+    let workspace = Workspace(name: "Project", rootURL: try scopedTemporaryDirectory())
+    let store = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace], activeWorkspaceID: workspace.id))
+    let appState = AppState(
+      workspaceStore: store,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      appBehaviorSettingsStore: InMemoryAppBehaviorSettingsStore(
+        settings: AppBehaviorSettings(defaultInteractionMode: .agent)),
+      mcpServersStore: InMemoryMCPServersStore(servers: [server]),
+      runtime: AppStateTestRuntime())
+    await appState.waitForStartup()
+    let sessionID = try #require(appState.createSession(in: workspace.id))
+
+    appState.setSelectedMCPServerIDs([server.id])
+    try await waitUntil {
+      if case .failed = appState.settingsState.mcpServerStatuses.first?.state {
+        return true
+      }
+      return false
+    }
+    #expect(appState.chatFeatureState.composer.session.selectedMCPServerIDs == [server.id])
+    #expect(appState.workspaceState.activeSession?.selectedMCPServerIDs == [server.id])
+    appState.chatFeatureState.setInteractionMode(.chat)
+    appState.chatFeatureState.setInteractionMode(.agent)
+    await appState.prepareForTermination()
+
+    let persisted = await store.latestSavedLibrary()
+    #expect(
+      persisted?.workspaces.first?.sessions.first { $0.id == sessionID }?.selectedMCPServerIDs
+        == [server.id])
+    let selections = await store.recordedMCPSelections(sessionID: sessionID)
+    let firstSelection = try #require(selections.firstIndex(of: [server.id]))
+    #expect(selections[firstSelection...].allSatisfy { $0 == [server.id] })
+  }
+
+  @Test
   func selectedMCPServersFilterAgentToolSchemaPerSession() async throws {
     let script = try makeMCPServerScript()
     let firstServer = MCPServerConfig(
@@ -2691,6 +2731,12 @@ private actor InMemoryWorkspaceStore: WorkspaceStoring {
 
   func latestSavedLibrary() -> WorkspaceLibrary? {
     savedLibraries.last
+  }
+
+  func recordedMCPSelections(sessionID: ChatSession.ID) -> [[UUID]] {
+    savedLibraries.compactMap { library in
+      library.workspaces.flatMap(\.sessions).first { $0.id == sessionID }?.selectedMCPServerIDs
+    }
   }
 }
 

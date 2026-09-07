@@ -514,24 +514,6 @@ extension ConversationEngine {
     )
   }
 
-  /// Reconciles connected MCP contributions and persisted selection as one
-  /// Core operation so the matching registry is installed or deferred with
-  /// the selection that produced it.
-  func reconcileAgentTools(
-    todoWriteEnabled: Bool,
-    mcpExecutorGroups: [MCPAgentToolExecutorGroup],
-    selectedMCPServerIDs: [UUID]
-  ) {
-    updateAgentToolConfiguration(
-      todoWriteEnabled: todoWriteEnabled,
-      mcpExecutorGroups: mcpExecutorGroups
-    )
-    guard hasActiveConversation else {
-      return
-    }
-    reconcileSelectedMCPServerIDs(selectedMCPServerIDs)
-  }
-
   private func applyConfiguredAgentToolsForActiveSession() {
     guard hasActiveConversation else {
       return

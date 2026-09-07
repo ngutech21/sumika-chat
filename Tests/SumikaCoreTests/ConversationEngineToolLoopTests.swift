@@ -2370,13 +2370,13 @@ struct ConversationEngineToolLoopTests {
     )
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
-    engine.reconcileAgentTools(
+    engine.configureAgentTools(
       todoWriteEnabled: true,
       mcpExecutorGroups: [
         makeMCPExecutorGroup(serverID: serverID, serverSlug: "frozen", client: client)
-      ],
-      selectedMCPServerIDs: [serverID]
+      ]
     )
+    engine.setSelectedMCPServerIDs([serverID])
 
     await engine.sendMessage(prompt: "call the MCP tool", in: workspace, sessionID: sessionID)
     try await waitUntilAsync { await runtime.startedStreamCount == 1 }

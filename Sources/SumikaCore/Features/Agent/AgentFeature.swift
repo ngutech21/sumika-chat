@@ -33,6 +33,7 @@ package final class AgentFeature {
   private var todoWriteEnabled = false
   private var executorGroups: [MCPAgentToolExecutorGroup] = []
   private var desiredConnectionConfiguration: AgentConnectionConfiguration?
+  private var connectionConfigurationRevision = 0
   private var mutationTask: Task<Void, Never>?
   private var statusChangeHandler: (@MainActor @Sendable ([MCPServerStatus]) -> Void)?
 
@@ -70,12 +71,14 @@ package final class AgentFeature {
   package func loadServerConfiguration(_ servers: [MCPServerConfig]) async {
     let configuration = AgentConnectionConfiguration(servers: servers)
     desiredConnectionConfiguration = configuration
+    connectionConfigurationRevision += 1
+    let revision = connectionConfigurationRevision
     let task = enqueueMutation { [weak self] in
-      guard let self else {
+      guard let self, revision == self.connectionConfigurationRevision else {
         return
       }
       await self.clientManager.applyConfiguration(servers)
-      await self.refreshAfterMCPChange(selectedServerIDs: [])
+      _ = await self.refreshAfterMCPChange(revision: revision)
     }
     await task.value
   }
@@ -88,8 +91,10 @@ package final class AgentFeature {
       return
     }
     desiredConnectionConfiguration = configuration
+    connectionConfigurationRevision += 1
+    let revision = connectionConfigurationRevision
     enqueueMutation { [weak self] in
-      guard let self else {
+      guard let self, revision == self.connectionConfigurationRevision else {
         return
       }
       await self.clientManager.reconcile(
@@ -98,7 +103,7 @@ package final class AgentFeature {
         selectedServerIDs: configuration.selectedServerIDs,
         workspaceRootURL: configuration.workspaceRootURL
       )
-      await self.refreshAfterMCPChange(selectedServerIDs: configuration.selectedServerIDs)
+      _ = await self.refreshAfterMCPChange(revision: revision)
     }
   }
 
@@ -108,17 +113,22 @@ package final class AgentFeature {
     reconnectActiveServer: Bool,
     completion: @escaping @MainActor @Sendable (Result<AgentServerTestResult, Error>) -> Void
   ) {
+    let revision = connectionConfigurationRevision
     enqueueMutation { [weak self] in
       guard let self else {
         return
       }
       if reconnectActiveServer {
+        guard revision == self.connectionConfigurationRevision else {
+          completion(.failure(CancellationError()))
+          return
+        }
         await self.clientManager.reconnect(serverID: server.id)
-        await self.refreshAfterMCPChange(
-          selectedServerIDs: self.desiredConnectionConfiguration?.selectedServerIDs
-            ?? self.conversationEngine.composerSessionState.selectedMCPServerIDs
-        )
-        let status = await self.clientManager.statuses().first { $0.serverID == server.id }
+        guard let statuses = await self.refreshAfterMCPChange(revision: revision) else {
+          completion(.failure(CancellationError()))
+          return
+        }
+        let status = statuses.first { $0.serverID == server.id }
         completion(.success(.activeConnection(status?.state)))
         return
       }
@@ -152,14 +162,20 @@ package final class AgentFeature {
     return task
   }
 
-  private func refreshAfterMCPChange(selectedServerIDs: [UUID]) async {
+  private func refreshAfterMCPChange(revision: Int) async -> [MCPServerStatus]? {
     let statuses = await clientManager.statuses()
-    executorGroups = await clientManager.agentToolExecutorGroups()
-    conversationEngine.reconcileAgentTools(
+    let groups = await clientManager.agentToolExecutorGroups()
+    // Both actor reads can suspend. Publish only the latest configuration,
+    // and never turn a connection result back into a session-selection edit.
+    guard revision == connectionConfigurationRevision else {
+      return nil
+    }
+    executorGroups = groups
+    conversationEngine.configureAgentTools(
       todoWriteEnabled: todoWriteEnabled,
-      mcpExecutorGroups: executorGroups,
-      selectedMCPServerIDs: selectedServerIDs
+      mcpExecutorGroups: groups
     )
     statusChangeHandler?(statuses)
+    return statuses
   }
 }

@@ -417,6 +417,9 @@ final class SumikaUITests: XCTestCase {
 
     application.typeKey(.escape, modifierFlags: [])
     try selectAgentMode(in: application)
+    application.buttons["workspace.newChatButton"].click()
+    XCTAssertTrue(options.waitForExistence(timeout: 5))
+    XCTAssertTrue((options.value as? String)?.contains("0 MCP servers selected") == true)
     options.click()
 
     XCTAssertTrue(autoApproveToggle.waitForExistence(timeout: 5))
@@ -429,6 +432,11 @@ final class SumikaUITests: XCTestCase {
         (options.value as? String)?.contains("1 MCP server selected") == true
       }
     )
+    XCTAssertTrue((serverRow.value as? String)?.contains("Selected") == true)
+    application.typeKey(.escape, modifierFlags: [])
+    options.click()
+    XCTAssertTrue(serverRow.waitForExistence(timeout: 5))
+    XCTAssertTrue((serverRow.value as? String)?.contains("Selected") == true)
 
     application.typeKey(.escape, modifierFlags: [])
     try selectChatMode(in: application)
@@ -455,7 +463,8 @@ final class SumikaUITests: XCTestCase {
         else {
           return false
         }
-        return library.workspaces.first?.sessions.first?.selectedMCPServerIDs == [server.id]
+        return library.workspaces.first?.sessions.first { $0.id == library.activeSessionID }?
+          .selectedMCPServerIDs == [server.id]
       },
       "The selected MCP server should persist on the active session."
     )
