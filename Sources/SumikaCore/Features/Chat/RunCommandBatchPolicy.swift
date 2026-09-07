@@ -1,5 +1,3 @@
-import Foundation
-
 enum RunCommandBatchPolicy {
   /// The first valid request reserves its signature, regardless of execution outcome.
   static func blockedRecords(
