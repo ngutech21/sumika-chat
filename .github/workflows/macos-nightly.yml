@@ -16,7 +16,7 @@ jobs:
   lint-build-test-analyze:
     name: macOS App Lint, Build, Test, Analyze
     runs-on: macos-26
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     env:
       DERIVED_DATA_PATH: build/DerivedData/macos-nightly
