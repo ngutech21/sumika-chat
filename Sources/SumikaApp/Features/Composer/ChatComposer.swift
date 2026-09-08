@@ -1385,6 +1385,16 @@ final class ComposerNSTextView: NSTextView {
     }
   }
 
+  override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+    if item.action == #selector(paste(_:)) || item.action == #selector(pasteAsRichText(_:)),
+      pasteboardContainsAttachments(.general)
+    {
+      return isEditable && canAcceptAttachments
+    }
+
+    return super.validateUserInterfaceItem(item)
+  }
+
   override func paste(_ sender: Any?) {
     if pasteboardContainsAttachments(.general) {
       _ = handleAttachmentPasteboard(.general)

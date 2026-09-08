@@ -11,6 +11,73 @@ final class SumikaUITests: XCTestCase {
     "\(traceTimestamp())-\(UUID().uuidString)-gemma4-12b-qat-4bit-ui-test.jsonl"
 
   @MainActor
+  func testScreenshotClipboardPastesFromKeyboardAndEditMenu() throws {
+    let fixture = try launchFixture()
+    let application = try launchApp(fixture: fixture)
+    defer { application.terminate() }
+    try loadSelectedModel(in: application)
+
+    let pasteboard = NSPasteboard.general
+    let savedItems: [NSPasteboardItem] =
+      pasteboard.pasteboardItems?.map { source in
+        let item = NSPasteboardItem()
+        for type in source.types {
+          if let data = source.data(forType: type) {
+            item.setData(data, forType: type)
+          }
+        }
+        return item
+      } ?? []
+    defer {
+      pasteboard.clearContents()
+      _ = pasteboard.writeObjects(savedItems)
+    }
+    let bitmap = try XCTUnwrap(
+      NSBitmapImageRep(
+        bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2,
+        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+        isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+      )
+    )
+    for column in 0..<2 {
+      for row in 0..<2 {
+        bitmap.setColor(NSColor(deviceRed: 1, green: 0, blue: 0, alpha: 1), atX: column, y: row)
+      }
+    }
+    let imageData = try XCTUnwrap(bitmap.tiffRepresentation)
+    let messageField = waitForMessageField(in: application)
+    let draft = "Describe this screenshot"
+    messageField.click()
+    messageField.typeText(draft)
+    let removeButtons = application.buttons.matching(
+      NSPredicate(
+        format: "label BEGINSWITH %@ AND label ENDSWITH %@", "Remove clipboard-image-", ".png")
+    )
+
+    for useKeyboard in [true, false] {
+      pasteboard.clearContents()
+      XCTAssertTrue(pasteboard.setData(imageData, forType: .tiff))
+      messageField.click()
+      if useKeyboard {
+        messageField.typeKey("v", modifierFlags: .command)
+      } else {
+        application.menuBars.menuBarItems["Edit"].click()
+        let pasteItem = application.menuItems["Paste"]
+        XCTAssertTrue(pasteItem.isEnabled)
+        pasteItem.click()
+      }
+
+      let hasAttachment = waitUntil(timeout: 10) { removeButtons.count == 1 }
+      XCTAssertTrue(
+        hasAttachment, "Pasting a TIFF screenshot should add exactly one PNG attachment.")
+      guard hasAttachment else { return }
+      XCTAssertEqual(messageField.value as? String, draft)
+      removeButtons.firstMatch.click()
+      XCTAssertTrue(waitUntil(timeout: 5) { removeButtons.count == 0 })
+    }
+  }
+
+  @MainActor
   func testWorkspaceSidebarShowsFiveSessionsAtATime() throws {
     let fixture = try launchFixture()
     let application = try launchApp(fixture: fixture)
