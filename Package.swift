@@ -42,9 +42,7 @@ let package = Package(
       revision: "e3d4a20e9e20e7b8ab39aded7bbfad4ae22c9438"),
     .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.3"),
     .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.10.0"),
-    .package(
-      url: "https://github.com/FluidInference/FluidAudio",
-      revision: "6428e29186573c6d33c598e25d460e6690bc0ee1"),
+    .package(url: "https://github.com/FluidInference/FluidAudio", from: "0.15.7"),
     .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.19.0"),
     .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.8.0"),
     .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.4"),
