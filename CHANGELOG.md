@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.11.0](https://github.com/ngutech21/sumika-chat/compare/v1.10.0...v1.11.0) (2026-09-11)
+
+
+### Features
+
+* add read_document for workspace documents ([09ffc4b](https://github.com/ngutech21/sumika-chat/commit/09ffc4b169c9a6e6288350b1af69bd3023aab19a)), closes [#245](https://github.com/ngutech21/sumika-chat/issues/245)
+* make workspace_diff structured, per-file bounded, and untracked-aware ([#248](https://github.com/ngutech21/sumika-chat/issues/248)) ([1f6d76c](https://github.com/ngutech21/sumika-chat/commit/1f6d76c25317fab8de172b714a75a34ecdbc0c7b))
+
+
+### Bug Fixes
+
+* block duplicate run_command calls within one assistant response ([95419bd](https://github.com/ngutech21/sumika-chat/commit/95419bdf20bcb44c0be6010f4782a4ab9385fc8b)), closes [#199](https://github.com/ngutech21/sumika-chat/issues/199)
+* copy image from macos screenshot preview ([7772fdd](https://github.com/ngutech21/sumika-chat/commit/7772fdd9d65e7eec3005f5354ac2a1d75a88313b))
+* enhance AgentFeature with connection configuration revision tracking and improve refresh logic ([da93362](https://github.com/ngutech21/sumika-chat/commit/da933624809d0b3516ae9f2f56ebc7eb46f5ca08))
+* imported attachment files survive removal and chat/workspace deletion ([fc1d44c](https://github.com/ngutech21/sumika-chat/commit/fc1d44cf036a258b226df502c9a41fd1131c5c86)), closes [#246](https://github.com/ngutech21/sumika-chat/issues/246)
+* recover from MLX errors and drain generation before cleanup ([8deb571](https://github.com/ngutech21/sumika-chat/commit/8deb571e9675319c42752305a4e1fe5273260d8c))
+* use compact spacing for transcript code and tool output ([93594d0](https://github.com/ngutech21/sumika-chat/commit/93594d0bbef1fd706b2adf6d38f84507f3cfa418))
+
 ## [1.10.0](https://github.com/ngutech21/sumika-chat/compare/v1.9.0...v1.10.0) (2026-09-05)
 
 
