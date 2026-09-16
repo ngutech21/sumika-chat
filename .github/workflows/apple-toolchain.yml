@@ -1,0 +1,39 @@
+name: Apple toolchain configuration
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref used by the consuming job; empty uses the workflow checkout default.
+        required: false
+        type: string
+        default: ""
+    outputs:
+      runner:
+        description: GitHub-hosted macOS runner for the selected Apple toolchain.
+        value: ${{ jobs.configuration.outputs.runner }}
+
+permissions:
+  contents: read
+
+jobs:
+  configuration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      runner: ${{ steps.configuration.outputs.runner }}
+    steps:
+      - name: Checkout toolchain configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Read macOS runner
+        id: configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .github/actions/setup-apple-toolchain/versions.env
+          : "${MACOS_RUNNER:?Missing MACOS_RUNNER}"
+          printf 'runner=%s\n' "$MACOS_RUNNER" >> "$GITHUB_OUTPUT"

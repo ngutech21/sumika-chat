@@ -13,12 +13,20 @@ described in [SECURITY.md](SECURITY.md).
 
 Sumika is a native macOS project. Development requires:
 
-- macOS 15 or later.
-- Xcode 26.6 (build 17F113) with Apple Swift 6.3.3 and the macOS 26.5 SDK.
+- A macOS version supported by the selected Xcode release.
+- The Xcode, Swift, and macOS SDK versions recorded in
+  [versions.env](.github/actions/setup-apple-toolchain/versions.env).
 - [Homebrew](https://brew.sh/).
 - `just`, Periphery, and `typos` for the complete local verification workflow.
   The project resolves its pinned SwiftLint binary through SwiftPM, and Xcode
   provides `swift-format`.
+
+`versions.env` also defines `MACOS_RUNNER`, the GitHub-hosted runner label used
+by all Apple toolchain jobs. A reusable configuration workflow reads it on
+Ubuntu before GitHub schedules the macOS jobs. Release builds read the file
+from their release tag; other jobs use their workflow checkout. Change the
+runner and toolchain versions together. This does not change the app's macOS 15
+minimum deployment target.
 
 Install `just`, then use the project recipe to install its primary development
 tools:

@@ -31,11 +31,20 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  build-release-asset:
-    name: Build notarized macOS release asset
+  toolchain:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
-    runs-on: macos-27
+    permissions:
+      contents: read
+    uses: ./.github/workflows/apple-toolchain.yml
+    with:
+      ref: ${{ needs.release-please.outputs.tag_name }}
+
+  build-release-asset:
+    name: Build notarized macOS release asset
+    needs: [release-please, toolchain]
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ${{ needs.toolchain.outputs.runner }}
     timeout-minutes: 75
     permissions:
       contents: write

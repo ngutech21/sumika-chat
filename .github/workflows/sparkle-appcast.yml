@@ -14,9 +14,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  toolchain:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/apple-toolchain.yml
+
   generate-appcast:
     name: Generate Sparkle appcast from existing release
-    runs-on: macos-27
+    needs: toolchain
+    runs-on: ${{ needs.toolchain.outputs.runner }}
     timeout-minutes: 20
     permissions:
       contents: read

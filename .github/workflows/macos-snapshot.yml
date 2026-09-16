@@ -11,9 +11,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  toolchain:
+    uses: ./.github/workflows/apple-toolchain.yml
+
   build-snapshot:
     name: macOS release a notarized snapshot
-    runs-on: macos-27
+    needs: toolchain
+    runs-on: ${{ needs.toolchain.outputs.runner }}
     timeout-minutes: 90
 
     env:

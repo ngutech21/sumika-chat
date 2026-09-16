@@ -272,9 +272,11 @@ links only the local `SumikaApp` product.
 
 ## Development
 
-Development requires macOS 15 or later, Xcode 26.6 (build 17F113) with Apple
-Swift 6.3.3 and the macOS 26.5 SDK, and Homebrew. Install `just` and `typos`, then
-use the project recipe for the remaining tools:
+Development requires the Apple toolchain recorded in
+[versions.env](.github/actions/setup-apple-toolchain/versions.env), a macOS version
+supported by that Xcode release, and Homebrew. The same file defines the macOS CI
+runner label. Install `just` and `typos`, then use the project recipe for the
+remaining tools:
 
 ```sh
 brew version-install just@1.58.0
