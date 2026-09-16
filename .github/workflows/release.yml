@@ -35,7 +35,7 @@ jobs:
     name: Build notarized macOS release asset
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
-    runs-on: macos-26
+    runs-on: macos-27
     timeout-minutes: 75
     permissions:
       contents: write

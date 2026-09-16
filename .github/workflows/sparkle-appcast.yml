@@ -16,7 +16,7 @@ concurrency:
 jobs:
   generate-appcast:
     name: Generate Sparkle appcast from existing release
-    runs-on: macos-26
+    runs-on: macos-27
     timeout-minutes: 20
     permissions:
       contents: read
