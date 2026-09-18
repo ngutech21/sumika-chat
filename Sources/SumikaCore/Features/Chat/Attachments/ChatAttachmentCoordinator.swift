@@ -84,11 +84,9 @@ final class ChatAttachmentCoordinator {
         batch.adopt(into: referenceLease)
         referencedIDs.formUnion(batch.attachments.map(\.id))
         onEvent(.appendAttachments(batch.attachments))
-      } catch is CancellationError {
-        report(await loader.lifecycle.cleanup())
       } catch {
         report(await loader.lifecycle.cleanup())
-        guard !Task.isCancelled, requestID == loadRequestID else {
+        guard !(error is CancellationError), !Task.isCancelled, requestID == loadRequestID else {
           return
         }
         onEvent(.error(error.localizedDescription))

@@ -1,3 +1,4 @@
+import SumikaCore
 import Testing
 
 @testable import SumikaApp

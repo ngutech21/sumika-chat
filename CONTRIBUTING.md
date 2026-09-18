@@ -144,15 +144,51 @@ only when changes, failures, or unresolved concerns justify it. For documentatio
 or comments only, run `just typos` and explain why builds and tests were skipped.
 
 The dead-code check performs SwiftPM and Xcode builds. It explicitly passes
-Swift Build's `.build/out` index to Periphery 3.8, whose automatic SwiftPM index
-lookup expects the older native build system's directory layout. It does not replace
-`just build` or `just test-ui` when a change affects those areas. UI tests are
-local-only, must not download a model, and may skip when their configured local
-model is unavailable.
+Swift Build's `.build/out/Products/Debug/index/store` index to Periphery 3.8,
+whose automatic SwiftPM index lookup expects the older native build system's
+directory layout. The recipe checks that the index exists before scanning.
+It does not replace `just build` or `just test-ui` when a change affects those areas.
+UI tests are local-only, must not download a model, and may skip when their
+configured local model is unavailable.
 
 Report the checks you actually ran and their real outcomes in the pull request.
 If an unrelated failure or environment restriction blocks a check, identify it
 instead of reporting the suite as passing.
+
+### Compiler Checks
+
+The product package requires Swift tools 6.4 and uses Swift 6 language mode.
+All owned Swift targets treat warnings as errors, require direct imports for
+members they use, and enable `ExplicitSendable` for public type declarations.
+Declare intentional non-Sendable types with `~Sendable`; do not add unchecked
+conformances merely to silence diagnostics. App targets retain MainActor default
+isolation and `NonisolatedNonsendingByDefault`; Core and MLX runtime targets retain
+their existing isolation behavior.
+
+Additional diagnostics are available as optional audits:
+
+```sh
+just audit-memory-safety SumikaCore
+just audit-memory-safety SumikaApp
+just audit-performance SumikaCore
+just audit-async
+```
+
+The compiler audits use opt-in package traits and affect only Sumika targets in
+the selected target's dependency graph. Memory-safety diagnostics expose existing
+C, pointer, Objective-C, and concurrency trust boundaries; a successful audit
+build can still report warnings and is not a memory-safety certification. Review
+lifetimes, bounds, and synchronization before acknowledging an operation as unsafe.
+Performance hints identify potential costs, not measured regressions. Profile
+release builds before changing protocol boundaries, error types, or ownership.
+Use `@diagnose(PerformanceHints, as: warning)` on a declaration for a narrower audit.
+
+The async lint audit can flag intentional protocol implementations. Review each
+result before removing `async`; it is not part of `final-check`. In async code,
+use `defer { await cleanup() }` when cleanup must finish before scope exit. This
+also keeps test cleanup inside the test's lifetime. It does not shield cleanup
+from cancellation. Keep new library APIs compatible with the macOS 15 deployment
+target; `Iterable` and task cancellation shields require macOS 27.
 
 ## Dependencies and Generated Files
 

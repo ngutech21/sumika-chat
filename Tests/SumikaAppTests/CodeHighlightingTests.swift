@@ -127,9 +127,7 @@ struct CodeHighlightingTests {
     let highlighter = StreamingCodeHighlighter(backend: backend, debounce: .zero)
     let blockID = CodeHighlightBlockID(rawValue: "block-1")
     defer {
-      Task {
-        await backend.releaseAll()
-      }
+      await backend.releaseAll()
     }
 
     let firstTask = Task {

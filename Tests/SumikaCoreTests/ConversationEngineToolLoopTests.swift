@@ -2237,7 +2237,7 @@ struct ConversationEngineToolLoopTests {
       ],
       blockedCallIndexes: [0]
     )
-    defer { Task { await runtime.releaseStream(callIndex: 0) } }
+    defer { await runtime.releaseStream(callIndex: 0) }
     let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
@@ -2303,7 +2303,7 @@ struct ConversationEngineToolLoopTests {
       ],
       blockedCallIndexes: [0]
     )
-    defer { Task { await runtime.releaseStream(callIndex: 0) } }
+    defer { await runtime.releaseStream(callIndex: 0) }
     let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
@@ -2362,7 +2362,7 @@ struct ConversationEngineToolLoopTests {
       ],
       blockedCallIndexes: [0]
     )
-    defer { Task { await runtime.releaseStream(callIndex: 0) } }
+    defer { await runtime.releaseStream(callIndex: 0) }
     let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",

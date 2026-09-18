@@ -318,7 +318,7 @@ struct ModelRuntimeControllerTests {
   func applyingSameSessionModelDoesNotCancelInFlightLoad() async throws {
     let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
     let runtime = RuntimeControllerRaceLoadingRuntime()
-    defer { Task { await runtime.releaseFirstLoad() } }
+    defer { await runtime.releaseFirstLoad() }
     let controller = await makeController(
       runtime: runtime,
       modelPath: modelDirectory.path(percentEncoded: false)
@@ -414,7 +414,7 @@ struct ModelRuntimeControllerTests {
     let firstModelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
     let secondModelDirectory = try makeModelDirectory(config: #"{"n_ctx":4096}"#)
     let runtime = RuntimeControllerRaceLoadingRuntime()
-    defer { Task { await runtime.releaseFirstLoad() } }
+    defer { await runtime.releaseFirstLoad() }
     let controller = await makeController(
       runtime: runtime,
       modelPath: firstModelDirectory.path(percentEncoded: false)
@@ -444,7 +444,7 @@ struct ModelRuntimeControllerTests {
   func staleUnloadDoesNotOverwriteRuntimeAfterSubsequentLoad() async throws {
     let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
     let runtime = RuntimeControllerDelayedUnloadRuntime()
-    defer { Task { await runtime.releaseUnload() } }
+    defer { await runtime.releaseUnload() }
     let controller = await makeController(
       runtime: runtime,
       modelPath: modelDirectory.path(percentEncoded: false)

@@ -11,10 +11,8 @@ struct SumikaAppDelegateTests {
     let cleanup = TerminationTestBarrier()
     let timeout = TerminationTestBarrier()
     defer {
-      Task {
-        await cleanup.release()
-        await timeout.release()
-      }
+      await cleanup.release()
+      await timeout.release()
     }
     let (replies, continuation) = AsyncStream<Void>.makeStream()
     var replyCount = 0

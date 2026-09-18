@@ -90,7 +90,7 @@ struct WorkspaceFeatureStateTests {
     await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
     await state.flushPendingSaves()
     await store.pauseNextSave()
-    defer { Task { await store.releaseSave() } }
+    defer { await store.releaseSave() }
     state.renameSession(session.id, title: "Older queued save")
     await store.waitForSave()
     let source = root.appending(path: "source.txt")

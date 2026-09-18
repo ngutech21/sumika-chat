@@ -1,18 +1,21 @@
-// swift-tools-version:6.1
+// swift-tools-version:6.4
 
 import PackageDescription
 
-let concurrencyChecking: [SwiftSetting] = [
-  .unsafeFlags(["-strict-concurrency=complete"])
+let compilerChecking: [SwiftSetting] = [
+  .treatAllWarnings(as: .error),
+  .enableUpcomingFeature("MemberImportVisibility"),
+  .treatWarning("ExplicitSendable", as: .error),
+  .strictMemorySafety(.when(traits: ["MemorySafetyAudit"])),
+  .treatWarning("StrictMemorySafety", as: .warning, .when(traits: ["MemorySafetyAudit"])),
+  .treatWarning("PerformanceHints", as: .warning, .when(traits: ["PerformanceAudit"])),
 ]
 
-let appConcurrencyChecking: [SwiftSetting] = [
-  .unsafeFlags([
-    "-strict-concurrency=complete",
-    "-default-isolation", "MainActor",
-    "-enable-upcoming-feature", "NonisolatedNonsendingByDefault",
-  ])
-]
+let appCompilerChecking: [SwiftSetting] =
+  compilerChecking + [
+    .defaultIsolation(MainActor.self),
+    .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+  ]
 
 let package = Package(
   name: "Sumika",
@@ -22,6 +25,12 @@ let package = Package(
   products: [
     .library(name: "SumikaCore", targets: ["SumikaCore"]),
     .library(name: "SumikaApp", targets: ["SumikaApp"]),
+  ],
+  traits: [
+    .trait(name: "MemorySafetyAudit", description: "Diagnose unsafe operations in Sumika targets."),
+    .trait(
+      name: "PerformanceAudit",
+      description: "Diagnose potential abstraction costs in Sumika targets."),
   ],
   dependencies: [
     .package(url: "https://github.com/ngutech21/anydoc-swift.git", exact: "0.2.1"),
@@ -58,7 +67,7 @@ let package = Package(
         .product(name: "SwiftSoup", package: "SwiftSoup"),
         .product(name: "Yams", package: "Yams"),
       ],
-      swiftSettings: concurrencyChecking
+      swiftSettings: compilerChecking
     ),
     .target(
       name: "SumikaApp",
@@ -80,7 +89,7 @@ let package = Package(
         "TreeSitterCSSScanner",
         "TreeSitterPythonScanner",
       ],
-      swiftSettings: appConcurrencyChecking
+      swiftSettings: appCompilerChecking
     ),
     .target(
       name: "SumikaRuntimeMLX",
@@ -94,7 +103,7 @@ let package = Package(
         .product(name: "Tokenizers", package: "swift-transformers"),
         .product(name: "HuggingFace", package: "swift-huggingface"),
       ],
-      swiftSettings: concurrencyChecking
+      swiftSettings: compilerChecking
     ),
     .target(
       name: "TreeSitterCSSScanner",
@@ -116,7 +125,7 @@ let package = Package(
         .product(name: "SwiftParser", package: "swift-syntax"),
         .product(name: "SwiftSyntax", package: "swift-syntax"),
       ],
-      swiftSettings: concurrencyChecking
+      swiftSettings: compilerChecking
     ),
     .testTarget(
       name: "SumikaCoreTests",
@@ -126,7 +135,7 @@ let package = Package(
         .product(name: "MCP", package: "swift-sdk"),
       ],
       resources: [.process("Fixtures")],
-      swiftSettings: concurrencyChecking
+      swiftSettings: compilerChecking
     ),
     .testTarget(
       name: "SumikaCoreIntegrationTests",
@@ -134,12 +143,12 @@ let package = Package(
         "SumikaCore",
         "SumikaTestSupport",
       ],
-      swiftSettings: concurrencyChecking
+      swiftSettings: compilerChecking
     ),
     .target(
       name: "SumikaTestSupport",
       path: "Tests/SumikaTestSupport",
-      swiftSettings: concurrencyChecking
+      swiftSettings: compilerChecking
     ),
     .testTarget(
       name: "SumikaAppTests",
@@ -149,7 +158,7 @@ let package = Package(
         "SumikaTestSupport",
       ],
       resources: [.process("Fixtures")],
-      swiftSettings: appConcurrencyChecking
+      swiftSettings: appCompilerChecking
     ),
     .testTarget(
       name: "SumikaRuntimeMLXTests",
@@ -162,7 +171,7 @@ let package = Package(
         .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
         .product(name: "MLXNN", package: "mlx-swift"),
       ],
-      swiftSettings: appConcurrencyChecking
+      swiftSettings: appCompilerChecking
     ),
     .testTarget(
       name: "DataModelGeneratorTests",
@@ -170,7 +179,7 @@ let package = Package(
         "DataModelGenerator",
         "SumikaTestSupport",
       ],
-      swiftSettings: concurrencyChecking
+      swiftSettings: compilerChecking
     ),
   ]
 )

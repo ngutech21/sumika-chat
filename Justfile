@@ -11,7 +11,7 @@ export_options := "script/DeveloperIDExportOptions.plist"
 developer_team := "G8Z2RHV3P5"
 
 swift := env("SWIFT", "xcrun swift")
-swiftpm_index_store := ".build/out"
+swiftpm_index_store := ".build/out/Products/Debug/index/store"
 swiftlint_package := "script/swiftlint"
 swiftlint_scratch := ".build/swiftlint"
 swiftlint := swiftlint_scratch + "/artifacts/swiftlintplugins/SwiftLintBinary/SwiftLintBinary.artifactbundle/macos/swiftlint"
@@ -252,6 +252,16 @@ lint-analyze: prepare-swiftlint
 
 final-check: typos format lint periphery test
 
+# Optional compiler diagnostics apply to Sumika targets, not package dependencies.
+audit-memory-safety target="SumikaCore":
+    {{swift}} build --disable-automatic-resolution --target "{{target}}" --traits MemorySafetyAudit
+
+audit-performance target="SumikaCore":
+    {{swift}} build --disable-automatic-resolution --configuration release --target "{{target}}" --traits PerformanceAudit
+
+audit-async: prepare-swiftlint
+    {{swiftlint}} lint --quiet --no-cache --config .swiftlint.yml --only-rule async_without_await Sources sumika
+
 format:
     @xcrun --find swift-format >/dev/null || { echo "The selected Xcode toolchain does not provide swift-format."; exit 127; }
     xcrun swift-format lint --strict --recursive --parallel sumika SumikaUITests Sources Tests Package.swift script/swiftlint/Package.swift
@@ -265,6 +275,7 @@ typos:
 
 periphery:
     {{swift}} test --build-system swiftbuild --enable-index-store list > /dev/null
+    @test -d "{{swiftpm_index_store}}/v5/units" || { echo "SwiftPM index store not found at {{swiftpm_index_store}}."; exit 1; }
     periphery scan --skip-build --index-store-path "{{swiftpm_index_store}}" --retain-public --retain-codable-properties --baseline .periphery-core-baseline --relative-results --disable-update-check
     @set --; \
     if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \

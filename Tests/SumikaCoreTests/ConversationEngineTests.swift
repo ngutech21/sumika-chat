@@ -888,7 +888,7 @@ struct ConversationEngineTests {
   @Test
   func sendMessageWaitsForPendingRuntimeContextClear() async throws {
     let runtime = DelayedClearContextRuntime()
-    defer { Task { await runtime.releaseClearContext() } }
+    defer { await runtime.releaseClearContext() }
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
     engine.modelRuntime.modelState = .ready
 
@@ -1112,7 +1112,7 @@ struct ConversationEngineTests {
   @Test
   func cancelGenerationStopsControllerAndDropsTransientAssistantPlaceholder() async throws {
     let runtime = NonCooperativeStreamingRuntime(chunks: ["late reply"])
-    defer { Task { await runtime.releaseChunks() } }
+    defer { await runtime.releaseChunks() }
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
     engine.modelRuntime.modelState = .ready
     try await engine.sendMessageInTestWorkspace(prompt: "Cancel this")
@@ -1143,7 +1143,7 @@ struct ConversationEngineTests {
   @Test
   func activatingAnotherSessionDoesNotCancelRunningTurn() async throws {
     let runtime = NonCooperativeStreamingRuntime(chunks: ["late reply"])
-    defer { Task { await runtime.releaseChunks() } }
+    defer { await runtime.releaseChunks() }
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
     let targetModel = try #require(ManagedModelCatalog.model(id: "gemma4-26b-qat-4bit"))
     let targetSession = ChatSession(selectedModelID: targetModel.id)
@@ -1235,7 +1235,7 @@ struct ConversationEngineTests {
       ],
       blockedCallIndexes: [1]
     )
-    defer { Task { await runtime.releaseStream(callIndex: 1) } }
+    defer { await runtime.releaseStream(callIndex: 1) }
     let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
@@ -1281,10 +1281,8 @@ struct ConversationEngineTests {
       blockedCallIndexes: [0, 1]
     )
     defer {
-      Task {
-        await runtime.releaseStream(callIndex: 0)
-        await runtime.releaseStream(callIndex: 1)
-      }
+      await runtime.releaseStream(callIndex: 0)
+      await runtime.releaseStream(callIndex: 1)
     }
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
     engine.modelRuntime.modelState = .ready
@@ -2213,7 +2211,7 @@ struct ConversationEngineTests {
   @Test
   func staleAttachmentLoadDoesNotAppendAfterNewerAttachmentRequest() async throws {
     let loader = BlockingFirstAttachmentLoader()
-    defer { Task { await loader.releaseFirstLoad() } }
+    defer { await loader.releaseFirstLoad() }
     let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model",

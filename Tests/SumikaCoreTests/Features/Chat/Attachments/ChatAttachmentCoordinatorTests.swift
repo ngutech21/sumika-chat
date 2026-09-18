@@ -39,6 +39,27 @@ struct ChatAttachmentCoordinatorTests {
   }
 
   @Test
+  func cancelledLoadCleansUpWithoutPublishingError() async throws {
+    let tempFile = try makePasteboardTempFile(name: "clipboard-image-\(UUID().uuidString).png")
+    defer { removeTemporaryItemIfPresent(tempFile) }
+    let loader = AttachmentFakeLoader(result: .failure(CancellationError()))
+    let coordinator = ChatAttachmentCoordinator(loader: loader)
+    var events: [ChatAttachmentEvent] = []
+    var didCleanUp = false
+    coordinator.onCleanup = { _ in didCleanUp = true }
+
+    coordinator.addAttachments(
+      from: [tempFile],
+      existingAttachments: [],
+      onEvent: { events.append($0) }
+    )
+
+    try await waitUntil { didCleanUp }
+    #expect(events.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: tempFile.path(percentEncoded: false)))
+  }
+
+  @Test
   func addAttachmentsRemovesPasteboardTempFileAfterSuccess() async throws {
     let tempFile = try makePasteboardTempFile(name: "clipboard-image-\(UUID().uuidString).png")
     defer { removeTemporaryItemIfPresent(tempFile) }
@@ -116,10 +137,8 @@ struct ChatAttachmentCoordinatorTests {
   func newerLoadInvalidatesOlderResult() async throws {
     let loader = AttachmentControlledLoader()
     defer {
-      Task {
-        await loader.resolve(at: 0, with: [])
-        await loader.resolve(at: 1, with: [])
-      }
+      await loader.resolve(at: 0, with: [])
+      await loader.resolve(at: 1, with: [])
     }
     let coordinator = ChatAttachmentCoordinator(loader: loader)
     let firstAttachment = makeAttachment(name: "first.swift", content: "first")

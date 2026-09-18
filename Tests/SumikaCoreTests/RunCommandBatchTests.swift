@@ -158,7 +158,7 @@ struct RunCommandBatchTests {
   @Test
   func cancellationDoesNotStartDuplicatesOrIndependentSiblings() async throws {
     let runner = BatchCommandProcessRunner(holdFirst: true)
-    defer { Task { await runner.releaseFirst() } }
+    defer { await runner.releaseFirst() }
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [command("first"), command("first"), command("second")]
     ])

@@ -32,7 +32,7 @@ struct ChatAttachmentLifecycleTests {
   func reconciliationCannotCollectAnImportWhileItsWriteIsSuspended() async throws {
     let root = try scopedTemporaryDirectory()
     let gate = AttachmentCleanupGate()
-    defer { Task { await gate.open() } }
+    defer { await gate.open() }
     let store = ChatAttachmentStore(
       baseURL: root.appending(path: "attachments"),
       writeFile: { data, url in
@@ -179,7 +179,7 @@ struct ChatAttachmentLifecycleTests {
     try Data("first".utf8).write(to: first)
     try Data("second".utf8).write(to: second)
     let gate = AttachmentCleanupGate()
-    defer { Task { await gate.open() } }
+    defer { await gate.open() }
     let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(), modelPath: "/tmp/model",
       chatAttachmentLoader: HoldingImportLoader(
@@ -213,10 +213,8 @@ struct ChatAttachmentLifecycleTests {
     let firstGate = AttachmentCleanupGate()
     let secondGate = AttachmentCleanupGate()
     defer {
-      Task {
-        await firstGate.open()
-        await secondGate.open()
-      }
+      await firstGate.open()
+      await secondGate.open()
     }
     let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(), modelPath: "/tmp/model",
