@@ -11,6 +11,7 @@ export_options := "script/DeveloperIDExportOptions.plist"
 developer_team := "G8Z2RHV3P5"
 
 swift := env("SWIFT", "xcrun swift")
+swiftpm_index_store := ".build/out"
 swiftlint_package := "script/swiftlint"
 swiftlint_scratch := ".build/swiftlint"
 swiftlint := swiftlint_scratch + "/artifacts/swiftlintplugins/SwiftLintBinary/SwiftLintBinary.artifactbundle/macos/swiftlint"
@@ -263,13 +264,10 @@ typos:
     typos -q --format brief
 
 periphery:
-    periphery scan --retain-public --retain-codable-properties --baseline .periphery-core-baseline --relative-results --disable-update-check
-    {{swift}} test list --enable-index-store > /dev/null
+    {{swift}} test --build-system swiftbuild --enable-index-store list > /dev/null
+    periphery scan --skip-build --index-store-path "{{swiftpm_index_store}}" --retain-public --retain-codable-properties --baseline .periphery-core-baseline --relative-results --disable-update-check
     @set --; \
     if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
     if [ "${SKIP_PACKAGE_PLUGIN_VALIDATION:-0}" = "1" ]; then set -- "$@" -skipPackagePluginValidation -skipMacroValidation; fi; \
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -configuration Debug -destination "platform=macOS" -derivedDataPath "{{derived_data}}" -parallelizeTargets "$@" CODE_SIGNING_ALLOWED=NO ENABLE_BITCODE=NO DEBUG_INFORMATION_FORMAT=dwarf COMPILER_INDEX_STORE_ENABLE=YES INDEX_ENABLE_DATA_STORE=YES build
-    @swiftpm_bin_path="$({{swift}} build --show-bin-path)"; \
-    swiftpm_index_store="$swiftpm_bin_path/index/store"; \
-    test -d "$swiftpm_index_store" || { echo "No SwiftPM test index found at $swiftpm_index_store."; exit 1; }; \
-    periphery scan --project Sumika.xcodeproj --schemes Sumika --skip-build --index-store-path "{{derived_data}}/Index.noindex/DataStore" --index-store-path "$swiftpm_index_store" --retain-public --retain-codable-properties --report-include "Sources/SumikaApp/**/*.swift" --report-include "Sources/SumikaRuntimeMLX/**/*.swift" --report-include "sumika/**/*.swift" --baseline .periphery-app-baseline --relative-results --disable-update-check
+    periphery scan --project Sumika.xcodeproj --schemes Sumika --skip-build --index-store-path "{{derived_data}}/Index.noindex/DataStore" --index-store-path "{{swiftpm_index_store}}" --retain-public --retain-codable-properties --report-include "Sources/SumikaApp/**/*.swift" --report-include "Sources/SumikaRuntimeMLX/**/*.swift" --report-include "sumika/**/*.swift" --baseline .periphery-app-baseline --relative-results --disable-update-check

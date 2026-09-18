@@ -184,14 +184,14 @@ struct HTMLPreviewWebView: NSViewRepresentable {
 
       Task {
         await browserToolService.register(
-          refreshHandler: { [weak webView, weak self] input in
+          refreshHandler: { [weak webView = webView, weak self = self] input in
             guard let webView, let self else {
               return .failed(
                 reason: .executionError(UnavailableBrowserToolService.unavailableMessage))
             }
             return await self.refreshPreview(using: webView, preview: preview, input: input)
           },
-          inspectHandler: { [weak webView, weak self] input in
+          inspectHandler: { [weak webView = webView, weak self = self] input in
             guard let webView, let self else {
               return .failed(
                 reason: .executionError(UnavailableBrowserToolService.unavailableMessage))

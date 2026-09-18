@@ -143,7 +143,9 @@ checks; a focused test does not replace the full suite. Repeat or broaden checks
 only when changes, failures, or unresolved concerns justify it. For documentation
 or comments only, run `just typos` and explain why builds and tests were skipped.
 
-The dead-code check performs SwiftPM and Xcode builds. It does not replace
+The dead-code check performs SwiftPM and Xcode builds. It explicitly passes
+Swift Build's `.build/out` index to Periphery 3.8, whose automatic SwiftPM index
+lookup expects the older native build system's directory layout. It does not replace
 `just build` or `just test-ui` when a change affects those areas. UI tests are
 local-only, must not download a model, and may skip when their configured local
 model is unavailable.

@@ -13,3 +13,11 @@ runs:
       id: setup
       shell: bash
       run: bash "$GITHUB_ACTION_PATH/setup.sh"
+
+    - name: Ensure Metal toolchain is available
+      shell: bash
+      run: |
+        if ! xcrun --sdk macosx metal --version; then
+          xcodebuild -downloadComponent metalToolchain
+        fi
+        xcrun --sdk macosx metal --version

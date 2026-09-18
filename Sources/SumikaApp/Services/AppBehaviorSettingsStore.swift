@@ -106,7 +106,7 @@ nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
   }
 }
 
-protocol AppBehaviorSettingsStoring: Sendable {
+nonisolated protocol AppBehaviorSettingsStoring: Sendable {
   func load() async throws -> AppBehaviorSettings
   func save(settings: AppBehaviorSettings) async throws
 }
