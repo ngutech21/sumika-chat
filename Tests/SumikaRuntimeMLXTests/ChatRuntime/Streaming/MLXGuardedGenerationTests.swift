@@ -60,10 +60,10 @@ nonisolated final class MLXGuardedGenerationTests: XCTestCase {
     ]
     var environment = ProcessInfo.processInfo.environment
     environment["SUMIKA_MLX_FAILURE_PROBE"] = probe
-    // XCTest loads this bundle dynamically; TSan must already be active in the child.
+    // XCTest loads this bundle dynamically; sanitizers must already be active in the child.
     if let sanitizer = (0..<_dyld_image_count()).compactMap({ index in
       _dyld_get_image_name(index).map { String(cString: $0) }
-    }).first(where: { $0.contains("libclang_rt.tsan_") }) {
+    }).first(where: { $0.contains("libclang_rt.tsan_") || $0.contains("libclang_rt.asan_") }) {
       let existing = environment["DYLD_INSERT_LIBRARIES"].map { ":" + $0 } ?? ""
       environment["DYLD_INSERT_LIBRARIES"] = sanitizer + existing
     }
