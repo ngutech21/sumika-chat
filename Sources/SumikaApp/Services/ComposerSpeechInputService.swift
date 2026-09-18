@@ -59,7 +59,7 @@ enum ComposerAudioModelInstallState: Equatable, Sendable {
   }
 }
 
-protocol ComposerAudioModelServicing: Sendable {
+nonisolated protocol ComposerAudioModelServicing: Sendable {
   func isInstalled(_ modelID: ComposerAudioModelID) async -> Bool
   func download(
     _ modelID: ComposerAudioModelID,
@@ -153,7 +153,7 @@ final class ComposerAudioModelController {
     downloadTasks[modelID]?.cancel()
     downloadTasks[modelID] = Task {
       do {
-        try await service.download(modelID) { [weak self] progress in
+        try await service.download(modelID) { [weak self = self] progress in
           Task { @MainActor in
             guard let self, self.installState(for: modelID).isDownloading else {
               return
@@ -897,7 +897,7 @@ nonisolated enum ComposerSpeechInputError: LocalizedError, Equatable {
 }
 
 extension ComposerAudioModelID {
-  fileprivate var asrModelVersion: AsrModelVersion {
+  nonisolated fileprivate var asrModelVersion: AsrModelVersion {
     switch self {
     case .smallEnglish:
       .tdtCtc110m
