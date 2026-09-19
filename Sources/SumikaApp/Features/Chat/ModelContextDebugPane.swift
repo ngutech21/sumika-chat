@@ -310,10 +310,9 @@ private struct RuntimeCacheDebugRow: View {
 
 private struct ModelContextDebugEntryView: View {
   let entry: ModelContextDebugEntry
-  @State private var isExpanded = false
 
   var body: some View {
-    DisclosureGroup(isExpanded: $isExpanded) {
+    DisclosureGroup {
       ScrollView(.horizontal) {
         Text(entry.content.isEmpty ? " " : entry.content)
           .font(.system(.caption, design: .monospaced))
