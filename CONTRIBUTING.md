@@ -153,6 +153,17 @@ It does not replace `just build` or `just test-ui` when a change affects those a
 UI tests are local-only, must not download a model, and may skip when their
 configured local model is unavailable.
 
+`just test-tsan` temporarily excludes `MLXChatSessionContinuationTests` and
+`MLXGuardedGenerationTests` because the pinned `mlx-swift` 0.31.6 bundles native
+MLX scheduler and allocator code with known data races. These tests remain enabled
+in `just test` and `just test-asan`; all other tests remain enabled under TSan.
+Remove the exclusion once the pinned MLX code is fixed and the unfiltered command
+passes:
+
+```sh
+xcrun swift test --no-parallel --sanitize thread
+```
+
 Report the checks you actually ran and their real outcomes in the pull request.
 If an unrelated failure or environment restriction blocks a check, identify it
 instead of reporting the suite as passing.

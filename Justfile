@@ -174,7 +174,9 @@ data-model:
     HOME="$PWD/.build/swiftpm-home" CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" {{swift}} run -q --disable-sandbox --build-path .build/data-model-build --cache-path .build/swiftpm-cache DataModelGenerator
 
 test-tsan:
-    {{swift}} test --no-parallel --sanitize thread
+    # Temporary exclusion for upstream MLX scheduler/allocator races; see CONTRIBUTING.md.
+    {{swift}} test --no-parallel --sanitize thread \
+        --skip 'MLXChatSessionContinuationTests|MLXGuardedGenerationTests'
 
 test-asan:
     {{swift}} test --no-parallel --sanitize address
