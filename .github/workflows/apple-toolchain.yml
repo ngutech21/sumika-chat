@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       ref:
-        description: Git ref used by the consuming job; empty uses the workflow checkout default.
+        description: Git ref used by the consuming job; empty uses the triggering commit.
         required: false
         type: string
         default: ""
@@ -23,17 +23,31 @@ jobs:
     outputs:
       runner: ${{ steps.configuration.outputs.runner }}
     steps:
-      - name: Checkout toolchain configuration
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.ref }}
-          persist-credentials: false
-
       - name: Read macOS runner
         id: configuration
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONFIGURATION_REF: ${{ inputs.ref || github.sha }}
         run: |
           set -euo pipefail
-          source .github/actions/setup-apple-toolchain/versions.env
-          : "${MACOS_RUNNER:?Missing MACOS_RUNNER}"
-          printf 'runner=%s\n' "$MACOS_RUNNER" >> "$GITHUB_OUTPUT"
+          configuration="$(gh api --method GET \
+            "repos/$GITHUB_REPOSITORY/contents/.github/actions/setup-apple-toolchain/versions.env" \
+            -f ref="$CONFIGURATION_REF" \
+            -H 'Accept: application/vnd.github.raw+json')"
+          runner="$(printf '%s\n' "$configuration" | awk '
+            /^MACOS_RUNNER=/ { count++; sub(/^MACOS_RUNNER=/, ""); runner = $0 }
+            END { if (count != 1) exit 1; print runner }
+          ')" || {
+            printf 'Expected exactly one MACOS_RUNNER assignment.\n' >&2
+            exit 1
+          }
+          # Keep runner selection in versions.env; allow only reviewed hosted labels here.
+          case "$runner" in
+            xcode-27) ;;
+            *)
+              printf 'Unsupported MACOS_RUNNER.\n' >&2
+              exit 1
+              ;;
+          esac
+          printf 'runner=%s\n' "$runner" >> "$GITHUB_OUTPUT"

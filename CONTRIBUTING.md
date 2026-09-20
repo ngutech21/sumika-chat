@@ -22,11 +22,13 @@ Sumika is a native macOS project. Development requires:
   provides `swift-format`.
 
 `versions.env` also defines `MACOS_RUNNER`, the GitHub-hosted runner label used
-by all Apple toolchain jobs. A reusable configuration workflow reads it on
-Ubuntu before GitHub schedules the macOS jobs. Release builds read the file
-from their release tag; other jobs use their workflow checkout. Change the
-runner and toolchain versions together. This does not change the app's macOS 15
-minimum deployment target.
+by all Apple toolchain jobs. A reusable configuration workflow reads it through
+the GitHub Contents API on Ubuntu, without checking out or executing repository
+files, before GitHub schedules the macOS jobs. Release builds read the file from
+their release tag; other jobs use their triggering commit. Change the runner and
+toolchain versions together, and update the approved hosted runner labels in
+`.github/workflows/apple-toolchain.yml` when selecting a new runner. This does
+not change the app's macOS 15 minimum deployment target.
 
 Install `just`, then use the project recipe to install its primary development
 tools:
