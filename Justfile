@@ -179,7 +179,9 @@ test-tsan:
         --skip 'MLXChatSessionContinuationTests|MLXGuardedGenerationTests'
 
 test-asan:
-    {{swift}} test --no-parallel --sanitize address
+    # Temporary exclusion for upstream MLX Metal heap initialization on VMs; see CONTRIBUTING.md.
+    {{swift}} test --no-parallel --sanitize address \
+        --skip 'MLXChatSessionContinuationTests|MLXGuardedGenerationTests'
 
 test-ui:
     @echo "MLX trace directory: $HOME/Library/Application Support/Sumika/debug/traces"; \
