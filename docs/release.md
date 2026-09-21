@@ -44,9 +44,11 @@ The DMG is uploaded before the appcast is generated, and the appcast is
 published last. If appcast generation or Pages deployment fails, the GitHub
 Release remains available but installed apps are not offered the new update.
 
-The release task creates an Xcode archive and exports a Developer ID-signed app
-with `xcodebuild -exportArchive`. The exported app is then packaged in the DMG;
-the app bundle is not modified after export.
+The release task creates an arm64-only Xcode archive for Apple Silicon and exports
+a Developer ID-signed app with `xcodebuild -exportArchive`. The archive command
+explicitly sets `ARCHS=arm64` to match the MLX runtime and AnyDocSwiftBridge binary.
+The exported app is then packaged in the DMG; the app bundle is not modified after
+export.
 
 `just release-signed` runs `script/verify_release_app.sh` against that exported
 app. The check requires the embedded Sparkle framework, updater resources,

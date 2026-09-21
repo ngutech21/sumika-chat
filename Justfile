@@ -91,7 +91,7 @@ release-signed:
     if [ -n "${MARKETING_VERSION:-}" ]; then set -- "$@" "MARKETING_VERSION=$MARKETING_VERSION"; fi; \
     if [ -n "${CURRENT_PROJECT_VERSION:-}" ]; then set -- "$@" "CURRENT_PROJECT_VERSION=$CURRENT_PROJECT_VERSION"; fi; \
     if [ -n "${SUMIKA_RELEASE_VERSION:-}" ]; then set -- "$@" "SUMIKA_RELEASE_VERSION=$SUMIKA_RELEASE_VERSION"; fi; \
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "generic/platform=macOS" -derivedDataPath {{derived_data}} -configuration {{configuration}} -archivePath "{{archive_path}}" -disableAutomaticPackageResolution "$@" SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" DEVELOPMENT_TEAM="{{developer_team}}" archive; \
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "generic/platform=macOS" -derivedDataPath {{derived_data}} -configuration {{configuration}} -archivePath "{{archive_path}}" -disableAutomaticPackageResolution "$@" ARCHS=arm64 SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" DEVELOPMENT_TEAM="{{developer_team}}" archive; \
     xcodebuild -quiet -exportArchive -archivePath "{{archive_path}}" -exportPath "{{export_dir}}" -exportOptionsPlist "{{export_options}}"; \
     app_bundle="{{export_dir}}/{{app_name}}.app"; \
     test -d "$app_bundle"; \
