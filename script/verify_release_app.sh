@@ -40,7 +40,6 @@ required_sparkle_code=(
 
 required_sparkle_resources=(
   "$sparkle_current/Resources/Info.plist"
-  "$sparkle_current/Resources/SUStatus.nib"
   "$sparkle_current/Resources/SUUpdateAlert.nib"
   "$sparkle_current/Updater.app/Contents/Info.plist"
 )
