@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.12.0](https://github.com/ngutech21/sumika-chat/compare/v1.11.0...v1.12.0) (2026-09-22)
+
+
+### Features
+
+* add support for macOS 27  ([#261](https://github.com/ngutech21/sumika-chat/issues/261)) ([6d2b4db](https://github.com/ngutech21/sumika-chat/commit/6d2b4db0f14bf3ac90286e79c38cdd9d74a11122))
+
+
+### Bug Fixes
+
+* **ci:** avoid untrusted checkout when reading toolchain configuration ([c459605](https://github.com/ngutech21/sumika-chat/commit/c4596058b9ab9b40112439c7782eade17890e90d))
+* **tests:** temporarily exclude MLXChatSessionContinuationTests and MLXGuardedGenerationTests due to known data races in MLX scheduler/allocator ([2e1bc72](https://github.com/ngutech21/sumika-chat/commit/2e1bc724333af0522669264d65c4e41d7640e392))
+* update sanitizer check to include AddressSanitizer in MLXGuardedGenerationTests ([aaf5c4a](https://github.com/ngutech21/sumika-chat/commit/aaf5c4a1b0a15d39da2b6978e7a9080dd3b233e4))
+
 ## [1.11.0](https://github.com/ngutech21/sumika-chat/compare/v1.10.0...v1.11.0) (2026-09-11)
 
 
