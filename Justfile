@@ -286,3 +286,6 @@ periphery:
     if [ "${SKIP_PACKAGE_PLUGIN_VALIDATION:-0}" = "1" ]; then set -- "$@" -skipPackagePluginValidation -skipMacroValidation; fi; \
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -configuration Debug -destination "platform=macOS" -derivedDataPath "{{derived_data}}" -parallelizeTargets "$@" CODE_SIGNING_ALLOWED=NO ENABLE_BITCODE=NO DEBUG_INFORMATION_FORMAT=dwarf COMPILER_INDEX_STORE_ENABLE=YES INDEX_ENABLE_DATA_STORE=YES build
     periphery scan --project Sumika.xcodeproj --schemes Sumika --skip-build --index-store-path "{{derived_data}}/Index.noindex/DataStore" --index-store-path "{{swiftpm_index_store}}" --retain-public --retain-codable-properties --report-include "Sources/SumikaApp/**/*.swift" --report-include "Sources/SumikaRuntimeMLX/**/*.swift" --report-include "sumika/**/*.swift" --baseline .periphery-app-baseline --relative-results --disable-update-check
+
+outdated:
+    swift package update --dry-run
