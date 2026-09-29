@@ -258,6 +258,7 @@ struct MCPStdioTransportTests {
       selectedServerIDs: [config.id],
       workspaceRootURL: try scopedTemporaryDirectory()
     )
+    await manager.waitForStartup(serverID: config.id)
     let token = try #require(await manager.connectionToken(for: config.id))
     let began = ContinuousClock.now
 

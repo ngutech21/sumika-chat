@@ -35,6 +35,19 @@ package final class AgentFeature {
   private var desiredConnectionConfiguration: AgentConnectionConfiguration?
   private var connectionConfigurationRevision = 0
   private var mutationTask: Task<Void, Never>?
+  private var isTerminating = false
+  private var isObserving = false
+  private var lastSequence = 0
+  private var lastStatuses: [MCPServerStatus]?
+  private struct ServerTest {
+    let id: UUID
+    let config: MCPServerConfig
+    let workspaceRootURL: URL
+    let activeSessionID: ChatSession.ID?
+    let reconnectsActiveServer: Bool
+    let task: Task<Void, Never>
+  }
+  private var serverTests: [UUID: ServerTest] = [:]
   private var statusChangeHandler: (@MainActor @Sendable ([MCPServerStatus]) -> Void)?
 
   init(
@@ -69,16 +82,18 @@ package final class AgentFeature {
   }
 
   package func loadServerConfiguration(_ servers: [MCPServerConfig]) async {
+    guard !isTerminating else { return }
     let configuration = AgentConnectionConfiguration(servers: servers)
+    cancelInvalidatedTests(configuration)
     desiredConnectionConfiguration = configuration
     connectionConfigurationRevision += 1
     let revision = connectionConfigurationRevision
     let task = enqueueMutation { [weak self] in
-      guard let self, revision == self.connectionConfigurationRevision else {
+      guard let self, !self.isTerminating, revision == self.connectionConfigurationRevision else {
         return
       }
-      await self.clientManager.applyConfiguration(servers)
-      _ = await self.refreshAfterMCPChange(revision: revision)
+      await self.observeConnections()
+      await self.clientManager.applyConfiguration(servers, revision: revision)
     }
     await task.value
   }
@@ -87,23 +102,25 @@ package final class AgentFeature {
     _ configuration: AgentConnectionConfiguration,
     force: Bool = false
   ) {
-    guard force || desiredConnectionConfiguration != configuration else {
+    guard !isTerminating, force || desiredConnectionConfiguration != configuration else {
       return
     }
+    cancelInvalidatedTests(configuration)
     desiredConnectionConfiguration = configuration
     connectionConfigurationRevision += 1
     let revision = connectionConfigurationRevision
     enqueueMutation { [weak self] in
-      guard let self, revision == self.connectionConfigurationRevision else {
+      guard let self, !self.isTerminating, revision == self.connectionConfigurationRevision else {
         return
       }
+      await self.observeConnections()
       await self.clientManager.reconcile(
         configs: configuration.servers,
         activeSessionID: configuration.activeSessionID,
         selectedServerIDs: configuration.selectedServerIDs,
-        workspaceRootURL: configuration.workspaceRootURL
+        workspaceRootURL: configuration.workspaceRootURL,
+        revision: revision
       )
-      _ = await self.refreshAfterMCPChange(revision: revision)
     }
   }
 
@@ -113,40 +130,81 @@ package final class AgentFeature {
     reconnectActiveServer: Bool,
     completion: @escaping @MainActor @Sendable (Result<AgentServerTestResult, Error>) -> Void
   ) {
-    let revision = connectionConfigurationRevision
-    enqueueMutation { [weak self] in
-      guard let self else {
-        return
-      }
-      if reconnectActiveServer {
-        guard revision == self.connectionConfigurationRevision else {
-          completion(.failure(CancellationError()))
-          return
-        }
-        await self.clientManager.reconnect(serverID: server.id)
-        guard let statuses = await self.refreshAfterMCPChange(revision: revision) else {
-          completion(.failure(CancellationError()))
-          return
-        }
-        let status = statuses.first { $0.serverID == server.id }
-        completion(.success(.activeConnection(status?.state)))
-        return
-      }
+    guard !isTerminating, serverTests[server.id] == nil else {
+      completion(.failure(CancellationError()))
+      return
+    }
+    let id = UUID()
+    let precedingMutation = mutationTask
+    let task = Task { [weak self] in
+      guard let self else { return }
+      let result: Result<AgentServerTestResult, Error>
       do {
-        let toolCount = try await self.clientManager.testConnection(
-          config: server,
-          workspaceRootURL: workspaceRootURL
-        )
-        completion(.success(.isolatedConnection(toolCount: toolCount)))
+        try Task.checkCancellation()
+        if reconnectActiveServer {
+          await precedingMutation?.value
+          try Task.checkCancellation()
+          await self.clientManager.reconnect(serverID: server.id)
+          let statuses = await self.clientManager.statuses()
+          try Task.checkCancellation()
+          result = .success(.activeConnection(statuses.first { $0.id == server.id }?.state))
+        } else {
+          let count = try await self.clientManager.testConnection(
+            config: server, workspaceRootURL: workspaceRootURL)
+          try Task.checkCancellation()
+          result = .success(.isolatedConnection(toolCount: count))
+        }
       } catch {
-        completion(.failure(error))
+        result = .failure(Task.isCancelled ? CancellationError() : error)
+      }
+      if self.serverTests[server.id]?.id == id {
+        self.serverTests[server.id] = nil
+      }
+      completion(result)
+    }
+    serverTests[server.id] = ServerTest(
+      id: id, config: server, workspaceRootURL: workspaceRootURL.standardizedFileURL,
+      activeSessionID: desiredConnectionConfiguration?.activeSessionID,
+      reconnectsActiveServer: reconnectActiveServer, task: task)
+  }
+
+  package func cancelServerTest(_ serverID: UUID) {
+    serverTests[serverID]?.task.cancel()
+  }
+
+  package func cancelServerTests(outsideWorkspaceRootURL workspaceRootURL: URL?) {
+    let selectedRoot = workspaceRootURL?.standardizedFileURL
+    for test in serverTests.values where test.workspaceRootURL != selectedRoot {
+      test.task.cancel()
+    }
+  }
+
+  private func cancelInvalidatedTests(_ configuration: AgentConnectionConfiguration) {
+    for (id, test) in serverTests {
+      let config = configuration.servers.first { $0.id == id }
+      let contextChanged =
+        test.reconnectsActiveServer
+        && configuration.workspaceRootURL?.standardizedFileURL
+          != desiredConnectionConfiguration?.workspaceRootURL?.standardizedFileURL
+      let selectionChanged =
+        test.reconnectsActiveServer
+        && (configuration.activeSessionID != test.activeSessionID
+          || !configuration.selectedServerIDs.contains(id))
+      if config != test.config || config?.isEnabled != true || contextChanged || selectionChanged {
+        test.task.cancel()
       }
     }
   }
 
   package func prepareForTermination() async {
+    isTerminating = true
+    let tests = serverTests.values.map(\.task)
+    for task in tests { task.cancel() }
     await mutationTask?.value
     await clientManager.shutdownAll()
+    for task in tests { await task.value }
+    executorGroups = []
+    conversationEngine.configureAgentTools(todoWriteEnabled: todoWriteEnabled)
   }
 
   @discardableResult
@@ -162,20 +220,25 @@ package final class AgentFeature {
     return task
   }
 
-  private func refreshAfterMCPChange(revision: Int) async -> [MCPServerStatus]? {
-    let statuses = await clientManager.statuses()
-    let groups = await clientManager.agentToolExecutorGroups()
-    // Both actor reads can suspend. Publish only the latest configuration,
-    // and never turn a connection result back into a session-selection edit.
-    guard revision == connectionConfigurationRevision else {
-      return nil
+  private func observeConnections() async {
+    guard !isObserving else { return }
+    isObserving = true
+    await clientManager.setChangeHandler { [weak self] snapshot in
+      await self?.receive(snapshot)
     }
-    executorGroups = groups
+  }
+
+  private func receive(_ snapshot: MCPClientManager.Snapshot) {
+    guard !isTerminating, snapshot.revision == connectionConfigurationRevision,
+      snapshot.sequence > lastSequence
+    else { return }
+    lastSequence = snapshot.sequence
+    executorGroups = snapshot.groups
     conversationEngine.configureAgentTools(
-      todoWriteEnabled: todoWriteEnabled,
-      mcpExecutorGroups: groups
-    )
-    statusChangeHandler?(statuses)
-    return statuses
+      todoWriteEnabled: todoWriteEnabled, mcpExecutorGroups: executorGroups)
+    if lastStatuses != snapshot.statuses {
+      lastStatuses = snapshot.statuses
+      statusChangeHandler?(snapshot.statuses)
+    }
   }
 }

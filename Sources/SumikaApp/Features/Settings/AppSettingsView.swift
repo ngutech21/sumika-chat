@@ -8,6 +8,7 @@ struct AppSettingsView: View {
   var onUpdateMCPServers: ([MCPServerConfig]) -> Void = { _ in }
   var canTestMCPServers = false
   var onTestMCPServer: (UUID) -> Void = { _ in }
+  var onCancelMCPServerTest: (UUID) -> Void = { _ in }
   @State private var selectedTab = SettingsTab.general
   @State private var showDefaultAutoApproveConfirmation = false
 
@@ -38,7 +39,8 @@ struct AppSettingsView: View {
             settingsState: settingsState,
             onUpdateServers: onUpdateMCPServers,
             canTestServers: canTestMCPServers && settingsState.pendingMCPServers == nil,
-            onTestServer: onTestMCPServer
+            onTestServer: onTestMCPServer,
+            onCancelTest: onCancelMCPServerTest
           )
         }
       }

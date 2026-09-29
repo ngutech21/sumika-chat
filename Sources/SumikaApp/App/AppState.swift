@@ -12,7 +12,9 @@ final class AppState {
   let audioModelController: ComposerAudioModelController
   let composerSpeechInputController: ComposerSpeechInputController
   let chatFeatureState: ChatFeatureState
-  private(set) var route: AppRoute?
+  private(set) var route: AppRoute? {
+    didSet { cancelMCPServerTestsOutsideSelectedWorkspace() }
+  }
   @ObservationIgnored private let sumika: Sumika
   @ObservationIgnored let browserToolService: HTMLPreviewBrowserToolService
   @ObservationIgnored private var defaultSessionModelID = ManagedModelCatalog.defaultModel.id
@@ -277,10 +279,12 @@ final class AppState {
       }
       sumika.conversation.deactivate()
     }
-    _ = workspaceState.removeWorkspace(workspaceID)
+    let change = workspaceState.removeWorkspace(workspaceID)
 
     if currentRoute?.workspaceID == workspaceID {
       route = routeFromWorkspaceSelection()
+    } else if change.selectionChanged {
+      cancelMCPServerTestsOutsideSelectedWorkspace()
     }
   }
 
@@ -339,35 +343,21 @@ final class AppState {
   }
 
   func testMCPServer(_ serverID: UUID) {
-    guard let config = settingsState.mcpServers.first(where: { $0.id == serverID }),
+    guard !settingsState.testingMCPServerIDs.contains(serverID),
+      let config = settingsState.mcpServers.first(where: { $0.id == serverID }),
       config.isEnabled,
       let workspaceRootURL = workspaceState.activeWorkspace?.rootURL
     else {
       return
     }
     let isActiveServer = activeMCPServerIDs.contains(serverID)
+    settingsState.testingMCPServerIDs.insert(serverID)
     sumika.agent.testServer(
       server: config,
       workspaceRootURL: workspaceRootURL,
       reconnectActiveServer: isActiveServer
-    ) { [weak self] result in
-      guard let self else {
-        return
-      }
-      switch result {
-      case .success(.activeConnection(let state)):
-        self.settingsState.mcpServerTestFeedback = MCPServerTestFeedback(
-          message: Self.mcpTestMessage(serverName: config.name, state: state)
-        )
-      case .success(.isolatedConnection(let toolCount)):
-        self.settingsState.mcpServerTestFeedback = MCPServerTestFeedback(
-          message: Self.mcpTestSuccessMessage(serverName: config.name, toolCount: toolCount)
-        )
-      case .failure(let error):
-        self.settingsState.mcpServerTestFeedback = MCPServerTestFeedback(
-          message: "\(config.name) failed: \(error.localizedDescription)"
-        )
-      }
+    ) { [weak settingsState] result in
+      settingsState?.finishMCPServerTest(server: config, result: result)
     }
   }
 
@@ -387,6 +377,15 @@ final class AppState {
     }
     sumika.agent.setSelectedMCPServerIDs(selection)
     reconcileMCPConnectionsIfNeeded()
+  }
+
+  func cancelMCPServerTest(_ serverID: UUID) {
+    sumika.agent.cancelServerTest(serverID)
+  }
+
+  private func cancelMCPServerTestsOutsideSelectedWorkspace() {
+    sumika.agent.cancelServerTests(
+      outsideWorkspaceRootURL: workspaceState.activeWorkspace?.rootURL)
   }
 
   private func normalizedMCPServerSelection(_ serverIDs: [UUID]) -> [UUID] {
@@ -441,27 +440,6 @@ final class AppState {
     )
   }
 
-  private static func mcpTestMessage(
-    serverName: String,
-    state: MCPServerStatus.State?
-  ) -> String {
-    switch state {
-    case .connected(let toolCount):
-      return mcpTestSuccessMessage(serverName: serverName, toolCount: toolCount)
-    case .failed(let message):
-      return "\(serverName) failed: \(message)"
-    case .connecting:
-      return "\(serverName) is still connecting."
-    case .disconnected, .none:
-      return "\(serverName) is disconnected."
-    }
-  }
-
-  private static func mcpTestSuccessMessage(serverName: String, toolCount: Int) -> String {
-    let tools = toolCount == 1 ? "1 tool" : "\(toolCount) tools"
-    return "\(serverName) connected successfully and advertised \(tools)."
-  }
-
   func waitForStartup() async {
     await startupTask?.value
   }
@@ -486,11 +464,11 @@ final class AppState {
   func prepareForTermination() async {
     sumika.conversation.deactivate()
     async let drainedAttachments: Void = sumika.conversation.drainAttachments()
+    await sumika.agent.prepareForTermination()
     await mcpServersUpdateTask?.value
     await settingsState.flushPendingSaves()
     await sumika.models.prepareForTermination()
     await workspaceState.flushPendingSaves()
-    await sumika.agent.prepareForTermination()
     await drainedAttachments
   }
 

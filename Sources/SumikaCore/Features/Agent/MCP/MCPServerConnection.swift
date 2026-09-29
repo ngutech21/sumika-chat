@@ -3,6 +3,7 @@ import MCP
 
 enum MCPClientError: LocalizedError, Equatable {
   case notConnected
+  case bundledRuntimeUnavailable
   case staleConnection
   case serverExited(detail: String?)
   case timedOut(method: String)
@@ -14,6 +15,8 @@ enum MCPClientError: LocalizedError, Equatable {
     switch self {
     case .notConnected:
       return "The MCP server is not connected."
+    case .bundledRuntimeUnavailable:
+      return "Sumika's bundled uv is missing or cannot be executed. Reinstall Sumika and try again."
     case .staleConnection:
       return "The MCP tool belongs to an obsolete server connection."
     case .serverExited(let detail):
@@ -41,8 +44,6 @@ actor MCPServerConnection {
   typealias HTTPTransportFactory = @Sendable (URL) -> any Transport
 
   private enum Timeouts {
-    // npx/uvx may download packages on first launch.
-    static let initializeSeconds = 30
     static let listToolsSeconds = 30
   }
 
@@ -55,6 +56,8 @@ actor MCPServerConnection {
   private let pathPrefixDirectories: [URL]
   private let makeHTTPTransport: HTTPTransportFactory
   private let callToolTimeout: Duration
+  private let initializeTimeout: Duration
+  private let runtimeConfiguration: MCPRuntimeConfiguration?
 
   private var process: OwnedProcess?
   private var client: Client?
@@ -73,13 +76,17 @@ actor MCPServerConnection {
       URL(filePath: "/usr/local/bin"),
       URL(filePath: "/opt/local/bin"),
     ],
-    callToolTimeout: Duration = .seconds(120)
+    callToolTimeout: Duration = .seconds(120),
+    runtimeConfiguration: MCPRuntimeConfiguration? = nil,
+    initializeTimeout: Duration? = nil
   ) {
     self.config = config
     self.workspaceRootURL = workspaceRootURL.standardizedFileURL.resolvingSymlinksInPath()
     self.baseEnvironment = baseEnvironment
     self.pathPrefixDirectories = pathPrefixDirectories
     self.callToolTimeout = callToolTimeout
+    self.runtimeConfiguration = runtimeConfiguration
+    self.initializeTimeout = initializeTimeout ?? .seconds(config.usesBundledUV ? 300 : 30)
     self.makeHTTPTransport = { endpoint in
       HTTPClientTransport(endpoint: endpoint, streaming: true)
     }
@@ -101,6 +108,8 @@ actor MCPServerConnection {
     self.baseEnvironment = baseEnvironment
     self.pathPrefixDirectories = pathPrefixDirectories
     self.callToolTimeout = .seconds(120)
+    self.runtimeConfiguration = nil
+    self.initializeTimeout = .seconds(30)
     self.makeHTTPTransport = makeHTTPTransport
   }
 
@@ -113,6 +122,7 @@ actor MCPServerConnection {
   /// Creates the configured transport, performs SDK-managed initialization,
   /// and returns the server's tools.
   func start() async throws -> [MCPRemoteTool] {
+    try Task.checkCancellation()
     guard !didStart, !isShuttingDown else {
       throw MCPClientError.protocolError("Connection was already started.")
     }
@@ -245,8 +255,8 @@ actor MCPServerConnection {
       group.addTask {
         _ = try await client.connect(transport: transport)
       }
-      group.addTask {
-        try await Task.sleep(for: .seconds(Timeouts.initializeSeconds))
+      group.addTask { [initializeTimeout] in
+        try await Task.sleep(for: initializeTimeout)
         throw MCPClientError.timedOut(method: "initialize")
       }
 
@@ -319,9 +329,22 @@ actor MCPServerConnection {
     arguments: [String],
     environment: [String: String]
   ) async throws -> MCPStdioTransport {
+    try Task.checkCancellation()
+    let executableURL: URL
+    let processArguments: [String]
+    if config.usesBundledUV {
+      guard let runtimeConfiguration,
+        FileManager.default.isExecutableFile(atPath: runtimeConfiguration.uvExecutableURL.path)
+      else { throw MCPClientError.bundledRuntimeUnavailable }
+      executableURL = runtimeConfiguration.uvExecutableURL
+      processArguments = (command == "uvx" ? ["tool", "run"] : []) + arguments
+    } else {
+      executableURL = URL(filePath: "/usr/bin/env")
+      processArguments = [command] + arguments
+    }
     let process = try await OwnedProcess.start(
-      executableURL: URL(filePath: "/usr/bin/env"),
-      arguments: [command] + arguments,
+      executableURL: executableURL,
+      arguments: processArguments,
       environment: resolvedEnvironment(overrides: environment),
       workingDirectoryURL: workspaceRootURL,
       stdout: .frames(maxBytes: 8 * 1024 * 1024, queuedFrames: 2),
@@ -356,7 +379,10 @@ actor MCPServerConnection {
   }
 
   private func resolvedEnvironment(overrides: [String: String]) -> [String: String] {
-    var resolved = baseEnvironment
+    var resolved =
+      config.usesBundledUV
+      ? runtimeConfiguration?.environment(inheriting: baseEnvironment) ?? baseEnvironment
+      : baseEnvironment
     let existingPath = resolved["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
     let prefix =
       pathPrefixDirectories

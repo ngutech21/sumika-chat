@@ -526,8 +526,13 @@ declarations.
   globally in Settings; workspaces and repositories cannot contribute server
   configurations. The prototype does not decode the former flat stdio schema.
 - `MCPServerConnection` owns one stdio or Streamable HTTP connection. For stdio,
-  Sumika spawns `/usr/bin/env <command> <args>` with the same PATH conventions
-  as `run_command` and the active workspace root as its current directory.
+  bare `uv` invokes Sumika's bundled executable by absolute URL; `uvx` invokes
+  that same executable with `tool run` prepended. App composition injects the
+  executable and writable runtime directories into Core. Missing bundled uv
+  fails explicitly instead of falling back to a system installation. Other
+  commands retain `/usr/bin/env <command> <args>`, with the same PATH conventions
+  as `run_command`. All launches use literal argument arrays and the active
+  workspace root as their current directory.
   Sumika's `MCPStdioTransport` adapts `OwnedProcess` to the official MCP Swift
   SDK's transport interface, with bounded newline framing before SDK decoding.
   For HTTP, Sumika creates the SDK's `HTTPClientTransport` with streaming
@@ -537,6 +542,15 @@ declarations.
   HTTPS. Plain HTTP is accepted only for `localhost`, IPv4 loopback, and `::1`;
   endpoint URLs with credentials or fragments are rejected. The app declares
   `NSAllowsLocalNetworking` without disabling App Transport Security globally.
+- Bundled uv defaults to managed Python with automatic downloads. Python, tool
+  environments, and generated executables live under Application Support/Sumika/MCP;
+  disposable uv data lives under Caches/Sumika/MCP/uv. Inherited interpreter and
+  storage selection does not override these defaults; explicit server environment
+  and CLI settings do. Offline settings remain honored. No shell profile or
+  global installation is changed. Configuration loading never provisions a runtime;
+  explicit server activation or testing does. A fresh setup may require network
+  access. Managed uv initialization allows 300 seconds; other initialization and
+  tools/list retain 30 seconds, and tool calls retain 120 seconds.
 - The SDK `Client` owns JSON-RPC encoding and decoding, lifecycle negotiation, request IDs,
   error decoding, typed `tools/list`/`tools/call`, notifications, and optional
   `roots/list` dispatch for both transports. stdio and loopback HTTP advertise
@@ -556,19 +570,34 @@ declarations.
   unsupported placeholders.
 - `MCPClientManager` stores global configuration but starts regular connections
   only for enabled server IDs selected by the active Agent session. Its scope is
-  the active session ID plus workspace root. Leaving Agent mode, changing
-  session/workspace, changing transport settings, or deselecting a server shuts
-  down connections no longer in scope. The manager reports per-server statuses
-  for Settings and projects every
+  the active session ID plus workspace root. While an Agent turn is busy, regular
+  connections retain that turn's scope even if sidebar selection changes.
+  Leaving Agent mode, changing the connection scope or transport settings, or
+  deselecting a server shuts down connections no longer in scope. The manager
+  reports per-server statuses for Settings and projects every
   connected tool as an `AnyToolExecutor(dynamic:)`, grouped by the stable
   `MCPServerConfig.id`. It never reconnects on its own; a crashed server remains
   failed until the user explicitly tests/reconnects it or its scope changes.
+  The manager owns a cancellable startup task per server, so slow first-use
+  downloads do not block reconciliation or other servers. Deactivation invalidates
+  connection tokens before stopping and awaiting startup cleanup. Revision-tagged
+  snapshots publish connection states and tools only for the current configuration.
 - Settings `Test Connection` reconnects a server already active in the current
   Agent session. For any other enabled server it creates an isolated connection
-  with the active workspace root, runs initialization and `tools/list`, reports
-  the tool count, and always shuts the connection down. Probes do not change the
-  session selection, Agent registry, regular status, or connection token. The
-  action is unavailable without an open workspace.
+  with the currently selected workspace root, runs initialization and `tools/list`,
+  reports the tool count, and always shuts the connection down. Probes do not change
+  the session selection, Agent registry, regular status, or connection token. The
+  action is unavailable without an open workspace. Tests are tracked independently
+  of reconciliation, with one pending test per server and a Settings Cancel action.
+  Server edits, disabling/removal, workspace changes, and termination cancel
+  invalidated tests. Workspace navigation cancels probes independently of regular
+  connection reconciliation, including while an Agent turn retains another
+  workspace's scope. Session or server selection changes within the same workspace
+  do not cancel isolated probes. Active reconnect cancellation stops its pending
+  connection without changing selection or retrying automatically. Termination
+  cancels pending work before awaiting
+  cleanup. The UI reports startup and cancellation without parsing download
+  progress from uv stderr.
 - `DynamicToolExecutor` is the instance-codec sibling of `TypedToolExecutor`.
   Both run through one shared execution state machine in `AnyToolExecutor`;
   dynamic executors additionally carry their codec so

@@ -30,7 +30,7 @@ extension MCPClientError {
     switch self {
     case .notConnected, .serverExited, .resourceLimit:
       return true
-    case .staleConnection, .timedOut, .protocolError, .serverError:
+    case .staleConnection, .timedOut, .protocolError, .serverError, .bundledRuntimeUnavailable:
       return false
     }
   }
@@ -51,6 +51,7 @@ actor MCPClientManager: MCPToolCalling {
     var tools: [MCPRemoteTool]
     var state: MCPServerStatus.State
     var isDesired: Bool
+    var startupTask: Task<Void, Never>?
   }
 
   private struct ActiveScope: Equatable {
@@ -68,9 +69,38 @@ actor MCPClientManager: MCPToolCalling {
   private var activeScope: ActiveScope?
   private var selectedServerIDs: Set<UUID> = []
 
-  init() {
+  struct Snapshot: Sendable {
+    let revision: Int
+    let sequence: Int
+    let statuses: [MCPServerStatus]
+    let groups: [MCPAgentToolExecutorGroup]
+  }
+
+  private var revision = 0
+  private var sequence = 0
+  private var isReconciling = false
+  private var changeHandler: (@Sendable (Snapshot) async -> Void)?
+
+  func setChangeHandler(_ handler: @escaping @Sendable (Snapshot) async -> Void) {
+    changeHandler = handler
+  }
+
+  private func publishChange() {
+    // A scope transition must never publish tools from a partially retired scope.
+    guard !isReconciling else { return }
+    sequence += 1
+    let snapshot = Snapshot(
+      revision: revision, sequence: sequence, statuses: statuses(),
+      groups: agentToolExecutorGroups())
+    if let changeHandler {
+      Task { await changeHandler(snapshot) }
+    }
+  }
+
+  init(runtimeConfiguration: MCPRuntimeConfiguration? = nil) {
     self.makeConnection = {
-      MCPServerConnection(config: $0, workspaceRootURL: $1)
+      MCPServerConnection(
+        config: $0, workspaceRootURL: $1, runtimeConfiguration: runtimeConfiguration)
     }
   }
 
@@ -83,12 +113,13 @@ actor MCPClientManager: MCPToolCalling {
   // MARK: - Configuration lifecycle
 
   /// Stores configuration without activating any server process.
-  func applyConfiguration(_ configs: [MCPServerConfig]) async {
+  func applyConfiguration(_ configs: [MCPServerConfig], revision: Int = 0) async {
     await reconcile(
       configs: configs,
       activeSessionID: nil,
       selectedServerIDs: [],
-      workspaceRootURL: nil
+      workspaceRootURL: nil,
+      revision: revision
     )
   }
 
@@ -97,8 +128,15 @@ actor MCPClientManager: MCPToolCalling {
     configs: [MCPServerConfig],
     activeSessionID: ChatSession.ID?,
     selectedServerIDs: [UUID],
-    workspaceRootURL: URL?
+    workspaceRootURL: URL?,
+    revision: Int = 0
   ) async {
+    self.revision = revision
+    isReconciling = true
+    defer {
+      isReconciling = false
+      publishChange()
+    }
     let nextScope: ActiveScope? =
       if let activeSessionID, let workspaceRootURL {
         ActiveScope(
@@ -113,17 +151,15 @@ actor MCPClientManager: MCPToolCalling {
     self.selectedServerIDs = Set(selectedServerIDs)
 
     if scopeChanged {
-      for id in serverOrder {
-        await deactivate(serverID: id)
-      }
+      await deactivate(serverIDs: serverOrder)
     }
 
     let configsByID = Dictionary(uniqueKeysWithValues: configs.map { ($0.id, $0) })
 
-    for (id, server) in servers {
+    for id in Array(servers.keys) {
       let replacement = configsByID[id]
       if replacement == nil {
-        await server.connection?.shutdown()
+        await deactivate(serverIDs: [id])
         servers[id] = nil
       }
     }
@@ -140,7 +176,7 @@ actor MCPClientManager: MCPToolCalling {
         existing.slug = slug
         servers[config.id] = existing
         if requiresRestart {
-          await deactivate(serverID: config.id)
+          await deactivate(serverIDs: [config.id])
         }
       } else {
         servers[config.id] = ActiveServer(
@@ -162,9 +198,9 @@ actor MCPClientManager: MCPToolCalling {
         servers[config.id]?.isDesired = true
         servers[config.id]?.connectionToken = UUID()
         servers[config.id]?.state = .connecting
-        await connect(serverID: config.id)
+        beginConnecting(serverID: config.id)
       } else if !shouldConnect, servers[config.id]?.isDesired == true {
-        await deactivate(serverID: config.id)
+        await deactivate(serverIDs: [config.id])
       }
     }
   }
@@ -173,27 +209,37 @@ actor MCPClientManager: MCPToolCalling {
     guard let server = servers[serverID], server.config.isEnabled, server.isDesired else {
       return
     }
-    await server.connection?.shutdown()
-    servers[serverID]?.connection = nil
-    servers[serverID]?.tools = []
-    servers[serverID]?.connectionToken = UUID()
-    servers[serverID]?.state = .connecting
-    await connect(serverID: serverID)
+    let token = UUID()
+    await deactivate(serverIDs: [serverID], keepDesired: true, nextToken: token)
+    guard !Task.isCancelled, activeScope != nil,
+      servers[serverID]?.connectionToken == token
+    else { return }
+    servers[serverID]?.isDesired = true
+    beginConnecting(serverID: serverID)
+    let startupTask = servers[serverID]?.startupTask
+    await withTaskCancellationHandler {
+      await waitForStartup(serverID: serverID)
+    } onCancel: {
+      startupTask?.cancel()
+    }
+    if Task.isCancelled {
+      await cancelStartup(serverID: serverID, token: token)
+    }
+  }
+
+  func waitForStartup(serverID: UUID) async {
+    await servers[serverID]?.startupTask?.value
+  }
+
+  private func cancelStartup(serverID: UUID, token: UUID) async {
+    guard let server = servers[serverID], server.connectionToken == token else { return }
+    await deactivate(serverIDs: [serverID], keepDesired: true)
   }
 
   func shutdownAll() async {
-    for server in servers.values {
-      await server.connection?.shutdown()
-    }
-    for id in servers.keys {
-      servers[id]?.connection = nil
-      servers[id]?.tools = []
-      servers[id]?.state = .disconnected
-      servers[id]?.isDesired = false
-      servers[id]?.connectionToken = UUID()
-    }
     activeScope = nil
     selectedServerIDs = []
+    await deactivate(serverIDs: serverOrder)
   }
 
   /// Starts an isolated connection for Settings, lists tools, then always stops it.
@@ -204,6 +250,7 @@ actor MCPClientManager: MCPToolCalling {
     let connection = makeConnection(config, workspaceRootURL)
     do {
       let tools = try await connection.start()
+      try Task.checkCancellation()
       await connection.shutdown()
       return tools.count
     } catch {
@@ -291,26 +338,30 @@ actor MCPClientManager: MCPToolCalling {
 
   // MARK: - Connection helpers
 
-  private func connect(serverID: UUID) async {
-    guard let server = servers[serverID], server.isDesired, let activeScope else {
-      return
-    }
+  private func beginConnecting(serverID: UUID) {
+    guard let server = servers[serverID], server.isDesired, let activeScope else { return }
     let connectionToken = server.connectionToken
-    servers[serverID]?.state = .connecting
     let connection = makeConnection(server.config, activeScope.workspaceRootURL)
+    servers[serverID]?.state = .connecting
     servers[serverID]?.connection = connection
-    await connection.setFailureHandler { [weak self, weak connection] error in
-      guard let self, let connection else {
-        return
+    servers[serverID]?.startupTask = Task { [self, connection] in
+      await connection.setFailureHandler { [weak self, weak connection] error in
+        guard let self, let connection else { return }
+        _ = await self.markConnectionUnavailable(
+          serverID: serverID, connection: connection, error: error)
       }
-      _ = await self.markConnectionUnavailable(
-        serverID: serverID,
-        connection: connection,
-        error: error
-      )
+      await self.finishConnecting(
+        serverID: serverID, connection: connection, connectionToken: connectionToken)
     }
+    publishChange()
+  }
+
+  private func finishConnecting(
+    serverID: UUID, connection: MCPServerConnection, connectionToken: UUID
+  ) async {
     do {
       let tools = try await connection.start()
+      try Task.checkCancellation()
       guard let current = servers[serverID],
         current.connectionToken == connectionToken,
         current.connection === connection,
@@ -332,7 +383,13 @@ actor MCPClientManager: MCPToolCalling {
       }
       servers[serverID]?.connection = nil
       servers[serverID]?.tools = []
-      servers[serverID]?.state = .failed(message: error.localizedDescription)
+      servers[serverID]?.state =
+        error is CancellationError
+        ? .disconnected : .failed(message: error.localizedDescription)
+    }
+    if servers[serverID]?.connectionToken == connectionToken {
+      servers[serverID]?.startupTask = nil
+      publishChange()
     }
   }
 
@@ -342,6 +399,7 @@ actor MCPClientManager: MCPToolCalling {
     error: MCPClientError
   ) -> Bool {
     guard let server = servers[serverID],
+      server.startupTask?.isCancelled != true,
       let currentConnection = server.connection,
       currentConnection === connection
     else {
@@ -351,19 +409,31 @@ actor MCPClientManager: MCPToolCalling {
     servers[serverID]?.connection = nil
     servers[serverID]?.tools = []
     servers[serverID]?.state = .failed(message: error.localizedDescription)
+    publishChange()
     return true
   }
 
-  private func deactivate(serverID: UUID) async {
-    guard let server = servers[serverID] else {
-      return
+  private func deactivate(
+    serverIDs: [UUID], keepDesired: Bool = false, nextToken: UUID? = nil
+  ) async {
+    var retiring: [ActiveServer] = []
+    // Invalidate the whole scope before any cancellation or suspension.
+    for id in serverIDs {
+      guard let server = servers[id] else { continue }
+      retiring.append(server)
+      servers[id]?.connectionToken = nextToken ?? UUID()
+      servers[id]?.startupTask = nil
+      servers[id]?.connection = nil
+      servers[id]?.tools = []
+      servers[id]?.state = .disconnected
+      servers[id]?.isDesired = keepDesired && server.isDesired
     }
-    await server.connection?.shutdown()
-    servers[serverID]?.connection = nil
-    servers[serverID]?.tools = []
-    servers[serverID]?.state = .disconnected
-    servers[serverID]?.isDesired = false
-    servers[serverID]?.connectionToken = UUID()
+    for server in retiring { server.startupTask?.cancel() }
+    publishChange()
+    for server in retiring {
+      await server.connection?.shutdown()
+      await server.startupTask?.value
+    }
   }
 
   private static func requiresRestart(

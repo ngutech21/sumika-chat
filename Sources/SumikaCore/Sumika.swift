@@ -42,6 +42,7 @@ package final class Sumika {
     let chatAttachmentLoader: any ChatAttachmentLoading
     let skillCatalog: SkillCatalog
     let turnTracer: any TurnTracing
+    let mcpRuntimeConfiguration: MCPRuntimeConfiguration?
 
     package init(
       runtime: any ChatModelRuntime,
@@ -55,7 +56,8 @@ package final class Sumika {
       documentMarkdownConverter: (any DocumentMarkdownConverting)? = nil,
       chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
       skillCatalog: SkillCatalog = SkillCatalog(),
-      turnTracer: any TurnTracing = NoopTurnTracer()
+      turnTracer: any TurnTracing = NoopTurnTracer(),
+      mcpRuntimeConfiguration: MCPRuntimeConfiguration? = nil
     ) {
       self.runtime = runtime
       self.modelSettingsStore = modelSettingsStore
@@ -68,6 +70,7 @@ package final class Sumika {
       self.chatAttachmentLoader = chatAttachmentLoader
       self.skillCatalog = skillCatalog
       self.turnTracer = turnTracer
+      self.mcpRuntimeConfiguration = mcpRuntimeConfiguration
     }
   }
 
@@ -137,7 +140,7 @@ package final class Sumika {
     )
     let agent = AgentFeature(
       conversationEngine: engine,
-      clientManager: MCPClientManager()
+      clientManager: MCPClientManager(runtimeConfiguration: dependencies.mcpRuntimeConfiguration)
     )
 
     self.conversation = conversation

@@ -253,7 +253,12 @@ enum AppLaunchConfiguration {
           documentMarkdownConverter: documentMarkdownConverter
         ),
         skillCatalog: skillCatalog,
-        turnTracer: turnTracer
+        turnTracer: turnTracer,
+        mcpRuntimeConfiguration: MCPRuntimeConfiguration(
+          uvExecutableURL: Bundle.main.bundleURL.appending(path: "Contents/Helpers/uv"),
+          dataDirectoryURL: URL.applicationSupportDirectory.appending(path: "Sumika/MCP"),
+          cacheDirectoryURL: URL.cachesDirectory.appending(path: "Sumika/MCP/uv")
+        )
       )
     )
   }

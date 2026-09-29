@@ -1,6 +1,9 @@
+import Darwin
 import Foundation
+import Logging
 import MCP
 import SumikaTestSupport
+import Synchronization
 import Testing
 
 @testable import SumikaCore
@@ -433,7 +436,186 @@ struct MCPClientTests {
     #expect(result.truncated)
   }
 
+  @Test(arguments: ["uv", "uvx"], [false, true])
+  func bundledRuntimePreservesArgumentsAndUsesPrivateEnvironment(
+    command: String, overridePython: Bool
+  ) async throws {
+    let root = try scopedTemporaryDirectory()
+    let report = root.appending(path: "launch.txt")
+    let script = try writeScript(
+      """
+      #!/bin/sh
+      printf '%s\\n' "$@" "$PWD" "$UV_PYTHON_INSTALL_DIR" "$UV_CACHE_DIR" "$UV_TOOL_DIR" "$UV_MANAGED_PYTHON" "$UV_PYTHON_DOWNLOADS" "${UV_PYTHON-unset}" "${VIRTUAL_ENV-unset}" "$CUSTOM_VALUE" "$UV_OFFLINE" > "$REPORT"
+      """ + "\n" + Self.fakeServerScript.replacingOccurrences(of: "| sed ", with: "| /usr/bin/sed ")
+    )
+    let helper = root.appending(path: "bundled uv")
+    try FileManager.default.copyItem(at: script, to: helper)
+    let runtime = MCPRuntimeConfiguration(
+      uvExecutableURL: helper, dataDirectoryURL: root.appending(path: "runtime data"),
+      cacheDirectoryURL: root.appending(path: "runtime cache"))
+    var environment = ["PATH": "/nonexistent", "REPORT": report.path, "CUSTOM_VALUE": "explicit"]
+    if overridePython {
+      environment["UV_PYTHON"] = "3.12"
+      let conflictingExecutable = root.appending(path: command)
+      try "#!/bin/sh\nexit 99\n".write(
+        to: conflictingExecutable, atomically: true, encoding: .utf8)
+      try FileManager.default.setAttributes(
+        [.posixPermissions: 0o755], ofItemAtPath: conflictingExecutable.path)
+      environment["PATH"] = root.path
+    }
+    let config = MCPServerConfig(
+      name: "Managed", command: command, arguments: ["server", "a b", "$(literal)"],
+      environment: environment)
+    let manager = MCPClientManager { config, root in
+      MCPServerConnection(
+        config: config, workspaceRootURL: root,
+        baseEnvironment: [
+          "UV_PYTHON": "/missing/python", "VIRTUAL_ENV": "/missing/venv",
+          "UV_PYTHON_INSTALL_DIR": "/wrong", "UV_MANAGED_PYTHON": "0", "UV_OFFLINE": "1",
+          "UV_CACHE_DIR": "/wrong", "UV_TOOL_DIR": "/wrong", "UV_PYTHON_DOWNLOADS": "never",
+        ],
+        runtimeConfiguration: runtime)
+    }
+    let count = try await manager.testConnection(config: config, workspaceRootURL: root)
+    #expect(count == 1)
+    var expected =
+      (command == "uvx" ? ["tool", "run"] : []) + [
+        "server", "a b", "$(literal)", root.resolvingSymlinksInPath().path,
+        root.appending(path: "runtime data/python").path,
+        root.appending(path: "runtime cache").path, root.appending(path: "runtime data/tools").path,
+        "1", "automatic", overridePython ? "3.12" : "unset", "unset", "explicit", "1",
+      ]
+    var actual = try String(contentsOf: report, encoding: .utf8).split(separator: "\n").map(
+      String.init)
+    let cwdIndex = command == "uvx" ? 5 : 3
+    #expect(
+      FileManager.default.contentsEqual(
+        atPath: actual[cwdIndex] + "/launch.txt", andPath: report.path))
+    actual.remove(at: cwdIndex)
+    expected.remove(at: cwdIndex)
+    #expect(actual == expected)
+    await activate(manager, configs: [config], workspaceRootURL: root)
+    #expect(await manager.statuses().first?.state == .connected(toolCount: 1))
+    await manager.shutdownAll()
+  }
+
+  @Test(arguments: [false, true])
+  func missingOrNonexecutableBundledRuntimeFailsWithoutPATHFallback(nonexecutable: Bool)
+    async throws
+  {
+    let root = try scopedTemporaryDirectory()
+    let helper = root.appending(path: "uv")
+    if nonexecutable { try "not executable".write(to: helper, atomically: true, encoding: .utf8) }
+    let connection = MCPServerConnection(
+      config: MCPServerConfig(name: "Missing", command: "uv"), workspaceRootURL: root,
+      runtimeConfiguration: MCPRuntimeConfiguration(
+        uvExecutableURL: helper, dataDirectoryURL: root, cacheDirectoryURL: root))
+    await #expect(throws: MCPClientError.bundledRuntimeUnavailable) { try await connection.start() }
+  }
+
+  @Test(arguments: [false, true])
+  func explicitUVPathDoesNotUseBundledRuntime(relative: Bool) async throws {
+    let script = try writeScript(Self.fakeServerScript)
+    let root = script.deletingLastPathComponent()
+    let helper = root.appending(path: "uv")
+    try FileManager.default.copyItem(at: script, to: helper)
+    let connection = MCPServerConnection(
+      config: MCPServerConfig(name: "External", command: relative ? "./uv" : helper.path),
+      workspaceRootURL: root,
+      runtimeConfiguration: MCPRuntimeConfiguration(
+        uvExecutableURL: root.appending(path: "missing"), dataDirectoryURL: root,
+        cacheDirectoryURL: root))
+    #expect(try await connection.start().count == 1)
+    await connection.shutdown()
+  }
+
+  @Test
+  func managedStartupDeadlineStopsProcess() async throws {
+    let root = try scopedTemporaryDirectory()
+    let marker = root.appending(path: "pid")
+    let script = try writeScript("#!/bin/sh\necho $$ > \"$MARKER\"\nexec /bin/sleep 60\n")
+    let connection = MCPServerConnection(
+      config: MCPServerConfig(
+        name: "Stalled", command: "uvx", environment: ["MARKER": marker.path]),
+      workspaceRootURL: root,
+      runtimeConfiguration: MCPRuntimeConfiguration(
+        uvExecutableURL: script, dataDirectoryURL: root, cacheDirectoryURL: root),
+      initializeTimeout: .seconds(2))
+    await #expect(throws: MCPClientError.timedOut(method: "initialize")) {
+      try await connection.start()
+    }
+    let pid = try #require(
+      Int32(
+        String(contentsOf: marker, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))
+    )
+    #expect(kill(pid, 0) == -1 && errno == ESRCH)
+  }
+
+  @Test(arguments: [false, true])
+  func slowStartupDoesNotBlockAnotherServerAndCancellationStopsProcess(terminate: Bool) async throws
+  {
+    let root = try scopedTemporaryDirectory()
+    let marker = root.appending(path: "pid")
+    let stalled = try writeScript("#!/bin/sh\necho $$ > \"$MARKER\"\nexec /bin/sleep 60\n")
+    let ready = try writeScript(Self.fakeServerScript)
+    let slow = MCPServerConfig(name: "Slow", command: "uvx", environment: ["MARKER": marker.path])
+    let fast = MCPServerConfig(name: "Fast", command: ready.path)
+    let manager = MCPClientManager(
+      runtimeConfiguration: MCPRuntimeConfiguration(
+        uvExecutableURL: stalled, dataDirectoryURL: root, cacheDirectoryURL: root))
+    let sessionID = UUID()
+    await manager.reconcile(
+      configs: [slow, fast], activeSessionID: sessionID,
+      selectedServerIDs: [slow.id, fast.id], workspaceRootURL: root)
+    try await waitUntil(timeout: .seconds(5)) {
+      await manager.statuses().last?.state == .connected(toolCount: 1)
+    }
+    #expect(await manager.statuses().first?.state == .connecting)
+    try await waitUntil(timeout: .seconds(5)) {
+      FileManager.default.fileExists(atPath: marker.path)
+    }
+    if terminate {
+      await manager.shutdownAll()
+    } else {
+      await manager.reconcile(
+        configs: [slow, fast], activeSessionID: sessionID,
+        selectedServerIDs: [fast.id], workspaceRootURL: root)
+    }
+    #expect(await manager.statuses().first?.state == .disconnected)
+    #expect(await manager.agentToolExecutorGroups().map(\.serverID) == (terminate ? [] : [fast.id]))
+    let pid = try #require(
+      Int32(
+        String(contentsOf: marker, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))
+    )
+    #expect(kill(pid, 0) == -1 && errno == ESRCH)
+    await manager.shutdownAll()
+  }
+
   // MARK: - Manager
+
+  @Test(arguments: [false, true])
+  func scopeChangeAndShutdownNeverPublishPartiallyRetiredTools(shutdown: Bool) async throws {
+    let script = try writeScript(Self.fakeServerScript)
+    let configs = ["First", "Second"].map { MCPServerConfig(name: $0, command: script.path) }
+    let manager = MCPClientManager()
+    await activate(manager, configs: configs)
+    let events = AsyncStream<MCPClientManager.Snapshot>.makeStream()
+    await manager.setChangeHandler { events.continuation.yield($0) }
+    if shutdown {
+      await manager.shutdownAll()
+    } else {
+      await manager.reconcile(
+        configs: configs, activeSessionID: UUID(), selectedServerIDs: [],
+        workspaceRootURL: script.deletingLastPathComponent(), revision: 2)
+    }
+    for await snapshot in events.stream {
+      #expect(snapshot.groups.isEmpty)
+      #expect(snapshot.statuses.allSatisfy { $0.state == .disconnected })
+      break
+    }
+    events.continuation.finish()
+    await manager.shutdownAll()
+  }
 
   @Test
   func managerDoesNotStartServersWhenConfigurationIsOnlyLoaded() async throws {
@@ -606,7 +788,8 @@ struct MCPClientTests {
       switch error {
       case .notConnected, .serverExited:
         break
-      case .staleConnection, .timedOut, .protocolError, .serverError, .resourceLimit:
+      case .staleConnection, .timedOut, .protocolError, .serverError, .resourceLimit,
+        .bundledRuntimeUnavailable:
         Issue.record("Expected connection lifecycle error, got \(error)")
       }
     } catch {
@@ -819,6 +1002,62 @@ struct MCPClientTests {
     await manager.shutdownAll()
   }
 
+  @Test(arguments: ReconnectRetirementChange.allCases)
+  func cancelledReconnectDuringRetirementPreservesCurrentSelection(
+    change: ReconnectRetirementChange
+  ) async throws {
+    let endpoint = try #require(URL(string: "https://mcp.example.com"))
+    let first = await InMemoryTransport.createConnectedPair()
+    let replacement = await InMemoryTransport.createConnectedPair()
+    let firstServer = try await startInMemoryServer(transport: first.server)
+    let replacementServer = try await startInMemoryServer(transport: replacement.server)
+    let retiringTransport = MCPDisconnectGateTransport(base: first.client)
+    let transports = Mutex<[any Transport]>([retiringTransport, replacement.client])
+    let manager = MCPClientManager { config, root in
+      let transport = transports.withLock { $0.removeFirst() }
+      return MCPServerConnection(
+        config: config, workspaceRootURL: root, makeHTTPTransport: { _ in transport })
+    }
+    let config = MCPServerConfig(
+      name: "Reconnect", transport: .streamableHTTP(endpoint: endpoint))
+    let sessionID = UUID()
+    await activate(manager, configs: [config], sessionID: sessionID)
+    let oldToken = await manager.connectionToken(for: config.id)
+
+    let reconnect = Task { await manager.reconnect(serverID: config.id) }
+    try await waitUntil { await retiringTransport.isDisconnecting }
+    reconnect.cancel()
+    if change == .deselected {
+      await activate(manager, configs: [config], sessionID: sessionID, selectedServerIDs: [])
+    }
+    await retiringTransport.releaseDisconnect()
+    await reconnect.value
+
+    #expect(await manager.connectionToken(for: config.id) != oldToken)
+    #expect(await manager.statuses().first?.state == .disconnected)
+    #expect(await manager.agentToolExecutorGroups().isEmpty == true)
+    if change == .reconciled {
+      await activate(manager, configs: [config], sessionID: sessionID)
+      #expect(await manager.statuses().first?.state == .disconnected)
+    }
+    #expect(transports.withLock { $0.count } == 1)
+
+    if transports.withLock({ !$0.isEmpty }) {
+      await manager.reconnect(serverID: config.id)
+    }
+    #expect(
+      await manager.statuses().first?.state
+        == (change == .deselected ? .disconnected : .connected(toolCount: 1)))
+    #expect(transports.withLock { $0.count } == (change == .deselected ? 1 : 0))
+    await manager.shutdownAll()
+    await firstServer.stop()
+    await replacementServer.stop()
+  }
+
+  enum ReconnectRetirementChange: CaseIterable, Sendable {
+    case unchanged, reconciled, deselected
+  }
+
   @Test
   func settingsProbeDoesNotActivateConfiguredServer() async throws {
     let script = try writeScript(Self.fakeServerScript)
@@ -850,6 +1089,9 @@ private func activate(
     selectedServerIDs: selectedServerIDs ?? configs.map(\.id),
     workspaceRootURL: workspaceRootURL
   )
+  for config in configs {
+    await manager.waitForStartup(serverID: config.id)
+  }
 }
 
 private func waitUntil(
@@ -867,6 +1109,47 @@ private func waitUntil(
 }
 
 private struct MCPClientTestWaitTimeoutError: Error {}
+
+private actor MCPDisconnectGateTransport: Transport {
+  nonisolated let logger: Logger
+  private let base: InMemoryTransport
+  private var incoming: AsyncThrowingStream<Data, any Error>?
+  private var disconnectWaiters: [CheckedContinuation<Void, Never>] = []
+  private var isReleased = false
+  private(set) var isDisconnecting = false
+
+  init(base: InMemoryTransport) {
+    self.base = base
+    self.logger = base.logger
+  }
+
+  func connect() async throws {
+    try await base.connect()
+    incoming = await base.receive()
+  }
+
+  func send(_ data: Data) async throws {
+    try await base.send(data)
+  }
+
+  func receive() -> AsyncThrowingStream<Data, any Error> {
+    incoming ?? AsyncThrowingStream { $0.finish() }
+  }
+
+  func disconnect() async {
+    isDisconnecting = true
+    if !isReleased {
+      await withCheckedContinuation { disconnectWaiters.append($0) }
+    }
+    await base.disconnect()
+  }
+
+  func releaseDisconnect() {
+    isReleased = true
+    for waiter in disconnectWaiters { waiter.resume() }
+    disconnectWaiters.removeAll()
+  }
+}
 
 private actor MCPRootsCapabilityRecorder {
   private(set) var advertisedRoots = false

@@ -115,7 +115,8 @@ public struct SumikaApplication: App {
           onUpdateAppBehaviorSettings: appState.updateAppBehaviorSettings,
           onUpdateMCPServers: appState.updateMCPServers,
           canTestMCPServers: appState.workspaceState.activeWorkspace != nil,
-          onTestMCPServer: appState.testMCPServer
+          onTestMCPServer: appState.testMCPServer,
+          onCancelMCPServerTest: appState.cancelMCPServerTest
         )
       } else {
         AppLaunchLoadingView()

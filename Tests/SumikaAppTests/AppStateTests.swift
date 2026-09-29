@@ -2148,9 +2148,128 @@ struct AppStateTests {
     await appState.prepareForTermination()
   }
 
+  @Test(arguments: MCPProbeNavigation.allCases)
+  func workspaceNavigationCancelsMCPServerTest(navigation: MCPProbeNavigation) async throws {
+    let rootURL = try scopedTemporaryDirectory()
+    let startedURL = rootURL.appending(path: "probe-started")
+    let script = try makeMCPServerScript(initializationDelay: 60)
+    let server = MCPServerConfig(
+      name: "Probe", command: script.path,
+      environment: ["SUMIKA_MCP_TEST_STARTED": startedURL.path])
+    let firstSession = ChatSession()
+    let secondSession = ChatSession()
+    let firstWorkspace = Workspace(
+      name: "First", rootURL: rootURL.appending(path: "first"), sessions: [firstSession])
+    let secondWorkspace = Workspace(
+      name: "Second", rootURL: rootURL.appending(path: "second"), sessions: [secondSession])
+    let addedWorkspaceURL = rootURL.appending(path: "added")
+    for url in [firstWorkspace.rootURL, secondWorkspace.rootURL, addedWorkspaceURL] {
+      try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [firstWorkspace, secondWorkspace], activeWorkspaceID: firstWorkspace.id,
+          activeSessionID: firstSession.id)),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      appBehaviorSettingsStore: InMemoryAppBehaviorSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(servers: [server]),
+      runtime: AppStateTestRuntime())
+    await appState.waitForStartup()
+    appState.testMCPServer(server.id)
+    do {
+      try await waitUntil { FileManager.default.fileExists(atPath: startedURL.path) }
+      switch navigation {
+      case .workspace:
+        #expect(appState.selectWorkspace(secondWorkspace.id))
+      case .chat:
+        #expect(appState.selectChat(workspaceID: secondWorkspace.id, sessionID: secondSession.id))
+      case .add:
+        #expect(appState.addWorkspace(from: addedWorkspaceURL) != nil)
+      case .remove:
+        appState.removeWorkspace(firstWorkspace.id)
+      case .removeWhileShowingModels:
+        appState.selectModels()
+        appState.removeWorkspace(firstWorkspace.id)
+      }
+      try await waitUntil { appState.settingsState.testingMCPServerIDs.isEmpty }
+      #expect(appState.settingsState.mcpServerTestFeedback?.message.contains("cancelled") == true)
+    } catch {
+      await appState.prepareForTermination()
+      throw error
+    }
+    await appState.prepareForTermination()
+  }
+
+  enum MCPProbeNavigation: CaseIterable, Sendable {
+    case workspace, chat, add, remove, removeWhileShowingModels
+  }
+
   @Test
-  func prepareForTerminationWaitsForMCPServerTest() async throws {
-    let script = try makeMCPServerScript(initializationDelay: 0.2)
+  func workspaceNavigationCancelsProbeWithoutInterruptingBusyAgentConnection() async throws {
+    let rootURL = try scopedTemporaryDirectory()
+    let startedURL = rootURL.appending(path: "probe-started")
+    let activeScript = try makeMCPServerScript()
+    let probeScript = try makeMCPServerScript(initializationDelay: 60)
+    let activeServer = MCPServerConfig(name: "Active", command: activeScript.path)
+    let probeServer = MCPServerConfig(
+      name: "Probe", command: probeScript.path,
+      environment: ["SUMIKA_MCP_TEST_STARTED": startedURL.path])
+    let session = ChatSession(
+      interactionMode: .agent, selectedMCPServerIDs: [activeServer.id])
+    let firstWorkspace = Workspace(
+      name: "First", rootURL: rootURL.appending(path: "first"), sessions: [session])
+    let secondWorkspace = Workspace(name: "Second", rootURL: rootURL.appending(path: "second"))
+    for url in [firstWorkspace.rootURL, secondWorkspace.rootURL] {
+      try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+    let runtime = AppStateTestRuntime(eventTurns: [
+      [.toolCall(ChatRuntimeToolCall(name: "run_command", arguments: ["command": .string("pwd")]))]
+    ])
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [firstWorkspace, secondWorkspace], activeWorkspaceID: firstWorkspace.id,
+          activeSessionID: session.id)),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      appBehaviorSettingsStore: InMemoryAppBehaviorSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(servers: [activeServer, probeServer]),
+      runtime: runtime)
+    await appState.waitForStartup()
+    do {
+      try await waitUntil {
+        appState.settingsState.mcpServerStatuses.first { $0.serverID == activeServer.id }?.state
+          == .connected(toolCount: 1)
+      }
+      appState.modelManagementState.setModelLoadStateForTesting(.ready)
+      #expect(await appState.sendMessage(MessageSubmission(text: "Inspect the project")))
+      try await waitUntil {
+        appState.chatFeatureState.toolCallsForAppStateTesting.first?.status == .awaitingApproval
+      }
+      appState.testMCPServer(probeServer.id)
+      try await waitUntil { FileManager.default.fileExists(atPath: startedURL.path) }
+
+      #expect(appState.selectWorkspace(secondWorkspace.id))
+      try await waitUntil { appState.settingsState.testingMCPServerIDs.isEmpty }
+      #expect(appState.settingsState.mcpServerTestFeedback?.message.contains("cancelled") == true)
+      #expect(appState.chatFeatureState.busySessionID == session.id)
+      #expect(
+        appState.settingsState.mcpServerStatuses.first { $0.serverID == activeServer.id }?.state
+          == .connected(toolCount: 1))
+    } catch {
+      await appState.prepareForTermination()
+      throw error
+    }
+    await appState.prepareForTermination()
+  }
+
+  @Test(arguments: [false, true])
+  func prepareForTerminationCancelsMCPServerTestBeforeDrainingSaves(blockedPersistence: Bool)
+    async throws
+  {
+    let script = try makeMCPServerScript(initializationDelay: 60)
     let server = MCPServerConfig(
       name: "Probe",
       command: script.path(percentEncoded: false)
@@ -2163,6 +2282,7 @@ struct AppStateTests {
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
     let session = ChatSession(id: sessionID, interactionMode: .chat)
     let workspace = Workspace(name: "Project", rootURL: rootURL, sessions: [session])
+    let store = DelayedMCPServersStore(servers: [server], blockedSaveNumber: 1)
     let appState = AppState(
       workspaceStore: InMemoryWorkspaceStore(
         initialLibrary: WorkspaceLibrary(
@@ -2173,7 +2293,7 @@ struct AppStateTests {
       ),
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
-      mcpServersStore: InMemoryMCPServersStore(servers: [server]),
+      mcpServersStore: store,
       runtime: AppStateTestRuntime(eventTurns: [])
     )
 
@@ -2182,10 +2302,24 @@ struct AppStateTests {
         && appState.settingsState.mcpServerStatuses.first?.state == .disconnected
     }
 
+    if blockedPersistence {
+      appState.updateMCPServers([server])
+      try await waitUntil { await store.saveCount() == 1 }
+    }
     appState.testMCPServer(server.id)
-    await appState.prepareForTermination()
+    let termination = Task { await appState.prepareForTermination() }
+    do {
+      try await waitUntil { appState.settingsState.testingMCPServerIDs.isEmpty }
+    } catch {
+      await store.releaseBlockedSave()
+      await termination.value
+      throw error
+    }
+    await store.releaseBlockedSave()
+    await termination.value
 
-    #expect(appState.settingsState.mcpServerTestFeedback?.message.contains("1 tool") == true)
+    #expect(appState.settingsState.mcpServerTestFeedback?.message.contains("cancelled") == true)
+    #expect(appState.settingsState.testingMCPServerIDs.isEmpty)
   }
 
   @Test
@@ -2679,6 +2813,9 @@ private func makeMCPServerScript(initializationDelay: Double = 0) throws -> URL 
   request_id() {
     printf '%s\\n' "$1" | sed -E 's/.*"id":("[^"]*"|[0-9]+).*/\\1/'
   }
+  if [ -n "$SUMIKA_MCP_TEST_STARTED" ]; then
+    touch "$SUMIKA_MCP_TEST_STARTED"
+  fi
   sleep \(initializationDelay)
   read -r line
   id=$(request_id "$line")

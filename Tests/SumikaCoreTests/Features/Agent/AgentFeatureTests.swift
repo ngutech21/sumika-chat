@@ -18,9 +18,10 @@ struct AgentFeatureTests {
       runtime: ChatSessionFakeChatModelRuntime(), modelPath: "/tmp/model", chatSession: session)
     try engine.loadSession(from: workspace, sessionID: session.id)
     let agent = AgentFeature(conversationEngine: engine, clientManager: MCPClientManager())
-    let server = MCPServerConfig(
-      name: "Offline", command: "/usr/bin/false", isEnabled: false)
+    let server = MCPServerConfig(name: "Offline", command: "/usr/bin/false")
     await agent.loadServerConfiguration([server])
+    var statuses: [MCPServerStatus] = []
+    agent.setStatusChangeHandler { statuses = $0 }
     let configuration = AgentConnectionConfiguration(
       servers: [server], activeSessionID: session.id, workspaceRootURL: workspace.rootURL)
     var selections: [[UUID]] = []
@@ -39,11 +40,15 @@ struct AgentFeatureTests {
 
     agent.reconcile(configuration)
     agent.setSelectedMCPServerIDs([server.id])
-    await agent.prepareForTermination()
+    try await waitForAgent {
+      if case .failed = statuses.first?.state { return true }
+      return false
+    }
 
     #expect(selections == [[server.id]])
     #expect(engine.composerSessionState.selectedMCPServerIDs == [server.id])
     engine.setSessionChangeHandler(nil)
+    await agent.prepareForTermination()
   }
 
   @Test
@@ -52,9 +57,9 @@ struct AgentFeatureTests {
     fixture.agent.setSelectedMCPServerIDs([fixture.server.id])
 
     await fixture.agent.loadServerConfiguration([fixture.server])
-    await fixture.agent.prepareForTermination()
 
     #expect(fixture.engine.composerSessionState.selectedMCPServerIDs == [fixture.server.id])
+    await fixture.agent.prepareForTermination()
   }
 
   @Test(arguments: SupersedingChange.allCases)
@@ -94,28 +99,25 @@ struct AgentFeatureTests {
       break
     }
     fixture.agent.reconcile(latest, force: change == .forcedRefresh)
-    await remote.gate.release()
-    await fixture.agent.prepareForTermination()
-    await remote.server.stop()
-
     let remainsSelected = change == .selectionRoundTrip || change == .forcedRefresh
+    await remote.gate.release()
+    try await waitForAgent {
+      published.last?.first?.state == (remainsSelected ? .connected(toolCount: 1) : .disconnected)
+    }
     #expect(fixture.engine.composerSessionState.selectedMCPServerIDs == latest.selectedServerIDs)
     #expect(
-      published == [
-        [
-          MCPServerStatus(
-            serverID: fixture.server.id,
-            state: remainsSelected ? .connected(toolCount: 1) : .disconnected)
-        ]
-      ])
+      published.last?.first?.state == (remainsSelected ? .connected(toolCount: 1) : .disconnected))
     #expect(fixture.mcpToolNames == (remainsSelected ? ["mcp__probe__echo"] : []))
     #expect(fixture.remainingTransportCount == 0)
+    await fixture.agent.prepareForTermination()
+    await remote.server.stop()
   }
 
   @Test
   func queuedConfigurationLoadCannotReplaceNewerDesiredConfiguration() async throws {
     let remote = try await ControlledMCPServer.start()
-    let fixture = try AgentSelectionFixture(transports: [remote.transport])
+    let replacement = try await ControlledMCPServer.start()
+    let fixture = try AgentSelectionFixture(transports: [remote.transport, replacement.transport])
     var published: [[MCPServerStatus]] = []
     fixture.agent.setStatusChangeHandler { published.append($0) }
     fixture.agent.setSelectedMCPServerIDs([fixture.server.id])
@@ -131,15 +133,14 @@ struct AgentFeatureTests {
     for await _ in started.stream { break }
     fixture.agent.reconcile(configuration)
     await remote.gate.release()
+    await replacement.gate.release()
     await loading.value
-    await fixture.agent.prepareForTermination()
-    await remote.server.stop()
-
-    #expect(
-      published == [[MCPServerStatus(serverID: fixture.server.id, state: .connected(toolCount: 1))]]
-    )
+    try await waitForAgent { published.last?.first?.state == .connected(toolCount: 1) }
     #expect(fixture.engine.composerSessionState.selectedMCPServerIDs == [fixture.server.id])
     #expect(fixture.mcpToolNames == ["mcp__probe__echo"])
+    await fixture.agent.prepareForTermination()
+    await remote.server.stop()
+    await replacement.server.stop()
   }
 
   @Test(arguments: [false, true])
@@ -151,7 +152,7 @@ struct AgentFeatureTests {
     let connected = AsyncStream<Void>.makeStream()
     fixture.agent.setStatusChangeHandler {
       published.append($0)
-      connected.continuation.yield(())
+      if $0.first?.state == .connected(toolCount: 1) { connected.continuation.yield(()) }
     }
     fixture.agent.setSelectedMCPServerIDs([fixture.server.id])
     fixture.agent.reconcile(fixture.configuration(selected: true))
@@ -170,21 +171,22 @@ struct AgentFeatureTests {
     if alreadyRunning { await second.gate.waitUntilRequested() }
     fixture.agent.setSelectedMCPServerIDs([])
     fixture.agent.reconcile(fixture.configuration(selected: false))
-    await first.gate.release()
-    await second.gate.release()
-    await fixture.agent.prepareForTermination()
-    await first.server.stop()
-    await second.server.stop()
+    try await waitForAgent { result != nil && published.last?.first?.state == .disconnected }
 
     guard case .failure(let error) = result else {
       Issue.record("A superseded active connection test must report cancellation")
       return
     }
     #expect(error is CancellationError)
-    #expect(published == [[MCPServerStatus(serverID: fixture.server.id, state: .disconnected)]])
+    #expect(published.last?.first?.state == .disconnected)
     #expect(fixture.engine.composerSessionState.selectedMCPServerIDs.isEmpty)
     #expect(fixture.mcpToolNames.isEmpty)
     #expect(fixture.remainingTransportCount == (alreadyRunning ? 0 : 1))
+    await first.gate.release()
+    await second.gate.release()
+    await fixture.agent.prepareForTermination()
+    await first.server.stop()
+    await second.server.stop()
   }
 
   @Test
@@ -201,8 +203,7 @@ struct AgentFeatureTests {
     await remote.gate.waitUntilRequested()
     fixture.agent.setSelectedMCPServerIDs([fixture.server.id])
     await remote.gate.release()
-    await fixture.agent.prepareForTermination()
-    await remote.server.stop()
+    try await waitForAgent { result != nil }
 
     guard case .success(.isolatedConnection(let count)) = result else {
       Issue.record("An isolated connection test must still return its tool count")
@@ -212,6 +213,126 @@ struct AgentFeatureTests {
     #expect(published.isEmpty)
     #expect(fixture.engine.composerSessionState.selectedMCPServerIDs == [fixture.server.id])
     #expect(fixture.mcpToolNames.isEmpty)
+    await fixture.agent.prepareForTermination()
+    await remote.server.stop()
+  }
+
+  @Test(arguments: [false, true])
+  func stalledProbeCancelsExactlyOnce(terminate: Bool) async throws {
+    let remote = try await ControlledMCPServer.start()
+    let fixture = try AgentSelectionFixture(transports: [remote.transport])
+    var results: [Result<AgentServerTestResult, Error>] = []
+    fixture.agent.testServer(
+      server: fixture.server, workspaceRootURL: fixture.workspace.rootURL,
+      reconnectActiveServer: false
+    ) { results.append($0) }
+    await remote.gate.waitUntilRequested()
+    if terminate {
+      await fixture.agent.prepareForTermination()
+    } else {
+      fixture.agent.cancelServerTest(fixture.server.id)
+    }
+    try await waitForAgent { results.count == 1 }
+    guard case .failure(let error) = results[0] else {
+      Issue.record("Expected cancellation")
+      return
+    }
+    #expect(error is CancellationError)
+    #expect(fixture.mcpToolNames.isEmpty)
+    await remote.gate.release()
+    await fixture.agent.prepareForTermination()
+    await remote.server.stop()
+    #expect(results.count == 1)
+  }
+
+  @Test
+  func isolatedProbeSurvivesPinnedConnectionWorkspaceReconciliation() async throws {
+    let remote = try await ControlledMCPServer.start()
+    let fixture = try AgentSelectionFixture(transports: [remote.transport])
+    let configuration = fixture.configuration(selected: false)
+    fixture.agent.reconcile(configuration)
+    var result: Result<AgentServerTestResult, Error>?
+    fixture.agent.testServer(
+      server: fixture.server,
+      workspaceRootURL: fixture.workspace.rootURL.appending(path: "selected"),
+      reconnectActiveServer: false
+    ) { result = $0 }
+    await remote.gate.waitUntilRequested()
+
+    fixture.agent.reconcile(configuration, force: true)
+    await remote.gate.release()
+    try await waitForAgent { result != nil }
+    if case .success(.isolatedConnection(let count)) = result {
+      #expect(count == 1)
+    } else {
+      Issue.record(
+        "An isolated probe must keep its selected workspace while execution stays pinned")
+    }
+    #expect(fixture.engine.activeSessionID == configuration.activeSessionID)
+    #expect(fixture.mcpToolNames.isEmpty)
+    await fixture.agent.prepareForTermination()
+    await remote.server.stop()
+  }
+
+  @Test
+  func selectedWorkspaceProbeSurvivesNavigationWithinSameWorkspace() async throws {
+    let remote = try await ControlledMCPServer.start()
+    let fixture = try AgentSelectionFixture(transports: [remote.transport])
+    var result: Result<AgentServerTestResult, Error>?
+    fixture.agent.testServer(
+      server: fixture.server, workspaceRootURL: fixture.workspace.rootURL,
+      reconnectActiveServer: false
+    ) { result = $0 }
+    await remote.gate.waitUntilRequested()
+
+    fixture.agent.cancelServerTests(outsideWorkspaceRootURL: fixture.workspace.rootURL)
+    await remote.gate.release()
+    try await waitForAgent { result != nil }
+    if case .success(.isolatedConnection(let count)) = result {
+      #expect(count == 1)
+    } else {
+      Issue.record("Navigation within the selected workspace must preserve its isolated probe")
+    }
+    await fixture.agent.prepareForTermination()
+    await remote.server.stop()
+  }
+
+  @Test(arguments: ProbeInvalidation.allCases)
+  func invalidatedProbeCancelsWithoutWaitingForServer(change: ProbeInvalidation) async throws {
+    let remote = try await ControlledMCPServer.start()
+    let fixture = try AgentSelectionFixture(transports: [remote.transport])
+    var result: Result<AgentServerTestResult, Error>?
+    fixture.agent.testServer(
+      server: fixture.server, workspaceRootURL: fixture.workspace.rootURL,
+      reconnectActiveServer: false
+    ) { result = $0 }
+    await remote.gate.waitUntilRequested()
+    var configuration = fixture.configuration(selected: false)
+    switch change {
+    case .deleted: configuration.servers = []
+    case .disabled: configuration.servers[0].isEnabled = false
+    case .edited: configuration.servers[0].name = "Changed"
+    case .workspace:
+      fixture.agent.cancelServerTests(
+        outsideWorkspaceRootURL: fixture.workspace.rootURL.appending(path: "other"))
+    case .closedWorkspace:
+      fixture.agent.cancelServerTests(outsideWorkspaceRootURL: nil)
+    }
+    fixture.agent.reconcile(configuration)
+    try await waitForAgent { result != nil }
+    guard case .failure(let error) = result else {
+      Issue.record("Expected cancellation")
+      return
+    }
+    #expect(error is CancellationError)
+    #expect(fixture.mcpToolNames.isEmpty)
+    await remote.gate.release()
+    await fixture.agent.prepareForTermination()
+    await remote.server.stop()
+  }
+
+  enum ProbeInvalidation: CaseIterable, Sendable {
+    case deleted, disabled, edited, workspace, closedWorkspace
   }
 
   enum SupersedingChange: CaseIterable, Sendable {
@@ -316,5 +437,14 @@ private actor MCPResponseGate {
     released = true
     responseWaiter?.resume()
     responseWaiter = nil
+  }
+}
+
+@MainActor
+private func waitForAgent(_ condition: () -> Bool) async throws {
+  let deadline = ContinuousClock.now + .seconds(3)
+  while !condition() {
+    try #require(ContinuousClock.now < deadline, "Timed out waiting for Agent state")
+    try await Task.sleep(for: .milliseconds(10))
   }
 }

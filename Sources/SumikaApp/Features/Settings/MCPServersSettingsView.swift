@@ -10,6 +10,7 @@ struct MCPServersSettingsView: View {
   let onUpdateServers: ([MCPServerConfig]) -> Void
   let canTestServers: Bool
   let onTestServer: (UUID) -> Void
+  let onCancelTest: (UUID) -> Void
 
   @State private var editorTarget: MCPServerEditorTarget?
 
@@ -26,8 +27,10 @@ struct MCPServersSettingsView: View {
             status: status(for: server.id),
             isEnabledBinding: isEnabledBinding(for: server.id),
             canTest: canTestServers,
+            isTesting: settingsState.testingMCPServerIDs.contains(server.id),
             onEdit: { editorTarget = .edit(server) },
             onTest: { onTestServer(server.id) },
+            onCancelTest: { onCancelTest(server.id) },
             onDelete: { removeServer(server.id) }
           )
         }
@@ -93,8 +96,10 @@ private struct MCPServerRow: View {
   let status: MCPServerStatus.State?
   let isEnabledBinding: Binding<Bool>
   let canTest: Bool
+  let isTesting: Bool
   let onEdit: () -> Void
   let onTest: () -> Void
+  let onCancelTest: () -> Void
   let onDelete: () -> Void
 
   var body: some View {
@@ -122,11 +127,18 @@ private struct MCPServerRow: View {
         .labelsHidden()
         .toggleStyle(.switch)
         .controlSize(.mini)
-      Button("Test Connection", systemImage: "stethoscope", action: onTest)
-        .labelStyle(.iconOnly)
-        .buttonStyle(.borderless)
-        .disabled(!server.isEnabled || !canTest)
-        .help(canTest ? "Test Connection" : "Open a workspace to test this server")
+      if isTesting {
+        Button("Cancel Test", systemImage: "stop.circle", action: onCancelTest)
+          .labelStyle(.iconOnly)
+          .buttonStyle(.borderless)
+          .help("Cancel Test")
+      } else {
+        Button("Test Connection", systemImage: "stethoscope", action: onTest)
+          .labelStyle(.iconOnly)
+          .buttonStyle(.borderless)
+          .disabled(!server.isEnabled || !canTest)
+          .help(canTest ? "Test Connection" : "Open a workspace to test this server")
+      }
       Button("Edit", systemImage: "pencil", action: onEdit)
         .labelStyle(.iconOnly)
         .buttonStyle(.borderless)
@@ -139,6 +151,10 @@ private struct MCPServerRow: View {
   }
 
   private var statusText: String {
+    if isTesting || status == .connecting {
+      return server.usesBundledUV
+        ? "Starting… first run may download Python and packages." : "connecting…"
+    }
     guard server.isEnabled else {
       return "disabled"
     }
@@ -155,6 +171,7 @@ private struct MCPServerRow: View {
   }
 
   private var statusColor: Color {
+    if isTesting { return .yellow }
     guard server.isEnabled else {
       return .gray
     }
@@ -241,7 +258,9 @@ private struct MCPServerEditorSheet: View {
     Section {
       TextField("Command", text: $draft.command, prompt: Text("npx"))
     } footer: {
-      Text("The command is resolved through PATH, including Homebrew locations.")
+      Text(
+        "uv and uvx use Sumika’s bundled runtime. First use may download Python and packages. Other commands use PATH, including Homebrew locations; explicit executable paths are used as provided."
+      )
     }
 
     Section {

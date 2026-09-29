@@ -135,6 +135,7 @@
 				F9D7F5F82FCC80CD00FECA78 /* Frameworks */,
 				F9D7F5F92FCC80CD00FECA78 /* Resources */,
 				F9A000012FE9000000A270C /* Stamp Git Commit */,
+				F9A000022FE9000000A270C /* Embed uv */,
 			);
 			buildRules = (
 			);
@@ -211,6 +212,25 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		F9A000022FE9000000A270C /* Embed uv */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = ();
+			inputPaths = (
+				"$(SRCROOT)/script/embed_uv.sh",
+				"$(SRCROOT)/script/uv-release.sh",
+				"$(SRCROOT)/script/uv-LICENSE-MIT.txt",
+			);
+			name = "Embed uv";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/uv",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/uv-LICENSE-MIT.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "bash \"$SRCROOT/script/embed_uv.sh\"\n";
+		};
 		F9A000012FE9000000A270C /* Stamp Git Commit */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;

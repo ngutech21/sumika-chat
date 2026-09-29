@@ -212,6 +212,18 @@ the composer. MCP tools stay out of Chat mode and enter the approval flow before
 every call. Manual mode shows an approval prompt; Auto-approve can execute
 allowed calls without prompting.
 
+For Python MCP servers, configure `uvx` or `uv` as the command. Sumika includes
+uv and automatically downloads Python and server dependencies when first needed;
+you do not need to install Python, uv, or Homebrew. Selecting a server or using
+**Test Connection** starts setup, which may need an internet connection. Downloads
+are reused on later starts. Tests can be cancelled in Settings.
+
+Runtime files live under `~/Library/Application Support/Sumika/MCP/`, with the uv
+cache under `~/Library/Caches/Sumika/MCP/uv/`. Explicit executable paths use your
+chosen installation; other commands, including `python`, `python3`, and `npx`,
+keep their normal behavior. Server environment settings remain explicit overrides;
+for example, `UV_OFFLINE=1` prevents downloads and requires cached dependencies.
+
 ## Why Local First
 
 Most AI assistants send conversations to cloud models and charge a recurring

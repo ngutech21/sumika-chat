@@ -47,6 +47,7 @@ final class SettingsFeatureState {
   /// the settings UI can render connection state without reaching into Core.
   var mcpServerStatuses: [MCPServerStatus] = []
   var mcpServerTestFeedback: MCPServerTestFeedback?
+  var testingMCPServerIDs: Set<UUID> = []
   var errorMessage: String? {
     get {
       let messages = SettingsPersistenceDomain.allCases.compactMap { persistenceErrors[$0] }
@@ -74,6 +75,43 @@ final class SettingsFeatureState {
     self.webAccessSettingsStore = webAccessSettingsStore
     self.appBehaviorSettingsStore = appBehaviorSettingsStore
     self.mcpServersStore = mcpServersStore
+  }
+
+  func finishMCPServerTest(server: MCPServerConfig, result: Result<AgentServerTestResult, Error>) {
+    testingMCPServerIDs.remove(server.id)
+    let message: String
+    switch result {
+    case .success(.activeConnection(let state)):
+      message = Self.mcpTestMessage(serverName: server.name, state: state)
+    case .success(.isolatedConnection(let count)):
+      message = Self.mcpTestSuccessMessage(serverName: server.name, toolCount: count)
+    case .failure(let error):
+      message =
+        error is CancellationError
+        ? "\(server.name) test cancelled." : "\(server.name) failed: \(error.localizedDescription)"
+    }
+    mcpServerTestFeedback = MCPServerTestFeedback(message: message)
+  }
+
+  private static func mcpTestMessage(
+    serverName: String,
+    state: MCPServerStatus.State?
+  ) -> String {
+    switch state {
+    case .connected(let toolCount):
+      return mcpTestSuccessMessage(serverName: serverName, toolCount: toolCount)
+    case .failed(let message):
+      return "\(serverName) failed: \(message)"
+    case .connecting:
+      return "\(serverName) is still connecting."
+    case .disconnected, .none:
+      return "\(serverName) is disconnected."
+    }
+  }
+
+  private static func mcpTestSuccessMessage(serverName: String, toolCount: Int) -> String {
+    let tools = toolCount == 1 ? "1 tool" : "\(toolCount) tools"
+    return "\(serverName) connected successfully and advertised \(tools)."
   }
 
   var editableMCPServers: [MCPServerConfig] {

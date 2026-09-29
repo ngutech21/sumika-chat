@@ -8,6 +8,8 @@ if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
 fi
 
 app_bundle="$1"
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+source "$script_dir/uv-release.sh"
 expected_team="${2:-}"
 info_plist="$app_bundle/Contents/Info.plist"
 sparkle_framework="$app_bundle/Contents/Frameworks/Sparkle.framework"
@@ -69,6 +71,18 @@ done
 
 codesign --verify --deep --strict --verbose=2 "$app_bundle"
 
+uv_executable="$app_bundle/Contents/Helpers/uv"
+test -x "$uv_executable" || { echo "Release app is missing executable bundled uv." >&2; exit 1; }
+test -s "$app_bundle/Contents/Resources/uv-LICENSE-MIT.txt"
+test "$(lipo -archs "$uv_executable")" = "arm64"
+test "$("$uv_executable" --version | awk '{print $2}')" = "$SUMIKA_UV_VERSION"
+codesign --verify --strict --verbose=2 "$uv_executable"
+if [ -n "$expected_team" ]; then
+  uv_signature="$(codesign --display --verbose=4 "$uv_executable" 2>&1)"
+  printf '%s\n' "$uv_signature" | grep -F "TeamIdentifier=$expected_team" >/dev/null
+  printf '%s\n' "$uv_signature" | grep -F "(runtime)" >/dev/null
+fi
+
 if ! otool -L "$app_bundle"/Contents/MacOS/* 2>/dev/null \
   | grep -F "Sparkle.framework" >/dev/null
 then
@@ -87,4 +101,4 @@ test -n "$public_key" || {
   exit 1
 }
 
-echo "Verified Sparkle in release app: $app_bundle"
+echo "Verified Sparkle and bundled uv in release app: $app_bundle"

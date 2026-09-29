@@ -223,6 +223,24 @@ target; `Iterable` and task cancellation shields require macOS 27.
 
 ## Dependencies and Generated Files
 
+Xcode builds embed pinned uv through `script/embed_uv.sh`. The first app build
+downloads its checksum-verified Apple Silicon archive into `.build/uv/`; subsequent
+builds can use that cache offline. Run `bash script/embed_uv.sh --prepare` to warm
+the cache, or set `SUMIKA_UV_OFFLINE=1` to fail immediately if it is unavailable.
+Developer ID release signing still requires Apple's timestamp service.
+The script uses macOS tools and does not require installed Python or uv. SwiftPM
+tests inject fake executables and do not download Python or MCP packages.
+
+After building the app, explicitly opt into the networked runtime smoke test with
+`SUMIKA_TEST_BUNDLED_UV` set to the absolute path of its `Contents/Helpers/uv`, then
+run `xcrun swift test --filter MCPBundledRuntimeSmokeTests`. This uses fresh temporary
+runtime storage and a minimal PATH, checks a cold offline failure, installs Python
+and the pinned Fetch MCP server, and verifies an offline restart. It does not call
+the server's web-fetching tool. A clean-account notarized-app check remains separate.
+
+Update `script/uv-release.sh` and the bundled upstream license together when
+upgrading uv, then verify embedding, managed MCP startup, and the exported app.
+
 All product Swift package dependencies are declared in the root `Package.swift`.
 The isolated SwiftLint tool package lives under `script/swiftlint`. After
 changing product dependencies, run:

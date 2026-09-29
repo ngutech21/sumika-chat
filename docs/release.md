@@ -50,11 +50,24 @@ explicitly sets `ARCHS=arm64` to match the MLX runtime and AnyDocSwiftBridge bin
 The exported app is then packaged in the DMG; the app bundle is not modified after
 export.
 
+The Xcode Embed uv phase installs the checksum-pinned arm64 executable at
+`Contents/Helpers/uv` and includes its MIT license in Resources. The embedded
+copy is signed before the app; cached upstream archives remain unmodified.
+uv is updated with Sumika releases. Runtime Python installations and MCP package
+caches remain outside the signed app and survive updates or moving the app.
+
 `just release-signed` runs `script/verify_release_app.sh` against that exported
 app. The check requires the embedded Sparkle framework, updater resources,
 `Autoupdate`, updater app, downloader and installer XPC services, a runtime
 link to Sparkle, valid nested signatures from the configured team, and nonempty
 `SUFeedURL` and `SUPublicEDKey` values.
+
+The same verifier checks bundled uv's executable permission, architecture, pinned
+version, license, and nested signature/team. For changes to this runtime, also
+verify a notarized app on a clean account without installed Python or uv: select
+a Python MCP server, test first-use downloads and cached restarts, cancel a pending
+start, exercise an offline cache miss, and repeat after moving the app. Archive
+verification alone does not establish these runtime behaviors.
 
 After changing Sparkle dependency or embedding wiring, also install the
 notarized DMG on a clean macOS account, launch Sumika, and invoke

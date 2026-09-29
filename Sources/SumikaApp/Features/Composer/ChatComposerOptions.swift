@@ -256,6 +256,14 @@ struct ChatComposerOptions: View {
             serverRow(server)
           }
         }
+        if configuration.servers.contains(where: \.usesBundledUV) {
+          Text(
+            "uv and uvx use Sumika’s bundled runtime and may download Python and packages on first use."
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 4)
+        }
       }
     }
   }
@@ -298,13 +306,14 @@ struct ChatComposerOptions: View {
           Text(statusText(for: server))
             .font(.caption2)
             .foregroundStyle(.secondary)
-            .lineLimit(1)
+            .lineLimit(2)
         }
         Spacer(minLength: 0)
       }
       .contentShape(Rectangle())
       .padding(.horizontal, 8)
-      .frame(height: 34)
+      .padding(.vertical, 4)
+      .frame(minHeight: 34)
     }
     .buttonStyle(.plain)
     .disabled(!configuration.canChangeMCPSelection)
@@ -364,7 +373,8 @@ struct ChatComposerOptions: View {
     case .connected(let toolCount):
       return toolCount == 1 ? "Connected, 1 tool" : "Connected, \(toolCount) tools"
     case .connecting:
-      return "Connecting…"
+      return server.usesBundledUV
+        ? "Starting… first run may download Python and packages." : "Connecting…"
     case .failed:
       return "Connection failed"
     case .disconnected, .none:
