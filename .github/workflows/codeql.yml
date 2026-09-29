@@ -108,7 +108,7 @@ jobs:
       if: matrix.build-mode == 'manual'
       timeout-minutes: 30
       shell: bash
-      run: xcrun swift build --target SumikaCore --arch arm64
+      run: xcrun swift build --disable-sandbox --target SumikaCore --arch arm64
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
