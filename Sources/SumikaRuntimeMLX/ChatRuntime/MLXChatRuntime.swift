@@ -12,6 +12,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
   }
 
   private var modelContainer: ModelContainer?
+  private var loadedSpeculativeDecoding: SpeculativeDecodingConfig?
   private var loadedModelSupportsImageInput = false
   private var loadedReasoningTraceFormat: ReasoningTraceFormat = .none
   private var loadedModelPreservesHistoricalReasoning = false
@@ -63,7 +64,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     let memoryTraceScope = await debugTraceStore.beginMemoryScope(phase: .modelLoadBefore)
 
     do {
-      let container = try await MLX.withError { error in
+      let (container, speculativeDecoding) = try await MLX.withError { error in
         let container =
           if configuration.supportsImageInput {
             try await VLMModelFactory.shared.loadContainer(
@@ -76,19 +77,30 @@ final actor MLXChatRuntime: ChatModelRuntime {
               using: tokenizerLoader
             )
           }
+        let speculativeDecoding: SpeculativeDecodingConfig? =
+          if configuration.usesBundledMTPDrafter {
+            try SpeculativeDecodingConfig(
+              mtpDrafter: try await BundledOptiQMTPDrafterLoader.load(for: container),
+              blockSize: 2
+            )
+          } else {
+            nil
+          }
         StreamOrDevice.default.stream.synchronize()
         try error.check()
         try Task.checkCancellation()
-        return container
+        return (container, speculativeDecoding)
       }
 
-      runtimeCacheDiagnostics =
+      let cacheDiagnostics: MLXRuntimeCacheDiagnostics? =
         if MLXDebugTraceStore.isEnabled {
           await MLXRuntimeCacheDiagnostics.install(on: container)
         } else {
           nil
         }
       modelContainer = container
+      loadedSpeculativeDecoding = speculativeDecoding
+      runtimeCacheDiagnostics = cacheDiagnostics
       loadedModelSupportsImageInput = configuration.supportsImageInput
       loadedReasoningTraceFormat = configuration.reasoningTraceFormat
       loadedModelPreservesHistoricalReasoning =
@@ -119,6 +131,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     await cancelAndDrainActiveGeneration(reason: .modelChanged)
     invalidateCachedSession(reason: .modelChanged)
     modelContainer = nil
+    loadedSpeculativeDecoding = nil
     runtimeCacheDiagnostics = nil
     loadedModelSupportsImageInput = false
     loadedReasoningTraceFormat = .none
@@ -233,6 +246,9 @@ final actor MLXChatRuntime: ChatModelRuntime {
     guard let modelContainer else {
       throw MLXChatRuntimeError.modelNotLoaded
     }
+    let speculativeDecoding = loadedSpeculativeDecoding
+    let modelContextTokenLimit = contextTokenLimit
+    let thinkingBudgetPolicy = loadedThinkingBudgetPolicy
     let imageAttachments = attachments.filter { $0.kind == .image }
     guard imageAttachments.isEmpty || loadedModelSupportsImageInput else {
       throw MLXChatRuntimeError.unsupportedImageInput
@@ -251,6 +267,10 @@ final actor MLXChatRuntime: ChatModelRuntime {
         loadedModelPreservesHistoricalReasoning
     )
     let generateParameters = Self.generateParameters(from: settings)
+    let speculativeDecodingMode = MLXSpeculativeDecodingMode.resolve(
+      hasLoadedMTPDrafter: speculativeDecoding != nil,
+      isMTPEnabled: settings.isMTPEnabled
+    )
     let additionalContext = generationInput.additionalContext
     let systemPrompt = promptPlan.stableInstructions
     let toolSpecs = MLXToolMapper.toolSpecs(from: promptPlan.toolContext)
@@ -279,7 +299,11 @@ final actor MLXChatRuntime: ChatModelRuntime {
       systemPrompt: systemPrompt,
       history: history,
       finalPrompt: finalPrompt,
-      imageAttachments: imageAttachments
+      imageAttachments: imageAttachments,
+      policy: thinkingBudgetPolicy,
+      contextTokenLimit: modelContextTokenLimit,
+      mtpDrafterLoaded: speculativeDecoding != nil,
+      speculativeDecodingMode: speculativeDecodingMode
     )
     let generationID = generationOwnership.beginGeneration()
     do {
@@ -300,6 +324,8 @@ final actor MLXChatRuntime: ChatModelRuntime {
           additionalContext: additionalContext,
           projectionMode: projectionMode,
           thinkingBudgetIdentity: thinkingBudgetPlan.identity,
+          speculativeDecodingMode: speculativeDecodingMode,
+          speculativeDecoding: speculativeDecoding,
           components: thinkingBudgetPlan.components,
           generationID: generationID
         )
@@ -319,6 +345,9 @@ final actor MLXChatRuntime: ChatModelRuntime {
         effectiveReasoningSelection: effectiveReasoningSelection,
         imageAttachments: imageAttachments,
         thinkingBudget: thinkingBudgetPlan.trace,
+        contextTokenLimit: modelContextTokenLimit,
+        mtpDrafterLoaded: speculativeDecoding != nil,
+        speculativeDecodingMode: speculativeDecodingMode,
         interactionMode: interactionMode
       )
 
@@ -514,9 +543,12 @@ extension MLXChatRuntime {
     systemPrompt: String,
     history: [Chat.Message],
     finalPrompt: String,
-    imageAttachments: [ChatAttachment]
+    imageAttachments: [ChatAttachment],
+    policy: ThinkingBudgetPolicy,
+    contextTokenLimit: Int?,
+    mtpDrafterLoaded: Bool,
+    speculativeDecodingMode: MLXSpeculativeDecodingMode
   ) async throws -> MLXThinkingBudgetPlan {
-    let policy = loadedThinkingBudgetPolicy
     let attemptedTrace = MLXThinkingBudgetPlanner.trace(
       policy: policy,
       reasoningEnabled: effectiveReasoningSelection.isEnabled,
@@ -542,6 +574,9 @@ extension MLXChatRuntime {
         effectiveReasoningSelection: effectiveReasoningSelection,
         imageAttachments: imageAttachments,
         thinkingBudget: attemptedTrace,
+        contextTokenLimit: contextTokenLimit,
+        mtpDrafterLoaded: mtpDrafterLoaded,
+        speculativeDecodingMode: speculativeDecodingMode,
         interactionMode: interactionMode
       )
       await debugTraceStore.traceResponse(
@@ -567,6 +602,9 @@ extension MLXChatRuntime {
     effectiveReasoningSelection: ReasoningSelection,
     imageAttachments: [ChatAttachment],
     thinkingBudget: MLXThinkingBudgetTrace,
+    contextTokenLimit: Int?,
+    mtpDrafterLoaded: Bool,
+    speculativeDecodingMode: MLXSpeculativeDecodingMode,
     interactionMode: WorkspaceInteractionMode?
   ) async throws {
     let traceMessages = try MLXHistoryRenderer.runtimeHistoryMessages(
@@ -592,6 +630,8 @@ extension MLXChatRuntime {
       contextTokenLimit: contextTokenLimit,
       imageAttachments: imageAttachments,
       thinkingBudget: thinkingBudget,
+      mtpDrafterLoaded: mtpDrafterLoaded,
+      speculativeDecodingMode: speculativeDecodingMode.rawValue,
       interactionMode: interactionMode
     )
   }
@@ -667,6 +707,8 @@ extension MLXChatRuntime {
     additionalContext: [String: any Sendable],
     projectionMode: ModelContextProjectionMode,
     thinkingBudgetIdentity: MLXThinkingBudgetIdentity?,
+    speculativeDecodingMode: MLXSpeculativeDecodingMode,
+    speculativeDecoding: SpeculativeDecodingConfig?,
     components: GenerationComponents,
     generationID: MLXGenerationID
   ) -> MLXSessionCachePlan {
@@ -676,7 +718,8 @@ extension MLXChatRuntime {
       projectionMode: projectionMode,
       toolSpecs: toolSpecs,
       additionalContext: additionalContext,
-      thinkingBudgetIdentity: thinkingBudgetIdentity
+      thinkingBudgetIdentity: thinkingBudgetIdentity,
+      speculativeDecodingMode: speculativeDecodingMode
     )
     let cached = cachedSession
     let appendOnly: Bool
@@ -787,6 +830,7 @@ extension MLXChatRuntime {
       modelContainer,
       instructions: ModelFacingPromptRenderer.normalizedSystemPrompt(systemPrompt),
       history: history,
+      speculativeDecoding: speculativeDecodingMode.configuration(from: speculativeDecoding),
       generateParameters: generateParameters,
       components: components,
       processing: Self.modelNativeMediaProcessing,
