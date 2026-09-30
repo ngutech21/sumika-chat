@@ -24,7 +24,7 @@ struct MCPBundledRuntimeSmokeTests {
             "--python", "3.12", "--with", "mcp==1.26.0",
             "--from", "mcp-server-fetch==2025.4.7", "mcp-server-fetch",
           ],
-          environment: ["UV_NO_CONFIG": "1", "UV_OFFLINE": offline ? "1" : "0"]),
+          environment: ["UV_OFFLINE": offline ? "1" : "0"]),
         workspaceRootURL: root, baseEnvironment: ["PATH": "/usr/bin:/bin"],
         pathPrefixDirectories: [], runtimeConfiguration: runtime)
     }

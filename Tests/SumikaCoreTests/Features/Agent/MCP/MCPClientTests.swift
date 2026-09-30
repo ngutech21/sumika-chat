@@ -13,7 +13,7 @@ import Testing
 /// request's ID instead of assuming a sequence.
 @Suite(TemporaryDirectoryTrait(named: "sumika-mcp-client-tests"))
 struct MCPClientTests {
-  private static let fakeServerScript = """
+  static let fakeServerScript = """
     #!/bin/sh
     request_id() {
       printf '%s\\n' "$1" | sed -E 's/.*"id":("[^"]*"|[0-9]+).*/\\1/'
@@ -445,7 +445,7 @@ struct MCPClientTests {
     let script = try writeScript(
       """
       #!/bin/sh
-      printf '%s\\n' "$@" "$PWD" "$UV_PYTHON_INSTALL_DIR" "$UV_CACHE_DIR" "$UV_TOOL_DIR" "$UV_MANAGED_PYTHON" "$UV_PYTHON_DOWNLOADS" "${UV_PYTHON-unset}" "${VIRTUAL_ENV-unset}" "$CUSTOM_VALUE" "$UV_OFFLINE" > "$REPORT"
+      printf '%s\\n' "$@" "$PWD" "$UV_PYTHON_INSTALL_DIR" "$UV_CACHE_DIR" "$UV_TOOL_DIR" "$UV_MANAGED_PYTHON" "$UV_PYTHON_DOWNLOADS" "${UV_PYTHON-unset}" "${VIRTUAL_ENV-unset}" "$CUSTOM_VALUE" "$UV_OFFLINE" "${UV_NO_CONFIG-unset}" "${UV_CONFIG_FILE-unset}" > "$REPORT"
       """ + "\n" + Self.fakeServerScript.replacingOccurrences(of: "| sed ", with: "| /usr/bin/sed ")
     )
     let helper = root.appending(path: "bundled uv")
@@ -456,6 +456,8 @@ struct MCPClientTests {
     var environment = ["PATH": "/nonexistent", "REPORT": report.path, "CUSTOM_VALUE": "explicit"]
     if overridePython {
       environment["UV_PYTHON"] = "3.12"
+      environment["UV_NO_CONFIG"] = "0"
+      environment["UV_CONFIG_FILE"] = "/server/uv.toml"
       let conflictingExecutable = root.appending(path: command)
       try "#!/bin/sh\nexit 99\n".write(
         to: conflictingExecutable, atomically: true, encoding: .utf8)
@@ -473,6 +475,7 @@ struct MCPClientTests {
           "UV_PYTHON": "/missing/python", "VIRTUAL_ENV": "/missing/venv",
           "UV_PYTHON_INSTALL_DIR": "/wrong", "UV_MANAGED_PYTHON": "0", "UV_OFFLINE": "1",
           "UV_CACHE_DIR": "/wrong", "UV_TOOL_DIR": "/wrong", "UV_PYTHON_DOWNLOADS": "never",
+          "UV_NO_CONFIG": "0", "UV_CONFIG_FILE": "/inherited/uv.toml",
         ],
         runtimeConfiguration: runtime)
     }
@@ -483,7 +486,7 @@ struct MCPClientTests {
         "server", "a b", "$(literal)", root.resolvingSymlinksInPath().path,
         root.appending(path: "runtime data/python").path,
         root.appending(path: "runtime cache").path, root.appending(path: "runtime data/tools").path,
-        "1", "automatic", overridePython ? "3.12" : "unset", "unset", "explicit", "1",
+        "1", "automatic", overridePython ? "3.12" : "unset", "unset", "explicit", "1", "1", "unset",
       ]
     var actual = try String(contentsOf: report, encoding: .utf8).split(separator: "\n").map(
       String.init)
@@ -497,6 +500,55 @@ struct MCPClientTests {
     await activate(manager, configs: [config], workspaceRootURL: root)
     #expect(await manager.statuses().first?.state == .connected(toolCount: 1))
     await manager.shutdownAll()
+  }
+
+  @Test(
+    arguments: ["uv", "uvx"],
+    [["--config-file", "/external.toml"], ["--config-file=/external.toml"]])
+  func bundledRuntimeRejectsExplicitConfiguration(command: String, arguments: [String]) async throws
+  {
+    let root = try scopedTemporaryDirectory()
+    let marker = root.appending(path: "launched")
+    let helper = try writeScript(
+      "#!/bin/sh\nprintf started > \"$MARKER\"\n" + Self.fakeServerScript)
+    let connection = MCPServerConnection(
+      config: MCPServerConfig(
+        name: "Managed", command: command, arguments: arguments,
+        environment: ["MARKER": marker.path]),
+      workspaceRootURL: root,
+      runtimeConfiguration: MCPRuntimeConfiguration(
+        uvExecutableURL: helper, dataDirectoryURL: root, cacheDirectoryURL: root))
+    defer { await connection.shutdown() }
+
+    await #expect(throws: MCPClientError.bundledRuntimeConfigurationNotAllowed) {
+      try await connection.start()
+    }
+    #expect(!FileManager.default.fileExists(atPath: marker.path))
+  }
+
+  @Test(arguments: ["uv", "uvx"])
+  func bundledRuntimePreservesServerConfigurationAfterSeparator(command: String) async throws {
+    let root = try scopedTemporaryDirectory()
+    let report = root.appending(path: "arguments.txt")
+    let helper = try writeScript(
+      "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$REPORT\"\n" + Self.fakeServerScript)
+    let arguments =
+      (command == "uv" ? ["run"] : []) + [
+        "--", "server", "--config-file", "server.toml", "--config-file=literal",
+      ]
+    let connection = MCPServerConnection(
+      config: MCPServerConfig(
+        name: "Managed", command: command, arguments: arguments,
+        environment: ["REPORT": report.path]),
+      workspaceRootURL: root,
+      runtimeConfiguration: MCPRuntimeConfiguration(
+        uvExecutableURL: helper, dataDirectoryURL: root, cacheDirectoryURL: root))
+    defer { await connection.shutdown() }
+
+    #expect(try await connection.start().count == 1)
+    let actual = try String(contentsOf: report, encoding: .utf8).split(separator: "\n").map(
+      String.init)
+    #expect(actual == (command == "uvx" ? ["tool", "run"] : []) + arguments)
   }
 
   @Test(arguments: [false, true])
@@ -515,18 +567,28 @@ struct MCPClientTests {
 
   @Test(arguments: [false, true])
   func explicitUVPathDoesNotUseBundledRuntime(relative: Bool) async throws {
-    let script = try writeScript(Self.fakeServerScript)
+    let script = try writeScript(
+      "#!/bin/sh\nprintf '%s\\n' \"$UV_NO_CONFIG\" \"$UV_CONFIG_FILE\" > \"$REPORT\"\n"
+        + Self.fakeServerScript)
     let root = script.deletingLastPathComponent()
+    let report = root.appending(path: "environment.txt")
     let helper = root.appending(path: "uv")
     try FileManager.default.copyItem(at: script, to: helper)
     let connection = MCPServerConnection(
-      config: MCPServerConfig(name: "External", command: relative ? "./uv" : helper.path),
+      config: MCPServerConfig(
+        name: "External", command: relative ? "./uv" : helper.path,
+        arguments: ["--config-file", "server.toml"],
+        environment: ["REPORT": report.path, "UV_NO_CONFIG": "0", "UV_CONFIG_FILE": "/server.toml"]),
       workspaceRootURL: root,
+      baseEnvironment: [
+        "PATH": "/usr/bin:/bin", "UV_NO_CONFIG": "1", "UV_CONFIG_FILE": "/base.toml",
+      ],
       runtimeConfiguration: MCPRuntimeConfiguration(
         uvExecutableURL: root.appending(path: "missing"), dataDirectoryURL: root,
         cacheDirectoryURL: root))
     #expect(try await connection.start().count == 1)
     await connection.shutdown()
+    #expect(try String(contentsOf: report, encoding: .utf8) == "0\n/server.toml\n")
   }
 
   @Test
@@ -789,7 +851,7 @@ struct MCPClientTests {
       case .notConnected, .serverExited:
         break
       case .staleConnection, .timedOut, .protocolError, .serverError, .resourceLimit,
-        .bundledRuntimeUnavailable:
+        .bundledRuntimeUnavailable, .bundledRuntimeConfigurationNotAllowed:
         Issue.record("Expected connection lifecycle error, got \(error)")
       }
     } catch {

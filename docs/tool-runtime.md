@@ -551,6 +551,16 @@ declarations.
   explicit server activation or testing does. A fresh setup may require network
   access. Managed uv initialization allows 300 seconds; other initialization and
   tools/list retain 30 seconds, and tool calls retain 120 seconds.
+- Bundled uv ignores workspace, user, and system uv configuration files. The
+  final child environment enforces `UV_NO_CONFIG=1` and removes `UV_CONFIG_FILE`
+  after applying server overrides. Other explicit environment settings, including
+  offline and Python selection, retain their existing behavior. Bundled commands
+  reject `--config-file` and `--config-file=...` before the `--` separator. If an
+  MCP server needs its own option with that name, put its command and arguments
+  after the separator, for example `uvx -- server --config-file server.toml` or
+  `uv run -- python server.py --config-file server.toml`. To intentionally use uv
+  configuration files, configure an explicit path to a system uv executable;
+  system-command environments and arguments are not restricted by this policy.
 - The SDK `Client` owns JSON-RPC encoding and decoding, lifecycle negotiation, request IDs,
   error decoding, typed `tools/list`/`tools/call`, notifications, and optional
   `roots/list` dispatch for both transports. stdio and loopback HTTP advertise

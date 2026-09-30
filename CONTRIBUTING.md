@@ -238,6 +238,12 @@ runtime storage and a minimal PATH, checks a cold offline failure, installs Pyth
 and the pinned Fetch MCP server, and verifies an offline restart. It does not call
 the server's web-fetching tool. A clean-account notarized-app check remains separate.
 
+With the same `SUMIKA_TEST_BUNDLED_UV` path, run
+`xcrun swift test --filter MCPBundledRuntimeConfigurationTests` for offline
+configuration-isolation checks. These tests use uv's settings inspection without
+installing Python or packages. Workspace, home, user, and system configuration
+locations are temporary; the developer's real uv configuration is not used.
+
 Update `script/uv-release.sh` and the bundled upstream license together when
 upgrading uv, then verify embedding, managed MCP startup, and the exported app.
 

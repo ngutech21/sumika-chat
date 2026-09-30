@@ -4,6 +4,7 @@ import MCP
 enum MCPClientError: LocalizedError, Equatable {
   case notConnected
   case bundledRuntimeUnavailable
+  case bundledRuntimeConfigurationNotAllowed
   case staleConnection
   case serverExited(detail: String?)
   case timedOut(method: String)
@@ -17,6 +18,9 @@ enum MCPClientError: LocalizedError, Equatable {
       return "The MCP server is not connected."
     case .bundledRuntimeUnavailable:
       return "Sumika's bundled uv is missing or cannot be executed. Reinstall Sumika and try again."
+    case .bundledRuntimeConfigurationNotAllowed:
+      return
+        "Bundled uv does not accept --config-file. Use an explicit path to system uv for uv configuration, or put the server command and its arguments after --."
     case .staleConnection:
       return "The MCP tool belongs to an obsolete server connection."
     case .serverExited(let detail):
@@ -336,6 +340,11 @@ actor MCPServerConnection {
       guard let runtimeConfiguration,
         FileManager.default.isExecutableFile(atPath: runtimeConfiguration.uvExecutableURL.path)
       else { throw MCPClientError.bundledRuntimeUnavailable }
+      guard
+        !arguments.prefix(while: { $0 != "--" }).contains(where: {
+          $0 == "--config-file" || $0.hasPrefix("--config-file=")
+        })
+      else { throw MCPClientError.bundledRuntimeConfigurationNotAllowed }
       executableURL = runtimeConfiguration.uvExecutableURL
       processArguments = (command == "uvx" ? ["tool", "run"] : []) + arguments
     } else {
@@ -391,6 +400,11 @@ actor MCPServerConnection {
     resolved["PATH"] = prefix.isEmpty ? existingPath : prefix + ":" + existingPath
     for (key, value) in overrides {
       resolved[key] = value
+    }
+    if config.usesBundledUV {
+      // Apply after overrides; an explicit config file bypasses UV_NO_CONFIG in uv.
+      resolved["UV_NO_CONFIG"] = "1"
+      resolved["UV_CONFIG_FILE"] = nil
     }
     return resolved
   }

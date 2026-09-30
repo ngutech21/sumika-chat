@@ -30,7 +30,8 @@ extension MCPClientError {
     switch self {
     case .notConnected, .serverExited, .resourceLimit:
       return true
-    case .staleConnection, .timedOut, .protocolError, .serverError, .bundledRuntimeUnavailable:
+    case .staleConnection, .timedOut, .protocolError, .serverError, .bundledRuntimeUnavailable,
+      .bundledRuntimeConfigurationNotAllowed:
       return false
     }
   }
