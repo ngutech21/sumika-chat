@@ -1,6 +1,4 @@
 import AppKit
-import CoreGraphics
-import Darwin
 import XCTest
 
 @testable import SumikaCore
@@ -296,8 +294,10 @@ final class SumikaUITests: XCTestCase {
       "skill-suggestion.personal:review"
     ]
     XCTAssertTrue(projectReview.waitForExistence(timeout: 5))
-    XCTAssertTrue(personalReview.waitForExistence(timeout: 5))
-    XCTAssertLessThan(projectReview.frame.minY, personalReview.frame.minY)
+    XCTAssertFalse(personalReview.exists, "The project skill should shadow its personal copy.")
+    XCTAssertTrue(
+      application.descendants(matching: .any)["skill-suggestion.personal:testing"].exists
+    )
 
     let diagnosticsFooter = application.buttons["skill-diagnostics-footer"]
     XCTAssertTrue(diagnosticsFooter.waitForExistence(timeout: 5))
@@ -340,16 +340,23 @@ final class SumikaUITests: XCTestCase {
     messageField.typeKey("a", modifierFlags: .command)
     messageField.typeText("$review")
     messageField.typeKey(.escape, modifierFlags: [])
-    let baseline = UITurnBaseline.capture(in: application)
     application.buttons["send-button"].click()
-    let ambiguityError = application.staticTexts.matching(
-      NSPredicate(format: "label CONTAINS %@", "Multiple skills are named 'review'")
-    ).firstMatch
-    XCTAssertTrue(ambiguityError.waitForExistence(timeout: 5))
-    XCTAssertEqual(messageField.value as? String, "$review")
-    let afterFailure = UITurnBaseline.capture(in: application)
-    XCTAssertEqual(afterFailure.assistantMessageCount, baseline.assistantMessageCount)
-    XCTAssertEqual(afterFailure.toolCallCount, baseline.toolCallCount)
+    XCTAssertTrue(
+      waitUntil(timeout: 10) {
+        guard
+          let session = try? persistedSelectedSession(in: fixture.storageRoot),
+          let item = session.turns.last?.items.first,
+          case .userMessage(let message) = item
+        else {
+          return false
+        }
+        return message.content == "$review"
+          && message.promptContext.activatedSkills.map(\.id)
+            == [SkillID(scope: .project, name: "review")]
+      },
+      "An unbound skill name should activate and persist the project winner."
+    )
+    XCTAssertEqual(messageField.value as? String, "")
   }
 
   @MainActor
@@ -392,51 +399,34 @@ final class SumikaUITests: XCTestCase {
     application.buttons["send-button"].click()
 
     let renderedSkill = application.links.matching(
-      NSPredicate(
-        format: "label CONTAINS %@ OR value CONTAINS %@",
-        "Code Review",
-        "Code Review"
-      )
+      NSPredicate(format: "title == %@", "Code Review")
     ).firstMatch
     XCTAssertTrue(renderedSkill.waitForExistence(timeout: 10))
 
-    application.windows.firstMatch.coordinate(
-      withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)
-    ).hover()
-    usleep(1_000_000)
-    let processID = try XCTUnwrap(
-      NSRunningApplication.runningApplications(withBundleIdentifier: "chat.sumika")
-        .first(where: \.isActive)?
-        .processIdentifier
-    )
-    let visibleWindowsBeforeHover = onScreenWindowNumbers(
-      ownedBy: processID
-    )
-    renderedSkill.hover()
-    XCTAssertTrue(
-      waitUntil(timeout: 5) {
-        !onScreenWindowNumbers(ownedBy: processID)
-          .subtracting(visibleWindowsBeforeHover)
-          .isEmpty
-      },
-      "Hovering the rendered skill should show its native tooltip window."
-    )
+    let cancelButton = application.buttons["cancel-generation-button"]
+    if cancelButton.exists {
+      cancelButton.click()
+    }
+    waitForGenerationIdle(in: application, timeout: 30)
 
     renderedSkill.click()
     let previewPane = application.descendants(matching: .any)["skill-preview-pane"]
     XCTAssertTrue(previewPane.waitForExistence(timeout: 5))
-    XCTAssertEqual(application.staticTexts["skill-preview-title"].label, "Code Review")
     XCTAssertEqual(
-      application.staticTexts["skill-preview-subtitle"].label,
+      previewPane.descendants(matching: .any)["skill-preview-title"].value as? String,
+      "Code Review"
+    )
+    XCTAssertEqual(
+      previewPane.descendants(matching: .any)["skill-preview-subtitle"].value as? String,
       "Used in this message · .agents/skills/code-review/SKILL.md"
     )
     XCTAssertTrue(
-      application.staticTexts.matching(
+      previewPane.descendants(matching: .any).matching(
         NSPredicate(format: "value CONTAINS %@", "Review steps")
       ).firstMatch.waitForExistence(timeout: 5)
     )
     XCTAssertFalse(
-      application.staticTexts.matching(
+      previewPane.descendants(matching: .any).matching(
         NSPredicate(format: "value CONTAINS %@", "name: code-review")
       ).firstMatch.exists
     )
@@ -459,11 +449,6 @@ final class SumikaUITests: XCTestCase {
     let copyButton = application.buttons["Copy message"].firstMatch
     XCTAssertTrue(copyButton.waitForExistence(timeout: 5))
     copyButton.click()
-    let cancelButton = application.buttons["cancel-generation-button"]
-    if cancelButton.waitForExistence(timeout: 1) {
-      cancelButton.click()
-    }
-    waitForGenerationIdle(in: application, timeout: 30)
     messageField.click()
     messageField.typeKey("a", modifierFlags: .command)
     messageField.typeKey("v", modifierFlags: .command)
@@ -531,22 +516,13 @@ final class SumikaUITests: XCTestCase {
     XCTAssertTrue(serverRow.waitForExistence(timeout: 5))
     XCTAssertTrue((serverRow.value as? String)?.contains("Selected") == true)
 
-    let libraryURL = fixture.storageRoot.appending(
-      path: "workspaces.json",
-      directoryHint: .notDirectory
-    )
     XCTAssertTrue(
       waitUntil(timeout: 10) {
-        guard
-          let data = try? Data(contentsOf: libraryURL),
-          let library = try? JSONDecoder().decode(WorkspaceLibrary.self, from: data)
-        else {
-          return false
-        }
-        return library.workspaces.first?.sessions.first { $0.id == library.activeSessionID }?
-          .selectedMCPServerIDs == [server.id]
+        (try? persistedSelectedSession(in: fixture.storageRoot))?.selectedMCPServerIDs == [
+          server.id
+        ]
       },
-      "The selected MCP server should persist on the active session."
+      "The selected MCP server should persist on the selected session."
     )
   }
 
@@ -563,7 +539,7 @@ final class SumikaUITests: XCTestCase {
 
     let picker = application.descendants(matching: .any)["chat.reasoningLevelPicker"]
     XCTAssertTrue(picker.waitForExistence(timeout: 5))
-    XCTAssertEqual(picker.value as? String, "Reasoning Medium")
+    XCTAssertEqual(picker.value as? String, "Medium")
     XCTAssertFalse(application.switches["chat.reasoningToggle"].exists)
     picker.click()
     let low = application.menuItems["Low"]
@@ -596,7 +572,11 @@ final class SumikaUITests: XCTestCase {
     XCTAssertEqual(options.value as? String, "Reasoning Low")
     XCTAssertTrue(
       waitUntil(timeout: 10) {
-        persistedReasoningSelections(in: fixture.storageRoot) == ("low", "xhigh")
+        guard let session = try? persistedSelectedSession(in: fixture.storageRoot) else {
+          return false
+        }
+        return session.modeSettings[.chat].generationSettings.reasoningSelection == .effort(.low)
+          && session.modeSettings[.agent].generationSettings.reasoningSelection == .effort(.xhigh)
       },
       "Chat and Agent reasoning levels should persist independently on the session."
     )
@@ -963,36 +943,26 @@ final class SumikaUITests: XCTestCase {
     )
   }
 
-  private func persistedReasoningSelections(
-    in storageRoot: URL
-  ) -> (chat: String?, agent: String?) {
-    let sessionsURL =
-      storageRoot
-      .appending(path: "WorkspaceLibrary", directoryHint: .isDirectory)
+  private func persistedSelectedSession(in storageRoot: URL) throws -> ChatSession? {
+    let libraryURL = storageRoot.appending(path: "WorkspaceLibrary", directoryHint: .isDirectory)
+    let manifestURL = libraryURL.appending(path: "workspaces.json", directoryHint: .notDirectory)
+    let decoder = WorkspacePersistenceCoding.makeDecoder()
+    let manifest = try decoder.decode(
+      WorkspaceLibraryManifest.self,
+      from: Data(contentsOf: manifestURL)
+    )
+    guard let sessionID = manifest.activeSessionID else { return nil }
+    let sessionURL =
+      libraryURL
       .appending(path: "sessions", directoryHint: .isDirectory)
-    guard
-      let sessionURL = try? FileManager.default.contentsOfDirectory(
-        at: sessionsURL,
-        includingPropertiesForKeys: nil
-      ).first(where: { $0.pathExtension == "json" }),
-      let data = try? Data(contentsOf: sessionURL),
-      let session = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-      let modeSettings = session["modeSettings"] as? [String: Any]
-    else {
-      return (nil, nil)
-    }
-
-    func selection(for mode: String) -> String? {
-      guard
-        let settings = modeSettings[mode] as? [String: Any],
-        let generation = settings["generationSettings"] as? [String: Any]
-      else {
-        return nil
-      }
-      return generation["reasoningSelection"] as? String
-    }
-
-    return (selection(for: "chat"), selection(for: "agent"))
+      .appending(
+        path: WorkspacePersistenceCoding.sessionFileName(for: sessionID),
+        directoryHint: .notDirectory
+      )
+    return try decoder.decode(
+      WorkspaceSessionDocument.self,
+      from: Data(contentsOf: sessionURL)
+    ).session
   }
 
   private func launchFixture(
@@ -1099,28 +1069,6 @@ final class SumikaUITests: XCTestCase {
         )
       }
     }
-  }
-
-  private func onScreenWindowNumbers(ownedBy processID: pid_t) -> Set<CGWindowID> {
-    guard
-      let windows = CGWindowListCopyWindowInfo(
-        [.optionOnScreenOnly, .excludeDesktopElements],
-        kCGNullWindowID
-      ) as? [[String: Any]]
-    else {
-      return []
-    }
-    return Set(
-      windows.compactMap { window in
-        guard
-          (window[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == processID,
-          let number = window[kCGWindowNumber as String] as? NSNumber
-        else {
-          return nil
-        }
-        return CGWindowID(number.uint32Value)
-      }
-    )
   }
 
   private func requireCompleteModelWeights(

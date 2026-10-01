@@ -52,6 +52,7 @@ struct SkillPreviewPane: View {
     .overlay(alignment: .leading) {
       Divider()
     }
+    .accessibilityElement(children: .contain)
     .accessibilityIdentifier("skill-preview-pane")
   }
 

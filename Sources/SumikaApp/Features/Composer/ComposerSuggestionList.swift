@@ -81,6 +81,7 @@ struct ComposerSuggestionList: View {
     .padding(4)
     .glassPanel(cornerRadius: 12)
     .frame(maxWidth: .infinity, maxHeight: 320, alignment: .leading)
+    .accessibilityElement(children: .contain)
     .accessibilityIdentifier(accessibilityIdentifier)
   }
 
