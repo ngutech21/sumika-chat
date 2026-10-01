@@ -629,8 +629,9 @@ declarations.
   it, templates that dump the schema as JSON (Qwen) render it shorter and
   cleaner. The normalization must not encode assumptions about one specific
   model family. Provider adapters (`MLXToolMapper`) pass the normalized
-  schema through instead of deriving a flat one, dropping JSON `null` values
-  because the shared Jinja engine cannot represent them regardless of model.
+  schema through instead of deriving a flat one, preserving JSON `null` values
+  in defaults, constants, and arrays. The tokenizer converts these values into
+  Jinja nulls; the mapped schemas, including nulls, participate in cache identity.
   Argument validation for dynamic tools always enforces the schema's explicit
   `required` list. Deterministic top-level argument-name repair and unknown-key
   rejection apply only when the schema exposes a finite `properties` list and

@@ -133,17 +133,25 @@ struct MLXToolMapperTests {
   }
 
   @Test
-  func nativeMLXToolContextDropsNullValuesFromRawSchema() throws {
-    // pydantic-based MCP servers (e.g. mcp-server-git) emit `"default": null`;
-    // the Jinja chat-template engine cannot convert NSNull, so nulls must not
-    // survive the ToolSpec mapping.
+  func nativeMLXToolContextPreservesNullValuesThroughChatTemplate() async throws {
     let rawSchema = ToolArgumentValue.object([
       "type": .string("object"),
       "properties": .object([
         "start_timestamp": .object([
           "type": .string("string"),
           "default": .null,
-        ])
+        ]),
+        "state": .object([
+          "type": .string("string"),
+          "nullable": .bool(true),
+          "enum": .array([.null, .string("open")]),
+        ]),
+        "filter": .object([
+          "type": .string("object"),
+          "properties": .object([
+            "disabled": .object(["type": .string("null"), "const": .null])
+          ]),
+        ]),
       ]),
     ])
     let definition = ToolDefinition(
@@ -159,16 +167,40 @@ struct MLXToolMapperTests {
     let specs = try #require(MLXToolMapper.toolSpecs(from: toolContext))
     let function = try #require(specs.first?["function"] as? [String: any Sendable])
     let parameters = try #require(function["parameters"] as? [String: any Sendable])
-    let properties = try #require(parameters["properties"] as? [String: any Sendable])
-    let startTimestamp = try #require(properties["start_timestamp"] as? [String: any Sendable])
+    let data = try JSONSerialization.data(withJSONObject: parameters)
+    #expect(try JSONDecoder().decode(ToolArgumentValue.self, from: data) == rawSchema)
 
-    #expect(startTimestamp["type"] as? String == "string")
-    #expect(startTimestamp.keys.contains("default") == false)
-    #expect(containsNSNull(parameters) == false)
+    try await withTemporaryDirectory(named: "sumika-tool-schema-tokenizer") { directory in
+      let tokenizerJSON = """
+        {"model":{"type":"WordLevel","vocab":{"<unk>":0,"preserved":1,"changed":2},
+        "unk_token":"<unk>"},"pre_tokenizer":{"type":"WhitespaceSplit"}}
+        """
+      try Data(tokenizerJSON.utf8).write(to: directory.appending(path: "tokenizer.json"))
+      let template = """
+        {% set properties = tools[0].function.parameters.properties %}
+        {% if 'default' in properties.start_timestamp and properties.start_timestamp.default is none
+          and properties.state.enum | length == 2 and properties.state.enum[0] is none
+          and properties.state.enum[1] == 'open'
+          and 'const' in properties['filter'].properties.disabled
+          and properties['filter'].properties.disabled.const is none %}
+        preserved
+        {% else %}
+        changed
+        {% endif %}
+        """
+      try Data(template.utf8).write(to: directory.appending(path: "chat_template.jinja"))
+
+      let tokenizer = try await makeHuggingFaceTokenizerLoader().load(from: directory)
+      let tokens = try tokenizer.applyChatTemplate(
+        messages: [["role": "user", "content": "Inspect the tool schema."]],
+        tools: specs
+      )
+      #expect(tokenizer.decode(tokenIds: tokens) == "preserved")
+    }
   }
 
   @Test
-  func cacheIdentityUsesActualMappedSchemasAndIgnoresMapperDroppedNulls() throws {
+  func cacheIdentityChangesWhenRawSchemaAddsNullDefault() throws {
     let withoutDefault = ToolArgumentValue.object([
       "type": .string("object"),
       "properties": .object([
@@ -194,9 +226,15 @@ struct MLXToolMapperTests {
         from: toolContext(name: "mcp__search", rawSchema: withNullDefault)
       ))
 
+    let originalIdentity = cacheIdentity(toolSpecs: firstSpecs)
+    let nullDefaultIdentity = cacheIdentity(toolSpecs: nullDefaultSpecs)
+    #expect(originalIdentity != nullDefaultIdentity)
+    #expect(nullDefaultIdentity == cacheIdentity(toolSpecs: nullDefaultSpecs))
     #expect(
-      cacheIdentity(toolSpecs: firstSpecs)
-        == cacheIdentity(toolSpecs: nullDefaultSpecs))
+      MLXSessionCachePolicy.identityMismatchReason(
+        cached: originalIdentity,
+        current: nullDefaultIdentity
+      ) == .toolSchemasChanged)
   }
 
   @Test
@@ -276,19 +314,6 @@ struct MLXToolMapperTests {
       projectionMode: .fullHistory,
       toolSpecs: toolSpecs
     )
-  }
-
-  private func containsNSNull(_ value: Any) -> Bool {
-    if value is NSNull {
-      return true
-    }
-    if let dict = value as? [String: Any] {
-      return dict.values.contains(where: containsNSNull(_:))
-    }
-    if let array = value as? [Any] {
-      return array.contains(where: containsNSNull(_:))
-    }
-    return false
   }
 
   @Test
