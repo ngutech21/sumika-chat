@@ -1,4 +1,5 @@
 import Foundation
+import SwiftSoup
 
 #if canImport(FoundationNetworking)
   import FoundationNetworking
@@ -810,7 +811,7 @@ struct DefaultWebSearchService: WebSearching {
       maxResults: maxResults
     ) { data in
       let html = String(data: data, encoding: .utf8) ?? ""
-      return DuckDuckGoHTMLSearchParser().parse(html: html, maxResults: maxResults)
+      return try DuckDuckGoHTMLSearchParser().parse(html: html, maxResults: maxResults)
     }
   }
 
@@ -1308,53 +1309,39 @@ enum WebAddressClassifier {
 }
 
 struct DuckDuckGoHTMLSearchParser: Sendable {
-  private static let snippetAnchorRegex = compiledRegex(
-    #"<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>"#,
-    options: [.dotMatchesLineSeparators]
-  )
-  private static let snippetDivRegex = compiledRegex(
-    #"<div[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</div>"#,
-    options: [.dotMatchesLineSeparators]
-  )
-  private static let resultAnchorRegex = compiledRegex(
-    #"<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)</a>"#,
-    options: [.dotMatchesLineSeparators]
-  )
-
-  func parse(html: String, maxResults: Int) -> [WebSearchResult] {
-    let blocks = html.components(separatedBy: "result__body")
-    return blocks.compactMap(parseResultBlock(_:)).prefix(maxResults).map(\.self)
+  func parse(html: String, maxResults: Int) throws -> [WebSearchResult] {
+    guard maxResults > 0 else {
+      return []
+    }
+    let document = try SwiftSoup.parse(html)
+    return try document.select(".result__body").array()
+      .compactMap(parseResultBlock(_:)).prefix(maxResults).map(\.self)
   }
 
-  private func parseResultBlock(_ block: String) -> WebSearchResult? {
-    guard let link = firstAnchor(in: block) else {
+  private func parseResultBlock(_ block: Element) throws -> WebSearchResult? {
+    guard let link = try block.select("a.result__a[href]").first() else {
       return nil
     }
-    let snippet =
-      firstMatch(in: block, using: Self.snippetAnchorRegex)
-      ?? firstMatch(in: block, using: Self.snippetDivRegex)
+    let title = try link.text()
+    let url = try link.attr("href").trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !title.isEmpty, !url.isEmpty else {
+      return nil
+    }
+    let snippet = try block.select(".result__snippet").first()?.text()
     return WebSearchResult(
-      title: WebTextExtractor.plainText(fromHTMLFragment: link.title),
-      url: decodedDuckDuckGoRedirect(link.url),
-      snippet: snippet.map(WebTextExtractor.plainText(fromHTMLFragment:))
+      title: title,
+      url: decodedDuckDuckGoRedirect(url),
+      snippet: snippet
     )
   }
 
-  private func firstAnchor(in block: String) -> (title: String, url: String)? {
-    guard let match = firstMatchGroups(in: block, using: Self.resultAnchorRegex) else {
-      return nil
-    }
-    return (match[1], htmlDecoded(match[0]))
-  }
-
   private func decodedDuckDuckGoRedirect(_ url: String) -> String {
-    let decoded = htmlDecoded(url)
     guard
-      let components = URLComponents(string: decoded),
+      let components = URLComponents(string: url),
       let uddg = components.queryItems?.first(where: { $0.name == "uddg" })?.value,
       !uddg.isEmpty
     else {
-      return decoded
+      return url
     }
     return uddg
   }
@@ -1414,7 +1401,8 @@ enum WebTextExtractor {
     text = replacingMatches(of: lineBreakRegex, in: text, with: "\n")
     text = replacingMatches(of: blockCloseRegex, in: text, with: "\n")
     text = replacingMatches(of: tagRegex, in: text, with: " ")
-    return collapseWhitespace(htmlDecoded(text))
+    let decoded = (try? Entities.unescape(text)) ?? text
+    return collapseWhitespace(decoded)
   }
 
   private static func collapseWhitespace(_ text: String) -> String {
@@ -1441,40 +1429,4 @@ private func compiledRegex(
   options: NSRegularExpression.Options = []
 ) -> NSRegularExpression? {
   try? NSRegularExpression(pattern: pattern, options: options)
-}
-
-private func firstMatch(in text: String, using regex: NSRegularExpression?) -> String? {
-  firstMatchGroups(in: text, using: regex)?.first
-}
-
-private func firstMatchGroups(in text: String, using regex: NSRegularExpression?) -> [String]? {
-  guard let regex else {
-    return nil
-  }
-  let range = NSRange(text.startIndex..<text.endIndex, in: text)
-  guard let match = regex.firstMatch(in: text, range: range), match.numberOfRanges > 1 else {
-    return nil
-  }
-  return (1..<match.numberOfRanges).compactMap { index in
-    guard let range = Range(match.range(at: index), in: text) else {
-      return nil
-    }
-    return String(text[range])
-  }
-}
-
-private func htmlDecoded(_ text: String) -> String {
-  var decoded = text
-  let entities = [
-    "&amp;": "&",
-    "&lt;": "<",
-    "&gt;": ">",
-    "&quot;": "\"",
-    "&#39;": "'",
-    "&apos;": "'",
-  ]
-  for (entity, value) in entities {
-    decoded = decoded.replacingOccurrences(of: entity, with: value)
-  }
-  return decoded
 }

@@ -13,13 +13,141 @@ struct WebAccessTests {
   @Test
   func duckDuckGoHTMLParserReadsLocalFixture() throws {
     let html = try fixtureText("duckduckgo-lite-basic.html")
-    let results = DuckDuckGoHTMLSearchParser().parse(html: html, maxResults: 10)
+    let results = try DuckDuckGoHTMLSearchParser().parse(html: html, maxResults: 10)
 
     #expect(results.count == 2)
     #expect(results[0].title == "Swift Documentation")
     #expect(results[0].url == "https://www.swift.org/documentation/")
     #expect(results[0].snippet == "Swift docs for the language and packages.")
     #expect(results[1].title == "URLSession | Apple Developer Documentation")
+  }
+
+  @Test(arguments: [
+    #"href="https://example.com/swift" class="result__a""#,
+    #"class='highlight result__a' href='https://example.com/swift'"#,
+    #"href=https://example.com/swift class=result__a"#,
+  ])
+  func duckDuckGoHTMLParserAcceptsAttributeOrderAndQuoting(attributes: String) throws {
+    let html = """
+      <div class="result__body">
+        <a \(attributes)><span>Swift</span> <b>guide</b></a>
+        <div class="result__snippet">A <em>useful</em> guide.</div>
+      </div>
+      """
+
+    let results = try DuckDuckGoHTMLSearchParser().parse(html: html, maxResults: 10)
+    let result = try #require(results.first)
+
+    #expect(results.count == 1)
+    #expect(result.title == "Swift guide")
+    #expect(result.url == "https://example.com/swift")
+    #expect(result.snippet == "A useful guide.")
+  }
+
+  @Test
+  func duckDuckGoHTMLParserDecodesEntitiesOnlyOnce() throws {
+    let html = """
+      <div class="result__body">
+        <a class="result__a" href="https://example.com/?q=one&amp;amp;literal=two">
+          Letter &#233; &ndash; &#x1F600; &amp;lt;em&amp;gt;
+        </a>
+        <a class="result__snippet">A&nbsp;B &copy; <b>notes</b></a>
+      </div>
+      """
+
+    let results = try DuckDuckGoHTMLSearchParser().parse(html: html, maxResults: 10)
+    let result = try #require(results.first)
+
+    #expect(result.title == "Letter \u{E9} \u{2013} \u{1F600} &lt;em&gt;")
+    #expect(result.url == "https://example.com/?q=one&amp;literal=two")
+    #expect(result.snippet == "A B \u{A9} notes")
+  }
+
+  @Test(arguments: ["/l/", "//duckduckgo.com/l/"])
+  func duckDuckGoHTMLParserUnwrapsRedirectWithoutDecodingTargetAgain(path: String) throws {
+    let html = """
+      <div class="result__body">
+        <a class="result__a" href="\(path)?uddg=https%3A%2F%2Fexample.com%2Fsearch%3Fq%3Dcaf%25C3%25A9%26literal%3D%2526amp%253B&amp;rut=abc">
+          Search
+        </a>
+      </div>
+      """
+
+    let results = try DuckDuckGoHTMLSearchParser().parse(html: html, maxResults: 10)
+    let result = try #require(results.first)
+
+    #expect(result.url == "https://example.com/search?q=caf%C3%A9&literal=%26amp%3B")
+  }
+
+  @Test(arguments: [-1, 0, 1, 2, 10])
+  func duckDuckGoHTMLParserKeepsValidResultOrderAndSnippetOwnership(maxResults: Int) throws {
+    let html = """
+      <a class="result__a" href="https://example.com/outside">Outside result bodies</a>
+      <div class="not-result__body">
+        <a class="result__a" href="https://example.com/wrong-body">Wrong body class</a>
+      </div>
+      <div class="result__body">
+        <a class="not-result__a-extra" href="https://example.com/wrong-link">Wrong link class</a>
+        <a class="result__a">Missing href</a>
+        <div class="result__snippet">Orphan snippet</div>
+      </div>
+      <div class="result__body">
+        <a class="result__a" href="  ">Empty URL</a>
+      </div>
+      <div class="result__body">
+        <a class="result__a" href="https://example.com/empty-title"> </a>
+      </div>
+      <div class="result__body">
+        <a class="result__a" href="https://example.com/first">First result__body guide</a>
+      </div>
+      <div class="result__body">
+        <a class="result__a" href="https://example.com/second">Second guide</a>
+        <div class="result__snippet">Second snippet</div>
+      </div>
+      """
+
+    let results = try DuckDuckGoHTMLSearchParser().parse(html: html, maxResults: maxResults)
+    let expectedURLs = ["https://example.com/first", "https://example.com/second"]
+    #expect(results.map(\.url) == Array(expectedURLs.prefix(max(0, maxResults))))
+    if let first = results.first {
+      #expect(first.title == "First result__body guide")
+      #expect(first.snippet == nil)
+    }
+    if results.count == 2 {
+      #expect(results[1].snippet == "Second snippet")
+    }
+  }
+
+  @Test(arguments: ["", "<html><body>No results</body></html>", "<div class=result__body></div>"])
+  func duckDuckGoHTMLParserAcceptsEmptyResults(html: String) throws {
+    let results = try DuckDuckGoHTMLSearchParser().parse(html: html, maxResults: 10)
+    #expect(results.isEmpty)
+  }
+
+  @Test
+  func duckDuckGoHTMLParserRecoversUnclosedResultMarkup() throws {
+    let html = """
+      <div class=result__body><a class=result__a href=https://example.com/>Unclosed <b>title
+      """
+    let results = try DuckDuckGoHTMLSearchParser().parse(html: html, maxResults: 10)
+    let result = try #require(results.first)
+
+    #expect(results.count == 1)
+    #expect(result.title == "Unclosed title")
+    #expect(result.url == "https://example.com/")
+    #expect(result.snippet == nil)
+  }
+
+  @Test
+  func webTextFallbackDecodesEntitiesOnceAndKeepsLineBreaks() {
+    let html = """
+      <p>Letter &#233; &ndash; &#x1F600;<br>&amp;lt;literal&amp;gt;</p>
+      """
+
+    #expect(
+      WebTextExtractor.plainText(fromHTMLFragment: html)
+        == "Letter \u{E9} \u{2013} \u{1F600}\n&lt;literal&gt;"
+    )
   }
 
   @Test
