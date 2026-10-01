@@ -901,7 +901,7 @@ final class SumikaUITests: XCTestCase {
 
   @MainActor
   func testQwenAgentReadFileContinuationSmoke() throws {
-    let qwenModelID = "qwen3.6-27B-4bit"
+    let qwenModelID = "qwen3.8-27B-OptiQ-4bit"
     let fixture = try launchFixture(
       readme: "Qwen structured continuation fixture.\n",
       modelID: qwenModelID
