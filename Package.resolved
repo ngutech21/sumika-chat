@@ -1,5 +1,5 @@
 {
-  "originHash" : "028ae29c510b2bd71705255a1bb3f77aeb10c650319510d02fa17049abf6dcb0",
+  "originHash" : "f9745ce5e9ea7aee7fe5cb34fff75c3177f4198287b909a83a7dc99389d9029f",
   "pins" : [
     {
       "identity" : "anydoc-swift",
@@ -191,12 +191,12 @@
       }
     },
     {
-      "identity" : "swift-transformers",
+      "identity" : "swift-tokenizers",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/huggingface/swift-transformers",
+      "location" : "https://github.com/aleroot/swift-tokenizers",
       "state" : {
-        "revision" : "c21fdcde390313a6d98d8e33a346f2c3486c3ab0",
-        "version" : "1.3.4"
+        "revision" : "646c5faff60a8effbf220ff0e9af0911fb77a5bf",
+        "version" : "1.0.0"
       }
     },
     {
@@ -296,15 +296,6 @@
       "state" : {
         "revision" : "a27b21e0c81c5bf42049b897a62aaf387e80f279",
         "version" : "6.2.2"
-      }
-    },
-    {
-      "identity" : "yyjson",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ibireme/yyjson.git",
-      "state" : {
-        "revision" : "8b4a38dc994a110abaec8a400615567bd996105f",
-        "version" : "0.12.0"
       }
     }
   ],

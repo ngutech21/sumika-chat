@@ -49,7 +49,7 @@ let package = Package(
     .package(
       url: "https://github.com/ml-explore/mlx-swift-lm",
       from: "3.2.23"),
-    .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.3"),
+    .package(url: "https://github.com/aleroot/swift-tokenizers", from: "1.0.0"),
     .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.10.0"),
     .package(url: "https://github.com/FluidInference/FluidAudio", from: "0.15.7"),
     .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.19.0"),
@@ -100,7 +100,7 @@ let package = Package(
         .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
         .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
         .product(name: "MLXVLM", package: "mlx-swift-lm"),
-        .product(name: "Tokenizers", package: "swift-transformers"),
+        .product(name: "Tokenizers", package: "swift-tokenizers"),
         .product(name: "HuggingFace", package: "swift-huggingface"),
       ],
       swiftSettings: compilerChecking
