@@ -613,23 +613,34 @@ MLX completion info supplies the authoritative rendered prompt-token count,
 reused cache-prefix count, and cache efficiency. In debug-trace mode the loaded
 model processor is wrapped without changing its output so Sumika can additionally
 record the prepared mask/media state; the runtime also records whether the newly
-appended messages themselves contain media. Combined with the previous terminal
-token ledger as the expected reuse range, `runtime_prefill` reports
+appended messages themselves contain media. Before starting a generation that
+expects session reuse, Sumika snapshots `ChatSession.cacheStatus()` after the
+previous generation has drained. Only a realized status supplies the previous
+`processedTokenCount`; a planned status or missing count remains unavailable.
+Combined with this per-generation baseline, `runtime_prefill` reports
 `mlxCacheDecision` (`cold_prefill`, `exact_suffix_reuse`,
 `common_prefix_reuse`, `full_prefill`, `unavailable`, or
 `unexpected_prompt_count`),
 `mlxCacheMismatchReason`, `fullPromptTokens`, `expectedCachedTokens`,
 `expectedSuffixTokens`, `reusedPromptTokens`, `cacheEfficiency`, `inputMaskPresent`,
 `preparedMediaPresent`, `newMediaPresent`, `cacheTrimmable`, and `cacheTypes`.
-The expected ledger accepts both MLX-valid `.stop` outcomes: an EOS token may
-already be in the cache even though it is excluded from `generationTokenCount`,
-while a textual stop-string token is included in that count. A matching
-continuation reports the candidate matching MLX's observed cached-prefix count.
+`expectedCachedTokens` is the previous cache's exact logical position, and
+`expectedSuffixTokens` is the nonnegative difference from the full prompt count.
+No cross-generation ledger or EOS allowance is inferred from completion metrics.
+Exact suffix reuse requires the observed reused count to equal the snapshot;
+reusing a smaller prefix is common-prefix reuse. Missing realized progress is
+reported as `missing_processed_token_count`; a full prefill whose previous cache
+position exceeds the prompt reports `previous_cache_position_longer_than_prompt`.
+The position does not prove that the private token history is reusable and is not
+the resident-token capacity of a sliding window. Session eligibility and actual
+token reuse remain controlled by the existing Sumika and MLX policies.
 For a non-trimmable hybrid cache, a full prefill without a mask or media is
 classified as `prefix_or_alignment_mismatch_nontrimmable_cache`. The pinned MLX
-API exposes the authoritative cached token count but not its private cached token
-IDs, so Sumika does not invent a token-level first-mismatch index; exact token
-localization still requires upstream instrumentation.
+API does not expose private cached token IDs, so Sumika does not invent a
+token-level first-mismatch index; exact token localization still requires upstream
+instrumentation. The separate fresh-cache capability probe continues to supply
+`cacheTypes` and construction-time `cacheTrimmable`; these are not a claim about
+the live cache's trimming eligibility after a rotating window fills.
 
 The terminal `runtime_decode` row records MLX's exact `generatedTokenCount` with
 `generatedTokenCountIsEstimate: false`. The matching `mlx_response` retains the

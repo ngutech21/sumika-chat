@@ -503,6 +503,18 @@ extension MLXChatRuntime {
     guard let runtimeCacheDiagnostics else {
       return nil
     }
+    let expectsReuse =
+      cachePlan.trace.cacheMode == .reusedSession
+      || cachePlan.trace.cacheMode == .appendDelta
+    // The prior generation has drained, and preparation remains serialized
+    // until this snapshot is read and the next producer is registered.
+    nonisolated(unsafe) let inspectedSession = cachePlan.session
+    let previousCacheStatus: KVCacheStatus? = try await MLX.withError {
+      if expectsReuse {
+        return try await inspectedSession.cacheStatus()
+      }
+      return nil
+    }
     let cacheCapabilities = try await MLX.withError {
       try await MLXRuntimeCacheDiagnostics.capabilities(
         of: modelContainer,
@@ -511,8 +523,8 @@ extension MLXChatRuntime {
     }
     await runtimeCacheDiagnostics.begin(
       generationID: traceID,
-      expectsReuse: cachePlan.trace.cacheMode == .reusedSession
-        || cachePlan.trace.cacheMode == .appendDelta,
+      expectsReuse: expectsReuse,
+      previousCacheStatus: previousCacheStatus,
       newMediaPresent: cachePlan.streamMessages.contains {
         !$0.images.isEmpty || !$0.videos.isEmpty || !$0.audios.isEmpty
       },

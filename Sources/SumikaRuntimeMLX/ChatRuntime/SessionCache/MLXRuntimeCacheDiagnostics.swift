@@ -14,11 +14,11 @@ enum MLXRuntimeCacheMismatchReason: String, Equatable, Sendable {
   case preparedInputMask = "prepared_input_mask"
   case newMedia = "new_media"
   case preparedMedia = "prepared_media"
-  case cachedLedgerLongerThanPrompt = "cached_ledger_longer_than_prompt"
+  case previousCachePositionLongerThanPrompt = "previous_cache_position_longer_than_prompt"
   case prefixOrAlignmentMismatch = "prefix_or_alignment_mismatch"
   case nontrimmablePrefixOrAlignmentMismatch =
     "prefix_or_alignment_mismatch_nontrimmable_cache"
-  case missingCachedTokenLedger = "missing_cached_token_ledger"
+  case missingProcessedTokenCount = "missing_processed_token_count"
   case promptTokenCountOutOfRange = "prompt_token_count_out_of_range"
 }
 
@@ -48,18 +48,10 @@ struct MLXRuntimeCacheDiagnosticResult: Equatable, Sendable {
 }
 
 actor MLXRuntimeCacheDiagnostics {
-  private struct CachedTokenLedger {
-    let lowerBound: Int
-    let upperBound: Int
-
-    func contains(_ tokenCount: Int) -> Bool {
-      lowerBound...upperBound ~= tokenCount
-    }
-  }
-
   private struct ActiveGeneration {
     let id: UUID
     let expectsReuse: Bool
+    let previousProcessedTokenCount: Int?
     let newMediaPresent: Bool
     var preparedInput: MLXPreparedInputDiagnostics?
   }
@@ -68,7 +60,6 @@ actor MLXRuntimeCacheDiagnostics {
   private var cacheTrimmable: Bool
 
   private var activeGeneration: ActiveGeneration?
-  private var cachedTokenLedger: CachedTokenLedger?
 
   init(cacheTypes: [String], cacheTrimmable: Bool) {
     self.cacheTypes = cacheTypes
@@ -112,6 +103,7 @@ actor MLXRuntimeCacheDiagnostics {
   func begin(
     generationID: UUID,
     expectsReuse: Bool,
+    previousCacheStatus: KVCacheStatus?,
     newMediaPresent: Bool = false,
     capabilities: MLXRuntimeCacheCapabilities? = nil
   ) {
@@ -119,12 +111,11 @@ actor MLXRuntimeCacheDiagnostics {
       cacheTypes = capabilities.cacheTypes
       cacheTrimmable = capabilities.cacheTrimmable
     }
-    if !expectsReuse {
-      cachedTokenLedger = nil
-    }
     activeGeneration = ActiveGeneration(
       id: generationID,
       expectsReuse: expectsReuse,
+      previousProcessedTokenCount: expectsReuse && previousCacheStatus?.phase == .realized
+        ? previousCacheStatus?.processedTokenCount : nil,
       newMediaPresent: newMediaPresent,
       preparedInput: nil
     )
@@ -145,38 +136,22 @@ actor MLXRuntimeCacheDiagnostics {
       return nil
     }
 
-    let previousCachedTokens =
-      activeGeneration.expectsReuse ? cachedTokenLedger : nil
     let result = Self.result(
       preparedInput: preparedInput,
       info: info,
       expectsReuse: activeGeneration.expectsReuse,
       newMediaPresent: activeGeneration.newMediaPresent,
-      expectedCachedTokens: previousCachedTokens,
+      expectedCachedTokens: activeGeneration.previousProcessedTokenCount,
       cacheTypes: cacheTypes,
       cacheTrimmable: cacheTrimmable
     )
 
-    switch info.stopReason {
-    case .stop, .length:
-      let lowerBound = info.totalPromptTokenCount + info.generationTokenCount
-      cachedTokenLedger = CachedTokenLedger(
-        lowerBound: lowerBound,
-        // `generationTokenCount` excludes an EOS token, but includes a token
-        // that completes a textual stop string. ChatSession's private token
-        // ledger includes whichever token was evaluated into the cache.
-        upperBound: lowerBound + (info.stopReason == .stop ? 1 : 0)
-      )
-    case .cancelled:
-      cachedTokenLedger = nil
-    }
     self.activeGeneration = nil
     return result
   }
 
   func invalidate() {
     activeGeneration = nil
-    cachedTokenLedger = nil
   }
 
   private static func result(
@@ -184,16 +159,13 @@ actor MLXRuntimeCacheDiagnostics {
     info: GenerateCompletionInfo,
     expectsReuse: Bool,
     newMediaPresent: Bool,
-    expectedCachedTokens: CachedTokenLedger?,
+    expectedCachedTokens: Int?,
     cacheTypes: [String],
     cacheTrimmable: Bool
   ) -> MLXRuntimeCacheDiagnosticResult {
     let fullPromptTokens = info.totalPromptTokenCount
     let reusedPromptTokens = info.cachedPromptTokenCount
-    let matchedCachedTokens = expectedCachedTokens.map { ledger in
-      ledger.contains(reusedPromptTokens) ? reusedPromptTokens : ledger.lowerBound
-    }
-    let expectedSuffixTokens = matchedCachedTokens.map {
+    let expectedSuffixTokens = expectedCachedTokens.map {
       max(fullPromptTokens - $0, 0)
     }
     let decision: MLXRuntimeCacheDecision
@@ -205,7 +177,7 @@ actor MLXRuntimeCacheDiagnostics {
       decision = .unexpectedPromptCount
     } else if info.promptTokenCount == fullPromptTokens {
       decision = .fullPrefill
-    } else if expectedCachedTokens?.contains(reusedPromptTokens) == true {
+    } else if expectedCachedTokens == reusedPromptTokens {
       decision = .exactSuffixReuse
     } else {
       decision = .commonPrefixReuse
@@ -223,7 +195,7 @@ actor MLXRuntimeCacheDiagnostics {
       decision: decision,
       mismatchReason: mismatchReason,
       fullPromptTokens: fullPromptTokens,
-      expectedCachedTokens: matchedCachedTokens,
+      expectedCachedTokens: expectedCachedTokens,
       expectedSuffixTokens: expectedSuffixTokens,
       reusedPromptTokens: reusedPromptTokens,
       cacheEfficiency: info.cacheEfficiency,
@@ -239,7 +211,7 @@ actor MLXRuntimeCacheDiagnostics {
     decision: MLXRuntimeCacheDecision,
     preparedInput: MLXPreparedInputDiagnostics,
     newMediaPresent: Bool,
-    expectedCachedTokens: CachedTokenLedger?,
+    expectedCachedTokens: Int?,
     fullPromptTokens: Int,
     cacheTrimmable: Bool
   ) -> MLXRuntimeCacheMismatchReason? {
@@ -251,7 +223,7 @@ actor MLXRuntimeCacheDiagnostics {
       return nil
     }
     if decision == .unavailable {
-      return .missingCachedTokenLedger
+      return .missingProcessedTokenCount
     }
     if decision == .unexpectedPromptCount {
       return .promptTokenCountOutOfRange
@@ -266,9 +238,9 @@ actor MLXRuntimeCacheDiagnostics {
       return .preparedMedia
     }
     if let expectedCachedTokens,
-      expectedCachedTokens.lowerBound > fullPromptTokens
+      expectedCachedTokens > fullPromptTokens
     {
-      return .cachedLedgerLongerThanPrompt
+      return .previousCachePositionLongerThanPrompt
     }
     return cacheTrimmable
       ? .prefixOrAlignmentMismatch

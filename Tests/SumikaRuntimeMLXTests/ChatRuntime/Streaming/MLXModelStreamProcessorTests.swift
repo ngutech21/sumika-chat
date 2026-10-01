@@ -621,26 +621,12 @@ struct MLXModelStreamProcessorTests {
       ],
       cacheTrimmable: false
     )
-    let coldGenerationID = UUID()
-    await diagnostics.begin(generationID: coldGenerationID, expectsReuse: false)
-    await diagnostics.recordPreparedInput(
-      MLXPreparedInputDiagnostics(
-        inputMaskPresent: false,
-        preparedMediaPresent: false
-      )
-    )
-    _ = await diagnostics.complete(
-      generationID: coldGenerationID,
-      info: GenerateCompletionInfo(
-        promptTokenCount: 100,
-        generationTokenCount: 20,
-        promptTime: 0.1,
-        generationTime: 0.2
-      )
-    )
-
     let traceID = UUID()
-    await diagnostics.begin(generationID: traceID, expectsReuse: true)
+    await diagnostics.begin(
+      generationID: traceID,
+      expectsReuse: true,
+      previousCacheStatus: KVCacheStatus(cache: [], phase: .realized, processedTokenCount: 120)
+    )
     await diagnostics.recordPreparedInput(
       MLXPreparedInputDiagnostics(
         inputMaskPresent: false,
@@ -1652,25 +1638,12 @@ struct MLXModelStreamProcessorTests {
       cacheTypes: ["MLXLMCommon.KVCacheSimple"],
       cacheTrimmable: true
     )
-    let previousGenerationID = UUID()
-    await diagnostics.begin(generationID: previousGenerationID, expectsReuse: false)
-    await diagnostics.recordPreparedInput(
-      MLXPreparedInputDiagnostics(
-        inputMaskPresent: false,
-        preparedMediaPresent: false
-      )
-    )
-    _ = await diagnostics.complete(
-      generationID: previousGenerationID,
-      info: GenerateCompletionInfo(
-        promptTokenCount: 100,
-        generationTokenCount: 20,
-        promptTime: 0.1,
-        generationTime: 0.2
-      )
-    )
     let traceID = UUID()
-    await diagnostics.begin(generationID: traceID, expectsReuse: true)
+    await diagnostics.begin(
+      generationID: traceID,
+      expectsReuse: true,
+      previousCacheStatus: KVCacheStatus(cache: [], phase: .realized, processedTokenCount: 120)
+    )
     await diagnostics.recordPreparedInput(
       MLXPreparedInputDiagnostics(
         inputMaskPresent: false,
@@ -1724,7 +1697,11 @@ struct MLXModelStreamProcessorTests {
     #expect(await memoryClearRecorder.reasons.isEmpty)
 
     let nextGenerationID = UUID()
-    await diagnostics.begin(generationID: nextGenerationID, expectsReuse: true)
+    await diagnostics.begin(
+      generationID: nextGenerationID,
+      expectsReuse: true,
+      previousCacheStatus: KVCacheStatus(cache: [], phase: .realized, processedTokenCount: 140)
+    )
     await diagnostics.recordPreparedInput(
       MLXPreparedInputDiagnostics(
         inputMaskPresent: false,
@@ -1735,15 +1712,18 @@ struct MLXModelStreamProcessorTests {
       await diagnostics.complete(
         generationID: nextGenerationID,
         info: GenerateCompletionInfo(
-          promptTokenCount: 160,
+          promptTokenCount: 20,
+          cachedPromptTokenCount: 140,
           generationTokenCount: 5,
           promptTime: 0.1,
           generationTime: 0.2
         )
       )
     )
-    #expect(nextResult.decision == .unavailable)
-    #expect(nextResult.mismatchReason == .missingCachedTokenLedger)
+    #expect(nextResult.decision == .exactSuffixReuse)
+    #expect(nextResult.mismatchReason == nil)
+    #expect(nextResult.expectedCachedTokens == 140)
+    #expect(nextResult.expectedSuffixTokens == 20)
   }
 
   @Test

@@ -165,7 +165,16 @@ def main():
                         if generation.get("prefillStepSize") != step:
                             raise RuntimeError("Trace does not confirm the requested prefill ceiling")
                         if not mode.startswith("cancel-"):
-                            expected = "cold_prefill" if mode == "cold" else "exact_suffix_reuse"
+                            if mode == "cold":
+                                expected = "cold_prefill"
+                            else:
+                                previous_position = generation.get("expectedCachedTokens")
+                                reused_tokens = generation.get("reusedPromptTokens")
+                                if (type(previous_position) is not int or type(reused_tokens) is not int
+                                        or not 0 <= previous_position - reused_tokens <= 1):
+                                    raise RuntimeError("Warm cache reuse must preserve the previous position or rewind one EOS")
+                                expected = ("exact_suffix_reuse" if previous_position == reused_tokens
+                                            else "common_prefix_reuse")
                             if generation.get("mlxCacheDecision") != expected:
                                 raise RuntimeError(f"Unexpected cache path: {generation.get('mlxCacheDecision')}")
                         rows = [json.loads(line) for line in trace.read_text().splitlines()]

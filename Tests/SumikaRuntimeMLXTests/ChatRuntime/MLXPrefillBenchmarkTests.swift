@@ -132,9 +132,17 @@ nonisolated final class MLXPrefillBenchmarkTests: XCTestCase {
       let actual = try XCTUnwrap(prefill["promptTokens"] as? Int)
       // EOS cache ownership may differ by one position on a warm continuation.
       XCTAssertLessThanOrEqual(abs(actual - tokens), prefix.isEmpty ? 0 : 1)
-      XCTAssertEqual(
-        prefill["mlxCacheDecision"] as? String,
-        prefix.isEmpty ? "cold_prefill" : "exact_suffix_reuse")
+      if prefix.isEmpty {
+        XCTAssertEqual(prefill["mlxCacheDecision"] as? String, "cold_prefill")
+      } else {
+        let previousPosition = try XCTUnwrap(prefill["expectedCachedTokens"] as? Int)
+        let reusedTokens = try XCTUnwrap(prefill["reusedPromptTokens"] as? Int)
+        // Rewinding one terminal EOS is common-prefix reuse under exact cache diagnostics.
+        XCTAssertTrue((0...1).contains(previousPosition - reusedTokens))
+        XCTAssertEqual(
+          prefill["mlxCacheDecision"] as? String,
+          previousPosition == reusedTokens ? "exact_suffix_reuse" : "common_prefix_reuse")
+      }
       XCTAssertEqual(end["prefillProcessedPositions"] as? Int, actual)
       XCTAssertEqual(end["prefillTotalPositions"] as? Int, actual)
     }
