@@ -726,37 +726,6 @@ extension ConversationEngine {
     pendingAttachments.removeAll()
   }
 
-  // Test-only convenience that still enters the canonical asynchronous submission path.
-  // swiftlint:disable:next unused_declaration
-  func sendMessage(prompt: String) async throws {
-    try await sendMessage(MessageSubmission(text: prompt))
-  }
-
-  /// Internal compatibility seam for focused engine tests. Package callers use
-  /// `ConversationFeature.activate` followed by `sendMessage(_:)`.
-  @discardableResult
-  // swiftlint:disable:next unused_declaration
-  func sendMessage(
-    prompt: String,
-    in workspace: Workspace,
-    sessionID: ChatSession.ID
-  ) async -> Bool {
-    guard activeSessionID == sessionID,
-      workspace.sessions.contains(where: { $0.id == sessionID })
-    else {
-      errorMessage = "The active chat session does not belong to the workspace."
-      return false
-    }
-    activeConversation?.workspace = workspace
-    do {
-      try await sendMessage(MessageSubmission(text: prompt))
-      return true
-    } catch {
-      errorMessage = error.localizedDescription
-      return false
-    }
-  }
-
   private func updateDefaultSessionTitleIfNeeded(fromFirstPrompt prompt: String) {
     guard chatSession.title == ChatSession.defaultTitle,
       chatSession.turns.flatMap(\.items).allSatisfy({ $0.userContent == nil })

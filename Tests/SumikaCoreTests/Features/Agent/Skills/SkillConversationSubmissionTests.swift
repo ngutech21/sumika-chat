@@ -24,7 +24,7 @@ struct SkillConversationSubmissionTests {
       chatSession: session,
       skillCatalog: SkillCatalog(homeDirectoryURL: missingHomeDirectory(under: root))
     )
-    try engine.loadSession(from: workspace, sessionID: session.id)
+    try engine.conversation.activate(sessionID: session.id, in: workspace)
     engine.modelRuntime.modelState = .ready
     let attachmentURL = root.appending(path: "context.txt", directoryHint: .notDirectory)
     try "Keep this attachment.".write(to: attachmentURL, atomically: true, encoding: .utf8)
@@ -71,7 +71,7 @@ struct SkillConversationSubmissionTests {
       chatSession: session,
       skillCatalog: SkillCatalog(homeDirectoryURL: missingHomeDirectory(under: root))
     )
-    try engine.loadSession(from: workspace, sessionID: session.id)
+    try engine.conversation.activate(sessionID: session.id, in: workspace)
     engine.modelRuntime.modelState = .ready
 
     try await engine.sendMessage(MessageSubmission(text: "Use $review"))
@@ -147,7 +147,7 @@ struct SkillConversationSubmissionTests {
       chatSession: session,
       skillCatalog: SkillCatalog(homeDirectoryURL: homeDirectoryURL)
     )
-    try initialEngine.loadSession(from: workspace, sessionID: session.id)
+    try initialEngine.conversation.activate(sessionID: session.id, in: workspace)
     initialEngine.modelRuntime.modelState = .ready
 
     try await initialEngine.sendMessage(MessageSubmission(text: "Use $review"))
@@ -176,7 +176,7 @@ struct SkillConversationSubmissionTests {
       modelPath: "/tmp/model",
       skillCatalog: SkillCatalog(homeDirectoryURL: homeDirectoryURL)
     )
-    try resumedEngine.loadSession(from: workspace, sessionID: persistedSession.id)
+    try resumedEngine.conversation.activate(sessionID: persistedSession.id, in: workspace)
     resumedEngine.modelRuntime.modelState = .ready
     let pendingRecord = try #require(
       resumedEngine.chatSession.toolCalls.first(where: { $0.status == .awaitingApproval })

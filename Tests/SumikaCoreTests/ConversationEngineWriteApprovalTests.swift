@@ -24,11 +24,11 @@ struct ConversationEngineWriteApprovalTests {
       ]
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
-    try engine.loadSession(from: workspace, sessionID: sessionID)
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    await engine.sendMessage(
-      prompt: "create a html file in the current folder", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(
+      MessageSubmission(text: "create a html file in the current folder"))
 
     try await waitUntil { engine.chatSession.turns.first?.status == .awaitingApproval }
 
@@ -60,11 +60,11 @@ struct ConversationEngineWriteApprovalTests {
       ]
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
-    try engine.loadSession(from: workspace, sessionID: sessionID)
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    await engine.sendMessage(
-      prompt: "create a html file in the current folder", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(
+      MessageSubmission(text: "create a html file in the current folder"))
     try await waitUntil { engine.chatSession.turns.first?.status == .awaitingApproval }
 
     #expect(engine.hasPendingApproval)
@@ -89,18 +89,18 @@ struct ConversationEngineWriteApprovalTests {
       [.chunk("I will explain the current state instead.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
-    try engine.loadSession(from: workspace, sessionID: sessionID)
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    await engine.sendMessage(
-      prompt: "create a html file in the current folder", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(
+      MessageSubmission(text: "create a html file in the current folder"))
     try await waitUntil { engine.chatSession.turns.first?.status == .awaitingApproval }
-    #expect(
-      !(await engine.sendMessage(
-        prompt: "skip that and explain the current state",
-        in: workspace,
-        sessionID: sessionID
-      )))
+    await #expect(
+      throws: ConversationIntentError.busy(workspaceID: workspace.id, sessionID: sessionID)
+    ) {
+      try await engine.conversation.sendMessage(
+        MessageSubmission(text: "skip that and explain the current state"))
+    }
 
     let outputURL = workspace.rootURL.appending(path: "movies.html")
     #expect(!FileManager.default.fileExists(atPath: outputURL.path(percentEncoded: false)))
@@ -131,11 +131,11 @@ struct ConversationEngineWriteApprovalTests {
       [.chunk("Updated movies.html.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
-    try engine.loadSession(from: workspace, sessionID: sessionID)
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    await engine.sendMessage(
-      prompt: "create a html file in the current folder", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(
+      MessageSubmission(text: "create a html file in the current folder"))
     try await waitUntil { engine.chatSession.turns.first?.status == .awaitingApproval }
     let toolCallID = try #require(engine.chatSession.toolCalls.first?.id)
 
@@ -201,13 +201,12 @@ struct ConversationEngineWriteApprovalTests {
       [.chunk("Updated automatic.txt.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
-    try engine.loadSession(from: workspace, sessionID: sessionID)
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.enableAutomaticToolApproval(in: workspace)
 
-    await engine.sendMessage(
-      prompt: "create the file", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "create the file"))
 
     try await waitUntil { engine.chatSession.turns.first?.status == .completed }
 
@@ -243,13 +242,12 @@ struct ConversationEngineWriteApprovalTests {
         ])
       )
     )
-    try engine.loadSession(from: workspace, sessionID: sessionID)
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.enableAutomaticToolApproval(in: workspace)
 
-    await engine.sendMessage(
-      prompt: "run both commands", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "run both commands"))
 
     try await waitUntilAsync { await processRunner.startedCount == 1 }
     #expect(
@@ -292,11 +290,10 @@ struct ConversationEngineWriteApprovalTests {
       [.chunk("Resumed the automation.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
-    try engine.loadSession(from: workspace, sessionID: sessionID)
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    await engine.sendMessage(
-      prompt: "create the file", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "create the file"))
     try await waitUntil { engine.hasPendingApproval }
 
     engine.enableAutomaticToolApproval(in: workspace)
@@ -336,11 +333,10 @@ struct ConversationEngineWriteApprovalTests {
       ]
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
-    try engine.loadSession(from: workspace, sessionID: sessionID)
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    await engine.sendMessage(
-      prompt: "create both files", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "create both files"))
     try await waitUntil {
       engine.chatSession.toolCalls.count == 2 && engine.hasPendingApproval
     }
@@ -439,10 +435,10 @@ struct ConversationEngineWriteApprovalTests {
       [.chunk("I will leave README.md unchanged.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
-    try engine.loadSession(from: workspace, sessionID: sessionID)
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    await engine.sendMessage(prompt: "update the readme", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "update the readme"))
     try await waitUntil { engine.chatSession.turns.first?.status == .awaitingApproval }
     let toolCallID = try #require(engine.chatSession.toolCalls.first?.id)
 
@@ -491,10 +487,10 @@ struct ConversationEngineWriteApprovalTests {
       ],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
-    try engine.loadSession(from: workspace, sessionID: sessionID)
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    await engine.sendMessage(prompt: "update the readme", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "update the readme"))
     try await waitUntil { engine.chatSession.turns.first?.status == .awaitingApproval }
     let editCallID = try #require(engine.chatSession.toolCalls.first?.id)
 

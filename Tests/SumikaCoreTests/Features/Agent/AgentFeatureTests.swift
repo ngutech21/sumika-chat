@@ -16,7 +16,7 @@ struct AgentFeatureTests {
       name: "Probe", rootURL: try scopedTemporaryDirectory(), sessions: [session])
     let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(), modelPath: "/tmp/model", chatSession: session)
-    try engine.loadSession(from: workspace, sessionID: session.id)
+    try engine.conversation.activate(sessionID: session.id, in: workspace)
     let agent = AgentFeature(conversationEngine: engine, clientManager: MCPClientManager())
     let server = MCPServerConfig(name: "Offline", command: "/usr/bin/false")
     await agent.loadServerConfiguration([server])
@@ -87,7 +87,7 @@ struct AgentFeatureTests {
         rootURL: change == .workspace
           ? fixture.workspace.rootURL.appending(path: "next") : fixture.workspace.rootURL,
         sessions: [session])
-      try fixture.engine.loadSession(from: workspace, sessionID: session.id)
+      try fixture.engine.conversation.activate(sessionID: session.id, in: workspace)
       latest.activeSessionID = session.id
       latest.workspaceRootURL = workspace.rootURL
       latest.selectedServerIDs = []
@@ -354,7 +354,7 @@ private final class AgentSelectionFixture {
       name: "Probe", rootURL: try scopedTemporaryDirectory(), sessions: [session])
     engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(), modelPath: "/tmp/model", chatSession: session)
-    try engine.loadSession(from: workspace, sessionID: session.id)
+    try engine.conversation.activate(sessionID: session.id, in: workspace)
     let endpoint = try #require(URL(string: "https://mcp.example.invalid"))
     server = MCPServerConfig(
       name: "Probe",

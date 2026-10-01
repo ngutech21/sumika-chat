@@ -15,12 +15,13 @@ struct ConversationEngineLifecycleTests {
       containing: session,
       rootURL: try scopedTemporaryDirectory()
     )
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: session,
       runtime: runtime
     )
 
-    await harness.startUserTurn(prompt: "say hello", workspace: workspace, sessionID: session.id)
+    try await harness.conversation.sendMessage(MessageSubmission(text: "say hello"))
 
     try await waitUntil { harness.finishCount == 1 }
 
@@ -45,12 +46,13 @@ struct ConversationEngineLifecycleTests {
           ))
       ]
     ])
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
 
-    await harness.startUserTurn(prompt: "write a page", workspace: workspace, sessionID: sessionID)
+    try await harness.conversation.sendMessage(MessageSubmission(text: "write a page"))
 
     try await waitUntil { harness.session.turns.first?.status == .awaitingApproval }
 
@@ -78,12 +80,13 @@ struct ConversationEngineLifecycleTests {
       ],
       [.chunk("Wrote index.html.")],
     ])
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
 
-    await harness.startUserTurn(prompt: "write a page", workspace: workspace, sessionID: sessionID)
+    try await harness.conversation.sendMessage(MessageSubmission(text: "write a page"))
     try await waitUntil { harness.session.turns.first?.status == .awaitingApproval }
     let record = try #require(harness.session.toolCalls.first)
 
@@ -118,13 +121,13 @@ struct ConversationEngineLifecycleTests {
       ],
       [.chunk("I'll make the minimal fix.")],
     ])
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
 
-    await harness.startUserTurn(
-      prompt: "implement the feature", workspace: workspace, sessionID: sessionID)
+    try await harness.conversation.sendMessage(MessageSubmission(text: "implement the feature"))
     try await waitUntil { harness.session.turns.first?.status == .awaitingUserAnswer }
     let record = try #require(harness.session.toolCalls.first)
 
@@ -157,13 +160,13 @@ struct ConversationEngineLifecycleTests {
       ],
       [.chunk("I will leave README.md unchanged.")],
     ])
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
 
-    await harness.startUserTurn(
-      prompt: "update the readme", workspace: workspace, sessionID: sessionID)
+    try await harness.conversation.sendMessage(MessageSubmission(text: "update the readme"))
     try await waitUntil { harness.session.turns.first?.status == .awaitingApproval }
     let record = try #require(harness.session.toolCalls.first)
 
@@ -204,13 +207,13 @@ struct ConversationEngineLifecycleTests {
       ],
       [.chunk("Applied both README edits.")],
     ])
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
 
-    await harness.startUserTurn(
-      prompt: "update both words", workspace: workspace, sessionID: sessionID)
+    try await harness.conversation.sendMessage(MessageSubmission(text: "update both words"))
     try await waitUntil {
       harness.session.toolCalls.count == 2
         && harness.session.toolCalls.allSatisfy { $0.status == .awaitingApproval }
@@ -256,13 +259,13 @@ struct ConversationEngineLifecycleTests {
       ],
       [.chunk("Left the README unchanged.")],
     ])
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
 
-    await harness.startUserTurn(
-      prompt: "update both words", workspace: workspace, sessionID: sessionID)
+    try await harness.conversation.sendMessage(MessageSubmission(text: "update both words"))
     try await waitUntil {
       harness.session.toolCalls.count == 2
         && harness.session.toolCalls.allSatisfy { $0.status == .awaitingApproval }
@@ -302,13 +305,13 @@ struct ConversationEngineLifecycleTests {
       ],
       [.chunk("Applied the approved change and left the denied file untouched.")],
     ])
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
 
-    await harness.startUserTurn(
-      prompt: "write both files", workspace: workspace, sessionID: sessionID)
+    try await harness.conversation.sendMessage(MessageSubmission(text: "write both files"))
     try await waitUntil {
       harness.session.toolCalls.count == 2
         && harness.session.toolCalls.allSatisfy { $0.status == .awaitingApproval }
@@ -375,13 +378,13 @@ struct ConversationEngineLifecycleTests {
       ],
       [.chunk("Wrote both files.")],
     ])
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
 
-    await harness.startUserTurn(
-      prompt: "write both files", workspace: workspace, sessionID: sessionID)
+    try await harness.conversation.sendMessage(MessageSubmission(text: "write both files"))
     try await waitUntil {
       harness.session.toolCalls.count == 2
         && harness.session.toolCalls.allSatisfy { $0.status == .awaitingApproval }
@@ -427,13 +430,13 @@ struct ConversationEngineLifecycleTests {
       ],
       [.chunk("Ran both approved commands and reported the failure.")],
     ])
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
 
-    await harness.startUserTurn(
-      prompt: "run both checks", workspace: workspace, sessionID: sessionID)
+    try await harness.conversation.sendMessage(MessageSubmission(text: "run both checks"))
     try await waitUntil {
       harness.session.toolCalls.count == 2
         && harness.session.toolCalls.allSatisfy { $0.status == .awaitingApproval }
@@ -472,16 +475,13 @@ struct ConversationEngineLifecycleTests {
       ],
       [.chunk("Stopped after the blocked duplicate observation.")],
     ])
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
 
-    await harness.startUserTurn(
-      prompt: "inspect the workspace",
-      workspace: workspace,
-      sessionID: sessionID
-    )
+    try await harness.conversation.sendMessage(MessageSubmission(text: "inspect the workspace"))
     try await waitUntil {
       harness.session.turns.first?.status == .awaitingApproval
         && harness.session.toolCalls.count == 5
@@ -525,13 +525,13 @@ struct ConversationEngineLifecycleTests {
       ],
       [.chunk("Wrote only the approved file.")],
     ])
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
 
-    await harness.startUserTurn(
-      prompt: "write both files", workspace: workspace, sessionID: sessionID)
+    try await harness.conversation.sendMessage(MessageSubmission(text: "write both files"))
     try await waitUntil {
       harness.session.toolCalls.count == 2
         && harness.session.toolCalls.allSatisfy { $0.status == .awaitingApproval }
@@ -566,16 +566,13 @@ struct ConversationEngineLifecycleTests {
       containing: session,
       rootURL: try scopedTemporaryDirectory()
     )
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: session,
       runtime: runtime
     )
 
-    await harness.startUserTurn(
-      prompt: "explain the tradeoff",
-      workspace: workspace,
-      sessionID: session.id
-    )
+    try await harness.conversation.sendMessage(MessageSubmission(text: "explain the tradeoff"))
 
     try await waitUntil { harness.finishCount == 1 }
 
@@ -605,16 +602,13 @@ struct ConversationEngineLifecycleTests {
       containing: session,
       rootURL: try scopedTemporaryDirectory()
     )
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: session,
       runtime: runtime
     )
 
-    await harness.startUserTurn(
-      prompt: "explain the tradeoff",
-      workspace: workspace,
-      sessionID: session.id
-    )
+    try await harness.conversation.sendMessage(MessageSubmission(text: "explain the tradeoff"))
 
     try await waitUntil { harness.finishCount == 1 }
 
@@ -637,12 +631,13 @@ struct ConversationEngineLifecycleTests {
       containing: session,
       rootURL: try scopedTemporaryDirectory()
     )
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: session,
       runtime: runtime
     )
 
-    await harness.startUserTurn(prompt: "wait", workspace: workspace, sessionID: session.id)
+    try await harness.conversation.sendMessage(MessageSubmission(text: "wait"))
     try await waitUntilAsync { await runtime.startedStreamCount == 1 }
 
     harness.cancel()
@@ -671,15 +666,16 @@ struct ConversationEngineLifecycleTests {
       [.chunk("First response.")],
       [.chunk("Second response.")],
     ])
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime,
       workspaceInstructionsLoader: loader
     )
 
-    await harness.startUserTurn(prompt: "First", workspace: workspace, sessionID: sessionID)
+    try await harness.conversation.sendMessage(MessageSubmission(text: "First"))
     try await waitUntil { harness.finishCount == 1 }
-    await harness.startUserTurn(prompt: "Second", workspace: workspace, sessionID: sessionID)
+    try await harness.conversation.sendMessage(MessageSubmission(text: "Second"))
     try await waitUntil { harness.finishCount == 2 }
 
     let userMessages: [UserTurnMessage] = harness.session.turns.flatMap(\.items).compactMap {
@@ -709,13 +705,14 @@ struct ConversationEngineLifecycleTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
     let loader = WorkspaceInstructionsLoaderStub(result: .missing)
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["Reply."])
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: ChatSession(id: sessionID, interactionMode: .chat),
       runtime: runtime,
       workspaceInstructionsLoader: loader
     )
 
-    await harness.startUserTurn(prompt: "Chat", workspace: workspace, sessionID: sessionID)
+    try await harness.conversation.sendMessage(MessageSubmission(text: "Chat"))
     try await waitUntil { harness.finishCount == 1 }
 
     #expect(await loader.loadCount == 0)
@@ -728,21 +725,21 @@ struct ConversationEngineLifecycleTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
     let loader = WorkspaceInstructionsLoaderStub(result: .missing)
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["Reply."])
-    let harness = ConversationEngineLifecycleHarness(
-      session: ChatSession(id: sessionID, interactionMode: .agent),
+    let engine = ConversationEngine(
       runtime: runtime,
+      modelPath: "/tmp/model",
       workspaceInstructionsLoader: loader
     )
+    let missingSessionID = UUID()
 
     #expect(
-      !(await harness.startUserTurn(
-        prompt: "Agent",
-        workspace: workspace,
-        sessionID: UUID()
-      )))
+      throws: ConversationIntentError.sessionNotFound(
+        workspaceID: workspace.id, sessionID: missingSessionID)
+    ) {
+      try engine.conversation.activate(sessionID: missingSessionID, in: workspace)
+    }
 
-    #expect(harness.finishCount == 0)
-    #expect(harness.errorMessages == ["The active chat session does not belong to the workspace."])
+    #expect(engine.chatSession.turns.isEmpty)
     #expect(await loader.loadCount == 0)
     #expect(await runtime.capturedMessages.isEmpty)
   }
@@ -756,13 +753,14 @@ struct ConversationEngineLifecycleTests {
       error: .invalidUTF8("AGENTS.md")
     )
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["Must not be requested."])
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime,
       workspaceInstructionsLoader: loader
     )
 
-    await harness.startUserTurn(prompt: "Implement", workspace: workspace, sessionID: sessionID)
+    try await harness.conversation.sendMessage(MessageSubmission(text: "Implement"))
     try await waitUntil { harness.finishCount == 1 }
 
     #expect(await loader.loadCount == 1)
@@ -789,17 +787,18 @@ struct ConversationEngineLifecycleTests {
       turns: [["Cancelled"], ["Completed"]],
       blockedCallIndexes: [0]
     )
-    let harness = ConversationEngineLifecycleHarness(
+    let harness = try ConversationEngineLifecycleHarness(
+      workspace: workspace,
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime,
       workspaceInstructionsLoader: loader
     )
 
-    await harness.startUserTurn(prompt: "First", workspace: workspace, sessionID: sessionID)
+    try await harness.conversation.sendMessage(MessageSubmission(text: "First"))
     try await waitUntilAsync { await runtime.startedStreamCount == 1 }
     harness.cancel()
     try await waitUntil { harness.finishCount == 1 }
-    await harness.startUserTurn(prompt: "Second", workspace: workspace, sessionID: sessionID)
+    try await harness.conversation.sendMessage(MessageSubmission(text: "Second"))
     try await waitUntil { harness.finishCount == 2 }
 
     let userMessages: [UserTurnMessage] = harness.session.turns.flatMap(\.items).compactMap {
@@ -836,30 +835,26 @@ private final class ConversationEngineLifecycleHarness: @unchecked Sendable {
     engine.errorMessage.map { [$0] } ?? []
   }
 
+  var conversation: ConversationFeature { engine.conversation }
+
   init(
+    workspace: Workspace,
     session: ChatSession,
     runtime: any ChatModelRuntime,
     workspaceInstructionsLoader: any WorkspaceInstructionsLoading = WorkspaceInstructionsLoader()
-  ) {
+  ) throws {
     self.engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
-      chatSession: session,
       workspaceInstructionsLoader: workspaceInstructionsLoader
     )
+    var workspace = workspace
+    workspace.sessions = [session]
+    try engine.conversation.activate(sessionID: session.id, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setSessionChangeHandler { [weak self] in
       self?.recordLifecycleTransition()
     }
-  }
-
-  @discardableResult
-  func startUserTurn(
-    prompt: String,
-    workspace: Workspace,
-    sessionID: ChatSession.ID
-  ) async -> Bool {
-    await engine.sendMessage(prompt: prompt, in: workspace, sessionID: sessionID)
   }
 
   func approve(_ record: ToolCallRecord, in workspace: Workspace) {

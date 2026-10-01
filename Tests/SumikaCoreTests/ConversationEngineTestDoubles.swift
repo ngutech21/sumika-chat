@@ -1,5 +1,4 @@
 import Foundation
-import Testing
 
 @testable import SumikaCore
 
@@ -38,6 +37,16 @@ private enum ConversationEngineTestModelRegistry {
 extension ConversationEngine {
   var modelRuntime: ModelRuntimeController {
     ConversationEngineTestModelRegistry.modelController(for: self)
+  }
+
+  var conversation: ConversationFeature {
+    ConversationFeature(
+      engine: self,
+      sessionCoordinator: ConversationSessionCoordinator(
+        modelController: modelRuntime,
+        conversationEngine: self
+      )
+    )
   }
 
   convenience init(
@@ -163,32 +172,6 @@ extension ConversationEngine {
       in: workspace,
       modelRuntimeWasReset: didResetModelRuntime
     )
-  }
-
-  func loadSession(
-    from workspace: Workspace,
-    sessionID: ChatSession.ID
-  ) throws {
-    if activeSessionID == sessionID {
-      updateActiveWorkspace(workspace)
-      return
-    }
-    let session = try #require(workspace.sessions.first { $0.id == sessionID })
-    let model =
-      ManagedModelCatalog.model(id: session.selectedModelID)
-      ?? ManagedModelCatalog.defaultModel
-    let didResetModelRuntime = modelRuntime.applySessionModel(model)
-    installConversation(
-      session,
-      in: workspace,
-      modelRuntimeWasReset: didResetModelRuntime
-    )
-  }
-
-  @discardableResult
-  func sendMessageInTestWorkspace(prompt: String) async throws -> Bool {
-    try await sendMessage(prompt: prompt)
-    return true
   }
 }
 

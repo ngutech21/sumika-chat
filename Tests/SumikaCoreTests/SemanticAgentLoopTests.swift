@@ -63,15 +63,12 @@ struct SemanticAgentLoopTests {
       ],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
-    try engine.loadSession(from: workspace, sessionID: sessionID)
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
-    await engine.sendMessage(
-      prompt: "Create, inspect, update, and verify flow.txt.",
-      in: workspace,
-      sessionID: sessionID
-    )
+    try await engine.conversation.sendMessage(
+      MessageSubmission(text: "Create, inspect, update, and verify flow.txt."))
 
     try await waitUntil {
       engine.chatSession.toolCalls.count == 1 && engine.hasPendingApproval
@@ -157,15 +154,12 @@ struct SemanticAgentLoopTests {
       ],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
-    try engine.loadSession(from: workspace, sessionID: sessionID)
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
-    await engine.sendMessage(
-      prompt: "Create first.txt and second.txt.",
-      in: workspace,
-      sessionID: sessionID
-    )
+    try await engine.conversation.sendMessage(
+      MessageSubmission(text: "Create first.txt and second.txt."))
 
     try await waitUntil {
       engine.chatSession.toolCalls.count == 1 && engine.hasPendingApproval
@@ -238,15 +232,11 @@ struct SemanticAgentLoopTests {
     ])
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: eventTurns)
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
-    try engine.loadSession(from: workspace, sessionID: sessionID)
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
-    await engine.sendMessage(
-      prompt: "Create the numbered files.",
-      in: workspace,
-      sessionID: sessionID
-    )
+    try await engine.conversation.sendMessage(MessageSubmission(text: "Create the numbered files."))
 
     for expectedCount in 1...budget {
       try await waitUntil {

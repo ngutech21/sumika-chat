@@ -269,10 +269,12 @@ struct ChatAttachmentLifecycleTests {
     engine.addAttachments(from: [source])
     try await waitForAttachment(in: engine)
     let id = try #require(engine.composerSessionState.pendingAttachments.first?.id)
-    await #expect(throws: (any Error).self) { try await engine.sendMessage(prompt: "question") }
+    await #expect(throws: (any Error).self) {
+      try await engine.conversation.sendMessage(MessageSubmission(text: "question"))
+    }
     #expect(engine.composerSessionState.pendingAttachments.count == 1)
     engine.modelRuntime.modelState = .ready
-    try await engine.sendMessageInTestWorkspace(prompt: "question")
+    try await engine.conversation.sendMessage(MessageSubmission(text: "question"))
     engine.deactivate()
     await engine.drainAttachments()
     #expect(try Data(contentsOf: attachmentStore.localURL(for: id)) == Data("private".utf8))

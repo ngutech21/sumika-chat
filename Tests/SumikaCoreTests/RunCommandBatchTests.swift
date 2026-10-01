@@ -14,11 +14,10 @@ struct RunCommandBatchTests {
       [command("check"), command("check"), command("check")],
       [.chunk("Command results recorded.")],
     ])
-    let (engine, workspace) = try makeEngine(runtime: runtime, runner: runner)
+    let (engine, _) = try makeEngine(runtime: runtime, runner: runner)
     engine.enableAutomaticToolApproval()
 
-    await engine.sendMessage(
-      prompt: "run the check", in: workspace, sessionID: engine.chatSession.id)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "run the check"))
     try await waitUntil { !engine.isGenerating }
 
     #expect(await runner.requests.count == 1)
@@ -56,8 +55,8 @@ struct RunCommandBatchTests {
       [command("first", id: ids[0]), command("second", id: ids[1]), command("first", id: ids[2])],
       [.chunk("Command results recorded.")],
     ])
-    let (engine, workspace) = try makeEngine(runtime: runtime, runner: runner)
-    await engine.sendMessage(prompt: "run checks", in: workspace, sessionID: engine.chatSession.id)
+    let (engine, _) = try makeEngine(runtime: runtime, runner: runner)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "run checks"))
     try await waitUntil { !engine.isGenerating }
 
     #expect(
@@ -95,9 +94,9 @@ struct RunCommandBatchTests {
       ],
       [.chunk("Command results recorded.")],
     ])
-    let (engine, workspace) = try makeEngine(runtime: runtime, runner: runner)
+    let (engine, _) = try makeEngine(runtime: runtime, runner: runner)
     engine.enableAutomaticToolApproval()
-    await engine.sendMessage(prompt: "run checks", in: workspace, sessionID: engine.chatSession.id)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "run checks"))
     try await waitUntil { !engine.isGenerating }
     #expect(await runner.requests.count == 4)
     #expect(await runner.requests.allSatisfy { $0.timeoutSeconds == 120 })
@@ -111,9 +110,9 @@ struct RunCommandBatchTests {
       [command("check", timeout: values.0), command("check", timeout: values.1)],
       [.chunk("Command results recorded.")],
     ])
-    let (engine, workspace) = try makeEngine(runtime: runtime, runner: runner)
+    let (engine, _) = try makeEngine(runtime: runtime, runner: runner)
     engine.enableAutomaticToolApproval()
-    await engine.sendMessage(prompt: "run checks", in: workspace, sessionID: engine.chatSession.id)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "run checks"))
     try await waitUntil { !engine.isGenerating }
     #expect(await runner.requests.count == values.2)
     #expect(await runner.requests.allSatisfy { (1...120).contains($0.timeoutSeconds) })
@@ -143,8 +142,8 @@ struct RunCommandBatchTests {
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [command("check"), command("check")], [.chunk("The command was denied.")],
     ])
-    let (engine, workspace) = try makeEngine(runtime: runtime, runner: runner)
-    await engine.sendMessage(prompt: "run checks", in: workspace, sessionID: engine.chatSession.id)
+    let (engine, _) = try makeEngine(runtime: runtime, runner: runner)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "run checks"))
     try await waitUntil { !engine.isGenerating }
     let ids = engine.chatSession.toolCalls.map(\.id)
     engine.denyToolCall(id: ids[0])
@@ -162,9 +161,9 @@ struct RunCommandBatchTests {
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [command("first"), command("first"), command("second")]
     ])
-    let (engine, workspace) = try makeEngine(runtime: runtime, runner: runner)
+    let (engine, _) = try makeEngine(runtime: runtime, runner: runner)
     engine.enableAutomaticToolApproval()
-    await engine.sendMessage(prompt: "run checks", in: workspace, sessionID: engine.chatSession.id)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "run checks"))
     try await waitUntil { await runner.requests.count == 1 }
     #expect(engine.chatSession.toolCalls[1].isUnexecutedCommandDuplicate)
     engine.cancelGeneration()
@@ -184,9 +183,9 @@ struct RunCommandBatchTests {
       [command("check"), command("check")],
       [.chunk("Command results recorded.")],
     ])
-    let (engine, workspace) = try makeEngine(runtime: runtime, runner: runner)
+    let (engine, _) = try makeEngine(runtime: runtime, runner: runner)
     engine.enableAutomaticToolApproval()
-    await engine.sendMessage(prompt: "run checks", in: workspace, sessionID: engine.chatSession.id)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "run checks"))
     try await waitUntil { !engine.isGenerating }
     #expect(await runner.requests.count == 2)
     #expect(engine.chatSession.turns.last?.toolCallBatchCount == 2)
@@ -207,11 +206,10 @@ struct RunCommandBatchTests {
       [command("check"), command("check")], [.chunk("Command results recorded.")],
       [command("check"), command("check")], [.chunk("Command results recorded.")],
     ])
-    let (engine, workspace) = try makeEngine(runtime: runtime, runner: runner)
+    let (engine, _) = try makeEngine(runtime: runtime, runner: runner)
     engine.enableAutomaticToolApproval()
     for _ in 0..<2 {
-      await engine.sendMessage(
-        prompt: "run checks", in: workspace, sessionID: engine.chatSession.id)
+      try await engine.conversation.sendMessage(MessageSubmission(text: "run checks"))
       try await waitUntil { !engine.isGenerating }
     }
     #expect(await runner.requests.count == 2)
@@ -233,9 +231,9 @@ struct RunCommandBatchTests {
       ],
       [.chunk("Command results recorded.")],
     ])
-    let (engine, workspace) = try makeEngine(runtime: runtime, runner: runner)
+    let (engine, _) = try makeEngine(runtime: runtime, runner: runner)
     engine.enableAutomaticToolApproval()
-    await engine.sendMessage(prompt: "run checks", in: workspace, sessionID: engine.chatSession.id)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "run checks"))
     try await waitUntil { !engine.isGenerating }
     let records = engine.chatSession.toolCalls
     #expect(await runner.requests.count == 1)
@@ -250,9 +248,9 @@ struct RunCommandBatchTests {
       [command("check"), command("check"), .toolCall(ChatRuntimeToolCall(name: toolName))],
       [.chunk("The batch was rejected.")],
     ])
-    let (engine, workspace) = try makeEngine(runtime: runtime, runner: runner)
+    let (engine, _) = try makeEngine(runtime: runtime, runner: runner)
     engine.enableAutomaticToolApproval()
-    await engine.sendMessage(prompt: "run checks", in: workspace, sessionID: engine.chatSession.id)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "run checks"))
     try await waitUntil { !engine.isGenerating }
     #expect(await runner.requests.isEmpty)
     #expect(engine.chatSession.toolCalls.count == 3)
@@ -288,8 +286,7 @@ struct RunCommandBatchTests {
       [command("first"), command("first"), command("second")]
     ])
     let (initialEngine, initialWorkspace) = try makeEngine(runtime: preparation, runner: runner)
-    await initialEngine.sendMessage(
-      prompt: "run checks", in: initialWorkspace, sessionID: initialEngine.chatSession.id)
+    try await initialEngine.conversation.sendMessage(MessageSubmission(text: "run checks"))
     try await waitUntil { !initialEngine.isGenerating }
     var session = initialEngine.chatSession
     var turn = try #require(session.turns.first)
@@ -368,7 +365,7 @@ struct RunCommandBatchTests {
     ])
     let (engine, workspace) = try makeEngine(runtime: runtime)
     engine.enableAutomaticToolApproval()
-    await engine.sendMessage(prompt: "append once", in: workspace, sessionID: engine.chatSession.id)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "append once"))
     try await waitUntil { !engine.isGenerating }
     #expect(
       try String(contentsOf: workspace.rootURL.appending(path: "once.txt"), encoding: .utf8) == "x")
@@ -405,7 +402,8 @@ struct RunCommandBatchTests {
         executorRegistry: ToolExecutorRegistry([
           AnyToolExecutor(RunCommandToolExecutor(processRunner: runner))
         ])))
-    try engine.loadSession(from: workspace, sessionID: #require(workspace.sessions.first?.id))
+    try engine.conversation.activate(
+      sessionID: #require(workspace.sessions.first?.id), in: workspace)
     engine.modelRuntime.modelState = .ready
     return (engine, workspace)
   }

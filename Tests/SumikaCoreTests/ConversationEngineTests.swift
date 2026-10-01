@@ -70,19 +70,20 @@ struct ConversationEngineTests {
     let unselectedToolName = ToolName(rawValue: "mcp__unselected__echo")
     let approvalRecord = makeToolCallRecord(status: .awaitingApproval)
     let sessionID = UUID()
+    var workspace = try makeWorkspace(sessionID: sessionID)
+    workspace.sessions = [
+      ChatSession(
+        id: sessionID,
+        turns: [ChatTurn(status: .awaitingApproval, items: [.tool(approvalRecord)])],
+        interactionMode: .agent
+      )
+    ]
     let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
-      documentMarkdownConverter: DocumentMarkdownConverterStub(),
-      chatSession: ChatSession(
-        id: sessionID,
-        turns: [
-          ChatTurn(status: .awaitingApproval, items: [.tool(approvalRecord)])
-        ],
-        interactionMode: .agent
-      )
+      documentMarkdownConverter: DocumentMarkdownConverterStub()
     )
-    let workspace = try makeWorkspace(sessionID: sessionID)
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
 
     engine.configureAgentTools(
@@ -97,13 +98,8 @@ struct ConversationEngineTests {
     #expect(engine.chatSession.selectedMCPServerIDs.isEmpty)
     engine.denyToolCall(id: approvalRecord.id)
     try await waitUntil { engine.activity == .idle }
-    #expect(
-      await engine.sendMessage(
-        prompt: "continue with the updated tools",
-        in: workspace,
-        sessionID: sessionID
-      )
-    )
+    try await engine.conversation.sendMessage(
+      MessageSubmission(text: "continue with the updated tools"))
     try await waitUntil { !engine.isGenerating }
 
     let capturedToolContexts = await runtime.capturedToolContexts
@@ -534,11 +530,11 @@ struct ConversationEngineTests {
       )
     )
 
-    #expect(try await engine.sendMessageInTestWorkspace(prompt: "hello"))
+    try await engine.conversation.sendMessage(MessageSubmission(text: "hello"))
     try await waitUntilAsync { await runtime.capturedGenerationSettings.count == 1 }
 
     engine.setInteractionMode(.agent)
-    #expect(try await engine.sendMessageInTestWorkspace(prompt: "inspect"))
+    try await engine.conversation.sendMessage(MessageSubmission(text: "inspect"))
     try await waitUntilAsync { await runtime.capturedGenerationSettings.count == 2 }
 
     let prompts = await runtime.capturedSystemPrompts
@@ -637,7 +633,7 @@ struct ConversationEngineTests {
       sessions: [engine.chatSession]
     )
 
-    try engine.loadSession(from: workspace, sessionID: engine.chatSession.id)
+    try engine.conversation.activate(sessionID: engine.chatSession.id, in: workspace)
     let document = try engine.modelContextDebugDocument()
 
     #expect(document.systemPrompt.content.contains("Use available workspace tools"))
@@ -668,7 +664,7 @@ struct ConversationEngineTests {
     #expect(engine.modelContextDebugState.documentRevision > initialRevision)
 
     engine.modelRuntime.modelState = .ready
-    try await engine.sendMessageInTestWorkspace(prompt: "hello")
+    try await engine.conversation.sendMessage(MessageSubmission(text: "hello"))
 
     try await waitUntil { engine.modelContextDebugState.runtimeCacheDebugSnapshot == snapshot }
 
@@ -680,33 +676,21 @@ struct ConversationEngineTests {
   }
 
   @Test
-  func sendMessageRejectsInactiveSessionContext() async {
-    let activeSession = ChatSession()
-    let inactiveSession = ChatSession()
-    let workspace = Workspace(
-      name: "Project",
-      rootURL: FileManager.default.temporaryDirectory,
-      sessions: [inactiveSession]
-    )
-    let engine = ConversationEngine(
-      runtime: ChatSessionFakeChatModelRuntime(),
-      modelPath: "/tmp/model",
-      chatSession: activeSession
-    )
+  func sendMessageRejectsInactiveConversation() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime()
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
     engine.modelRuntime.modelState = .ready
+    engine.conversation.deactivate()
 
-    #expect(
-      !(await engine.sendMessage(
-        prompt: "hello",
-        in: workspace,
-        sessionID: inactiveSession.id
-      )))
-    #expect(engine.errorMessage == "The active chat session does not belong to the workspace.")
-    #expect(engine.chatSession.turns.isEmpty)
+    await #expect(throws: ConversationIntentError.inactive) {
+      try await engine.conversation.sendMessage(MessageSubmission(text: "hello"))
+    }
+    #expect(engine.conversation.state == .inactive)
+    #expect(await runtime.capturedMessages.isEmpty)
   }
 
   @Test
-  func sendMessageRejectsWorkspaceThatDoesNotContainActiveSession() async {
+  func activationRejectsWorkspaceThatDoesNotContainSession() {
     let session = ChatSession()
     let workspace = Workspace(
       name: "Project",
@@ -718,15 +702,14 @@ struct ConversationEngineTests {
       modelPath: "/tmp/model",
       chatSession: session
     )
-    engine.modelRuntime.modelState = .ready
 
     #expect(
-      !(await engine.sendMessage(
-        prompt: "hello",
-        in: workspace,
-        sessionID: session.id
-      )))
-    #expect(engine.errorMessage == "The active chat session does not belong to the workspace.")
+      throws: ConversationIntentError.sessionNotFound(
+        workspaceID: workspace.id, sessionID: session.id)
+    ) {
+      try engine.conversation.activate(sessionID: session.id, in: workspace)
+    }
+    #expect(engine.chatSession.id == session.id)
     #expect(engine.chatSession.turns.isEmpty)
   }
 
@@ -742,7 +725,7 @@ struct ConversationEngineTests {
       )
     )
     engine.modelRuntime.modelState = .ready
-    try await engine.sendMessageInTestWorkspace(prompt: "inspect files")
+    try await engine.conversation.sendMessage(MessageSubmission(text: "inspect files"))
     try await waitUntil { !engine.isGenerating }
 
     #expect(!engine.chatSession.turns.isEmpty)
@@ -756,7 +739,8 @@ struct ConversationEngineTests {
     let session = ChatSession(selectedModelID: ManagedModelCatalog.defaultModelID)
     engine.loadSession(session)
     engine.modelRuntime.modelState = .ready
-    try await engine.sendMessageInTestWorkspace(prompt: "  build   a snake game\nin python  ")
+    try await engine.conversation.sendMessage(
+      MessageSubmission(text: "  build   a snake game\nin python  "))
     try await waitUntil { !engine.isGenerating }
 
     #expect(engine.chatSession.title == "build a snake game in python")
@@ -793,7 +777,7 @@ struct ConversationEngineTests {
       )
     )
     engine.modelRuntime.modelState = .ready
-    try await engine.sendMessageInTestWorkspace(prompt: "first prompt")
+    try await engine.conversation.sendMessage(MessageSubmission(text: "first prompt"))
     try await waitUntil { !engine.isGenerating }
 
     #expect(engine.chatSession.title == "Manual title")
@@ -814,7 +798,7 @@ struct ConversationEngineTests {
       )
     )
     engine.modelRuntime.modelState = .ready
-    try await engine.sendMessageInTestWorkspace(prompt: "second prompt")
+    try await engine.conversation.sendMessage(MessageSubmission(text: "second prompt"))
     try await waitUntil { !engine.isGenerating }
 
     #expect(engine.chatSession.title == ChatSession.defaultTitle)
@@ -837,10 +821,10 @@ struct ConversationEngineTests {
       ))
     engine.modelRuntime.modelState = .ready
 
-    try await engine.sendMessageInTestWorkspace(prompt: "first")
+    try await engine.conversation.sendMessage(MessageSubmission(text: "first"))
     try await waitUntil { !engine.isGenerating }
 
-    try await engine.sendMessageInTestWorkspace(prompt: "second")
+    try await engine.conversation.sendMessage(MessageSubmission(text: "second"))
     try await waitUntil { !engine.isGenerating }
 
     let projection = ChatModelContextBuilder().transcript(from: engine.chatSession)
@@ -895,7 +879,7 @@ struct ConversationEngineTests {
     engine.setInteractionMode(.agent)
     try await waitUntilAsync { await runtime.didStartClearContext }
 
-    try await engine.sendMessageInTestWorkspace(prompt: "hello")
+    try await engine.conversation.sendMessage(MessageSubmission(text: "hello"))
     await Task.yield()
 
     #expect(await runtime.streamReplyCount == 0)
@@ -924,7 +908,7 @@ struct ConversationEngineTests {
       engine.composerSessionState.pendingAttachments == [attachment]
     }
 
-    try await engine.sendMessageInTestWorkspace(prompt: "Explain this")
+    try await engine.conversation.sendMessage(MessageSubmission(text: "Explain this"))
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1001,7 +985,7 @@ struct ConversationEngineTests {
     engine.addAttachments(from: [URL(filePath: "/tmp/large.pdf"), URL(filePath: "/tmp/extra.txt")])
     try await waitUntil { engine.composerSessionState.pendingAttachments.count == 2 }
     do {
-      try await engine.sendMessageInTestWorkspace(prompt: "Read the ending")
+      try await engine.conversation.sendMessage(MessageSubmission(text: "Read the ending"))
       Issue.record("Expected character limit rejection")
     } catch ChatAttachmentError.contentTooLarge(let actual, let limit) {
       #expect(actual == 32_001)
@@ -1011,7 +995,7 @@ struct ConversationEngineTests {
     #expect(engine.chatSession.turns.isEmpty)
     #expect(await runtime.capturedMessages.isEmpty)
     engine.removeAttachment(id: extra.id)
-    try await engine.sendMessageInTestWorkspace(prompt: "Read the ending")
+    try await engine.conversation.sendMessage(MessageSubmission(text: "Read the ending"))
     try await waitUntil { !engine.isGenerating }
     #expect(engine.chatSession.turns.count == 1)
     #expect(engine.composerSessionState.pendingAttachments.isEmpty)
@@ -1038,7 +1022,7 @@ struct ConversationEngineTests {
       engine.composerSessionState.pendingAttachments == [attachment]
     }
 
-    try await engine.sendMessageInTestWorkspace(prompt: "Summarize this document")
+    try await engine.conversation.sendMessage(MessageSubmission(text: "Summarize this document"))
     try await waitUntil { !engine.isGenerating }
 
     let encodedSession = try JSONEncoder().encode(engine.chatSession)
@@ -1100,7 +1084,8 @@ struct ConversationEngineTests {
       engine.composerSessionState.pendingAttachments == [attachment]
     }
 
-    try await engine.sendMessageInTestWorkspace(prompt: "What is in this screenshot?")
+    try await engine.conversation.sendMessage(
+      MessageSubmission(text: "What is in this screenshot?"))
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1115,7 +1100,7 @@ struct ConversationEngineTests {
     defer { await runtime.releaseChunks() }
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
     engine.modelRuntime.modelState = .ready
-    try await engine.sendMessageInTestWorkspace(prompt: "Cancel this")
+    try await engine.conversation.sendMessage(MessageSubmission(text: "Cancel this"))
 
     try await waitUntilAsync { await runtime.didStartStreaming }
     engine.cancelGeneration()
@@ -1148,7 +1133,7 @@ struct ConversationEngineTests {
     let targetModel = try #require(ManagedModelCatalog.model(id: "gemma4-26b-qat-4bit"))
     let targetSession = ChatSession(selectedModelID: targetModel.id)
     engine.modelRuntime.modelState = .ready
-    try await engine.sendMessageInTestWorkspace(prompt: "Do not leak this reply")
+    try await engine.conversation.sendMessage(MessageSubmission(text: "Do not leak this reply"))
 
     try await waitUntilAsync { await runtime.didStartStreaming }
 
@@ -1183,7 +1168,7 @@ struct ConversationEngineTests {
     let runtime = PartialFailingStreamingRuntime(chunks: ["partial answer"])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
     engine.modelRuntime.modelState = .ready
-    try await engine.sendMessageInTestWorkspace(prompt: "fail after partial output")
+    try await engine.conversation.sendMessage(MessageSubmission(text: "fail after partial output"))
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1204,7 +1189,8 @@ struct ConversationEngineTests {
     let runtime = InterruptedStreamingRuntime(chunks: [])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
     engine.modelRuntime.modelState = .ready
-    try await engine.sendMessageInTestWorkspace(prompt: "stream ends without completion")
+    try await engine.conversation.sendMessage(
+      MessageSubmission(text: "stream ends without completion"))
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1241,10 +1227,11 @@ struct ConversationEngineTests {
       modelPath: "/tmp/model",
       chatSession: session
     )
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    await engine.sendMessage(
-      prompt: "read README.md before answering", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(
+      MessageSubmission(text: "read README.md before answering"))
     try await waitUntilAsync { await runtime.startedStreamCount == 2 }
     try await waitUntil { engine.chatSession.testMessages.contains { $0.kind == .toolResult } }
 
@@ -1262,7 +1249,7 @@ struct ConversationEngineTests {
     #expect(engine.chatSession.turns[0].status == .cancelled)
     #expect(engine.chatSession.turns[0].modelContextPolicy == .excluded)
 
-    await engine.sendMessage(prompt: "are you there", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "are you there"))
     try await waitUntil { !engine.isGenerating }
 
     let capturedMessages = await runtime.capturedMessages
@@ -1286,11 +1273,11 @@ struct ConversationEngineTests {
     }
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
     engine.modelRuntime.modelState = .ready
-    try await engine.sendMessageInTestWorkspace(prompt: "first")
+    try await engine.conversation.sendMessage(MessageSubmission(text: "first"))
     try await waitUntilAsync { await runtime.startedStreamCount == 1 }
     engine.cancelGeneration()
 
-    try await engine.sendMessageInTestWorkspace(prompt: "second")
+    try await engine.conversation.sendMessage(MessageSubmission(text: "second"))
     try await waitUntilAsync { await runtime.startedStreamCount == 2 }
 
     await runtime.releaseStream(callIndex: 0)
@@ -1317,8 +1304,9 @@ struct ConversationEngineTests {
       modelPath: "/tmp/model",
       chatSession: session
     )
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
-    await engine.sendMessage(prompt: "write a short poem", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "write a short poem"))
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1350,9 +1338,10 @@ struct ConversationEngineTests {
       modelPath: "/tmp/model",
       chatSession: session
     )
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    await engine.sendMessage(prompt: "Fix the failing test", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "Fix the failing test"))
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1381,18 +1370,17 @@ struct ConversationEngineTests {
       modelPath: "/tmp/model",
       chatSession: session
     )
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
-    await engine.sendMessage(
-      prompt: """
-        Tool result
-        Tool: list_files
-        Status: success
-        Result:
-        README.md
-        """,
-      in: workspace,
-      sessionID: sessionID
-    )
+    try await engine.conversation.sendMessage(
+      MessageSubmission(
+        text: """
+          Tool result
+          Tool: list_files
+          Status: success
+          Result:
+          README.md
+          """))
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1447,10 +1435,11 @@ struct ConversationEngineTests {
       modelPath: "/tmp/model",
       chatSession: session
     )
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    await engine.sendMessage(
-      prompt: "lies die projektbeschreibung", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(
+      MessageSubmission(text: "lies die projektbeschreibung"))
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1530,7 +1519,7 @@ struct ConversationEngineTests {
   @Test
   func nativeReadFileFollowUpUsesToolRoleForObservation() async throws {
     let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
+    var workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [
         .toolCall(
@@ -1542,14 +1531,16 @@ struct ConversationEngineTests {
       [.chunk("The README says project notes.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
-    engine.loadSession(
+    workspace.sessions = [
       ChatSession(
         id: sessionID,
         selectedModelID: "gemma4-12b-qat-4bit",
         interactionMode: .agent
-      ))
+      )
+    ]
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
-    await engine.sendMessage(prompt: "summarize the README", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "summarize the README"))
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1572,7 +1563,7 @@ struct ConversationEngineTests {
   @Test
   func nativeWebFetchFollowUpUsesToolRoleForObservation() async throws {
     let sessionID = UUID()
-    let workspace = Workspace(
+    var workspace = Workspace(
       name: "Project",
       rootURL: URL(filePath: Workspace.normalizedPath(for: FileManager.default.temporaryDirectory)),
       sessions: [
@@ -1605,16 +1596,17 @@ struct ConversationEngineTests {
       modelPath: "/tmp/model",
       toolOrchestrator: orchestrator
     )
-    engine.loadSession(
+    workspace.sessions = [
       ChatSession(
         id: sessionID,
         selectedModelID: "gemma4-12b-qat-4bit",
         interactionMode: .agent
-      ))
+      )
+    ]
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
-    await engine.sendMessage(
-      prompt: "read and summarize this article https://example.com/article", in: workspace,
-      sessionID: sessionID)
+    try await engine.conversation.sendMessage(
+      MessageSubmission(text: "read and summarize this article https://example.com/article"))
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1637,7 +1629,7 @@ struct ConversationEngineTests {
   @Test
   func chatModeNativeWebSearchRunsWithWebOnlyTools() async throws {
     let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
+    var workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [
         .toolCall(
@@ -1660,15 +1652,17 @@ struct ConversationEngineTests {
       modelPath: "/tmp/model",
       toolOrchestrator: orchestrator
     )
-    engine.loadSession(
+    workspace.sessions = [
       ChatSession(
         id: sessionID,
         selectedModelID: "gemma4-12b-qat-4bit",
         interactionMode: .chat
-      ))
+      )
+    ]
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
-    await engine.sendMessage(
-      prompt: "what is current in Swift concurrency?", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(
+      MessageSubmission(text: "what is current in Swift concurrency?"))
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1686,7 +1680,7 @@ struct ConversationEngineTests {
   func chatWebBudgetFinalizationPassesNoToolContext() async throws {
     let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
     let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
+    var workspace = try makeWorkspace(sessionID: sessionID)
     let toolTurns: [[ChatModelStreamEvent]] = (0..<budget).map { index in
       [
         .toolCall(
@@ -1710,15 +1704,16 @@ struct ConversationEngineTests {
         }
       )
     )
-    engine.loadSession(
+    workspace.sessions = [
       ChatSession(
         id: sessionID,
         selectedModelID: "gemma4-12b-qat-4bit",
         interactionMode: .chat
-      ))
+      )
+    ]
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
-    await engine.sendMessage(
-      prompt: "research Swift concurrency", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "research Swift concurrency"))
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1740,7 +1735,7 @@ struct ConversationEngineTests {
   @Test
   func chatModeNativeWebFetchFollowUpIncludesToolObservation() async throws {
     let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
+    var workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [
         .toolCall(
@@ -1763,18 +1758,17 @@ struct ConversationEngineTests {
       modelPath: "/tmp/model",
       toolOrchestrator: orchestrator
     )
-    engine.loadSession(
+    workspace.sessions = [
       ChatSession(
         id: sessionID,
         selectedModelID: "gemma4-12b-qat-4bit",
         interactionMode: .chat
-      ))
+      )
+    ]
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
-    await engine.sendMessage(
-      prompt: "read and summarize this article https://example.com/article",
-      in: workspace,
-      sessionID: sessionID
-    )
+    try await engine.conversation.sendMessage(
+      MessageSubmission(text: "read and summarize this article https://example.com/article"))
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1791,7 +1785,7 @@ struct ConversationEngineTests {
   @Test
   func chatModeDoesNotExposeWorkspaceTools() async throws {
     let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
+    var workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [
         .toolCall(
@@ -1812,14 +1806,16 @@ struct ConversationEngineTests {
         }
       )
     )
-    engine.loadSession(
+    workspace.sessions = [
       ChatSession(
         id: sessionID,
         selectedModelID: "gemma4-12b-qat-4bit",
         interactionMode: .chat
-      ))
+      )
+    ]
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
-    await engine.sendMessage(prompt: "read README.md", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "read README.md"))
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1835,7 +1831,7 @@ struct ConversationEngineTests {
   @Test
   func chatFinalResponseToolCallIsAuditedWithoutFailingTurn() async throws {
     let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
+    var workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [
         .chunk("Let me check the current git status first."),
@@ -1867,15 +1863,17 @@ struct ConversationEngineTests {
         }
       )
     )
-    engine.loadSession(
+    workspace.sessions = [
       ChatSession(
         id: sessionID,
         selectedModelID: "gemma4-12b-qat-4bit",
         interactionMode: .chat
-      ))
+      )
+    ]
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
 
-    await engine.sendMessage(prompt: "commit the changes", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "commit the changes"))
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1912,7 +1910,7 @@ struct ConversationEngineTests {
   @Test
   func emptyChatFinalResponseUsesDeterministicFallback() async throws {
     let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
+    var workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [
         .toolCall(
@@ -1933,15 +1931,17 @@ struct ConversationEngineTests {
         }
       )
     )
-    engine.loadSession(
+    workspace.sessions = [
       ChatSession(
         id: sessionID,
         selectedModelID: "gemma4-12b-qat-4bit",
         interactionMode: .chat
-      ))
+      )
+    ]
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
 
-    await engine.sendMessage(prompt: "commit the changes", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "commit the changes"))
 
     try await waitUntil { !engine.isGenerating }
 
@@ -1961,7 +1961,7 @@ struct ConversationEngineTests {
   @Test
   func chatModeWebFetchRequiresApprovalWhenPolicyAsksEachTime() async throws {
     let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
+    var workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [
         .toolCall(
@@ -1990,15 +1990,17 @@ struct ConversationEngineTests {
         }
       )
     )
-    engine.loadSession(
+    workspace.sessions = [
       ChatSession(
         id: sessionID,
         selectedModelID: "gemma4-12b-qat-4bit",
         interactionMode: .chat
-      ))
+      )
+    ]
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
-    await engine.sendMessage(
-      prompt: "fetch https://example.com/article", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(
+      MessageSubmission(text: "fetch https://example.com/article"))
 
     try await waitUntil { engine.chatSession.turns.first?.status == .awaitingApproval }
     let pending = try #require(engine.chatSession.toolCalls.first)
@@ -2026,7 +2028,7 @@ struct ConversationEngineTests {
   @Test
   func chatModeWebAccessOffDeniesWebTools() async throws {
     let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
+    var workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [
         .toolCall(
@@ -2048,15 +2050,16 @@ struct ConversationEngineTests {
         }
       )
     )
-    engine.loadSession(
+    workspace.sessions = [
       ChatSession(
         id: sessionID,
         selectedModelID: "gemma4-12b-qat-4bit",
         interactionMode: .chat
-      ))
+      )
+    ]
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
-    await engine.sendMessage(
-      prompt: "search Swift concurrency", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "search Swift concurrency"))
 
     try await waitUntil { !engine.isGenerating }
 
@@ -2107,10 +2110,11 @@ struct ConversationEngineTests {
       modelPath: "/tmp/model",
       chatSession: session
     )
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    await engine.sendMessage(
-      prompt: "show the content of README.md", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(
+      MessageSubmission(text: "show the content of README.md"))
 
     try await waitUntil { !engine.isGenerating }
 
@@ -2188,9 +2192,10 @@ struct ConversationEngineTests {
       modelPath: "/tmp/model",
       chatSession: session
     )
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
-    await engine.sendMessage(prompt: "Read the README", in: workspace, sessionID: sessionID)
+    try await engine.conversation.sendMessage(MessageSubmission(text: "Read the README"))
 
     try await waitUntil { !engine.isGenerating }
 

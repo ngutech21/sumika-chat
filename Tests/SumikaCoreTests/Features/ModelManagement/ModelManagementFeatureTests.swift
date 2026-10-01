@@ -56,7 +56,7 @@ struct ModelManagementFeatureTests {
       modelAvailability: { _ in true },
       chatSession: firstSession
     )
-    try engine.loadSession(from: workspace, sessionID: firstSession.id)
+    try engine.conversation.activate(sessionID: firstSession.id, in: workspace)
     let feature = ModelManagementFeature(
       modelController: engine.modelRuntime,
       conversationEngine: engine
@@ -64,7 +64,7 @@ struct ModelManagementFeatureTests {
 
     feature.useRecommendedSettings(for: .chat)
     await settingsStore.waitUntilApplyStarts()
-    try engine.loadSession(from: workspace, sessionID: replacementSession.id)
+    try engine.conversation.activate(sessionID: replacementSession.id, in: workspace)
     await settingsStore.releaseApply()
     await waitUntil {
       feature.resolvedModeSettings.chat == recommendedSettings.chat
