@@ -289,3 +289,7 @@ periphery:
 
 outdated:
     swift package update --dry-run
+
+update:
+    swift package update
+    just resolve-packages
