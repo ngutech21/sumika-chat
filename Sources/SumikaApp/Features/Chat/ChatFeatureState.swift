@@ -31,16 +31,19 @@ final class ChatFeatureState {
 
   @ObservationIgnored private let conversation: ConversationFeature
   @ObservationIgnored private let workspaceState: WorkspaceFeatureState
+  @ObservationIgnored let attachmentImageLoader: AttachmentImageLoader
   @ObservationIgnored private var activateConversation: ConversationActivator?
   @ObservationIgnored private var handleInteractionModeSelection: InteractionModeSelectionHandler?
   private var intentErrorMessage: String?
 
   init(
     conversation: ConversationFeature,
-    workspaceState: WorkspaceFeatureState
+    workspaceState: WorkspaceFeatureState,
+    attachmentImageLoader: AttachmentImageLoader
   ) {
     self.conversation = conversation
     self.workspaceState = workspaceState
+    self.attachmentImageLoader = attachmentImageLoader
   }
 
   func setConversationActivator(_ activator: @escaping ConversationActivator) {

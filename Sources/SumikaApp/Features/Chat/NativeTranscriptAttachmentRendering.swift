@@ -1,5 +1,4 @@
 import AppKit
-import ImageIO
 import SumikaCore
 
 enum NativeTranscriptAttachmentPreviewMetrics {
@@ -10,64 +9,29 @@ enum NativeTranscriptAttachmentPreviewMetrics {
   static let imageHeight: CGFloat = imageSize.height + 18
 }
 
-struct NativeAttachmentThumbDescriptor: Equatable, Hashable, Sendable {
-  var attachmentID: AttachmentID
-  var kind: ChatAttachmentKind
-  var contentSignature: String
-  var maxPixelSize: Int
-
-  init(attachment: ChatAttachment, maxPixelSize: Int) {
-    attachmentID = attachment.id
-    kind = attachment.kind
-    contentSignature = attachment.contentSignature
-    self.maxPixelSize = maxPixelSize
-  }
-
-  static func == (lhs: NativeAttachmentThumbDescriptor, rhs: NativeAttachmentThumbDescriptor)
-    -> Bool
-  {
-    lhs.attachmentID == rhs.attachmentID
-      && lhs.kind == rhs.kind
-      && lhs.contentSignature == rhs.contentSignature
-      && lhs.maxPixelSize == rhs.maxPixelSize
-  }
-
-  func hash(into hasher: inout Hasher) {
-    hasher.combine(attachmentID)
-    hasher.combine(kind)
-    hasher.combine(contentSignature)
-    hasher.combine(maxPixelSize)
-  }
-}
-
-private struct NativeLoadedAttachmentThumb: @unchecked Sendable {
-  var image: NSImage?
-}
-
 @MainActor
 final class NativeTranscriptAttachmentThumbnailStore {
-  private let attachmentStore: ChatAttachmentStore
-  private var thumbnailsByDescriptor: [NativeAttachmentThumbDescriptor: NSImage] = [:]
-  private var failedDescriptors: Set<NativeAttachmentThumbDescriptor> = []
-  private var inFlightDescriptors: Set<NativeAttachmentThumbDescriptor> = []
+  private let imageLoader: AttachmentImageLoader
+  private var thumbnailsByDescriptor: [AttachmentImageRequest: NSImage] = [:]
+  private var failedDescriptors: Set<AttachmentImageRequest> = []
+  private var inFlightLoads: [AttachmentImageRequest: Task<Void, Never>] = [:]
 
-  init(attachmentStore: ChatAttachmentStore = ChatAttachmentStore()) {
-    self.attachmentStore = attachmentStore
+  init(imageLoader: AttachmentImageLoader) {
+    self.imageLoader = imageLoader
+  }
+
+  deinit {
+    for task in inFlightLoads.values {
+      task.cancel()
+    }
   }
 
   func thumbnail(for attachment: ChatAttachment, maxPixelSize: Int) -> NSImage? {
-    let descriptor = NativeAttachmentThumbDescriptor(
+    let descriptor = AttachmentImageRequest(
       attachment: attachment,
       maxPixelSize: maxPixelSize
     )
     return thumbnailsByDescriptor[descriptor]
-  }
-
-  func imageURL(for attachment: ChatAttachment) -> URL? {
-    guard attachment.kind == .image else {
-      return nil
-    }
-    return try? attachmentStore.localURL(for: attachment.id)
   }
 
   func requestThumbnail(
@@ -79,70 +43,42 @@ final class NativeTranscriptAttachmentThumbnailStore {
     guard attachment.kind == .image else {
       return
     }
-    let descriptor = NativeAttachmentThumbDescriptor(
+    let descriptor = AttachmentImageRequest(
       attachment: attachment,
       maxPixelSize: maxPixelSize
     )
     guard thumbnailsByDescriptor[descriptor] == nil,
       !failedDescriptors.contains(descriptor),
-      !inFlightDescriptors.contains(descriptor)
+      inFlightLoads[descriptor] == nil
     else {
       return
     }
 
-    inFlightDescriptors.insert(descriptor)
-    let store = attachmentStore
-    Task { [weak self] in
-      let loaded = await Task.detached(priority: .userInitiated) {
-        let url = try? store.localURL(for: descriptor.attachmentID)
-        return NativeLoadedAttachmentThumb(
-          image: NativeTranscriptImageFileLoader.thumbnailImage(
-            from: url,
-            maxPixelSize: CGFloat(descriptor.maxPixelSize)
-          ))
-      }.value
-
-      await MainActor.run {
-        guard let self else {
-          return
-        }
-        self.inFlightDescriptors.remove(descriptor)
-        if let image = loaded.image {
-          self.thumbnailsByDescriptor[descriptor] = image
-          onUpdate(rowID)
-        } else {
-          self.failedDescriptors.insert(descriptor)
-        }
+    let loader = imageLoader
+    inFlightLoads[descriptor] = Task { [weak self] in
+      let image = await loader.image(for: descriptor)
+      guard !Task.isCancelled, let self else {
+        return
+      }
+      self.inFlightLoads.removeValue(forKey: descriptor)
+      if let image {
+        self.thumbnailsByDescriptor[descriptor] = image
+        onUpdate(rowID)
+      } else {
+        self.failedDescriptors.insert(descriptor)
       }
     }
   }
 
-  func prune(activeDescriptors: Set<NativeAttachmentThumbDescriptor>) {
+  func prune(activeDescriptors: Set<AttachmentImageRequest>) {
     thumbnailsByDescriptor = thumbnailsByDescriptor.filter { activeDescriptors.contains($0.key) }
     failedDescriptors = failedDescriptors.intersection(activeDescriptors)
-    inFlightDescriptors = inFlightDescriptors.intersection(activeDescriptors)
-  }
-}
-
-enum NativeTranscriptImageFileLoader {
-  nonisolated static func thumbnailImage(from url: URL?, maxPixelSize: CGFloat) -> NSImage? {
-    guard let url else {
-      return nil
+    inFlightLoads = inFlightLoads.filter { descriptor, task in
+      if activeDescriptors.contains(descriptor) {
+        return true
+      }
+      task.cancel()
+      return false
     }
-    guard
-      let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-      let cgImage = CGImageSourceCreateThumbnailAtIndex(
-        source,
-        0,
-        [
-          kCGImageSourceCreateThumbnailFromImageAlways: true,
-          kCGImageSourceCreateThumbnailWithTransform: true,
-          kCGImageSourceThumbnailMaxPixelSize: Int(maxPixelSize),
-        ] as CFDictionary
-      )
-    else {
-      return nil
-    }
-    return NSImage(cgImage: cgImage, size: .zero)
   }
 }

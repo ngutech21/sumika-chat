@@ -125,9 +125,10 @@ struct AppStateTests {
     }
     await appState.workspaceState.flushPendingSaves()
     let attachmentStore = ChatAttachmentStore(baseURL: root.appending(path: "app/Attachments"))
-    let imageURL = try attachmentStore.validateStoredFile(for: attachment)
-    #expect(
-      NativeTranscriptImageFileLoader.thumbnailImage(from: imageURL, maxPixelSize: 180) != nil)
+    _ = try attachmentStore.validateStoredFile(for: attachment)
+    let image = await appState.chatFeatureState.attachmentImageLoader.image(
+      for: AttachmentImageRequest(attachment: attachment, maxPixelSize: 180))
+    #expect(image != nil)
     let sessions = root.appending(path: "app/WorkspaceLibrary/sessions")
     #expect(
       !FileManager.default.fileExists(
@@ -1934,6 +1935,42 @@ struct AppStateTests {
       appState.workspaceState.activeSessionID
         == sumika.conversation.state.active?.sessionID
     )
+  }
+
+  @Test
+  func uiTestLaunchResolvesAttachmentPreviewsFromConfiguredStorage() async throws {
+    let fixture = try makeLaunchFixture()
+    let launchState = await AppLaunchConfiguration.bootstrap(
+      environment: [
+        "SUMIKA_UI_TEST_MODE": "1",
+        "SUMIKA_UI_TEST_STORAGE_ROOT": fixture.storageRoot.path(percentEncoded: false),
+        "SUMIKA_UI_TEST_WORKSPACE_PATH": fixture.workspaceURL.path(percentEncoded: false),
+        "SUMIKA_UI_TEST_MODEL_ID": ManagedModelCatalog.defaultModelID,
+      ],
+      runtime: AppStateTestRuntime()
+    )
+    let appState = try #require(launchState.appState)
+    let source = fixture.workspaceURL.appending(path: "clipboard-image-preview.png")
+    let data = try #require(
+      Data(
+        base64Encoded:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+      ))
+    try data.write(to: source)
+    #expect(appState.chatFeatureState.activateSelectedConversation())
+    appState.chatFeatureState.addAttachments(from: [source])
+    try await waitUntil { appState.chatFeatureState.composer.session.pendingAttachments.count == 1 }
+    let attachment = try #require(
+      appState.chatFeatureState.composer.session.pendingAttachments.first)
+    let store = ChatAttachmentStore(baseURL: fixture.storageRoot.appending(path: "Attachments"))
+    _ = try store.validateStoredFile(for: attachment)
+
+    for maxPixelSize in [68, 360, 1_800] {
+      let image = await appState.chatFeatureState.attachmentImageLoader.image(
+        for: AttachmentImageRequest(attachment: attachment, maxPixelSize: maxPixelSize))
+      #expect(image != nil)
+    }
+    await appState.prepareForTermination()
   }
 
   @Test

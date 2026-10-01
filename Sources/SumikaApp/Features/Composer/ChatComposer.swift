@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct ChatComposer: View {
   let attachments: [ChatAttachment]
+  let attachmentImageLoader: AttachmentImageLoader
   let availableModels: [ManagedModel]
   let selectedModel: ManagedModel
   let modelState: ModelLoadState
@@ -59,6 +60,7 @@ struct ChatComposer: View {
         AttachmentList(
           title: nil,
           attachments: attachments,
+          imageLoader: attachmentImageLoader,
           canRemove: !isComposerBusy,
           onRemoveAttachment: onRemoveAttachment
         )
@@ -1536,6 +1538,7 @@ private final class AttachmentFileProviderLoader {
 private struct AttachmentList: View {
   var title: String?
   let attachments: [ChatAttachment]
+  let imageLoader: AttachmentImageLoader
   let canRemove: Bool
   let onRemoveAttachment: (ChatAttachment.ID) -> Void
 
@@ -1552,6 +1555,7 @@ private struct AttachmentList: View {
           ForEach(attachments) { attachment in
             AttachmentPreview(
               attachment: attachment,
+              imageLoader: imageLoader,
               canRemove: canRemove,
               onRemove: onRemoveAttachment
             )

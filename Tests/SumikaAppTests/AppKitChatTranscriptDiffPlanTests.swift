@@ -22,6 +22,7 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func transcriptViewportCannotScrollHorizontally() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
       onDenyToolCall: { _ in },
@@ -59,6 +60,7 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func scrollWheelHitTestingStopsAtTableBoundaryButClicksReachContent() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
       onDenyToolCall: { _ in },
@@ -93,6 +95,7 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func liveInsertedUserImageRoutesClicksToItsPreviewButton() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
       onDenyToolCall: { _ in },
@@ -323,6 +326,7 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func bottomContentInsetDoesNotShortenVerticalScroller() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
       onDenyToolCall: { _ in },
@@ -381,6 +385,7 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func insertedMultilineUserRowUsesItsMeasuredHeightImmediately() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
       onDenyToolCall: { _ in },
@@ -429,6 +434,7 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func rowHeightUsesRenderedTableColumnWidth() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
       onDenyToolCall: { _ in },
@@ -690,6 +696,7 @@ struct AppKitChatTranscriptDiffPlanTests {
     scrollerStyle: NSScroller.Style
   ) throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
       onDenyToolCall: { _ in },
@@ -777,6 +784,7 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func heightOfRowIgnoresPendingStreamingMeasurementUntilPromotion() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
       onDenyToolCall: { _ in },
@@ -809,6 +817,7 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func widthChangeCancelsPendingStreamingCommitAndClearsOldMeasurements() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
       onDenyToolCall: { _ in },
@@ -1206,6 +1215,7 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func interactiveToolExpansionUpdatesTableRowHeightImmediately() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
       onDenyToolCall: { _ in },
@@ -1260,6 +1270,7 @@ struct AppKitChatTranscriptDiffPlanTests {
     var deniedIDs: [ToolCallRecord.ID] = []
     var approvedBatchAnchors: [ToolCallRecord.ID] = []
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { approvedIDs.append($0) },
       onDenyToolCall: { deniedIDs.append($0) },
@@ -1366,6 +1377,7 @@ struct AppKitChatTranscriptDiffPlanTests {
     let anchorID = UUID()
     var resumedAnchors: [ToolCallRecord.ID] = []
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
       onDenyToolCall: { _ in },
@@ -1438,6 +1450,7 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func interactiveToolExpansionDoesNotForceScrollToBottom() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
       onDenyToolCall: { _ in },
@@ -1493,6 +1506,7 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func expandedToolRowDoesNotLeavePageSizedSlackBelowContent() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
       onDenyToolCall: { _ in },
@@ -1588,11 +1602,11 @@ struct AppKitChatTranscriptDiffPlanTests {
       contentSHA256: "second"
     )
 
-    let firstDescriptor = NativeAttachmentThumbDescriptor(
+    let firstDescriptor = AttachmentImageRequest(
       attachment: first,
       maxPixelSize: 360
     )
-    let secondDescriptor = NativeAttachmentThumbDescriptor(
+    let secondDescriptor = AttachmentImageRequest(
       attachment: second,
       maxPixelSize: 360
     )
@@ -2306,6 +2320,7 @@ struct AppKitChatTranscriptDiffPlanTests {
     scrollerStyle: NSScroller.Style
   ) throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
       onDenyToolCall: { _ in },

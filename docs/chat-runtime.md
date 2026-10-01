@@ -265,6 +265,19 @@ checkpoints. Sumika cannot insert a check inside upstream `.item()`, interrupt a
 active native operation, or guarantee recovery from native corruption, hard
 assertions, GPU hangs, callbacks outside the inherited task scope, or OS termination.
 
+## Image attachment previews
+
+Composer and transcript thumbnails and popovers share `AttachmentImageLoader` in
+`SumikaApp`. App composition injects the workspace store's `ChatAttachmentLifecycle`
+into that loader, so imports and previews always resolve the same attachment
+directory, including custom library roots. Views and transcript coordinators
+require the configured loader instead of constructing a default store.
+File lookup and ImageIO decoding run off the main actor. Previews
+downsample to a pixel limit, preserve EXIF orientation, and eagerly decode the
+downsampled image before display. Both popovers share the same loading and
+unavailable states; their pixel limit follows the display scale. Cancelled loads
+do not publish images, and transcript pruning cancels requests no longer in use.
+
 ## Small-document attachments
 
 `ChatAttachmentLoader` admits document filenames supported by the pinned

@@ -117,7 +117,9 @@ final class AppState {
     self.workspaceState = workspaceState
     self.chatFeatureState = ChatFeatureState(
       conversation: sumika.conversation,
-      workspaceState: workspaceState
+      workspaceState: workspaceState,
+      attachmentImageLoader: AttachmentImageLoader(
+        attachmentLifecycle: workspaceStore.attachmentLifecycle)
     )
 
     self.chatFeatureState.setConversationActivator { [weak self] workspaceID, sessionID in

@@ -25,6 +25,11 @@ package actor ChatAttachmentLifecycle {
     self.store = store
   }
 
+  package func localURL(for id: AttachmentID) throws -> URL {
+    try Task.checkCancellation()
+    return try store.localURL(for: id)
+  }
+
   package nonisolated func protect(_ ids: Set<AttachmentID>) -> ChatAttachmentLease {
     let id = UUID()
     references.withLock { $0.leases[id] = ids }

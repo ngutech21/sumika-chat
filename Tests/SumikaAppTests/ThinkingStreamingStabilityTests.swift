@@ -14,6 +14,7 @@ struct ThinkingStreamingStabilityTests {
   @Test
   func pinnedViewportFollowsExpandedStreamingThinkingWithoutBouncing() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
       onDenyToolCall: { _ in },
@@ -78,6 +79,7 @@ struct ThinkingStreamingStabilityTests {
   @Test
   func unpinnedViewportStaysStillWhileExpandedThinkingGrows() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
       onDenyToolCall: { _ in },
@@ -134,6 +136,7 @@ struct ThinkingStreamingStabilityTests {
   @Test
   func collapsedStreamingThinkingKeepsViewportAndRowHeightStill() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
       onDenyToolCall: { _ in },

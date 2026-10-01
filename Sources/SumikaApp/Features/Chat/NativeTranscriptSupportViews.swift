@@ -2,8 +2,8 @@ import AppKit
 import SumikaCore
 
 // Leaf AppKit views shared across the transcript cell, its subviews, and the
-// coordinator: the markdown table renderer, the two bespoke buttons, and the
-// attachment image popover. They hold no transcript state and were previously
+// coordinator: the markdown table renderer and the two bespoke buttons.
+// They hold no transcript state and were previously
 // file-private inside AppKitChatTranscriptRepresentable; they are module-internal
 // now so their call sites in the other transcript files keep reaching them.
 
@@ -351,107 +351,5 @@ final class NativeAttachmentPreviewButton: NSButton {
 
   override func resetCursorRects() {
     addCursorRect(bounds, cursor: .pointingHand)
-  }
-}
-
-final class NativeAttachmentImagePreviewController: NSViewController {
-  private let imageURL: URL?
-  private let displayName: String
-
-  init(imageURL: URL?, displayName: String) {
-    self.imageURL = imageURL
-    self.displayName = displayName
-    super.init(nibName: nil, bundle: nil)
-    preferredContentSize = NSSize(width: 640, height: 480)
-  }
-
-  @available(*, unavailable)
-  required init?(coder _: NSCoder) {
-    fatalError("init(coder:) has not been implemented")
-  }
-
-  override func loadView() {
-    let stack = NSStackView()
-    stack.orientation = .vertical
-    stack.alignment = .leading
-    stack.spacing = 10
-    stack.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
-    stack.translatesAutoresizingMaskIntoConstraints = false
-
-    let root = NSView()
-    root.addSubview(stack)
-    NSLayoutConstraint.activate([
-      stack.topAnchor.constraint(equalTo: root.topAnchor),
-      stack.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-      stack.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-      stack.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-    ])
-
-    if let image = imageURL.flatMap(NSImage.init(contentsOf:)) {
-      stack.addArrangedSubview(makeImageView(image))
-    } else {
-      stack.addArrangedSubview(makeUnavailableView())
-    }
-
-    let nameLabel = NSTextField(labelWithString: displayName)
-    nameLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-    nameLabel.textColor = .secondaryLabelColor
-    nameLabel.lineBreakMode = .byTruncatingMiddle
-    nameLabel.maximumNumberOfLines = 1
-    stack.addArrangedSubview(nameLabel)
-
-    self.view = root
-  }
-
-  private func makeImageView(_ image: NSImage) -> NSImageView {
-    let imageView = NSImageView()
-    imageView.image = image
-    imageView.imageScaling = .scaleProportionallyUpOrDown
-    imageView.translatesAutoresizingMaskIntoConstraints = false
-
-    let fittedSize = fittedImageSize(for: image.size)
-    NSLayoutConstraint.activate([
-      imageView.widthAnchor.constraint(equalToConstant: fittedSize.width),
-      imageView.heightAnchor.constraint(equalToConstant: fittedSize.height),
-    ])
-    preferredContentSize = NSSize(width: fittedSize.width + 24, height: fittedSize.height + 54)
-    return imageView
-  }
-
-  private func makeUnavailableView() -> NSView {
-    let stack = NSStackView()
-    stack.orientation = .vertical
-    stack.alignment = .centerX
-    stack.spacing = 8
-
-    let imageView = NSImageView()
-    imageView.image = NativeTranscriptSymbolImages.image(named: "photo")
-    imageView.image?.isTemplate = true
-    imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 34, weight: .regular)
-    imageView.contentTintColor = .secondaryLabelColor
-    stack.addArrangedSubview(imageView)
-
-    let label = NSTextField(labelWithString: "Image Unavailable")
-    label.textColor = .secondaryLabelColor
-    stack.addArrangedSubview(label)
-
-    NSLayoutConstraint.activate([
-      stack.widthAnchor.constraint(equalToConstant: 360),
-      stack.heightAnchor.constraint(equalToConstant: 240),
-    ])
-    preferredContentSize = NSSize(width: 384, height: 294)
-    return stack
-  }
-
-  private func fittedImageSize(for imageSize: NSSize) -> NSSize {
-    let maximumSize = NSSize(width: 900, height: 700)
-    guard imageSize.width > 0, imageSize.height > 0 else {
-      return NSSize(width: 360, height: 240)
-    }
-    let scale = min(maximumSize.width / imageSize.width, maximumSize.height / imageSize.height, 1)
-    return NSSize(
-      width: max(1, imageSize.width * scale),
-      height: max(1, imageSize.height * scale)
-    )
   }
 }

@@ -83,6 +83,13 @@ final class SumikaUITests: XCTestCase {
         previewButtons.count, 1,
         "The pasted image should expose its preview separately from its remove button.")
       XCTAssertEqual(messageField.value as? String, draft)
+      previewButtons.firstMatch.click()
+      let previewImage = application.images.matching(
+        NSPredicate(format: "label BEGINSWITH %@ AND label ENDSWITH %@", "clipboard-image-", ".png")
+      ).firstMatch
+      XCTAssertTrue(previewImage.waitForExistence(timeout: 5))
+      application.typeKey(.escape, modifierFlags: [])
+      XCTAssertTrue(waitUntil(timeout: 5) { !previewImage.exists })
       removeButtons.firstMatch.click()
       XCTAssertTrue(waitUntil(timeout: 5) { removeButtons.count == 0 })
     }

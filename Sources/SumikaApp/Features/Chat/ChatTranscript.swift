@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ChatTranscript: View {
   let turns: [ChatTurn]
+  let attachmentImageLoader: AttachmentImageLoader
   let modelState: ModelLoadState
   let isGenerating: Bool
   let toolApprovalPolicy: ToolApprovalPolicy
@@ -39,6 +40,7 @@ struct ChatTranscript: View {
     } else {
       AppKitChatTranscriptRepresentable(
         items: items,
+        attachmentImageLoader: attachmentImageLoader,
         isGenerating: isGenerating,
         toolApprovalPolicy: toolApprovalPolicy,
         showsGenerationIndicator: ChatTranscriptGenerationIndicatorPolicy.shouldShow(

@@ -1,16 +1,15 @@
 import AppKit
-import ImageIO
 import SumikaCore
 import SwiftUI
 
 struct AttachmentPreview: View {
   let attachment: ChatAttachment
+  let imageLoader: AttachmentImageLoader
   var canRemove = false
   var onRemove: ((ChatAttachment.ID) -> Void)?
+  @Environment(\.displayScale) private var displayScale
   @State private var isImagePreviewPresented = false
-  @State private var imageURL: URL?
   @State private var thumbnailImage: NSImage?
-  private let attachmentStore = ChatAttachmentStore()
 
   var body: some View {
     HStack(spacing: 7) {
@@ -71,7 +70,7 @@ struct AttachmentPreview: View {
       .help("Show full image")
       .accessibilityLabel("Show \(attachment.displayName)")
       .popover(isPresented: $isImagePreviewPresented, arrowEdge: .leading) {
-        AttachmentImagePopover(url: imageURL, displayName: attachment.displayName)
+        AttachmentImagePopover(attachment: attachment, imageLoader: imageLoader)
       }
     } else {
       Image(systemName: attachment.kind.systemImageName)
@@ -101,40 +100,24 @@ struct AttachmentPreview: View {
     CGSize(width: 34, height: 34)
   }
 
-  private var thumbnailLoadKey: AttachmentThumbnailLoadKey {
-    AttachmentThumbnailLoadKey(
-      attachmentID: attachment.id,
-      kind: attachment.kind,
-      maxPixelSize: Int(max(thumbnailSize.width, thumbnailSize.height) * 2)
+  private var thumbnailLoadKey: AttachmentImageRequest {
+    AttachmentImageRequest(
+      attachment: attachment,
+      maxPixelSize: Int(
+        (max(thumbnailSize.width, thumbnailSize.height) * displayScale).rounded(.up))
     )
   }
 
-  private func loadImagePreview(for key: AttachmentThumbnailLoadKey) async {
-    guard key.kind == .image else {
-      imageURL = nil
-      thumbnailImage = nil
-      return
-    }
-
-    let store = attachmentStore
-    let loaded = await Task.detached(priority: .userInitiated) {
-      do {
-        let url = try store.localURL(for: key.attachmentID)
-        let image = ImageFileLoader.thumbnailImage(
-          from: url,
-          maxPixelSize: CGFloat(key.maxPixelSize)
-        )
-        return LoadedAttachmentThumbnail(url: url, image: image)
-      } catch {
-        return LoadedAttachmentThumbnail(url: nil, image: nil)
-      }
-    }.value
-
+  private func loadImagePreview(for key: AttachmentImageRequest) async {
     guard !Task.isCancelled else {
       return
     }
-    imageURL = loaded.url
-    thumbnailImage = loaded.image
+    thumbnailImage = nil
+    let image = await imageLoader.image(for: key)
+    guard !Task.isCancelled else {
+      return
+    }
+    thumbnailImage = image
   }
 }
 
@@ -168,23 +151,31 @@ private struct AttachmentThumbnail: View {
   }
 }
 
-private struct AttachmentImagePopover: View {
-  let url: URL?
-  let displayName: String
+struct AttachmentImagePopover: View {
+  let attachment: ChatAttachment
+  let imageLoader: AttachmentImageLoader
+  @Environment(\.displayScale) private var displayScale
+  @State private var image: NSImage?
+  @State private var isLoading = true
+  private let maximumSize = CGSize(width: 900, height: 700)
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
-      if let url, let image = NSImage(contentsOf: url) {
+      if let image {
         Image(nsImage: image)
           .resizable()
           .scaledToFit()
-          .frame(maxWidth: 900, maxHeight: 700)
+          .frame(width: fittedSize(for: image).width, height: fittedSize(for: image).height)
+          .accessibilityLabel(attachment.displayName)
+      } else if isLoading {
+        ProgressView("Loading Image")
+          .frame(width: 360, height: 240)
       } else {
         ContentUnavailableView("Image Unavailable", systemImage: "photo")
           .frame(width: 360, height: 240)
       }
 
-      Text(displayName)
+      Text(attachment.displayName)
         .font(.caption)
         .foregroundStyle(.secondary)
         .lineLimit(1)
@@ -192,41 +183,31 @@ private struct AttachmentImagePopover: View {
     }
     .padding(12)
     .frame(minWidth: 320, minHeight: 220)
+    .task(id: imageRequest) {
+      guard !Task.isCancelled else {
+        return
+      }
+      image = nil
+      isLoading = true
+      let loadedImage = await imageLoader.image(for: imageRequest)
+      guard !Task.isCancelled else {
+        return
+      }
+      image = loadedImage
+      isLoading = false
+    }
   }
-}
 
-private struct AttachmentThumbnailLoadKey: Equatable {
-  let attachmentID: ChatAttachment.ID
-  let kind: ChatAttachmentKind
-  let maxPixelSize: Int
-}
+  private var imageRequest: AttachmentImageRequest {
+    AttachmentImageRequest(
+      attachment: attachment,
+      maxPixelSize: Int((max(maximumSize.width, maximumSize.height) * displayScale).rounded(.up))
+    )
+  }
 
-private struct LoadedAttachmentThumbnail: @unchecked Sendable {
-  let url: URL?
-  let image: NSImage?
-}
-
-private enum ImageFileLoader {
-  nonisolated static func thumbnailImage(from url: URL?, maxPixelSize: CGFloat) -> NSImage? {
-    guard let url else {
-      return nil
-    }
-    guard
-      let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-      let cgImage = CGImageSourceCreateThumbnailAtIndex(
-        source,
-        0,
-        [
-          kCGImageSourceCreateThumbnailFromImageAlways: true,
-          kCGImageSourceCreateThumbnailWithTransform: true,
-          kCGImageSourceThumbnailMaxPixelSize: Int(maxPixelSize),
-        ] as CFDictionary
-      )
-    else {
-      return nil
-    }
-
-    return NSImage(cgImage: cgImage, size: .zero)
+  private func fittedSize(for image: NSImage) -> CGSize {
+    let scale = min(maximumSize.width / image.size.width, maximumSize.height / image.size.height, 1)
+    return CGSize(width: image.size.width * scale, height: image.size.height * scale)
   }
 }
 

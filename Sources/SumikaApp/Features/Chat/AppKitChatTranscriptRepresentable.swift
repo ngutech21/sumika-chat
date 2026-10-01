@@ -6,6 +6,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
   typealias Coordinator = NativeChatTranscriptCoordinator
 
   let items: [RenderedChatTurnItem]
+  let attachmentImageLoader: AttachmentImageLoader
   let isGenerating: Bool
   let toolApprovalPolicy: ToolApprovalPolicy
   let showsGenerationIndicator: Bool
@@ -25,6 +26,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
 
   func makeCoordinator() -> Coordinator {
     Coordinator(
+      imageLoader: attachmentImageLoader,
       onToggleSpeech: onToggleSpeech,
       onApproveToolCall: onApproveToolCall,
       onDenyToolCall: onDenyToolCall,
@@ -98,7 +100,8 @@ final class NativeChatTranscriptCoordinator: NSObject {
   private var markdownCache = NativeTranscriptMarkdownCache()
   private var userMessageRenderCache = NativeUserMessageRenderCache()
   private let codeHighlightStore = NativeTranscriptCodeHighlightStore()
-  private let attachmentThumbnailStore = NativeTranscriptAttachmentThumbnailStore()
+  private let imageLoader: AttachmentImageLoader
+  private let attachmentThumbnailStore: NativeTranscriptAttachmentThumbnailStore
   private var attachmentPreviewPopover: NSPopover?
   private var pendingHeightInvalidationRows = IndexSet()
   private var pendingHeightInvalidationReasons = Set<String>()
@@ -113,6 +116,7 @@ final class NativeChatTranscriptCoordinator: NSObject {
   private var viewportWidthChangeGeneration = 0
 
   init(
+    imageLoader: AttachmentImageLoader,
     onToggleSpeech: @escaping (String, String) -> Void,
     onApproveToolCall: @escaping (ToolCallRecord.ID) -> Void,
     onDenyToolCall: @escaping (ToolCallRecord.ID) -> Void,
@@ -121,6 +125,9 @@ final class NativeChatTranscriptCoordinator: NSObject {
     onResumeAutomaticApprovalBatch: @escaping (ToolCallRecord.ID) -> Void = { _ in },
     onOpenSkillPreview: @escaping (SkillPreviewRequest) -> Void = { _ in }
   ) {
+    self.imageLoader = imageLoader
+    self.attachmentThumbnailStore = NativeTranscriptAttachmentThumbnailStore(
+      imageLoader: imageLoader)
     self.onToggleSpeech = onToggleSpeech
     self.onOpenSkillPreview = onOpenSkillPreview
     self.onApproveToolCall = onApproveToolCall
@@ -748,10 +755,10 @@ extension NativeChatTranscriptCoordinator {
     let popover = NSPopover()
     popover.behavior = .transient
     popover.animates = true
-    popover.contentViewController = NativeAttachmentImagePreviewController(
-      imageURL: attachmentThumbnailStore.imageURL(for: attachment),
-      displayName: attachment.displayName
-    )
+    let controller = NSHostingController(
+      rootView: AttachmentImagePopover(attachment: attachment, imageLoader: imageLoader))
+    controller.sizingOptions = [.preferredContentSize]
+    popover.contentViewController = controller
     attachmentPreviewPopover = popover
     popover.show(relativeTo: sourceView.bounds, of: sourceView, preferredEdge: .minY)
   }
@@ -1374,16 +1381,16 @@ extension NativeChatTranscriptCoordinator {
 
   private func activeAttachmentThumbnailDescriptors(
     in rows: [NativeTranscriptRow]
-  ) -> Set<NativeAttachmentThumbDescriptor> {
+  ) -> Set<AttachmentImageRequest> {
     Set(
-      rows.flatMap { row -> [NativeAttachmentThumbDescriptor] in
+      rows.flatMap { row -> [AttachmentImageRequest] in
         guard case .item(let item) = row.body else {
           return []
         }
         return item.nativeAttachments
           .filter { $0.kind == .image }
           .map {
-            NativeAttachmentThumbDescriptor(
+            AttachmentImageRequest(
               attachment: $0,
               maxPixelSize: NativeTranscriptAttachmentPreviewMetrics.maxImagePixelSize
             )
