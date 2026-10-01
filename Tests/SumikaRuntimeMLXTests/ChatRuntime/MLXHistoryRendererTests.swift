@@ -252,6 +252,62 @@ struct MLXHistoryRendererTests {
         == "<think>\nThe file is relevant.\n</think>\n\nI will inspect it.")
   }
 
+  @Test(arguments: [
+    (JSONValue.int(Int.max), JSONValue.double(Double(Int.max))),
+    (.double(Double(Int.max)), .double(Double(Int.max))),
+    (.double(Double(Int.max).nextDown), .int(Int.max - 1_023)),
+    (.int(Int.min), .int(Int.min)),
+    (.double(Double(Int.min).nextDown), .double(Double(Int.min).nextDown)),
+    (.double(1e100), .double(1e100)),
+    (.int(0), .int(0)),
+    (.double(42), .int(42)),
+    (.int(-42), .int(-42)),
+    (.double(1.5), .double(1.5)),
+    (
+      .object(["items": .array([.int(Int.max), .int(42), .double(1.5)])]),
+      .object(["items": .array([.double(Double(Int.max)), .int(42), .double(1.5)])])
+    ),
+  ])
+  func numericToolArgumentsRoundTripThroughHistoryWithoutOverflow(
+    input: JSONValue,
+    expected: JSONValue
+  ) throws {
+    let toolCall = MLXLMCommon.ToolCall(
+      function: .init(
+        name: "mcp__example__inspect",
+        arguments: ["value": input]
+      )
+    )
+    var usedIDs = Set<UUID>()
+    let runtimeToolCall = MLXToolMapper.chatRuntimeToolCall(
+      from: toolCall,
+      usedIDs: &usedIDs
+    )
+    let snapshot = MLXChatRuntime.nativeToolCallBoundarySnapshot(
+      output: "",
+      nativeToolCalls: [runtimeToolCall]
+    )
+    let messages = MLXHistoryRenderer.chatMessages(
+      from: [snapshot],
+      supportsHistoricalReasoningPreservation: false
+    )
+    let rawMessages = DefaultMessageGenerator().generate(messages: messages)
+    let rawToolCalls = try #require(
+      rawMessages.first?["tool_calls"] as? [[String: any Sendable]]
+    )
+    let rawFunction = try #require(
+      rawToolCalls.first?["function"] as? [String: any Sendable]
+    )
+    let rawArguments = try #require(rawFunction["arguments"] as? [String: any Sendable])
+    let encodedArguments = try JSONSerialization.data(withJSONObject: rawArguments)
+    let replayedArguments = try JSONDecoder().decode(
+      [String: JSONValue].self,
+      from: encodedArguments
+    )
+
+    #expect(replayedArguments["value"] == expected)
+  }
+
   @Test
   func reasoningSelectionProjectsEnableThinkingAndOptionalEffort() throws {
     let transcript = ModelPromptProjection(entries: [

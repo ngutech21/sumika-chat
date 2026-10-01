@@ -209,11 +209,8 @@ enum MLXHistoryRenderer {
     case .string(let string):
       return .string(string)
     case .number(let number):
-      if number.rounded() == number,
-        number >= Double(Int.min),
-        number <= Double(Int.max)
-      {
-        return .int(Int(number))
+      if let integer = Int(exactly: number) {
+        return .int(integer)
       }
       return .double(number)
     case .bool(let bool):
