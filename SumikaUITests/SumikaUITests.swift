@@ -53,6 +53,10 @@ final class SumikaUITests: XCTestCase {
       NSPredicate(
         format: "label BEGINSWITH %@ AND label ENDSWITH %@", "Remove clipboard-image-", ".png")
     )
+    let previewButtons = application.buttons.matching(
+      NSPredicate(
+        format: "label BEGINSWITH %@ AND label ENDSWITH %@", "Show clipboard-image-", ".png")
+    )
 
     for useKeyboard in [true, false] {
       pasteboard.clearContents()
@@ -70,7 +74,16 @@ final class SumikaUITests: XCTestCase {
       let hasAttachment = waitUntil(timeout: 10) { removeButtons.count == 1 }
       XCTAssertTrue(
         hasAttachment, "Pasting a TIFF screenshot should add exactly one PNG attachment.")
-      guard hasAttachment else { return }
+      guard hasAttachment else {
+        let hierarchy = XCTAttachment(string: application.debugDescription)
+        hierarchy.name = "Clipboard attachment accessibility hierarchy"
+        hierarchy.lifetime = .keepAlways
+        add(hierarchy)
+        return
+      }
+      XCTAssertEqual(
+        previewButtons.count, 1,
+        "The pasted image should expose its preview separately from its remove button.")
       XCTAssertEqual(messageField.value as? String, draft)
       removeButtons.firstMatch.click()
       XCTAssertTrue(waitUntil(timeout: 5) { removeButtons.count == 0 })
