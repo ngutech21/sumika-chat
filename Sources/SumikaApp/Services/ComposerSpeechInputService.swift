@@ -2,6 +2,7 @@
 import FluidAudio
 import Foundation
 import Observation
+import Synchronization
 
 enum ComposerAudioModelID: String, Codable, CaseIterable, Identifiable, Sendable {
   case smallEnglish
@@ -670,11 +671,14 @@ nonisolated private final class ComposerSpeechRecordingSession {
   }
 }
 
-nonisolated private final class ComposerSpeechSampleAccumulator: @unchecked Sendable {
-  private let lock = NSLock()
+nonisolated final class ComposerSpeechSampleAccumulator: Sendable {
+  nonisolated private struct State: Sendable {
+    var samples: [Float] = []
+    var error: (any Error)?
+  }
+
   private let sampleRate: Double
-  private var samples: [Float] = []
-  private var error: Error?
+  private let state = Mutex(State())
 
   nonisolated init(sampleRate: Double) {
     self.sampleRate = sampleRate
@@ -685,41 +689,41 @@ nonisolated private final class ComposerSpeechSampleAccumulator: @unchecked Send
       return
     }
 
-    lock.withLock {
-      samples.append(contentsOf: newSamples)
+    state.withLock {
+      $0.samples.append(contentsOf: newSamples)
     }
   }
 
   nonisolated func recordError(_ newError: Error) {
-    lock.withLock {
-      error = newError
+    state.withLock {
+      $0.error = newError
     }
   }
 
   nonisolated func captureError() -> Error? {
-    lock.withLock {
-      error
+    state.withLock {
+      $0.error
     }
   }
 
   nonisolated func takeRecording() -> ComposerSpeechCapturedAudio {
-    lock.withLock {
-      let copiedSamples = samples
-      samples.removeAll()
-      error = nil
+    state.withLock { state in
+      let copiedSamples = state.samples
+      state.samples.removeAll()
+      state.error = nil
       return ComposerSpeechCapturedAudio(samples: copiedSamples, sampleRate: sampleRate)
     }
   }
 
   nonisolated func reset() {
-    lock.withLock {
-      samples.removeAll()
-      error = nil
+    state.withLock { state in
+      state.samples.removeAll()
+      state.error = nil
     }
   }
 }
 
-nonisolated private struct ComposerSpeechCapturedAudio: Sendable {
+nonisolated struct ComposerSpeechCapturedAudio: Sendable {
   let samples: [Float]
   let sampleRate: Double
 }
