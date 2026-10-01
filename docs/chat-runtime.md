@@ -355,8 +355,13 @@ compaction or document retrieval is introduced, and saved settings and transcrip
 ownership are unchanged. Session document v2 adds typed workspace-document tool
 results; see [persistence](persistence.md).
 
-A native length stop retains normal output-limit handling, including completed
-tool calls, incomplete protocol tails, thinking delivery, and cache invalidation.
+A native length stop retains output-limit termination and invalidates the runtime
+cache. Complete tool calls are preserved, while incomplete protocol tails are
+discarded. When an output-limited batch has accepted complete tool calls, mark
+streamed assistant prose complete before pausing or completing the turn. Thinking
+delivery follows the reasoning completion rules below under
+[MLX Thinking Budgets](#mlx-thinking-budgets). Finalizing transcript delivery does
+not change the generation's output-limit outcome to normal completion.
 Diagnostics recommend increasing the selected output maximum or requesting a
 smaller response; they do not report a derived conversation-context allowance.
 
@@ -740,13 +745,21 @@ and, for failures, `thinkingBudgetDiagnostic`.
 Thought streaming is model-capability driven through `ManagedModel`'s
 `reasoningTraceFormat`. The MLX stream processor maps Gemma thought-channel
 markers and Qwen `<think>...</think>` traces into `thinkingChunk` events before
-the UI sees the response, and emits `thinkingCompleted` only after consuming the
-matching close marker. EOF, cancellation, or an output limit with an open
-reasoning segment leaves that transcript item incomplete and invalidates the
-runtime cache. Qwen parsing starts in the thinking state when reasoning is
-enabled because the Qwen chat template can place the opening `<think>` marker in
-the prompt instead of the generated stream. The `enable_thinking` additional-
-context key remains generic and parser selection stays outside SwiftUI.
+the UI sees the response. It emits `thinkingCompleted` when the parser confirms a
+reasoning boundary: a matching close marker or a recognized implicit boundary,
+including a native tool call.
+
+EOF, cancellation, or an output limit does not itself confirm an open reasoning
+segment. Finalize an unconfirmed thinking transcript item with
+`deliveryStatus: .cancelled` and an end timestamp; thinking already confirmed by
+`thinkingCompleted` remains `.complete`. Ending a stream with open reasoning
+invalidates the runtime cache. These delivery states distinguish interrupted
+reasoning from reasoning eligible for historical replay.
+
+Qwen parsing starts in the thinking state when reasoning is enabled because the
+Qwen chat template can place the opening `<think>` marker in the prompt instead
+of the generated stream. The `enable_thinking` additional-context key remains
+generic and parser selection stays outside SwiftUI.
 
 Phase 1 performs Qwen history reconstruction in Sumika without changing
 `MLXLMCommon.ChatSession` or `Chat.Message`. Consequently, a literal

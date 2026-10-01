@@ -152,11 +152,6 @@ and use a single source of truth (SSOT):
   `ChatTurn.items` before execution. The Agent session's manual or automatic
   `toolApprovalPolicy` determines whether to pause for human approval. Both paths
   revalidate before execution; neither bypasses denial or `ask_user`.
-- Keep runtime termination separate from transcript delivery. When an
-  output-limited batch has accepted complete tool calls, mark any streamed
-  assistant prose and thinking complete before pausing or completing the turn,
-  while preserving the output-limit termination instead of reporting normal
-  generation completion.
 
 ## Workspace Interaction Modes
 
