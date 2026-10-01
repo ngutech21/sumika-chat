@@ -129,51 +129,54 @@ struct MLXGenerationLifecycleTests {
     #expect(await memoryClearRecorder.reasons == [.unload, .clearContext])
   }
 
-  @Test
-  func unloadWaitsForActiveGenerationToDrainBeforeClearingMemoryCache() async throws {
-    try await assertLifecycleOperationDrainsBeforeMemoryClear(reason: .unload) { runtime in
-      await runtime.unload()
+  #if DEBUG
+    @Test
+    func unloadWaitsForActiveGenerationToDrainBeforeClearingMemoryCache() async throws {
+      try await assertLifecycleOperationDrainsBeforeMemoryClear(reason: .unload) { runtime in
+        await runtime.unload()
+      }
     }
-  }
 
-  @Test
-  func clearContextWaitsForActiveGenerationToDrainBeforeClearingMemoryCache() async throws {
-    try await assertLifecycleOperationDrainsBeforeMemoryClear(reason: .clearContext) { runtime in
-      await runtime.clearContext()
+    @Test
+    func clearContextWaitsForActiveGenerationToDrainBeforeClearingMemoryCache() async throws {
+      try await assertLifecycleOperationDrainsBeforeMemoryClear(reason: .clearContext) { runtime in
+        await runtime.clearContext()
+      }
     }
-  }
 
-  @Test
-  func repeatedLifecycleRequestsRetainTheDrainingTask() async throws {
-    let gate = MLXLifecycleDrainGate()
-    let recorder = MLXLifecycleDrainRecorder()
-    let runtime = MLXChatRuntime(
-      memoryCacheClearer: MLXMemoryCacheClearer { reason in
-        recorder.record(.memoryClear(reason))
-      },
-      debugTraceStore: temporaryDebugTraceStore()
-    )
-    let producer = Task {
-      while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(10)) }
-      recorder.record(.taskCancelled)
-      await gate.waitUntilAllowedToFinish()
-      recorder.record(.taskFinished)
+    @Test
+    func repeatedLifecycleRequestsRetainTheDrainingTask() async throws {
+      let gate = MLXLifecycleDrainGate()
+      let recorder = MLXLifecycleDrainRecorder()
+      let runtime = MLXChatRuntime(
+        memoryCacheClearer: MLXMemoryCacheClearer { reason in
+          recorder.record(.memoryClear(reason))
+        },
+        debugTraceStore: temporaryDebugTraceStore()
+      )
+      let producer = Task {
+        while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(10)) }
+        recorder.record(.taskCancelled)
+        await gate.waitUntilAllowedToFinish()
+        recorder.record(.taskFinished)
+      }
+      await runtime.registerActiveGenerationForTesting(id: .init(rawValue: 1), task: producer)
+      let unload = Task { await runtime.unload() }
+      try await waitUntilAsync { recorder.events.contains(.taskCancelled) }
+      let clear = Task { await runtime.clearContext() }
+      #expect(recorder.events == [.taskCancelled])
+      await gate.allowTaskToFinish()
+      try await withTestTimeout(.seconds(5)) {
+        await unload.value
+        await clear.value
+      }
+      #expect(
+        recorder.events == [
+          .taskCancelled, .taskFinished, .memoryClear(.unload), .memoryClear(.clearContext),
+        ])
     }
-    await runtime.registerActiveGenerationForTesting(id: .init(rawValue: 1), task: producer)
-    let unload = Task { await runtime.unload() }
-    try await waitUntilAsync { recorder.events.contains(.taskCancelled) }
-    let clear = Task { await runtime.clearContext() }
-    #expect(recorder.events == [.taskCancelled])
-    await gate.allowTaskToFinish()
-    try await withTestTimeout(.seconds(5)) {
-      await unload.value
-      await clear.value
-    }
-    #expect(
-      recorder.events == [
-        .taskCancelled, .taskFinished, .memoryClear(.unload), .memoryClear(.clearContext),
-      ])
-  }
+
+  #endif
 
   private func temporaryDebugTraceStore() -> MLXDebugTraceStore {
     MLXDebugTraceStore(
@@ -184,69 +187,72 @@ struct MLXGenerationLifecycleTests {
     )
   }
 
-  private func assertLifecycleOperationDrainsBeforeMemoryClear(
-    reason: MLXMemoryClearReason,
-    operation: @escaping @Sendable (MLXChatRuntime) async -> Void
-  ) async throws {
-    let recorder = MLXLifecycleDrainRecorder()
-    let gate = MLXLifecycleDrainGate()
-    let debugTraceStore = MLXDebugTraceStore(
-      fileURL: FileManager.default.temporaryDirectory
-        .appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        .appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory),
-      memorySnapshotSource: MLXMemorySnapshotSource {
-        recorder.record(.memorySnapshot)
-        return MLXMemorySnapshot(
-          activeMemoryBytes: 1,
-          cacheMemoryBytes: 2,
-          peakMemoryBytes: 3
-        )
-      },
-      isEnabled: { true }
-    )
-    let runtime = MLXChatRuntime(
-      memoryCacheClearer: MLXMemoryCacheClearer { reason in
-        recorder.record(.memoryClear(reason))
-      },
-      debugTraceStore: debugTraceStore
-    )
-    let task = Task<Void, Never> {
-      while !Task.isCancelled {
-        try? await Task.sleep(for: .milliseconds(10))
+  #if DEBUG
+    private func assertLifecycleOperationDrainsBeforeMemoryClear(
+      reason: MLXMemoryClearReason,
+      operation: @escaping @Sendable (MLXChatRuntime) async -> Void
+    ) async throws {
+      let recorder = MLXLifecycleDrainRecorder()
+      let gate = MLXLifecycleDrainGate()
+      let debugTraceStore = MLXDebugTraceStore(
+        fileURL: FileManager.default.temporaryDirectory
+          .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+          .appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory),
+        memorySnapshotSource: MLXMemorySnapshotSource {
+          recorder.record(.memorySnapshot)
+          return MLXMemorySnapshot(
+            activeMemoryBytes: 1,
+            cacheMemoryBytes: 2,
+            peakMemoryBytes: 3
+          )
+        },
+        isEnabled: { true }
+      )
+      let runtime = MLXChatRuntime(
+        memoryCacheClearer: MLXMemoryCacheClearer { reason in
+          recorder.record(.memoryClear(reason))
+        },
+        debugTraceStore: debugTraceStore
+      )
+      let task = Task<Void, Never> {
+        while !Task.isCancelled {
+          try? await Task.sleep(for: .milliseconds(10))
+        }
+        recorder.record(.taskCancelled)
+        await gate.waitUntilAllowedToFinish()
+        recorder.record(.taskFinished)
       }
-      recorder.record(.taskCancelled)
-      await gate.waitUntilAllowedToFinish()
-      recorder.record(.taskFinished)
-    }
-    await runtime.registerActiveGenerationForTesting(id: MLXGenerationID(rawValue: 1), task: task)
+      await runtime.registerActiveGenerationForTesting(id: MLXGenerationID(rawValue: 1), task: task)
 
-    let lifecycleTask = Task {
-      await operation(runtime)
-    }
-    defer {
-      task.cancel()
-      lifecycleTask.cancel()
+      let lifecycleTask = Task {
+        await operation(runtime)
+      }
+      defer {
+        task.cancel()
+        lifecycleTask.cancel()
+      }
+
+      try await waitUntilAsync {
+        recorder.events.contains(.taskCancelled)
+      }
+      #expect(recorder.events == [.taskCancelled])
+
+      await gate.allowTaskToFinish()
+      try await withTestTimeout(.seconds(5)) {
+        await lifecycleTask.value
+      }
+
+      #expect(
+        recorder.events == [
+          .taskCancelled,
+          .taskFinished,
+          .memorySnapshot,
+          .memoryClear(reason),
+          .memorySnapshot,
+        ])
     }
 
-    try await waitUntilAsync {
-      recorder.events.contains(.taskCancelled)
-    }
-    #expect(recorder.events == [.taskCancelled])
-
-    await gate.allowTaskToFinish()
-    try await withTestTimeout(.seconds(5)) {
-      await lifecycleTask.value
-    }
-
-    #expect(
-      recorder.events == [
-        .taskCancelled,
-        .taskFinished,
-        .memorySnapshot,
-        .memoryClear(reason),
-        .memorySnapshot,
-      ])
-  }
+  #endif
 
   private func waitUntilAsync(
     timeout: Duration = .seconds(2),

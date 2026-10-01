@@ -2167,6 +2167,12 @@ struct MLXModelStreamProcessorTests {
       runtimePrefillTraces.append(trace)
     }
 
+    func recordRuntimeStreamEnd(
+      _ event: TurnTraceEvent, diagnostics _: MLXGenerationDiagnosticsSnapshot?
+    ) {
+      events.append(event)
+    }
+
     func firstRuntimePrefillTrace() -> MLXRuntimePrefillTrace? {
       runtimePrefillTraces.first
     }

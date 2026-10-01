@@ -10,6 +10,16 @@ import Testing
 #endif
 @Suite()
 struct MLXRuntimeConfigurationTests {
+  @Test(arguments: [512, 1024, 2048, 0, -1, 4096])
+  func benchmarkPrefillCeilingKeepsBalancedChunkingAndFallsBackSafely(step: Int) {
+    let parameters = MLXChatRuntime.generateParameters(
+      from: ChatGenerationSettings(temperature: 0, topP: 1, topK: 0, maxTokens: 128),
+      prefillStepSize: step)
+    let expected = [512, 1024, 2048].contains(step) ? step : 512
+    #expect(parameters.prefill.stepSize == expected)
+    #expect(parameters.prefill.chunkLength(forChunking: expected + 1) == (expected + 2) / 2)
+  }
+
   @Test
   func prefillIsBalancedAndNeverExceeds512PositionsPerConfiguredStep() {
     let settings = ChatGenerationSettings(temperature: 0, topP: 1, topK: 0, maxTokens: 32_768)

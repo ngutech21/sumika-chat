@@ -307,6 +307,7 @@ enum MLXModelStreamProcessor {
         traceMetadata: traceMetadata,
         cacheTrace: cacheTrace,
         debugTraceStore: debugTraceStore,
+        diagnostics: generation.diagnostics?.snapshot(),
         generationStartedAt: generationStartedAt,
         applicationState: applicationStateSnapshotProvider(),
         generationActivityRequest: generationActivityLease?.request ?? .none
@@ -316,7 +317,8 @@ enum MLXModelStreamProcessor {
     observeDownstreamCancellation(
       of: continuation,
       task: task,
-      cancellationState: streamCancellationState
+      cancellationState: streamCancellationState,
+      diagnostics: generation.diagnostics
     )
 
     return MLXModelStreamPlan(stream: outputStream, task: task)
@@ -360,13 +362,15 @@ extension MLXModelStreamProcessor {
   private static func observeDownstreamCancellation(
     of continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
     task: Task<Void, Never>,
-    cancellationState: MLXStreamCancellationState
+    cancellationState: MLXStreamCancellationState,
+    diagnostics: MLXGenerationDiagnostics?
   ) {
     continuation.onTermination = { termination in
       guard case .cancelled = termination else {
         return
       }
       cancellationState.markDownstreamTerminated()
+      diagnostics?.requestCancellation()
       task.cancel()
     }
   }
@@ -918,6 +922,7 @@ extension MLXModelStreamProcessor {
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
     debugTraceStore: MLXDebugTraceStore,
+    diagnostics: MLXGenerationDiagnosticsSnapshot?,
     generationStartedAt: Date,
     applicationState: RuntimeApplicationStateSnapshot,
     generationActivityRequest: GenerationActivityRequest
@@ -949,10 +954,12 @@ extension MLXModelStreamProcessor {
       generationActivityRequest: generationActivityRequest,
       runtimeStreamOutcome: outcome
     )
-    if let traceMetadata {
+    if let runtimeTracer = traceMetadata?.tracer as? any MLXRuntimeTracing {
+      await runtimeTracer.recordRuntimeStreamEnd(event, diagnostics: diagnostics)
+    } else if let traceMetadata {
       await traceMetadata.tracer.recordTurnTraceEvent(event)
     } else {
-      await debugTraceStore.recordTurnTraceEvent(event)
+      await debugTraceStore.recordRuntimeStreamEnd(event, diagnostics: diagnostics)
     }
   }
 

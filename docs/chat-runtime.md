@@ -639,6 +639,28 @@ handling but no decode row. If generation is cancelled without terminal info,
 the latest partial-decode row remains available and no terminal prefill/decode
 metrics are synthesized.
 
+With debug tracing enabled, the terminal `runtime_stream_end` row also records
+`prefillStepSize`, `prefillChunking`, `prefillChunkSizes`,
+`prefillProcessedPositions`, and `prefillTotalPositions`. The runtime collects
+the upstream prefill progress callback in memory, including the reserved final
+position and any partial prefill before cancellation. Repeated terminal progress
+notifications do not count twice. These are submitted positions: progress can
+precede GPU completion. No per-chunk GPU synchronization or trace-file write is
+added. With tracing disabled, no collector or progress callback is installed.
+
+`cancellationLatencyMs`, when present on the same row, measures the first
+cancellation request through upstream producer and GPU drain using a monotonic
+clock. Repeated cancellation requests preserve the first timestamp. Cancellation
+after an already completed drain does not create a measurement. The performance
+report shows these fields and derives prefill throughput from the actually
+prefilled token count and `runtime_prefill.durationMs`, excluding reused tokens.
+
+Production continues to use a balanced ceiling of 512. An internal constructor
+argument allows the installed-model benchmark to select 512, 1024, or 2048;
+unsupported values fall back to 512. This is not a persisted preference. See
+[the prefill benchmark workflow](../CONTRIBUTING.md#prefill-benchmarks) for isolated
+measurements, including explicit benchmark-only resets of the global peak counter.
+
 ## Prompt Cost Regression
 
 `just prompt-cost` runs four model-free Core tool-loop fixtures that cover

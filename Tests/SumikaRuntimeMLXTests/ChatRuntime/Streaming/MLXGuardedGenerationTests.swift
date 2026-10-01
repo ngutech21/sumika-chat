@@ -276,22 +276,26 @@ nonisolated final class MLXGuardedGenerationTests: XCTestCase {
     let gate = FailureProbeDrainGate()
     producer.onTermination = { _ in cancellation.yield(()) }
     let control = FailureProbeControl()
+    let diagnostics = MLXGenerationDiagnostics(prefillStepSize: 512)
     let generation = MLXGuardedGeneration(
       makeStream: { source },
       synchronize: {
         await gate.wait()
         control.record("drained")
-      }
+      },
+      diagnostics: diagnostics
     )
     let first = Task { await generation.cancelAndDrain() }
     var cancelledIterator = cancelled.makeAsyncIterator()
     _ = await cancelledIterator.next()
     let second = Task { await generation.cancelAndDrain() }
     XCTAssertTrue(control.events.isEmpty)
+    XCTAssertNil(diagnostics.snapshot().cancellationLatencyMs)
     await gate.release()
     await first.value
     await second.value
     XCTAssertEqual(control.events, ["drained"])
+    XCTAssertNotNil(diagnostics.snapshot().cancellationLatencyMs)
     XCTAssertNil(generation.capturedError)
   }
 

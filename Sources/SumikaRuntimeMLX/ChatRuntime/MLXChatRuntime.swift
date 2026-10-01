@@ -30,6 +30,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
   private let memoryCacheClearer: MLXMemoryCacheClearer
   private let debugTraceStore: MLXDebugTraceStore
   private let generationActivity: MLXGenerationActivity
+  private let prefillStepSize: Int
   private let applicationStateSnapshotProvider: RuntimeApplicationStateSnapshotProvider
 
   init(
@@ -39,12 +40,14 @@ final actor MLXChatRuntime: ChatModelRuntime {
     applicationStateSnapshotProvider: @escaping RuntimeApplicationStateSnapshotProvider = {
       .unavailable
     },
-    generationActivity: MLXGenerationActivity = .live
+    generationActivity: MLXGenerationActivity = .live,
+    prefillStepSize: Int = 1024
   ) {
     self.modelContainer = modelContainer
     self.memoryCacheClearer = memoryCacheClearer
     self.debugTraceStore = debugTraceStore
     self.generationActivity = generationActivity
+    self.prefillStepSize = prefillStepSize
     self.applicationStateSnapshotProvider = applicationStateSnapshotProvider
   }
 
@@ -164,7 +167,9 @@ final actor MLXChatRuntime: ChatModelRuntime {
     settings.repetitionPenalty == 1 ? nil : Float(settings.repetitionPenalty)
   }
 
-  static func generateParameters(from settings: ChatGenerationSettings) -> GenerateParameters {
+  static func generateParameters(
+    from settings: ChatGenerationSettings, prefillStepSize: Int = 512
+  ) -> GenerateParameters {
     GenerateParameters(
       maxTokens: settings.maxTokens,
       maxKVSize: nil,
@@ -176,7 +181,9 @@ final actor MLXChatRuntime: ChatModelRuntime {
       repetitionContextSize: settings.repetitionContextSize,
       presencePenalty: Float(settings.presencePenalty),
       presenceContextSize: settings.repetitionContextSize,
-      prefill: .init(stepSize: 512, chunking: .balanced)
+      prefill: .init(
+        stepSize: [512, 1024, 2048].contains(prefillStepSize) ? prefillStepSize : 512,
+        chunking: .balanced)
     )
   }
 
@@ -250,7 +257,15 @@ final actor MLXChatRuntime: ChatModelRuntime {
       supportsHistoricalReasoningPreservation:
         loadedModelPreservesHistoricalReasoning
     )
-    let generateParameters = Self.generateParameters(from: settings)
+    var generateParameters = Self.generateParameters(
+      from: settings, prefillStepSize: prefillStepSize)
+    let generationDiagnostics = await debugTraceStore.makeGenerationDiagnostics(
+      prefillStepSize: generateParameters.prefill.resolvedStepSize())
+    if let generationDiagnostics {
+      generateParameters.prefill.progress = { processed, total in
+        generationDiagnostics.recordPrefillProgress(processed: processed, total: total)
+      }
+    }
     let additionalContext = generationInput.additionalContext
     let systemPrompt = promptPlan.stableInstructions
     let toolSpecs = MLXToolMapper.toolSpecs(from: promptPlan.toolContext)
@@ -342,7 +357,9 @@ final actor MLXChatRuntime: ChatModelRuntime {
       )
       try Task.checkCancellation()
       let startedGeneration = generationActivity.start {
-        MLXGuardedGeneration(session: cachePlan.session, messages: cachePlan.streamMessages)
+        MLXGuardedGeneration(
+          session: cachePlan.session, messages: cachePlan.streamMessages,
+          diagnostics: generationDiagnostics)
       }
       var activityLeaseHandedOff = false
       defer {

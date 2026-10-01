@@ -5,10 +5,14 @@ import Synchronization
 /// Owns producer cancellation and draining before terminal events can escape.
 final class MLXGuardedGeneration: Sendable {
   let stream: AsyncThrowingStream<Generation, Error>
+  let diagnostics: MLXGenerationDiagnostics?
   private let failure = FailureState()
   private let task: Task<Void, Never>
 
-  convenience init(session: MLXLMCommon.ChatSession, messages: consuming [Chat.Message]) {
+  convenience init(
+    session: MLXLMCommon.ChatSession, messages: consuming [Chat.Message],
+    diagnostics: MLXGenerationDiagnostics? = nil
+  ) {
     let stream = StreamOrDevice.default.stream
     // Runtime setup is serialized; upstream protects its cache with an async lock.
     // Only the drain operation crosses tasks while generation is in flight.
@@ -18,14 +22,17 @@ final class MLXGuardedGeneration: Sendable {
       synchronize: {
         await drainingSession.synchronize()
         stream.synchronize()
-      }
+      },
+      diagnostics: diagnostics
     )
   }
 
   init(
     makeStream: () -> AsyncThrowingStream<Generation, Error>,
-    synchronize: @escaping @Sendable () async -> Void
+    synchronize: @escaping @Sendable () async -> Void,
+    diagnostics: MLXGenerationDiagnostics? = nil
   ) {
+    self.diagnostics = diagnostics
     let failure = self.failure
     // The upstream producer and decode tasks inherit this task-local handler.
     let upstream = MLX.withErrorHandler(failure.capture) { makeStream() }
@@ -58,6 +65,7 @@ final class MLXGuardedGeneration: Sendable {
       // Cancellation of iteration only requests upstream cancellation. Its cache
       // lock must be released, and native work settled, before releasing arrays.
       await MLX.withErrorHandler(failure.capture) { await synchronize() }
+      diagnostics?.didDrain()
       do {
         try failure.check()
         if let streamError { throw streamError }
@@ -72,7 +80,10 @@ final class MLXGuardedGeneration: Sendable {
     }
     failure.install(task)
     continuation.onTermination = { [task] termination in
-      if case .cancelled = termination { task.cancel() }
+      if case .cancelled = termination {
+        diagnostics?.requestCancellation()
+        task.cancel()
+      }
     }
   }
 
@@ -85,6 +96,7 @@ final class MLXGuardedGeneration: Sendable {
   }
 
   func cancelAndDrain() async {
+    diagnostics?.requestCancellation()
     task.cancel()
     await task.value
   }

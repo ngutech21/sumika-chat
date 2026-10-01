@@ -121,6 +121,58 @@ before execution. Update the runtime documentation when a tool contract changes.
 
 ## Tests and Verification
 
+### Prefill benchmarks
+
+The [M4 Max measurements](docs/prefill-benchmark-m4.md) document why production
+continues to use a ceiling of 512.
+
+Use the opt-in runner with already installed Sumika model IDs:
+
+```sh
+python3 script/benchmark_prefill.py --models Qwen3.6-27B-OptiQ-4bit qwen3.6-35b-a3b-optiq-4bit
+```
+
+The runner builds the MLX test target through SwiftPM in Release with testability
+enabled, then invokes that package's XCTest bundle in separate processes for balanced ceilings
+512/1024/2048, prompt sizes 512/2048/8192/8200/16384, and three repetitions with
+rotating ceiling order. `--tokens`, `--steps`, `--modes`, and `--repeats` narrow the
+matrix; `--skip-build` reuses a verified Release build. `--models-path` selects
+another existing model directory. No model is downloaded. Ordinary package test
+runs skip this benchmark unless its environment is explicitly configured. A
+requested benchmark that skips or fails produces no passing measurement.
+
+Cold cases start with an empty conversation cache after kernel warmup. Warm cases
+seed a fresh 2K prefix before measuring the selected suffix length. Synthetic text
+is sized through the model's chat template, and measured token counts and cache
+decisions are checked. An EOS position may change a warm suffix count by one.
+Settings, prompts, and quantization stay fixed across variants; differing rendered
+request payloads fail the runner. Decode runs use greedy sampling and at most 128
+output tokens. Cancellation cases use prompts of at least 8K positions and request
+cancellation 250 ms after stream creation; inspect the submitted counts to distinguish cancellation
+during prefill from later cancellation.
+
+Each case resets `Memory.peakMemory` only after warmup/seeding and synchronization,
+immediately before its measured generation. Its terminal snapshot is therefore a
+generation-local MLX active-memory peak. This does not measure total process RSS,
+system memory pressure, or swap. Normal application traces never reset the counter.
+
+Results remain under `.perf/prefill/<timestamp>/`: an environment/provenance file,
+ordinary `MLXDebugTraceStore` JSONL traces, existing performance-report JSON/Markdown,
+test logs, and an aggregate `summary.md`. The aggregate uses median throughput/TTFT
+and maximum peak memory/cancellation latency; per-case reports retain individual
+samples and actual chunk sizes. The 8192/8200 cases exercise balanced chunk boundaries
+around the M5 attention threshold. M4 measurements are required before changing its
+production policy; M5 results must be reported separately. Keep 512 unless the
+measured gain is repeatable without unacceptable memory or cancellation regressions.
+
+The report parser can be checked without a model:
+
+```sh
+python3 script/test_trace_performance_report.py
+```
+
+### Verification commands
+
 Use the narrowest feedback loop that covers the change:
 
 | Change | Required verification |

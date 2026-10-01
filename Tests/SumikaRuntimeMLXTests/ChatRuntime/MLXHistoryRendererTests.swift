@@ -41,7 +41,7 @@ struct MLXHistoryRendererTests {
     let input = try #require(images.first)
     let modelImage = try input.asCIImage()
     let previewImage = try previewImage(from: fixture.storedURL)
-    let isCIImage: Bool = if case .ciImage = input { true } else { false }
+    let isCIImage: Bool = if case .ciImage = input.source { true } else { false }
     let storedDataAfterProjection = try Data(contentsOf: fixture.storedURL)
     let storedHashAfterProjection = ChatAttachmentStore.contentSHA256(
       for: storedDataAfterProjection

@@ -9,6 +9,9 @@ struct MLXRuntimePrefillTrace: Equatable, Sendable {
 
 protocol MLXRuntimeTracing: TurnTracing {
   func recordRuntimePrefillTrace(_ trace: MLXRuntimePrefillTrace) async
+  func recordRuntimeStreamEnd(
+    _ event: TurnTraceEvent, diagnostics: MLXGenerationDiagnosticsSnapshot?
+  ) async
 }
 
 actor MLXDebugTraceStore: MLXRuntimeTracing {
@@ -177,6 +180,27 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     }
 
     append(turnTraceObject(from: event))
+  }
+
+  func makeGenerationDiagnostics(prefillStepSize: Int) -> MLXGenerationDiagnostics? {
+    guard tracingIsEnabled else { return nil }
+    return MLXGenerationDiagnostics(prefillStepSize: prefillStepSize)
+  }
+
+  func recordRuntimeStreamEnd(
+    _ event: TurnTraceEvent, diagnostics: MLXGenerationDiagnosticsSnapshot?
+  ) {
+    guard tracingIsEnabled else { return }
+    var trace = turnTraceObject(from: event)
+    if let diagnostics {
+      trace["prefillStepSize"] = diagnostics.prefillStepSize
+      trace["prefillChunking"] = "balanced"
+      trace["prefillChunkSizes"] = diagnostics.prefillChunkSizes
+      trace["prefillProcessedPositions"] = diagnostics.prefillProcessedPositions
+      trace["prefillTotalPositions"] = diagnostics.prefillTotalPositions
+      trace["cancellationLatencyMs"] = diagnostics.cancellationLatencyMs
+    }
+    append(trace)
   }
 
   func recordRuntimePrefillTrace(_ runtimeTrace: MLXRuntimePrefillTrace) async {

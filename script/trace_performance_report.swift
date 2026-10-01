@@ -1,5 +1,4 @@
 #!/usr/bin/env swift
-
 import Foundation
 
 struct TraceRuntimeState: Codable, Equatable {
@@ -56,6 +55,12 @@ struct GenerationReport: Codable {
   var ttftMs: Double?
   var prefillMs: Double?
   var promptTokens: Int?
+  var prefillTokensPerSecond: Double?
+  var prefillStepSize: Int?
+  var prefillChunkSizes: [Int]?
+  var prefillProcessedPositions: Int?
+  var prefillTotalPositions: Int?
+  var cancellationLatencyMs: Double?
   var mlxCacheDecision: String?
   var mlxCacheMismatchReason: String?
   var fullPromptTokens: Int?
@@ -426,9 +431,32 @@ func markdown(_ report: PerformanceReport) -> String {
   appendToolLoopTTFTComparison(to: &lines, generations: report.generations)
   appendDecodeStateIntervals(to: &lines, generations: report.generations)
   appendMemorySnapshots(to: &lines, snapshots: report.memorySnapshots)
+  appendPrefillMeasurements(to: &lines, generations: report.generations)
 
   lines.append("")
   return lines.joined(separator: "\n")
+}
+
+func appendPrefillMeasurements(to lines: inout [String], generations: [GenerationReport]) {
+  lines += [
+    "", "## Prefill measurements", "",
+    "Chunk sizes count submitted positions, not completed GPU work. Cancellation measures the first request through producer and GPU drain.",
+    "",
+    "| # | Ceiling | Chunk sizes | Submitted / total | Prefill tok/s | Cancel to drain ms |",
+    "|---:|---:|---|---|---:|---:|",
+  ]
+  for (index, generation) in generations.enumerated() {
+    let chunks = generation.prefillChunkSizes.map { sizes in
+      Dictionary(grouping: sizes, by: { $0 }).sorted { $0.key > $1.key }
+        .map { "\($0.value.count) x \($0.key)" }.joined(separator: ", ")
+    }
+    lines.append(
+      [
+        "\(index + 1)", generation.prefillStepSize.map(String.init) ?? "-", chunks ?? "-",
+        "\(generation.prefillProcessedPositions.map(String.init) ?? "-") / \(generation.prefillTotalPositions.map(String.init) ?? "-")",
+        formatted(generation.prefillTokensPerSecond), formatted(generation.cancellationLatencyMs),
+      ].joined(separator: " | ").wrappedTableRow())
+  }
 }
 
 func appendUIFlushes(
@@ -771,6 +799,11 @@ for (rowIndex, row) in rows.enumerated() {
       report.streamStartMs = doubleValue(object, "durationMs")
       report.streamStartState = traceRuntimeState(object)
     case "runtime_stream_end":
+      report.prefillStepSize = intValue(object, "prefillStepSize")
+      report.prefillChunkSizes = value(object, "prefillChunkSizes", as: [Int].self)
+      report.prefillProcessedPositions = intValue(object, "prefillProcessedPositions")
+      report.prefillTotalPositions = intValue(object, "prefillTotalPositions")
+      report.cancellationLatencyMs = doubleValue(object, "cancellationLatencyMs")
       report.streamEndMs = doubleValue(object, "durationMs")
       report.streamEndState = traceRuntimeState(object)
       report.streamOutcome = value(object, "runtimeStreamOutcome", as: String.self)
@@ -783,6 +816,9 @@ for (rowIndex, row) in rows.enumerated() {
     case "runtime_prefill":
       report.prefillMs = doubleValue(object, "durationMs")
       report.promptTokens = intValue(object, "promptTokens")
+      if let tokens = report.promptTokens, let milliseconds = report.prefillMs, milliseconds > 0 {
+        report.prefillTokensPerSecond = Double(tokens) / milliseconds * 1000
+      }
       report.mlxCacheDecision = value(object, "mlxCacheDecision", as: String.self)
       report.mlxCacheMismatchReason =
         value(object, "mlxCacheMismatchReason", as: String.self)
