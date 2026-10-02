@@ -179,8 +179,9 @@ test-tsan:
         --skip 'MLXChatSessionContinuationTests|MLXGuardedGenerationTests'
 
 test-asan:
+    # Optimize instrumented SwiftSoup frames to fit Swift Testing worker stacks; see CONTRIBUTING.md.
     # Temporary exclusion for upstream MLX Metal heap initialization on VMs; see CONTRIBUTING.md.
-    {{swift}} test --no-parallel --sanitize address \
+    {{swift}} test --no-parallel --sanitize address -Xswiftc -O \
         --skip 'MLXChatSessionContinuationTests|MLXGuardedGenerationTests'
 
 test-ui:

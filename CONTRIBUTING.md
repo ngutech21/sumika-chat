@@ -205,9 +205,22 @@ It does not replace `just build` or `just test-ui` when a change affects those a
 UI tests are local-only, must not download a model, and may skip when their
 configured local model is unavailable.
 
+`just test-asan` enables Swift optimization with `-Xswiftc -O` while retaining
+the Debug configuration and its test hooks. With Xcode 27 / Swift 6.4,
+SwiftSoup 2.13.9's unoptimized ASan-instrumented HTML parser exhausts the Swift
+Testing worker thread stack, even for a small HTML fragment. Keep ASan enabled
+and use the same configuration when reproducing individual failures:
+
+```sh
+xcrun swift test --no-parallel --sanitize address -Xswiftc -O --filter WebAccessTests
+```
+
+This enables optimization without adding test exclusions or sanitizer
+suppressions. `just test` and `just test-tsan` retain unoptimized Debug coverage.
+
 `just test-tsan` temporarily excludes `MLXChatSessionContinuationTests` and
-`MLXGuardedGenerationTests` because the pinned `mlx-swift` 0.31.6 bundles native
-MLX scheduler and allocator code with known data races. These tests remain enabled
+`MLXGuardedGenerationTests` because of native MLX scheduler and allocator data
+races originally observed with `mlx-swift` 0.31.6. These tests remain enabled
 in `just test`; all other tests remain enabled under TSan.
 Remove the exclusion once the pinned MLX code is fixed and the unfiltered command
 passes:
@@ -217,8 +230,9 @@ xcrun swift test --no-parallel --sanitize thread
 ```
 
 `just test-asan` temporarily excludes the same two suites for a separate native
-MLX allocator bug in the pinned `mlx-swift` 0.31.6. On an Apple Paravirtual device,
-`MetalAllocator` returns from its constructor without initializing `heap_`.
+MLX allocator bug observed with `mlx-swift` 0.31.6. In that version, on an Apple
+Paravirtual device, `MetalAllocator` returns from its constructor without
+initializing `heap_`.
 Small allocations then dereference the uninitialized pointer; under ASan its
 value is `0xbebebebebebebebe`. The
 [CI failure](https://github.com/ngutech21/sumika-chat/actions/runs/35543454227/job/106165160854)
@@ -231,7 +245,7 @@ does not fix the dependency. Remove it once the pinned MLX code initializes the
 heap safely on VMs and the unfiltered command passes on the hosted macOS runner:
 
 ```sh
-xcrun swift test --no-parallel --sanitize address
+xcrun swift test --no-parallel --sanitize address -Xswiftc -O
 ```
 
 Report the checks you actually ran and their real outcomes in the pull request.
