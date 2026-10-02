@@ -312,9 +312,7 @@ enum MLXThinkingBudgetPlanner {
         throw MLXThinkingBudgetFailure.missingInteractionMode
       }
       switch interactionMode {
-      case .chat:
-        return Specification(maximumTokenCount: 1_024, minimumAnswerTokenCount: 512)
-      case .agent:
+      case .chat, .agent:
         return Specification(maximumTokenCount: 2_048, minimumAnswerTokenCount: 1_024)
       }
     }

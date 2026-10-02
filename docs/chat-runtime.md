@@ -734,10 +734,9 @@ families MLX can infer or explicitly configure.
 ## MLX Thinking Budgets
 
 Every catalog model that uses the Qwen thinking-tag protocol applies the
-`hardLimitImmediate` policy when reasoning is enabled. Chat mode permits at most
-1,024 reasoning tokens and reserves at least 512 tokens for the answer; Agent
-mode permits at most 2,048 reasoning tokens and reserves at least 1,024 answer
-tokens. Reaching the reasoning limit closes the validated thinking block
+`hardLimitImmediate` policy when reasoning is enabled. Chat and Agent modes both
+permit at most 2,048 reasoning tokens and reserve at least 1,024 answer tokens.
+Reaching the reasoning limit closes the validated thinking block
 immediately and continues visible output in the same generation. Disabling
 reasoning leaves the budget unapplied.
 
@@ -749,8 +748,8 @@ boundary, or observes an invalid reasoning/chat boundary. Model stop strings
 come from the loaded MLX model configuration rather than product literals.
 
 The resolved policy, reasoning limit, answer reserve, and transition mode are
-part of the MLX cache identity, so changing modes rebuilds the session. Debug
-request and response rows record them under `thinkingBudget` with `policy`,
+part of the MLX cache identity, so changing budget parameters rebuilds the session.
+Debug request and response rows record them under `thinkingBudget` with `policy`,
 `maximumTokenCount`, `minimumAnswerTokenCount`, `transitionMode`, and
 `validationStatus`; response rows additionally record `thinkingBudgetOutcome`
 and, for failures, `thinkingBudgetDiagnostic`.

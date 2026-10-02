@@ -11,37 +11,37 @@ import Testing
 @Suite()
 struct MLXSessionCachePolicyTests {
   @Test
-  func thinkingBudgetModeChangeForcesCacheIdentityRebuild() {
-    let chatBudget = MLXThinkingBudgetIdentity(
+  func thinkingBudgetChangeForcesCacheIdentityRebuild() {
+    let previousBudget = MLXThinkingBudgetIdentity(
       policy: .qwen36ImmediateV1,
       maximumTokenCount: 1_024,
       minimumAnswerTokenCount: 512,
       transitionMode: .immediate
     )
-    let agentBudget = MLXThinkingBudgetIdentity(
+    let currentBudget = MLXThinkingBudgetIdentity(
       policy: .qwen36ImmediateV1,
       maximumTokenCount: 2_048,
       minimumAnswerTokenCount: 1_024,
       transitionMode: .immediate
     )
-    let chatIdentity = MLXSessionCachePolicy.cacheIdentity(
+    let previousIdentity = MLXSessionCachePolicy.cacheIdentity(
       systemPrompt: "Stable",
       settings: .agentDefault,
       projectionMode: .fullHistory,
-      thinkingBudgetIdentity: chatBudget
+      thinkingBudgetIdentity: previousBudget
     )
-    let agentIdentity = MLXSessionCachePolicy.cacheIdentity(
+    let currentIdentity = MLXSessionCachePolicy.cacheIdentity(
       systemPrompt: "Stable",
       settings: .agentDefault,
       projectionMode: .fullHistory,
-      thinkingBudgetIdentity: agentBudget
+      thinkingBudgetIdentity: currentBudget
     )
 
-    #expect(chatIdentity != agentIdentity)
+    #expect(previousIdentity != currentIdentity)
     #expect(
       MLXSessionCachePolicy.identityMismatchReason(
-        cached: chatIdentity,
-        current: agentIdentity
+        cached: previousIdentity,
+        current: currentIdentity
       ) == .thinkingBudgetChanged)
   }
 
