@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.13.0](https://github.com/ngutech21/sumika-chat/compare/v1.12.0...v1.13.0) (2026-10-02)
+
+
+### Features
+
+* add bundled uv python ([1ae0f94](https://github.com/ngutech21/sumika-chat/commit/1ae0f94fcfa73872e203e6db97db992448c5d9c8))
+* benchmark and tune MLX prefill step size by Apple Silicon generation ([585ae0c](https://github.com/ngutech21/sumika-chat/commit/585ae0c3115619d469700a4ea2992a7958d24304)), closes [#277](https://github.com/ngutech21/sumika-chat/issues/277)
+* update swift-transformers to aleroot/swift-tokenizers and adjust version ([6a12ab5](https://github.com/ngutech21/sumika-chat/commit/6a12ab57dd23c85acfa0771ae01153a585940647))
+
+
+### Bug Fixes
+
+* isolate bundled uv from workspace and user configuration ([b68269d](https://github.com/ngutech21/sumika-chat/commit/b68269d888e24e43a2cc1bd314169e85b933bc46)), closes [#279](https://github.com/ngutech21/sumika-chat/issues/279)
+* load attachment previews asynchronously ([8f35436](https://github.com/ngutech21/sumika-chat/commit/8f3543634d3563796e5f1984c9c0bb7cdd315b33))
+* parse DuckDuckGo results with SwiftSoup ([8925259](https://github.com/ngutech21/sumika-chat/commit/8925259f097ff34d8a24a68671dd3812ed9cced2))
+* preserve JSON nulls in MLX tool schemas ([e9e42be](https://github.com/ngutech21/sumika-chat/commit/e9e42beea6abecb1216851f5ab162fc6505451ba))
+* preserve skill accessibility and refresh UI tests ([b751f9e](https://github.com/ngutech21/sumika-chat/commit/b751f9e31047407dea7b58129b331245a9421bdc))
+* prevent numeric tool arguments from crashing history replay ([74ceedd](https://github.com/ngutech21/sumika-chat/commit/74ceeddc097f93c966bfea5df2eb847bd556f4b4))
+* remove unused diagnostics import ([494e68f](https://github.com/ngutech21/sumika-chat/commit/494e68f1b5bc95a8436f6331bb12f2302c9da9fa))
+* update accessibility element behavior in AttachmentPreview and enhance UITests for clipboard image previews ([cc99306](https://github.com/ngutech21/sumika-chat/commit/cc99306f28f06be06b9310a85eb81226009b9f73))
+* update Qwen model ID to the latest version for continuity test ([5fe32b8](https://github.com/ngutech21/sumika-chat/commit/5fe32b8ff8888bfb94177b587a3ab6ce1caee13c))
+* update swift-huggingface package to version 0.12.0 ([e0c61bd](https://github.com/ngutech21/sumika-chat/commit/e0c61bd5e19006f57e057ada90ca3638c56e16da))
+* use authoritative MLX cache status for diagnostics ([5262fcd](https://github.com/ngutech21/sumika-chat/commit/5262fcd1a684ba27979dcadf7d882e92920613df))
+
 ## [1.12.0](https://github.com/ngutech21/sumika-chat/compare/v1.11.0...v1.12.0) (2026-09-22)
 
 
