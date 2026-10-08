@@ -1932,33 +1932,14 @@ extension NativeChatMessageCellView {
     }
   }
 
-  fileprivate func paddedContainer(
-    _ view: NSView,
-    fillColor: NSColor,
-    cornerRadius: CGFloat
-  ) -> NSView {
-    let container = NSView()
-    container.wantsLayer = true
-    container.layer?.backgroundColor = fillColor.cgColor
-    container.layer?.cornerRadius = cornerRadius
-    container.addSubview(view)
-    view.translatesAutoresizingMaskIntoConstraints = false
-    NSLayoutConstraint.activate([
-      view.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
-      view.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 10),
-      view.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
-      view.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
-    ])
-    return container
-  }
-
   fileprivate func borderedPaddedContainer(
     _ view: NSView,
     fillColor: NSColor,
     strokeColor: NSColor,
     cornerRadius: CGFloat
   ) -> NSView {
-    let container = paddedContainer(view, fillColor: fillColor, cornerRadius: cornerRadius)
+    let container = NativeReusableRowViewStyle.paddedContainer(
+      view, fillColor: fillColor, cornerRadius: cornerRadius)
     container.layer?.borderColor = strokeColor.cgColor
     container.layer?.borderWidth = 1
     return container
@@ -2053,30 +2034,12 @@ extension NativeChatMessageCellView {
     }
   }
 
-  fileprivate func verticalStack(spacing: CGFloat) -> NSStackView {
-    let stack = NSStackView()
-    stack.orientation = .vertical
-    stack.alignment = .leading
-    stack.distribution = .gravityAreas
-    stack.spacing = spacing
-    return stack
-  }
-
-  fileprivate func horizontalStack(spacing: CGFloat) -> NSStackView {
-    let stack = NSStackView()
-    stack.orientation = .horizontal
-    stack.alignment = .centerY
-    stack.distribution = .gravityAreas
-    stack.spacing = spacing
-    return stack
-  }
-
   fileprivate func makeAttachmentPreviews(
     _ attachments: [ChatAttachment],
     rowID: String,
     alignsTrailing: Bool
   ) -> NSView {
-    let stack = verticalStack(spacing: 4)
+    let stack = NativeReusableRowViewStyle.verticalStack(spacing: 4)
     stack.alignment = alignsTrailing ? .trailing : .leading
     for attachment in attachments {
       stack.addArrangedSubview(makeAttachmentPreview(attachment, rowID: rowID))
@@ -2113,13 +2076,13 @@ extension NativeChatMessageCellView {
   }
 
   fileprivate func makeTextAttachmentPreview(_ attachment: ChatAttachment) -> NSView {
-    let row = horizontalStack(spacing: 7)
+    let row = NativeReusableRowViewStyle.horizontalStack(spacing: 7)
     row.addArrangedSubview(makeAttachmentSymbol("doc.text"))
     let label = makeSecondaryLabel(attachment.displayName)
     label.maximumNumberOfLines = 1
     label.lineBreakMode = .byTruncatingMiddle
     row.addArrangedSubview(label)
-    let container = paddedContainer(
+    let container = NativeReusableRowViewStyle.paddedContainer(
       row,
       fillColor: NSColor.secondaryLabelColor.withAlphaComponent(0.12),
       cornerRadius: 8
