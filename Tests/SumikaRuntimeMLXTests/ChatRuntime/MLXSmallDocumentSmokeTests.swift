@@ -45,6 +45,73 @@ nonisolated final class MLXSmallDocumentSmokeTests: XCTestCase {
     }
   }
 
+  func testInstalledModelCallsToolAndContinues() async throws {
+    try await withInstalledModel { runtime, model, _, _ in
+      let registry = ToolExecutorRegistry.codingAgent.toolRegistry
+      let plan = ChatRuntimePromptPlan(
+        stableInstructions:
+          "Use read_file when asked. After its result, answer with the file's contents only.",
+        toolContext: .init(registry: registry))
+      var settings = ModelSettingsResolver.recommendedSettings(for: model, generationConfig: nil)
+        .modeSettings.agent.generationSettings
+      settings.temperature = 0
+      settings.reasoningSelection = .off
+      settings.maxTokens = 512
+      var entries = [
+        try ModelFacingPromptRenderer.userPromptEntry(
+          prompt:
+            "Use read_file with path receipt.txt, offset 1, and limit 1. Then reply with its contents only."
+        )
+      ]
+      let stream = try await runtime.streamReply(
+        for: ModelPromptProjection(entries: entries), attachments: [], promptPlan: plan,
+        settings: settings, interactionMode: .agent)
+      var calls = [ChatRuntimeToolCall]()
+      for try await event in stream {
+        switch event {
+        case .toolCall(let call): calls.append(call)
+        case .outputLimitReached: XCTFail("Tool request exhausted the smoke-test token budget.")
+        default: break
+        }
+      }
+      XCTAssertEqual(calls.count, 1)
+      let call = try XCTUnwrap(calls.first)
+      XCTAssertEqual(call.name, "read_file")
+      XCTAssertEqual(call.arguments["path"], .string("receipt.txt"))
+      guard
+        case .toolCalls(let parsed) = ToolLoopNativeToolParser.parse(
+          calls, policy: model.toolCallingPolicy, registry: registry,
+          workspaceID: UUID(), sessionID: UUID())
+      else { return XCTFail("Expected one valid native tool request.") }
+      let parsedCall = try XCTUnwrap(parsed.first)
+      let request = ToolCallRequestValidator().validate(parsedCall.request, registry: registry)
+      guard case .readFile = request.payload else { return XCTFail("Invalid read_file arguments.") }
+      entries.append(
+        try ModelFacingPromptRenderer.assistantOutputEntry(
+          content: parsedCall.modelMessage.modelContextContent))
+      entries.append(
+        try ModelFacingPromptRenderer.toolResultEntry(
+          toolResult: ToolResultModelMessage(
+            callID: request.id, toolName: .readFile,
+            payload: .readFile(
+              .legacySuccess(
+                path: WorkspaceRelativePath(rawValue: "receipt.txt"),
+                content: ToolTextOutput(text: "COBALT-731")))),
+          request: request, originalUserRequest: nil))
+      let output = try await Self.reply(
+        runtime: runtime, entries: entries, plan: plan, settings: settings, mode: .agent)
+      XCTAssertTrue(output.contains("COBALT-731"), "Unexpected tool continuation: \(output)")
+      entries.append(try ModelFacingPromptRenderer.assistantOutputEntry(content: output))
+      entries.append(
+        try ModelFacingPromptRenderer.userPromptEntry(
+          prompt: "Repeat the receipt code without using a tool."))
+      let warm = try await Self.reply(
+        runtime: runtime, entries: entries, plan: plan, settings: settings, mode: .agent)
+      XCTAssertTrue(warm.contains("COBALT-731"), "Unexpected warm continuation: \(warm)")
+      print("TOOL SMOKE: model=\(model.id), output=\(output), warm=\(warm)")
+    }
+  }
+
   func testInstalledModelGeneratesBeyondDiagnosticContextLength() async throws {
     guard MLXDebugTraceStore.isEnabled else {
       throw XCTSkip("Set SUMIKA_DEBUG_TRACE=1 to verify measured prompt tokens and cache reuse.")

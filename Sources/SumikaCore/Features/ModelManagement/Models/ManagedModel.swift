@@ -457,6 +457,30 @@ package enum ManagedModelCatalog {
       maxToolLoopIterations: 18
     ),
     ManagedModel(
+      id: "Swift-1.5-4bit-MLX",
+      displayName: "Swift-1.5 4bit",
+      detail: "Best for coding and demanding agent tasks.",
+      huggingFaceRepoID: "ukisai/Swift-1.5-4bit-MLX",
+      localDirectoryName: "ukisai/Swift-1.5-4bit-MLX",
+      estimatedDownloadSize: "15.8 GB",
+      group: .coding,
+      recommendation: .bestForGroup,
+      requiresLargeMemory: true,
+      stability: .experimental,
+      supportsImageInput: true,
+      reasoningTraceFormat: .qwenThinkTags,
+      supportsHistoricalReasoningPreservation: true,
+      reasoningCapability: .selectableEffort(
+        supported: [.low, .medium, .xhigh],
+        defaultValue: .medium
+      ),
+      thinkingBudgetPolicy: .hardLimitImmediate,
+      generationProfile: .qwen38,
+      defaultModeSettings: .defaultSettings,
+      defaultContextTokenLimit: defaultContextTokenLimit,
+      maxToolLoopIterations: 18
+    ),
+    ManagedModel(
       id: "qwen3.6-40B-8bit-heretic",
       displayName: "Qwen 3.6 40B uncensored 8-bit",
       detail: "Uncensored specialist model with fewer safeguards.",

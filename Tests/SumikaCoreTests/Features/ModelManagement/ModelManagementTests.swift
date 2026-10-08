@@ -470,6 +470,7 @@ struct ModelManagementTests {
         "Qwen3.6-27B-OptiQ-4bit",
         "qwen3.6-27B-8bit",
         "qwen3.8-27B-OptiQ-4bit",
+        "Swift-1.5-4bit-MLX",
       ])
     #expect(
       Set(modelsByGroup[.specialized, default: []].map(\.id)) == [
@@ -478,28 +479,35 @@ struct ModelManagementTests {
   }
 
   @Test
-  func catalogMarksOneBestModelForEverydayChatAndCoding() {
+  func catalogMarksBestModelsForEverydayChatAndCoding() {
     let bestModels = ManagedModelCatalog.models.filter {
       $0.recommendation == .bestForGroup
     }
 
-    #expect(bestModels.map(\.id) == ["gemma4-12b-qat-4bit", "qwen3.8-27B-OptiQ-4bit"])
+    #expect(
+      bestModels.map(\.id) == [
+        "gemma4-12b-qat-4bit", "qwen3.8-27B-OptiQ-4bit", "Swift-1.5-4bit-MLX",
+      ])
   }
 
   @Test
-  func catalogExposesSelectableReasoningEffortOnlyForQwen38() throws {
-    let qwen38 = try #require(ManagedModelCatalog.model(id: "qwen3.8-27B-OptiQ-4bit"))
-
-    #expect(
-      qwen38.reasoningCapability
-        == .selectableEffort(supported: [.low, .medium, .xhigh], defaultValue: .medium)
-    )
+  func catalogExposesSelectableReasoningEffortForQwen38AndSwift15() throws {
+    let effortModels = ["qwen3.8-27B-OptiQ-4bit", "Swift-1.5-4bit-MLX"]
+    for id in effortModels {
+      let model = try #require(ManagedModelCatalog.model(id: id))
+      #expect(
+        model.reasoningCapability
+          == .selectableEffort(supported: [.low, .medium, .xhigh], defaultValue: .medium))
+    }
     #expect(
       ManagedModelCatalog.models
-        .filter { $0.id != qwen38.id }
+        .filter { !effortModels.contains($0.id) }
         .allSatisfy { $0.reasoningCapability == .toggle }
     )
     #expect(ManagedModelCatalog.models.allSatisfy { $0.reasoningCapability.hasValidOptions })
+    let swift15 = try #require(ManagedModelCatalog.model(id: "Swift-1.5-4bit-MLX"))
+    #expect(swift15.stability == .experimental)
+    #expect(swift15.supportsImageInput)
   }
 
   @Test

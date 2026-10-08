@@ -908,10 +908,19 @@ final class SumikaUITests: XCTestCase {
 
   @MainActor
   func testQwenAgentReadFileContinuationSmoke() throws {
-    let qwenModelID = "qwen3.8-27B-OptiQ-4bit"
+    try assertQwenAgentReadFileContinuation(modelID: "qwen3.8-27B-OptiQ-4bit")
+  }
+
+  @MainActor
+  func testSwift15AgentReadFileContinuationSmoke() throws {
+    try assertQwenAgentReadFileContinuation(modelID: "Swift-1.5-4bit-MLX")
+  }
+
+  @MainActor
+  private func assertQwenAgentReadFileContinuation(modelID: String) throws {
     let fixture = try launchFixture(
       readme: "Qwen structured continuation fixture.\n",
-      modelID: qwenModelID
+      modelID: modelID
     )
     let application = try launchApp(fixture: fixture)
     defer {
