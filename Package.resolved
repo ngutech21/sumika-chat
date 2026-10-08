@@ -1,5 +1,5 @@
 {
-  "originHash" : "40b74a2b9e1a29eedab0b0f9f8840311571201f146bc574ca04d3a11587f9d3c",
+  "originHash" : "d2b08550fb23090e2b67508b69aa2148ed03de3811f8c9b9d5e7c6426dc70af6",
   "pins" : [
     {
       "identity" : "anydoc-swift",
@@ -113,8 +113,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/huggingface/swift-huggingface",
       "state" : {
-        "revision" : "0ece9a1ef443309d26a69af9897ee8ad82f43a9a",
-        "version" : "0.12.0"
+        "revision" : "f0a0cb43cb1b402d2bbf6fb10d8981328c449c48",
+        "version" : "0.13.0"
       }
     },
     {
