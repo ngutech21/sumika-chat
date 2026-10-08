@@ -1593,7 +1593,7 @@ private func projectWebSearch(
     return toolResultProjection(
       display: .summary(
         status: .success,
-        text: webSearchDisplayText(query: query, provider: provider, results: results),
+        text: result.preview.text,
         affectedPaths: []
       ),
       observation: ToolModelObservation.success(
@@ -1631,15 +1631,7 @@ private func projectWebFetch(
     return toolResultProjection(
       display: .summary(
         status: .success,
-        text: webFetchDisplayText(
-          url: url,
-          provider: provider,
-          finalURL: finalURL,
-          statusCode: statusCode,
-          contentType: contentType,
-          content: content,
-          byteCount: byteCount
-        ),
+        text: result.preview.text,
         affectedPaths: []
       ),
       observation: ToolModelObservation.success(
@@ -1789,42 +1781,6 @@ private func editMismatchObservationText(
   }
 
   return sections.joined(separator: "\n\n")
-}
-
-private func webSearchDisplayText(
-  query: String,
-  provider: WebSearchProvider,
-  results: [WebSearchResult]
-) -> String {
-  let resultText =
-    results.isEmpty
-    ? "(no results)"
-    : results.enumerated().map { index, result in
-      let snippet = result.snippet.map { "\n\($0)" } ?? ""
-      return "\(index + 1). \(result.title)\n\(result.url)\(snippet)"
-    }.joined(separator: "\n\n")
-  return "Search provider: \(provider.displayName)\nQuery: \(query)\n\n\(resultText)"
-}
-
-private func webFetchDisplayText(
-  url: String,
-  provider: WebFetchProvider?,
-  finalURL: String,
-  statusCode: Int,
-  contentType: String?,
-  content: ToolTextOutput,
-  byteCount: Int
-) -> String {
-  let redirectText = url == finalURL ? "" : "\nFinal URL: \(finalURL)"
-  return """
-    URL: \(url)\(redirectText)
-    Fetch provider: \(webFetchProviderDisplayName(provider))
-    Status: \(statusCode)
-    Content-Type: \(contentType ?? "unknown")
-    Bytes: \(byteCount)
-
-    \(content.text)
-    """
 }
 
 private func webFetchProviderDisplayName(_ provider: WebFetchProvider?) -> String {

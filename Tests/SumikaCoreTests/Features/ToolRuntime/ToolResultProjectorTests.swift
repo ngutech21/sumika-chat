@@ -4,6 +4,99 @@ import Testing
 @testable import SumikaCore
 
 struct ToolResultProjectorTests {
+  @Test(arguments: [false, true])
+  func webSearchDisplayPreservesResultsAndEmptyText(empty: Bool) {
+    let results: [WebSearchResult] =
+      empty
+      ? []
+      : [
+        WebSearchResult(title: "Swift", url: "https://swift.org", snippet: "Language guide"),
+        WebSearchResult(title: "Docs", url: "https://swift.org/docs"),
+      ]
+    let result = WebSearchToolResult(
+      query: "Swift", provider: .duckDuckGo, results: results, truncated: true)
+    let projection = ToolResultProjector.project(
+      payload: .webSearch(result),
+      request: request(toolName: .webSearch, payload: .webSearch(WebSearchInput(query: "Swift")))
+    )
+    let expectedResults =
+      empty
+      ? "(no results)"
+      : """
+      1. Swift
+      https://swift.org
+      Language guide
+
+      2. Docs
+      https://swift.org/docs
+      """
+
+    #expect(
+      projection.display
+        == .summary(
+          status: .success,
+          text: "Search provider: DuckDuckGo\nQuery: Swift\n\n\(expectedResults)",
+          affectedPaths: []))
+    #expect(
+      projection.observation.blocks == [
+        .webSearch(query: "Swift", provider: .duckDuckGo, results: results, truncated: true)
+      ])
+  }
+
+  @Test(arguments: [false, true])
+  func webFetchDisplayPreservesRedirectsAndMissingMetadata(redirected: Bool) {
+    let url = "https://example.com/article"
+    let finalURL = redirected ? "https://example.com/final" : url
+    let provider: WebFetchProvider? = redirected ? .firecrawl : nil
+    let contentType = redirected ? "text/markdown" : nil
+    let content = ToolTextOutput(text: "Article\nbody", truncated: true, redacted: true)
+    let result = WebFetchToolResult(
+      url: url, provider: provider, finalURL: finalURL, statusCode: 200,
+      contentType: contentType, content: content, byteCount: 12)
+    let projection = ToolResultProjector.project(
+      payload: .webFetch(result),
+      request: request(toolName: .webFetch, payload: .webFetch(WebFetchInput(url: url)))
+    )
+    let expectedText = """
+      URL: https://example.com/article\(redirected ? "\nFinal URL: https://example.com/final" : "")
+      Fetch provider: \(redirected ? "Firecrawl" : "Unknown")
+      Status: 200
+      Content-Type: \(redirected ? "text/markdown" : "unknown")
+      Bytes: 12
+
+      Article
+      body
+      """
+
+    #expect(
+      projection.display == .summary(status: .success, text: expectedText, affectedPaths: []))
+    #expect(
+      projection.observation.blocks == [
+        .webFetch(
+          url: url, provider: provider, finalURL: finalURL, statusCode: 200,
+          contentType: contentType, content: content, byteCount: 12)
+      ])
+  }
+
+  @Test
+  func webFetchFailureKeepsCompactDisplayAndObservation() {
+    let result = WebFetchToolResult.failed(
+      url: "https://example.com/article", provider: .builtIn,
+      finalURL: "https://example.com/final", reason: .executionError("HTTP 404"))
+    let projection = ToolResultProjector.project(
+      payload: .webFetch(result),
+      request: request(
+        toolName: .webFetch,
+        payload: .webFetch(WebFetchInput(url: "https://example.com/article")))
+    )
+    let expectedText = "Fetch provider: Built-in\nHTTP 404"
+
+    #expect(
+      projection.display == .summary(status: .failed, text: expectedText, affectedPaths: []))
+    #expect(
+      projection.observation == .failed(toolName: .webFetch, affectedPaths: [], text: expectedText))
+  }
+
   @Test
   func showFileDisplaysContentButOmitsBodyFromDefaultObservation() throws {
     let request = request(
