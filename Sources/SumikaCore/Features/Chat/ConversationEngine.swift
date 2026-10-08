@@ -221,17 +221,6 @@ extension ConversationEngine {
     activeWorkspaceID == workspaceID && activeSessionID == sessionID
   }
 
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  func updateActiveWorkspace(_ workspace: Workspace) {
-    guard let sessionID = activeSessionID,
-      workspace.sessions.contains(where: { $0.id == sessionID })
-    else {
-      return
-    }
-    activeConversation?.workspace = workspace
-  }
-
   func modelManagementEventHandlers(
     errorDidOccur: @escaping @MainActor (String) -> Void
   ) -> ModelManagementEventHandlers {
