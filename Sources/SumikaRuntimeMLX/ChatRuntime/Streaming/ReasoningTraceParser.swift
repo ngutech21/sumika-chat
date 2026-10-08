@@ -34,7 +34,7 @@ struct ReasoningTraceParser {
   }
 
   private enum Storage {
-    case none(PassThroughReasoningTraceParser)
+    case none
     case gemma(GemmaThoughtChannelParser)
     case qwen(QwenThinkTagParser)
   }
@@ -61,7 +61,7 @@ struct ReasoningTraceParser {
       guard qwenValidation == nil else {
         throw MLXThinkingBudgetFailure.incompatibleReasoningProtocol
       }
-      storage = .none(PassThroughReasoningTraceParser())
+      storage = .none
     case .gemmaChannel:
       guard qwenValidation == nil else {
         throw MLXThinkingBudgetFailure.incompatibleReasoningProtocol
@@ -74,10 +74,8 @@ struct ReasoningTraceParser {
 
   mutating func append(_ chunk: String) throws -> [Segment] {
     switch storage {
-    case .none(var parser):
-      let segments = parser.append(chunk)
-      storage = .none(parser)
-      return segments
+    case .none:
+      return chunk.isEmpty ? [] : [.visible(chunk)]
     case .gemma(var parser):
       let segments = parser.append(chunk)
       storage = .gemma(parser)
@@ -91,10 +89,8 @@ struct ReasoningTraceParser {
 
   mutating func prepareForToolCall() -> [Segment] {
     switch storage {
-    case .none(var parser):
-      let segments = parser.prepareForToolCall()
-      storage = .none(parser)
-      return segments
+    case .none:
+      return []
     case .gemma(var parser):
       let segments = parser.prepareForToolCall()
       storage = .gemma(parser)
@@ -108,10 +104,8 @@ struct ReasoningTraceParser {
 
   mutating func finish(discardingProtocolTail: Bool = false) throws -> [Segment] {
     switch storage {
-    case .none(var parser):
-      let segments = parser.finish()
-      storage = .none(parser)
-      return segments
+    case .none:
+      return []
     case .gemma(var parser):
       let segments = parser.finish()
       storage = .gemma(parser)
@@ -121,20 +115,6 @@ struct ReasoningTraceParser {
       storage = .qwen(parser)
       return segments
     }
-  }
-}
-
-private struct PassThroughReasoningTraceParser {
-  mutating func append(_ chunk: String) -> [ReasoningTraceParser.Segment] {
-    chunk.isEmpty ? [] : [.visible(chunk)]
-  }
-
-  mutating func finish() -> [ReasoningTraceParser.Segment] {
-    []
-  }
-
-  mutating func prepareForToolCall() -> [ReasoningTraceParser.Segment] {
-    []
   }
 }
 

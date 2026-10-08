@@ -1,9 +1,7 @@
 import Foundation
 
-public struct DataModelMarkdownRenderer: Sendable {
-  public init() {}
-
-  public func render(_ document: DataModelDocument) -> String {
+struct DataModelMarkdownRenderer: Sendable {
+  func render(_ document: DataModelDocument) -> String {
     let models = document.models.sorted { lhs, rhs in
       if lhs.name == rhs.name {
         return lhs.sourcePath < rhs.sourcePath
@@ -168,7 +166,7 @@ public struct DataModelMarkdownRenderer: Sendable {
   }
 }
 
-public func referencedModelTypes(in rawType: String, knownTypes: Set<String>) -> [String] {
+func referencedModelTypes(in rawType: String, knownTypes: Set<String>) -> [String] {
   let cleaned =
     rawType
     .replacingOccurrences(of: "any ", with: "")

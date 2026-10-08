@@ -2,10 +2,8 @@ import Foundation
 import SwiftParser
 import SwiftSyntax
 
-public struct DataModelCollector: Sendable {
-  public init() {}
-
-  public func collect(source: String, sourcePath: String) throws -> [DataModelDeclaration] {
+struct DataModelCollector: Sendable {
+  func collect(source: String, sourcePath: String) throws -> [DataModelDeclaration] {
     let sourceFile = Parser.parse(source: source)
     let visitor = DeclarationVisitor(sourcePath: sourcePath)
     visitor.walk(sourceFile)
@@ -197,7 +195,7 @@ private func docSummary(from trivia: Trivia) -> String? {
   return summary.isEmpty ? nil : summary
 }
 
-public func normalizedType(_ rawType: String) -> String {
+private func normalizedType(_ rawType: String) -> String {
   rawType
     .replacingOccurrences(of: "\n", with: " ")
     .split(whereSeparator: \.isWhitespace)

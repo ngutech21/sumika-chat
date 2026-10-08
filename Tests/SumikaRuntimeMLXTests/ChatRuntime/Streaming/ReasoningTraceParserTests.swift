@@ -17,7 +17,11 @@ struct ReasoningTraceParserTests {
     #expect(parser.boundaryState == .absent)
     #expect(try parser.append("") == [])
     #expect(try parser.append("Visible") == [.visible("Visible")])
+    #expect(parser.prepareForToolCall() == [])
+    #expect(parser.boundaryState == .absent)
+    #expect(try parser.append("<think>Still visible") == [.visible("<think>Still visible")])
     #expect(try parser.finish() == [])
+    #expect(try parser.finish(discardingProtocolTail: true) == [])
     #expect(parser.boundaryState == .absent)
   }
 

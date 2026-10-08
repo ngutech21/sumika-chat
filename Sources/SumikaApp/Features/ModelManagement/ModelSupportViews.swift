@@ -328,10 +328,10 @@ struct ModelAdvancedSettings: View {
             .foregroundStyle(.secondary)
             .monospacedDigit()
           }
-          Slider(value: selectedTemperature, in: 0...2, step: 0.1)
+          Slider(value: selectedGenerationSettings.temperature, in: 0...2, step: 0.1)
         }
 
-        Stepper(value: selectedMaxTokens, in: 128...32_768, step: 128) {
+        Stepper(value: selectedGenerationSettings.maxTokens, in: 128...32_768, step: 128) {
           SettingValueLabel(
             title: "Response Length",
             value: "\(selectedGenerationSettings.wrappedValue.maxTokens)")
@@ -360,10 +360,10 @@ struct ModelAdvancedSettings: View {
             .foregroundStyle(.secondary)
             .monospacedDigit()
           }
-          Slider(value: selectedTopP, in: 0.05...1, step: 0.05)
+          Slider(value: selectedGenerationSettings.topP, in: 0.05...1, step: 0.05)
         }
 
-        Stepper(value: selectedTopK, in: 0...200, step: 10) {
+        Stepper(value: selectedGenerationSettings.topK, in: 0...200, step: 10) {
           SettingValueLabel(
             title: "Top K",
             value: "\(selectedGenerationSettings.wrappedValue.topK)")
@@ -380,7 +380,7 @@ struct ModelAdvancedSettings: View {
             .foregroundStyle(.secondary)
             .monospacedDigit()
           }
-          Slider(value: selectedMinP, in: 0...1, step: 0.01)
+          Slider(value: selectedGenerationSettings.minP, in: 0...1, step: 0.01)
         }
 
         VStack(alignment: .leading, spacing: 6) {
@@ -394,7 +394,7 @@ struct ModelAdvancedSettings: View {
             .foregroundStyle(.secondary)
             .monospacedDigit()
           }
-          Slider(value: selectedRepetitionPenalty, in: 1...2, step: 0.05)
+          Slider(value: selectedGenerationSettings.repetitionPenalty, in: 1...2, step: 0.05)
         }
 
         VStack(alignment: .leading, spacing: 6) {
@@ -408,7 +408,7 @@ struct ModelAdvancedSettings: View {
             .foregroundStyle(.secondary)
             .monospacedDigit()
           }
-          Slider(value: selectedPresencePenalty, in: -2...2, step: 0.05)
+          Slider(value: selectedGenerationSettings.presencePenalty, in: -2...2, step: 0.05)
         }
 
         LabeledContent("Hugging Face") {
@@ -463,55 +463,6 @@ struct ModelAdvancedSettings: View {
     Binding(
       get: { modeSettings[selectedMode].generationSettings },
       set: { modeSettings[selectedMode].generationSettings = $0 }
-    )
-  }
-
-  private var selectedTemperature: Binding<Double> {
-    Binding(
-      get: { selectedGenerationSettings.wrappedValue.temperature },
-      set: { selectedGenerationSettings.wrappedValue.temperature = $0 }
-    )
-  }
-
-  private var selectedMaxTokens: Binding<Int> {
-    Binding(
-      get: { selectedGenerationSettings.wrappedValue.maxTokens },
-      set: { selectedGenerationSettings.wrappedValue.maxTokens = $0 }
-    )
-  }
-
-  private var selectedTopP: Binding<Double> {
-    Binding(
-      get: { selectedGenerationSettings.wrappedValue.topP },
-      set: { selectedGenerationSettings.wrappedValue.topP = $0 }
-    )
-  }
-
-  private var selectedTopK: Binding<Int> {
-    Binding(
-      get: { selectedGenerationSettings.wrappedValue.topK },
-      set: { selectedGenerationSettings.wrappedValue.topK = $0 }
-    )
-  }
-
-  private var selectedMinP: Binding<Double> {
-    Binding(
-      get: { selectedGenerationSettings.wrappedValue.minP },
-      set: { selectedGenerationSettings.wrappedValue.minP = $0 }
-    )
-  }
-
-  private var selectedRepetitionPenalty: Binding<Double> {
-    Binding(
-      get: { selectedGenerationSettings.wrappedValue.repetitionPenalty },
-      set: { selectedGenerationSettings.wrappedValue.repetitionPenalty = $0 }
-    )
-  }
-
-  private var selectedPresencePenalty: Binding<Double> {
-    Binding(
-      get: { selectedGenerationSettings.wrappedValue.presencePenalty },
-      set: { selectedGenerationSettings.wrappedValue.presencePenalty = $0 }
     )
   }
 

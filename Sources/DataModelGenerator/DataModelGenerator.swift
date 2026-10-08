@@ -8,11 +8,11 @@ enum DataModelGeneratorError: LocalizedError, Equatable {
   }
 }
 
-public struct DataModelGenerator: Sendable {
+struct DataModelGenerator: Sendable {
   private let collector: DataModelCollector
   private let renderer: DataModelMarkdownRenderer
 
-  public init(
+  init(
     collector: DataModelCollector = DataModelCollector(),
     renderer: DataModelMarkdownRenderer = DataModelMarkdownRenderer()
   ) {
@@ -20,7 +20,7 @@ public struct DataModelGenerator: Sendable {
     self.renderer = renderer
   }
 
-  public func generate(
+  func generate(
     modelsDirectories: [URL],
     modelFiles: [URL] = [],
     outputURL: URL,
