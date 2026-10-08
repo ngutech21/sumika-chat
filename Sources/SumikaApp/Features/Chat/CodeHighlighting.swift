@@ -134,18 +134,15 @@ nonisolated struct CodeHighlightResult: Equatable, Sendable {
 actor StreamingCodeHighlighter {
   private let backend: any CodeHighlightingBackend
   private let debounce: Duration
-  private let highlighterVersion: String
   private var latestVersionsByBlockID: [CodeHighlightBlockID: Int] = [:]
   private var cache: [CodeHighlightCacheKey: HighlightedCode] = [:]
 
   init(
     backend: any CodeHighlightingBackend,
-    debounce: Duration = .milliseconds(150),
-    highlighterVersion: String = "tree-sitter-v1"
+    debounce: Duration = .milliseconds(150)
   ) {
     self.backend = backend
     self.debounce = debounce
-    self.highlighterVersion = highlighterVersion
   }
 
   func highlight(_ request: CodeHighlightRequest) async -> CodeHighlightResult? {
@@ -162,8 +159,7 @@ actor StreamingCodeHighlighter {
       let cacheKey = CodeHighlightCacheKey(
         code: request.code,
         language: request.language,
-        theme: request.theme,
-        highlighterVersion: highlighterVersion
+        theme: request.theme
       )
       if let cachedHighlight = cache[cacheKey] {
         return currentResult(for: request, highlightedCode: cachedHighlight)
@@ -246,32 +242,15 @@ nonisolated struct CodeHighlightCacheKey: Equatable, Hashable, Sendable {
   var language: CodeLanguage?
   var codeHash: UInt64
   var theme: CodeHighlightTheme
-  var highlighterVersion: String
-
-  init(
-    language: CodeLanguage?,
-    codeHash: UInt64,
-    theme: CodeHighlightTheme,
-    highlighterVersion: String
-  ) {
-    self.language = language
-    self.codeHash = codeHash
-    self.theme = theme
-    self.highlighterVersion = highlighterVersion
-  }
 
   init(
     code: String,
     language: CodeLanguage?,
-    theme: CodeHighlightTheme,
-    highlighterVersion: String
+    theme: CodeHighlightTheme
   ) {
-    self.init(
-      language: language,
-      codeHash: code.stableUTF8Hash,
-      theme: theme,
-      highlighterVersion: highlighterVersion
-    )
+    self.language = language
+    codeHash = code.stableUTF8Hash
+    self.theme = theme
   }
 }
 
