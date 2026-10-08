@@ -18,6 +18,7 @@ nonisolated final class MLXGuardedGenerationTests: XCTestCase {
     }
     for probe in [
       "preparation", "decode", "late_sync", "checked_eval", "isolation", "cancellation",
+      "cache_allocation",
     ] {
       try await runIsolatedProbe(probe)
     }
@@ -36,10 +37,33 @@ nonisolated final class MLXGuardedGenerationTests: XCTestCase {
         case "checked_eval": try await Self.verifyCheckedErrorPrecedesSynchronizationError()
         case "isolation": try await Self.verifyHandlerIsolation()
         case "cancellation": try await Self.verifyCancellationDrains()
+        case "cache_allocation": Self.verifyCacheAllocation()
         default: XCTFail("Unknown probe: \(probe)")
         }
       }
     }
+  }
+
+  private static func verifyCacheAllocation() {
+    let attention = KVCacheSimple()
+    let rows = attention.step
+    // Seed reserved storage beyond the processed position without running a model.
+    attention.state = (0..<2).map { _ in
+      MLXArray([Float](repeating: 0, count: 2 * rows * 8), [1, 2, rows, 8])
+    }
+    attention.offset = 3
+    let recurrent = MambaCache()
+    recurrent[0] = MLXArray([Float](repeating: 0, count: 3 * 16), [1, 3, 16])
+    recurrent[1] = MLXArray([Float](repeating: 0, count: 2 * 4 * 8), [1, 2, 4, 8])
+    let snapshot = RuntimeCacheAllocationSnapshot(
+      KVCacheStatus(cache: [KVCacheSimple(), CacheList(recurrent, attention)]))
+    let attentionBytes = 2 * 2 * rows * 8 * 4
+    let recurrentBytes = (3 * 16 + 2 * 4 * 8) * 4
+    XCTAssertEqual(snapshot.phase, .realized)
+    XCTAssertEqual(snapshot.allocatedBytes, attentionBytes + recurrentBytes)
+    XCTAssertEqual(snapshot.layers.map(\.path), [[0], [1, 0], [1, 1]])
+    XCTAssertEqual(snapshot.layers.map(\.allocatedBytes), [0, recurrentBytes, attentionBytes])
+    XCTAssertEqual(snapshot.layers[1].kind, "stateSpace")
   }
 
   private func runIsolatedProbe(_ probe: String) async throws {
@@ -133,6 +157,9 @@ nonisolated final class MLXGuardedGenerationTests: XCTestCase {
     XCTAssertEqual(partial.isEmpty, fault == .preparation)
     XCTAssertEqual(control.liveCaches, 0)
     XCTAssertEqual(control.events.filter { $0 == "memory_cleared" }.count, 1)
+    let failedSnapshot = await runtime.runtimeCacheDebugSnapshot()
+    XCTAssertEqual(failedSnapshot?.cacheAllocationBefore?.phase, .planned)
+    XCTAssertNil(failedSnapshot?.cacheAllocationAfter)
     let released = try XCTUnwrap(control.events.lastIndex(of: "cache_released"))
     let cleared = try XCTUnwrap(control.events.firstIndex(of: "memory_cleared"))
     XCTAssertLessThan(released, cleared)
@@ -153,6 +180,8 @@ nonisolated final class MLXGuardedGenerationTests: XCTestCase {
     XCTAssertEqual(control.liveCaches, 1)
     let fresh = await runtime.runtimeCacheDebugSnapshot()
     XCTAssertEqual(fresh?.cacheReason, "invalidated_generation_runtime_error")
+    XCTAssertEqual(fresh?.cacheAllocationBefore?.phase, .planned)
+    XCTAssertEqual(fresh?.cacheAllocationAfter?.phase, .realized)
 
     let warmCaches = control.usedCaches
     let followup = [
@@ -163,6 +192,9 @@ nonisolated final class MLXGuardedGenerationTests: XCTestCase {
       for: ModelPromptProjection(entries: followup), attachments: [], promptPlan: plan,
       settings: settings, interactionMode: .agent)
     for try await _ in warm {}
+    let warmSnapshot = await runtime.runtimeCacheDebugSnapshot()
+    XCTAssertEqual(warmSnapshot?.cacheAllocationBefore?.phase, .realized)
+    XCTAssertEqual(warmSnapshot?.cacheAllocationAfter?.phase, .realized)
     XCTAssertEqual(control.usedCaches, warmCaches, "Successful generation must reuse the cache.")
     await runtime.unload()
     XCTAssertEqual(control.liveCaches, 0)

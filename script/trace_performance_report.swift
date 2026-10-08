@@ -86,7 +86,27 @@ struct GenerationReport: Codable {
   var uiFlushMs: Double
   var generatedTokenCount: Int?
   var tokensPerSecond: Double?
+  var evictedTokenCount: Int?
+  var reasoningTokenCount: Int?
+  var answerTokenCount: Int?
+  var proposedDraftTokens: Int?
+  var acceptedDraftTokens: Int?
+  var mtpAcceptanceRate: Double?
+  var cacheAllocationBefore: CacheAllocationReport?
+  var cacheAllocationAfter: CacheAllocationReport?
   var firstRowIndex: Int
+}
+
+struct CacheAllocationReport: Codable {
+  struct Layer: Codable {
+    let path: [Int]
+    let kind: String
+    let allocatedBytes: Int
+  }
+
+  let phase: String
+  let allocatedBytes: Int
+  let layers: [Layer]
 }
 
 struct MemorySnapshotReport: Codable {
@@ -314,6 +334,13 @@ func newGenerationReport(id: String, rowIndex: Int) -> GenerationReport {
   )
 }
 
+func cacheAllocation(_ object: [String: Any], _ key: String) -> CacheAllocationReport? {
+  guard let allocation = value(object, key, as: [String: Any].self),
+    let data = try? JSONSerialization.data(withJSONObject: allocation)
+  else { return nil }
+  return try? JSONDecoder().decode(CacheAllocationReport.self, from: data)
+}
+
 func mergeTraceFields(_ object: [String: Any], into report: inout GenerationReport) {
   report.turnID = report.turnID ?? value(object, "turnID", as: String.self)
   report.interactionMode =
@@ -432,9 +459,38 @@ func markdown(_ report: PerformanceReport) -> String {
   appendDecodeStateIntervals(to: &lines, generations: report.generations)
   appendMemorySnapshots(to: &lines, snapshots: report.memorySnapshots)
   appendPrefillMeasurements(to: &lines, generations: report.generations)
+  appendGenerationDiagnostics(to: &lines, generations: report.generations)
 
   lines.append("")
   return lines.joined(separator: "\n")
+}
+
+func appendGenerationDiagnostics(to lines: inout [String], generations: [GenerationReport]) {
+  lines += [
+    "", "## Generation diagnostics", "",
+    "Cache allocation includes reserved array capacity and recurrent state in the main cache; it excludes draft caches, the reusable buffer pool, and process RSS. Evictions describe context absent at completion, not a per-generation delta. Missing values are shown as -.",
+    "",
+    "| Generation | Cache before MiB (phase) | Cache after MiB (phase) | Evicted tokens | Reasoning tokens | Answer tokens | Draft proposed | Draft accepted | MTP acceptance % |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+  ]
+  for generation in generations {
+    let row: [String] = [
+      generation.generationID,
+      generation.cacheAllocationBefore.map {
+        "\(formattedMemoryMiB($0.allocatedBytes)) (\($0.phase))"
+      } ?? "-",
+      generation.cacheAllocationAfter.map {
+        "\(formattedMemoryMiB($0.allocatedBytes)) (\($0.phase))"
+      } ?? "-",
+      generation.evictedTokenCount.map(String.init) ?? "-",
+      generation.reasoningTokenCount.map(String.init) ?? "-",
+      generation.answerTokenCount.map(String.init) ?? "-",
+      generation.proposedDraftTokens.map(String.init) ?? "-",
+      generation.acceptedDraftTokens.map(String.init) ?? "-",
+      generation.mtpAcceptanceRate.map { String(format: "%.1f", $0 * 100) } ?? "-",
+    ]
+    lines.append(row.joined(separator: " | ").wrappedTableRow())
+  }
 }
 
 func appendPrefillMeasurements(to lines: inout [String], generations: [GenerationReport]) {
@@ -799,6 +855,14 @@ for (rowIndex, row) in rows.enumerated() {
       report.streamStartMs = doubleValue(object, "durationMs")
       report.streamStartState = traceRuntimeState(object)
     case "runtime_stream_end":
+      report.evictedTokenCount = intValue(object, "evictedTokenCount")
+      report.reasoningTokenCount = intValue(object, "reasoningTokenCount")
+      report.answerTokenCount = intValue(object, "answerTokenCount")
+      report.proposedDraftTokens = intValue(object, "proposedDraftTokens")
+      report.acceptedDraftTokens = intValue(object, "acceptedDraftTokens")
+      report.mtpAcceptanceRate = doubleValue(object, "mtpAcceptanceRate")
+      report.cacheAllocationBefore = cacheAllocation(object, "cacheAllocationBefore")
+      report.cacheAllocationAfter = cacheAllocation(object, "cacheAllocationAfter")
       report.prefillStepSize = intValue(object, "prefillStepSize")
       report.prefillChunkSizes = value(object, "prefillChunkSizes", as: [Int].self)
       report.prefillProcessedPositions = intValue(object, "prefillProcessedPositions")

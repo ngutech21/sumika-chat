@@ -348,7 +348,8 @@ final actor MLXChatRuntime: ChatModelRuntime {
         modelContainer: modelContainer,
         generateParameters: generateParameters,
         cachePlan: cachePlan,
-        traceID: traceID
+        traceID: traceID,
+        generationDiagnostics: generationDiagnostics
       )
       let memoryTraceScope = await debugTraceStore.beginMemoryScope(
         phase: .generationStart,
@@ -401,6 +402,9 @@ final actor MLXChatRuntime: ChatModelRuntime {
         applicationStateSnapshotProvider: applicationStateSnapshotProvider,
         thinkingBudgetTrace: thinkingBudgetPlan.trace,
         thinkingBudgetEnforcementState: thinkingBudgetPlan.enforcementState,
+        captureCacheAllocationAfter: { [weak self] in
+          await self?.captureCacheAllocationAfter(generationID: generationID, traceID: traceID)
+        },
         markCompleted: { [weak self] assistant in
           await self?.markSessionCompleted(
             generationID: generationID,
@@ -498,9 +502,10 @@ extension MLXChatRuntime {
     modelContainer: ModelContainer,
     generateParameters: GenerateParameters,
     cachePlan: MLXSessionCachePlan,
-    traceID: UUID
+    traceID: UUID,
+    generationDiagnostics: MLXGenerationDiagnostics?
   ) async throws -> MLXRuntimeCacheDiagnostics? {
-    guard let runtimeCacheDiagnostics else {
+    guard runtimeCacheDiagnostics != nil || generationDiagnostics != nil else {
       return nil
     }
     let expectsReuse =
@@ -509,12 +514,20 @@ extension MLXChatRuntime {
     // The prior generation has drained, and preparation remains serialized
     // until this snapshot is read and the next producer is registered.
     nonisolated(unsafe) let inspectedSession = cachePlan.session
-    let previousCacheStatus: KVCacheStatus? = try await MLX.withError {
-      if expectsReuse {
-        return try await inspectedSession.cacheStatus()
-      }
-      return nil
+    let previousCacheStatus: KVCacheStatus?
+    if expectsReuse, runtimeCacheDiagnostics != nil {
+      previousCacheStatus = try await MLX.withError { try await inspectedSession.cacheStatus() }
+    } else if generationDiagnostics != nil {
+      previousCacheStatus = try? await MLX.withError { try await inspectedSession.cacheStatus() }
+    } else {
+      previousCacheStatus = nil
     }
+    if let generationDiagnostics {
+      let allocation = previousCacheStatus.map(RuntimeCacheAllocationSnapshot.init)
+      generationDiagnostics.recordCacheAllocationBefore(allocation)
+      lastRuntimeCacheDebugSnapshot?.cacheAllocationBefore = allocation
+    }
+    guard let runtimeCacheDiagnostics else { return nil }
     let cacheCapabilities = try await MLX.withError {
       try await MLXRuntimeCacheDiagnostics.capabilities(
         of: modelContainer,
@@ -531,6 +544,26 @@ extension MLXChatRuntime {
       capabilities: cacheCapabilities
     )
     return runtimeCacheDiagnostics
+  }
+
+  private func captureCacheAllocationAfter(
+    generationID: MLXGenerationID, traceID: UUID
+  ) async -> RuntimeCacheAllocationSnapshot? {
+    guard !Task.isCancelled,
+      generationOwnership.activeGenerationID == generationID,
+      let cached = cachedSession,
+      cached.state == .inFlight(generationID: generationID)
+    else { return nil }
+    // The guarded producer has drained; keep the session's arrays inside its cache lock.
+    nonisolated(unsafe) let inspectedSession = cached.session
+    let status = try? await MLX.withError { try await inspectedSession.cacheStatus() }
+    guard !Task.isCancelled,
+      generationOwnership.activeGenerationID == generationID,
+      lastRuntimeCacheDebugSnapshot?.generationID == traceID
+    else { return nil }
+    let allocation = status.map(RuntimeCacheAllocationSnapshot.init)
+    lastRuntimeCacheDebugSnapshot?.cacheAllocationAfter = allocation
+    return allocation
   }
 
   private func prepareThinkingBudgetPlan(

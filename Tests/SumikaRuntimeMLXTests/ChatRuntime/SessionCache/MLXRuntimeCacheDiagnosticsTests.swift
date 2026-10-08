@@ -1,11 +1,22 @@
 import Foundation
 import MLXLMCommon
+import SumikaCore
 import Testing
 
 @testable import SumikaRuntimeMLX
 
 @Suite
 struct MLXRuntimeCacheDiagnosticsTests {
+  @Test
+  func allocationCopiesPlannedZero() {
+    let planned = RuntimeCacheAllocationSnapshot(
+      KVCacheStatus(cache: [KVCacheSimple(), MambaCache()], phase: .planned))
+    #expect(planned.phase == .planned)
+    #expect(planned.allocatedBytes == 0)
+    #expect(planned.layers.map(\.allocatedBytes) == [0, 0])
+
+  }
+
   @Test
   func exactSuffixReuseReportsTheReusedTokenCount() async throws {
     let diagnostics = MLXRuntimeCacheDiagnostics(

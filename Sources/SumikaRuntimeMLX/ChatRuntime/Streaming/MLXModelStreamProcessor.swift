@@ -40,6 +40,7 @@ enum MLXModelStreamProcessor {
     },
     thinkingBudgetTrace: MLXThinkingBudgetTrace? = nil,
     thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState? = nil,
+    captureCacheAllocationAfter: (@Sendable () async -> RuntimeCacheAllocationSnapshot?)? = nil,
     markCompleted: @escaping @Sendable (MLXCompletedAssistantSnapshot) async -> Void,
     markNativeToolCallBoundary:
       @escaping @Sendable (
@@ -151,6 +152,7 @@ enum MLXModelStreamProcessor {
           }
 
           if let info = event.info {
+            generation.diagnostics?.recordCompletion(info)
             await recordRuntimePrefill(
               info,
               traceID: traceID,
@@ -238,6 +240,11 @@ enum MLXModelStreamProcessor {
           category: .generation
         )
         defer { ChatDiagnostics.endInterval(finalizeInterval) }
+        try await recordTerminalCacheAllocation(
+          diagnostics: generation.diagnostics,
+          didTerminateDownstream: termination.terminatedDownstream,
+          capture: captureCacheAllocationAfter
+        )
         terminalOutcome = await finalizeStream(
           continuation: continuation,
           output: output,
@@ -326,6 +333,17 @@ enum MLXModelStreamProcessor {
 }
 
 extension MLXModelStreamProcessor {
+  private static func recordTerminalCacheAllocation(
+    diagnostics: MLXGenerationDiagnostics?,
+    didTerminateDownstream: Bool,
+    capture: (@Sendable () async -> RuntimeCacheAllocationSnapshot?)?
+  ) async throws {
+    guard !didTerminateDownstream, let diagnostics else { return }
+    let allocation = await capture?()
+    try Task.checkCancellation()
+    diagnostics.recordCacheAllocationAfter(allocation)
+  }
+
   private static func handleCancellation(
     output: String,
     completedMetrics: ChatGenerationMetrics?,

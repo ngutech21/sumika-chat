@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression checks for legacy traces and prefill/cancellation report fields."""
+"""Regression checks for legacy traces and generation diagnostic reports."""
 
 import json
 from pathlib import Path
@@ -25,26 +25,71 @@ class TracePerformanceReportTests(unittest.TestCase):
             dict(kind="turn_trace", generationID="legacy", phase="runtime_prefill",
                  durationMs=0, promptTokens=512),
         ]
-        with tempfile.TemporaryDirectory(prefix="sumika-prefill-report-") as temporary:
+        report, markdown = self.report(rows)
+        complete, cancelled, legacy = report["generations"]
+        self.assertEqual(complete["prefillTokensPerSecond"], 4096)
+        self.assertEqual(complete["prefillChunkSizes"], [1024] * 7 + [1023, 1])
+        self.assertEqual(cancelled["cancellationLatencyMs"], 125.5)
+        self.assertEqual(cancelled["prefillProcessedPositions"], 1640)
+        self.assertNotIn("prefillTokensPerSecond", cancelled)
+        self.assertNotIn("prefillTokensPerSecond", legacy)
+        self.assertNotIn("prefillChunkSizes", legacy)
+        self.assertIn("7 x 1024, 1 x 1023, 1 x 1", markdown)
+        self.assertIn("1640 / 8200", markdown)
+
+    def test_completion_counts_and_cache_allocations(self):
+        before = dict(phase="planned", allocatedBytes=0, layers=[])
+        after = dict(phase="realized", allocatedBytes=2 * 1024 * 1024, layers=[
+            dict(path=[0], kind="attention(maxSize: nil)", allocatedBytes=1024 * 1024),
+            dict(path=[1, 0], kind="stateSpace", allocatedBytes=1024 * 1024),
+        ])
+        rows = [
+            dict(kind="turn_trace", generationID="complete", phase="runtime_stream_end",
+                 evictedTokenCount=0, reasoningTokenCount=8, answerTokenCount=12,
+                 proposedDraftTokens=10, acceptedDraftTokens=7, mtpAcceptanceRate=0.7,
+                 cacheAllocationBefore=before, cacheAllocationAfter=after),
+            dict(kind="turn_trace", generationID="zero-proposals", phase="runtime_stream_end",
+                 evictedTokenCount=12, proposedDraftTokens=0, acceptedDraftTokens=0),
+            dict(kind="turn_trace", generationID="zero-accepted", phase="runtime_stream_end",
+                 proposedDraftTokens=10, acceptedDraftTokens=0, mtpAcceptanceRate=0.0),
+            dict(kind="turn_trace", generationID="legacy", phase="runtime_stream_end"),
+        ]
+        report, markdown = self.report(rows)
+        complete, zero_proposals, zero_accepted, legacy = report["generations"]
+        for key in ("evictedTokenCount", "reasoningTokenCount", "answerTokenCount",
+                    "proposedDraftTokens", "acceptedDraftTokens", "mtpAcceptanceRate"):
+            self.assertEqual(complete[key], rows[0][key])
+            self.assertNotIn(key, legacy)
+        self.assertEqual(complete["cacheAllocationBefore"], before)
+        self.assertEqual(complete["cacheAllocationAfter"], after)
+        self.assertEqual(zero_proposals["evictedTokenCount"], 12)
+        self.assertEqual(zero_proposals["proposedDraftTokens"], 0)
+        self.assertEqual(zero_proposals["acceptedDraftTokens"], 0)
+        self.assertNotIn("mtpAcceptanceRate", zero_proposals)
+        self.assertNotIn("reasoningTokenCount", zero_proposals)
+        self.assertNotIn("cacheAllocationAfter", zero_proposals)
+        self.assertEqual(zero_accepted["mtpAcceptanceRate"], 0)
+        self.assertIn("0.00 (planned)", markdown)
+        self.assertIn("2.00 (realized)", markdown)
+        self.assertIn("| 0 | 8 | 12 | 10 | 7 | 70.0 |", markdown)
+        self.assertIn("| zero-proposals | - | - | 12 | - | - | 0 | 0 | - |", markdown)
+        self.assertIn("| zero-accepted | - | - | - | - | - | 10 | 0 | 0.0 |", markdown)
+        self.assertIn("| legacy | - | - | - | - | - | - | - | - |", markdown)
+
+    def report(self, rows):
+        with tempfile.TemporaryDirectory(prefix="sumika-trace-report-") as temporary:
             directory = Path(temporary)
             trace = directory / "trace.jsonl"
             trace.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
-            subprocess.run(["xcrun", "swift", "-module-cache-path", str(directory / "cache"),
-                            str(ROOT / "script/trace_performance_report.swift"), str(trace),
-                            "--output-dir", str(directory), "--limit", "all"],
-                           cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            result = subprocess.run(
+                ["xcrun", "swift", "-module-cache-path", str(directory / "cache"),
+                 str(ROOT / "script/trace_performance_report.swift"), str(trace),
+                 "--output-dir", str(directory), "--limit", "all"],
+                cwd=ROOT, capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
             report = json.loads((directory / "latest.json").read_text())
-            complete, cancelled, legacy = report["generations"]
-            self.assertEqual(complete["prefillTokensPerSecond"], 4096)
-            self.assertEqual(complete["prefillChunkSizes"], [1024] * 7 + [1023, 1])
-            self.assertEqual(cancelled["cancellationLatencyMs"], 125.5)
-            self.assertEqual(cancelled["prefillProcessedPositions"], 1640)
-            self.assertNotIn("prefillTokensPerSecond", cancelled)
-            self.assertNotIn("prefillTokensPerSecond", legacy)
-            self.assertNotIn("prefillChunkSizes", legacy)
             markdown = (directory / "latest.md").read_text()
-            self.assertIn("7 x 1024, 1 x 1023, 1 x 1", markdown)
-            self.assertIn("1640 / 8200", markdown)
+            return report, markdown
 
 
 if __name__ == "__main__":

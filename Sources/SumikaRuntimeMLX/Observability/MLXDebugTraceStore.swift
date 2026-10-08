@@ -199,8 +199,28 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
       trace["prefillProcessedPositions"] = diagnostics.prefillProcessedPositions
       trace["prefillTotalPositions"] = diagnostics.prefillTotalPositions
       trace["cancellationLatencyMs"] = diagnostics.cancellationLatencyMs
+      trace["cacheAllocationBefore"] = diagnostics.cacheAllocationBefore.map(cacheAllocationObject)
+      trace["cacheAllocationAfter"] = diagnostics.cacheAllocationAfter.map(cacheAllocationObject)
+      if let completion = diagnostics.completion {
+        trace["evictedTokenCount"] = completion.evictedTokenCount
+        trace["reasoningTokenCount"] = completion.reasoningTokenCount
+        trace["answerTokenCount"] = completion.answerTokenCount
+        trace["proposedDraftTokens"] = completion.proposedDraftTokens
+        trace["acceptedDraftTokens"] = completion.acceptedDraftTokens
+        trace["mtpAcceptanceRate"] = completion.mtpAcceptanceRate
+      }
     }
     append(trace)
+  }
+
+  private func cacheAllocationObject(_ snapshot: RuntimeCacheAllocationSnapshot) -> [String: Any] {
+    [
+      "phase": snapshot.phase.rawValue,
+      "allocatedBytes": snapshot.allocatedBytes,
+      "layers": snapshot.layers.map {
+        ["path": $0.path, "kind": $0.kind, "allocatedBytes": $0.allocatedBytes] as [String: Any]
+      },
+    ]
   }
 
   func recordRuntimePrefillTrace(_ runtimeTrace: MLXRuntimePrefillTrace) async {

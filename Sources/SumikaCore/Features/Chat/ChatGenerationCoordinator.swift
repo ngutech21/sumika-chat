@@ -381,6 +381,10 @@ struct ChatGenerationCoordinator {
       throw ChatGenerationError.streamInterrupted
     }
     try await runtimeOperations.checkCurrentOperation(operationID)
+    try await refreshRuntimeCacheDebugSnapshot(
+      operationID: operationID,
+      updateRuntimeCacheDebugSnapshot: updateRuntimeCacheDebugSnapshot
+    )
     return ChatGenerationResult(
       assistantContent: generatedContent,
       nativeToolCalls: nativeToolCalls,

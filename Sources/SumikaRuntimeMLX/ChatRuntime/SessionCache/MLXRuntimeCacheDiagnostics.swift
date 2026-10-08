@@ -1,5 +1,18 @@
 import Foundation
 import MLXLMCommon
+import SumikaCore
+
+extension RuntimeCacheAllocationSnapshot {
+  init(_ status: KVCacheStatus) {
+    self.init(
+      phase: status.phase == .planned ? .planned : .realized,
+      allocatedBytes: status.memoryBytes,
+      layers: status.layers.map {
+        Layer(path: $0.path, kind: String(describing: $0.kind), allocatedBytes: $0.memoryBytes)
+      }
+    )
+  }
+}
 
 enum MLXRuntimeCacheDecision: String, Equatable, Sendable {
   case coldPrefill = "cold_prefill"

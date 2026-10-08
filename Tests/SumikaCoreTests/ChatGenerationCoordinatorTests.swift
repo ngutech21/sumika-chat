@@ -528,10 +528,18 @@ struct ChatGenerationCoordinatorTests {
       ])
   }
 
-  @Test
-  func streamingPublishesRuntimeCacheDebugSnapshotAfterStreamStarts() async throws {
+  @Test(arguments: [
+    ChatModelStreamEvent.completed(.init(generatedTokenCount: 1, tokensPerSecond: 100)),
+    .outputLimitReached(.init(discardedToolProtocolTail: false)),
+    .toolCall(.init(id: "tool", name: "read_file")),
+  ])
+  func streamingPublishesRuntimeCacheDebugSnapshotAtStartAndCompletion(
+    terminalEvent: ChatModelStreamEvent
+  )
+    async throws
+  {
     let generationID = UUID()
-    let runtimeSnapshot = RuntimeCacheDebugSnapshot(
+    var runtimeSnapshot = RuntimeCacheDebugSnapshot(
       generationID: generationID,
       recordedAt: Date(timeIntervalSince1970: 10),
       cacheMode: "append_delta",
@@ -544,13 +552,20 @@ struct ChatGenerationCoordinatorTests {
       reusedMessageCount: 2,
       appendedMessageCount: 1
     )
-    let runtime = RuntimeCacheSnapshotRuntime(snapshot: runtimeSnapshot)
+    runtimeSnapshot.cacheAllocationBefore = RuntimeCacheAllocationSnapshot(
+      phase: .planned, allocatedBytes: 0, layers: [])
+    var finalSnapshot = runtimeSnapshot
+    finalSnapshot.cacheAllocationAfter = RuntimeCacheAllocationSnapshot(
+      phase: .realized, allocatedBytes: 1_024,
+      layers: [.init(path: [0], kind: "attention", allocatedBytes: 1_024)])
+    let runtime = RuntimeCacheSnapshotRuntime(
+      snapshot: runtimeSnapshot, finalSnapshot: finalSnapshot, terminalEvent: terminalEvent)
     let coordinator = ChatGenerationCoordinator(
       runtime: runtime,
       streamingFlushInterval: 0,
       streamingFlushCharacterLimit: 1
     )
-    var publishedSnapshot: RuntimeCacheDebugSnapshot?
+    var publishedSnapshots: [RuntimeCacheDebugSnapshot?] = []
 
     _ = try await coordinator.streamAssistantReplyResult(
       transcript: ModelPromptProjection(),
@@ -559,10 +574,10 @@ struct ChatGenerationCoordinatorTests {
       appendChunk: { _ in },
       updateGenerationMetrics: { _ in },
       updateRuntimeCacheDebugSnapshot: { snapshot in
-        publishedSnapshot = snapshot
+        publishedSnapshots.append(snapshot)
       })
 
-    #expect(publishedSnapshot == runtimeSnapshot)
+    #expect(publishedSnapshots == [runtimeSnapshot, finalSnapshot])
   }
 
   @Test
@@ -735,10 +750,17 @@ private actor MetricsOmittingRuntime: ChatModelRuntime {
 }
 
 private actor RuntimeCacheSnapshotRuntime: ChatModelRuntime {
-  let snapshot: RuntimeCacheDebugSnapshot
+  var snapshot: RuntimeCacheDebugSnapshot
+  let finalSnapshot: RuntimeCacheDebugSnapshot
+  let terminalEvent: ChatModelStreamEvent
 
-  init(snapshot: RuntimeCacheDebugSnapshot) {
+  init(
+    snapshot: RuntimeCacheDebugSnapshot, finalSnapshot: RuntimeCacheDebugSnapshot,
+    terminalEvent: ChatModelStreamEvent
+  ) {
     self.snapshot = snapshot
+    self.finalSnapshot = finalSnapshot
+    self.terminalEvent = terminalEvent
   }
 
   func load(configuration: ChatModelConfiguration) async throws {
@@ -749,7 +771,8 @@ private actor RuntimeCacheSnapshotRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot? {
-    snapshot
+    defer { snapshot = finalSnapshot }
+    return snapshot
   }
 
   func streamReply(
@@ -765,11 +788,7 @@ private actor RuntimeCacheSnapshotRuntime: ChatModelRuntime {
     _ = settings
     return AsyncThrowingStream { continuation in
       continuation.yield(.chunk("hello"))
-      continuation.yield(
-        .completed(
-          ChatGenerationMetrics(generatedTokenCount: 1, tokensPerSecond: 100)
-        )
-      )
+      continuation.yield(terminalEvent)
       continuation.finish()
     }
   }

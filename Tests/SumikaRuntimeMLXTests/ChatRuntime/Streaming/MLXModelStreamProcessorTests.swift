@@ -1,5 +1,6 @@
 import Foundation
 import MLXLMCommon
+import Synchronization
 import Testing
 
 @testable import SumikaCore
@@ -10,6 +11,70 @@ import Testing
 #endif
 @Suite()
 struct MLXModelStreamProcessorTests {
+  @Test(arguments: MLXMemoryTraceStreamScenario.allCases, [false, true])
+  func cacheAllocationCaptureFollowsDrainAndPrecedesFinalization(
+    scenario: MLXMemoryTraceStreamScenario, tracingEnabled: Bool
+  ) async throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appending(path: "trace.jsonl")
+    let store = MLXDebugTraceStore(
+      fileURL: url,
+      memorySnapshotSource: MLXMemorySnapshotSource {
+        MLXMemorySnapshot(activeMemoryBytes: 1, cacheMemoryBytes: 2, peakMemoryBytes: 3)
+      },
+      isEnabled: { tracingEnabled })
+    let diagnostics = await store.makeGenerationDiagnostics(prefillStepSize: 512)
+    let lifecycle = Mutex<[String]>([])
+    let allocation = RuntimeCacheAllocationSnapshot(
+      phase: .realized, allocatedBytes: 256, layers: [])
+    let generation = MLXGuardedGeneration(
+      makeStream: { memoryTraceSource(for: scenario) },
+      synchronize: { lifecycle.withLock { $0.append("drained") } },
+      diagnostics: diagnostics)
+    let plan = MLXModelStreamProcessor.modelStreamPlan(
+      from: generation, traceID: UUID(), traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(), debugTraceStore: store,
+      captureCacheAllocationAfter: {
+        lifecycle.withLock { $0.append("captured") }
+        return allocation
+      },
+      markCompleted: { _ in lifecycle.withLock { $0.append("completed") } },
+      markNativeToolCallBoundary: { _, _ in lifecycle.withLock { $0.append("tool") } },
+      markCancelled: { _ in lifecycle.withLock { $0.append("invalidated") } },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in lifecycle.withLock { $0.append("cleared") } }
+    )
+    do {
+      try await drainModelStream(plan.stream)
+      #expect(!scenario.expectsError)
+    } catch {
+      #expect(scenario.expectsError)
+    }
+    await plan.task.value
+    let events = lifecycle.withLock { $0 }
+    let expectsCapture = tracingEnabled && scenario != .cancelled && scenario != .failed
+    #expect(events.first == "drained")
+    #expect(events.filter { $0 == "captured" }.count == (expectsCapture ? 1 : 0))
+    if expectsCapture {
+      #expect(events[1] == "captured")
+      #expect(diagnostics?.snapshot().cacheAllocationAfter == allocation)
+    } else {
+      #expect(diagnostics?.snapshot().cacheAllocationAfter == nil)
+    }
+    if tracingEnabled {
+      let rows = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map {
+        try #require(JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any])
+      }
+      let terminal = try #require(rows.first { $0["phase"] as? String == "runtime_stream_end" })
+      let hasInfo = scenario == .completed || scenario == .outputLimit || scenario == .cancelled
+      #expect(terminal["evictedTokenCount"] as? Int == (hasInfo ? 0 : nil))
+      #expect((terminal["cacheAllocationAfter"] != nil) == expectsCapture)
+      #expect(terminal["runtimeStreamOutcome"] as? String == scenario.outcome.rawValue)
+    } else {
+      #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+  }
+
   @Test
   func enforcedQwenStreamFailsClosedOnDuplicateReasoningClose() async throws {
     let marker = "</think>"

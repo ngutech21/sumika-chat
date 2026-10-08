@@ -1,4 +1,30 @@
+import MLXLMCommon
 import Synchronization
+
+import struct SumikaCore.RuntimeCacheAllocationSnapshot
+
+struct MLXCompletionDiagnostics: Equatable, Sendable {
+  let evictedTokenCount: Int
+  let reasoningTokenCount: Int?
+  let answerTokenCount: Int?
+  let proposedDraftTokens: Int?
+  let acceptedDraftTokens: Int?
+
+  init(_ info: GenerateCompletionInfo) {
+    evictedTokenCount = info.evictedTokenCount
+    reasoningTokenCount = info.reasoningTokenCount
+    answerTokenCount = info.answerTokenCount
+    proposedDraftTokens = info.proposedDraftTokens
+    acceptedDraftTokens = info.acceptedDraftTokens
+  }
+
+  var mtpAcceptanceRate: Double? {
+    guard let proposedDraftTokens, let acceptedDraftTokens, proposedDraftTokens > 0 else {
+      return nil
+    }
+    return Double(acceptedDraftTokens) / Double(proposedDraftTokens)
+  }
+}
 
 struct MLXGenerationDiagnosticsSnapshot: Equatable, Sendable {
   let prefillStepSize: Int
@@ -6,9 +32,12 @@ struct MLXGenerationDiagnosticsSnapshot: Equatable, Sendable {
   let prefillProcessedPositions: Int
   let prefillTotalPositions: Int?
   let cancellationLatencyMs: Double?
+  let completion: MLXCompletionDiagnostics?
+  let cacheAllocationBefore: RuntimeCacheAllocationSnapshot?
+  let cacheAllocationAfter: RuntimeCacheAllocationSnapshot?
 }
 
-/// Collects submission counts without adding GPU fences or per-chunk trace writes.
+/// Collects generation diagnostics without adding GPU fences or per-chunk trace writes.
 final class MLXGenerationDiagnostics: Sendable {
   private struct State {
     var chunks: [Int] = []
@@ -16,6 +45,9 @@ final class MLXGenerationDiagnostics: Sendable {
     var total: Int?
     var cancellationRequestedAt: ContinuousClock.Instant?
     var drainedAt: ContinuousClock.Instant?
+    var completion: MLXCompletionDiagnostics?
+    var cacheAllocationBefore: RuntimeCacheAllocationSnapshot?
+    var cacheAllocationAfter: RuntimeCacheAllocationSnapshot?
   }
 
   private let stepSize: Int
@@ -23,6 +55,18 @@ final class MLXGenerationDiagnostics: Sendable {
 
   init(prefillStepSize: Int) {
     stepSize = prefillStepSize
+  }
+
+  func recordCompletion(_ info: GenerateCompletionInfo) {
+    state.withLock { $0.completion = MLXCompletionDiagnostics(info) }
+  }
+
+  func recordCacheAllocationBefore(_ snapshot: RuntimeCacheAllocationSnapshot?) {
+    state.withLock { $0.cacheAllocationBefore = snapshot }
+  }
+
+  func recordCacheAllocationAfter(_ snapshot: RuntimeCacheAllocationSnapshot?) {
+    state.withLock { $0.cacheAllocationAfter = snapshot }
   }
 
   func recordPrefillProgress(processed: Int, total: Int) {
@@ -62,7 +106,10 @@ final class MLXGenerationDiagnostics: Sendable {
       return MLXGenerationDiagnosticsSnapshot(
         prefillStepSize: stepSize, prefillChunkSizes: state.chunks,
         prefillProcessedPositions: state.processed, prefillTotalPositions: state.total,
-        cancellationLatencyMs: latency)
+        cancellationLatencyMs: latency,
+        completion: state.completion,
+        cacheAllocationBefore: state.cacheAllocationBefore,
+        cacheAllocationAfter: state.cacheAllocationAfter)
     }
   }
 }

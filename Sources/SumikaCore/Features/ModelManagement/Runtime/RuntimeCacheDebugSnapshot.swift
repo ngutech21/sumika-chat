@@ -1,5 +1,35 @@
 import Foundation
 
+/// Allocated cache array capacity, including reserved space and recurrent state.
+package struct RuntimeCacheAllocationSnapshot: Equatable, Sendable {
+  package enum Phase: String, Equatable, Sendable {
+    case planned
+    case realized
+  }
+
+  package struct Layer: Equatable, Sendable {
+    package let path: [Int]
+    package let kind: String
+    package let allocatedBytes: Int
+
+    package init(path: [Int], kind: String, allocatedBytes: Int) {
+      self.path = path
+      self.kind = kind
+      self.allocatedBytes = allocatedBytes
+    }
+  }
+
+  package let phase: Phase
+  package let allocatedBytes: Int
+  package let layers: [Layer]
+
+  package init(phase: Phase, allocatedBytes: Int, layers: [Layer]) {
+    self.phase = phase
+    self.allocatedBytes = allocatedBytes
+    self.layers = layers
+  }
+}
+
 package struct RuntimeCacheDebugSnapshot: Equatable, Sendable {
   package let generationID: UUID
   package let recordedAt: Date
@@ -15,6 +45,8 @@ package struct RuntimeCacheDebugSnapshot: Equatable, Sendable {
   package let mismatchReason: String?
   package let firstMismatchIndex: Int?
   package let systemPromptChanged: Bool?
+  package var cacheAllocationBefore: RuntimeCacheAllocationSnapshot?
+  package var cacheAllocationAfter: RuntimeCacheAllocationSnapshot?
 
   package init(
     generationID: UUID,

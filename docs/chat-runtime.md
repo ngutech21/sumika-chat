@@ -684,6 +684,39 @@ after an already completed drain does not create a measurement. The performance
 report shows these fields and derives prefill throughput from the actually
 prefilled token count and `runtime_prefill.durationMs`, excluding reused tokens.
 
+The same `runtime_stream_end` row is the canonical trace for completion counters:
+`evictedTokenCount`, `reasoningTokenCount`, `answerTokenCount`,
+`proposedDraftTokens`, `acceptedDraftTokens`, and derived `mtpAcceptanceRate`.
+Counters are copied from MLX completion info before stop-reason handling. Missing
+completion info or optional counters remain unavailable and their JSON keys are
+omitted; genuine zero values are retained. Reasoning/answer counts depend on
+upstream reasoning-token accounting. MTP acceptance is accepted draft tokens
+divided by proposed draft tokens only when both counts exist and proposals exceed
+zero. No MTP, quantization, or log-probability feature is enabled by tracing.
+Evictions describe context no longer retained by at least one rotating attention
+cache at completion; they are not necessarily tokens newly evicted in this generation.
+
+With tracing enabled, `cacheAllocationBefore` captures the selected session before
+generation, including cold sessions, and `cacheAllocationAfter` captures it after
+the guarded producer drains and before terminal cache invalidation or cleanup.
+Normal completion, output limits, and tool-call boundaries can supply the terminal
+snapshot; cancellation and runtime failure do not trigger a terminal cache read.
+Each snapshot contains `phase` (`planned` or `realized`), aggregate
+`allocatedBytes`, and `layers` with scalar `path`, `kind`, and `allocatedBytes`.
+These are upstream main-cache array capacities, including reserved unused space
+and recurrent state in hybrid caches. They exclude speculative draft caches and
+are distinct from process RSS, logical token usage, and MLX's reusable buffer pool.
+A planned zero-byte snapshot is a valid current measurement, not a forecast of
+future allocation. Failed diagnostic reads leave the measurement unavailable.
+Snapshots retain no MLX arrays and add no polling or GPU synchronization.
+
+The transient runtime cache debug snapshot carries both allocation values and is
+refreshed after successful stream consumption. Generation ownership prevents stale
+terminal captures from replacing the current generation's snapshot. These values
+and completion counters are not persisted in chat messages. The performance report
+preserves exact counters and layer bytes in JSON and summarizes allocation in MiB
+and acceptance as a percentage in Markdown; unavailable values render as `-`.
+
 Production continues to use a balanced ceiling of 512. An internal constructor
 argument allows the installed-model benchmark to select 512, 1024, or 2048;
 unsupported values fall back to 512. This is not a persisted preference. See
