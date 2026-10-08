@@ -694,17 +694,18 @@ measurements, including explicit benchmark-only resets of the global peak counte
 
 `ManagedModel.usesBundledMTPDrafter` opts an individual catalog entry into its
 bundled MTP sidecar; model names, repository IDs, and `mtp_file` metadata never
-enable it implicitly. The Qwen3.6 27B OptiQ entry is the only current opt-in.
+enable it implicitly. The Qwen3.6 27B and 35B A3B OptiQ entries opt in.
 Its load fails closed unless the configured sidecar remains inside the model
 directory and is the expected prequantized 4-bit, group-size-64 affine Qwen MTP
 checkpoint. The target model and drafter are committed to the runtime only
 after both loads succeed.
 
 The loaded drafter remains resident with the target, but a `ChatSession` receives
-MTP speculative decoding only for greedy generation (`temperature == 0`). The
-resolved `.none` or `.mtp` mode is part of the MLX cache identity, so crossing
-the greedy boundary rebuilds the session once while repeated non-greedy turns
-retain normal warm-cache reuse. Request traces record `mtpDrafterLoaded` and
+MTP speculative decoding only when `ChatGenerationSettings.isMTPEnabled` is true.
+Enabling MTP forces greedy generation (`temperature == 0`). The resolved `.none`
+or `.mtp` mode is part of the MLX cache identity, so toggling MTP rebuilds the
+session once while an unchanged mode retains normal warm-cache reuse.
+Request traces record `mtpDrafterLoaded` and
 `speculativeDecodingMode`; terminal decode traces keep the non-persisted MTP
 proposal, acceptance, call, verification, emission, and passthrough telemetry.
 
