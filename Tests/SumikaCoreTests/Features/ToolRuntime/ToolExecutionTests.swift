@@ -372,8 +372,10 @@ struct ToolExecutionTests {
     )
   }
 
-  @Test
-  func readFileDeduplicatesRepeatedUnchangedReadsThroughOrchestrator() async throws {
+  @Test(arguments: [false, true])
+  func readFileDeduplicatesRepeatedUnchangedReadsThroughOrchestrator(
+    replaceRegistry: Bool
+  ) async throws {
     let workspace = try makeWorkspace()
     try write("hello", to: "README.md", in: workspace)
     let orchestrator = ToolOrchestrator()
@@ -382,7 +384,9 @@ struct ToolExecutionTests {
       request: request(.readFile, workspace: workspace, arguments: ["path": .string("README.md")]),
       workspace: workspace
     )
-    let second = await orchestrator.execute(
+    let nextOrchestrator =
+      replaceRegistry ? orchestrator.replacingExecutorRegistry(.readOnly) : orchestrator
+    let second = await nextOrchestrator.execute(
       request: request(.readFile, workspace: workspace, arguments: ["path": .string("README.md")]),
       workspace: workspace
     )
@@ -1784,8 +1788,10 @@ struct ToolExecutionTests {
     #expect(result.durationMs < 5_000)
   }
 
-  @Test
-  func runCommandStoresFullOutputBehindOutputRefAndReturnsHeadTailPreview() async throws {
+  @Test(arguments: [false, true])
+  func runCommandStoresFullOutputBehindOutputRefAndReturnsHeadTailPreview(
+    replaceRegistry: Bool
+  ) async throws {
     let workspace = try makeWorkspace()
     let sessionID = UUID()
     let store = LatestCommandResultStore()
@@ -1807,10 +1813,14 @@ struct ToolExecutionTests {
         ))
     ])
 
-    let result = await ToolOrchestrator(
+    let originalOrchestrator = ToolOrchestrator(
       executorRegistry: registry,
       latestCommandResultStore: store
-    ).executeApproved(
+    )
+    let orchestrator =
+      replaceRegistry
+      ? originalOrchestrator.replacingExecutorRegistry(registry) : originalOrchestrator
+    let result = await orchestrator.executeApproved(
       request: request(
         .runCommand,
         workspace: workspace,

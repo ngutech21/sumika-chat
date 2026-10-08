@@ -646,87 +646,8 @@ struct ToolOrchestrator: Sendable {
   private let webAccessSettingsProvider: @Sendable () async -> WebAccessSettings
 
   init(
-    browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
-    webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
-      .disabled
-    }
-  ) {
-    self.init(
-      executorRegistry: .readOnly,
-      validator: ToolCallRequestValidator(),
-      readTracker: ReadFileReadTracker(),
-      latestCommandResultStore: LatestCommandResultStore(),
-      webSearcher: DefaultWebSearchService(),
-      webFetcher: DefaultWebFetchService(),
-      browserToolService: browserToolService,
-      webAccessSettingsProvider: webAccessSettingsProvider
-    )
-  }
-
-  init(
-    executorRegistry: ToolExecutorRegistry,
-    browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
-    webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
-      .disabled
-    }
-  ) {
-    self.init(
-      executorRegistry: executorRegistry,
-      validator: ToolCallRequestValidator(),
-      readTracker: ReadFileReadTracker(),
-      latestCommandResultStore: LatestCommandResultStore(),
-      webSearcher: DefaultWebSearchService(),
-      webFetcher: DefaultWebFetchService(),
-      browserToolService: browserToolService,
-      webAccessSettingsProvider: webAccessSettingsProvider
-    )
-  }
-
-  init(
     executorRegistry: ToolExecutorRegistry = .readOnly,
-    webSearcher: any WebSearching,
-    webFetcher: any WebFetching = DefaultWebFetchService(),
-    browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
-    webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
-      .disabled
-    }
-  ) {
-    self.init(
-      executorRegistry: executorRegistry,
-      validator: ToolCallRequestValidator(),
-      readTracker: ReadFileReadTracker(),
-      latestCommandResultStore: LatestCommandResultStore(),
-      webSearcher: webSearcher,
-      webFetcher: webFetcher,
-      browserToolService: browserToolService,
-      webAccessSettingsProvider: webAccessSettingsProvider
-    )
-  }
-
-  init(
-    executorRegistry: ToolExecutorRegistry = .readOnly,
-    webFetcher: any WebFetching,
-    webSearcher: any WebSearching = DefaultWebSearchService(),
-    browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
-    webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
-      .disabled
-    }
-  ) {
-    self.init(
-      executorRegistry: executorRegistry,
-      validator: ToolCallRequestValidator(),
-      readTracker: ReadFileReadTracker(),
-      latestCommandResultStore: LatestCommandResultStore(),
-      webSearcher: webSearcher,
-      webFetcher: webFetcher,
-      browserToolService: browserToolService,
-      webAccessSettingsProvider: webAccessSettingsProvider
-    )
-  }
-
-  init(
-    executorRegistry: ToolExecutorRegistry = .readOnly,
-    latestCommandResultStore: LatestCommandResultStore,
+    latestCommandResultStore: LatestCommandResultStore = LatestCommandResultStore(),
     webSearcher: any WebSearching = DefaultWebSearchService(),
     webFetcher: any WebFetching = DefaultWebFetchService(),
     browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
