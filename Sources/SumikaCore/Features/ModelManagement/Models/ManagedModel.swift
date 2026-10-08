@@ -461,7 +461,7 @@ package enum ManagedModelCatalog {
       displayName: "Swift-1.5 4bit",
       detail: "Best for coding and demanding agent tasks.",
       huggingFaceRepoID: "ukisai/Swift-1.5-4bit-MLX",
-      localDirectoryName: "ukisai/Swift-1.5-4bit-MLX",
+      localDirectoryName: "Swift-1.5-4bit-MLX",
       estimatedDownloadSize: "15.8 GB",
       group: .coding,
       recommendation: .bestForGroup,
