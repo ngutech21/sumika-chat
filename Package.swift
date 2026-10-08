@@ -34,7 +34,6 @@ let package = Package(
   ],
   dependencies: [
     .package(url: "https://github.com/ngutech21/anydoc-swift.git", exact: "0.2.3"),
-    .package(url: "https://github.com/apple/swift-crypto.git", "3.0.0"..<"5.0.0"),
     .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", exact: "0.12.1"),
     .package(url: "https://github.com/scinfu/SwiftSoup.git", from: "2.13.5"),
     .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "603.0.0"),
@@ -62,7 +61,6 @@ let package = Package(
     .target(
       name: "SumikaCore",
       dependencies: [
-        .product(name: "Crypto", package: "swift-crypto"),
         .product(name: "MCP", package: "swift-sdk"),
         .product(name: "SwiftSoup", package: "SwiftSoup"),
         .product(name: "Yams", package: "Yams"),

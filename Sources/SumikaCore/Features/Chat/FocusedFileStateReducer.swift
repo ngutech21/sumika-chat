@@ -1,6 +1,4 @@
-// Crypto is used directly; the analyzer compiler log does not attribute it reliably.
-// swiftlint:disable:next unused_import
-import Crypto
+import CryptoKit
 import Foundation
 
 struct FocusedFileStateReducer: Sendable {
