@@ -68,7 +68,11 @@ final actor MLXChatRuntime: ChatModelRuntime {
     do {
       let container = try await MLX.withError { error in
         let container =
-          if configuration.supportsImageInput {
+          if let adapted = try await Swift15ModelLoader.loadIfSupported(
+            from: configuration.localModelDirectory, using: tokenizerLoader)
+          {
+            adapted
+          } else if configuration.supportsImageInput {
             try await VLMModelFactory.shared.loadContainer(
               from: configuration.localModelDirectory,
               using: tokenizerLoader

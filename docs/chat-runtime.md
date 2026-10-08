@@ -223,6 +223,21 @@ state.
   rule disable tools. If the model still emits a native tool attempt, the caller
   treats the follow-up as final and does not execute another tool.
 
+## Swift 1.5 checkpoint compatibility
+
+The MLX runtime recognizes the supported `ukisai/Swift-1.5-4bit-MLX` export by its
+quantization manifest's source revision and architecture patch hash. Its private
+loader maps vision tensor names, preserves raw RMSNorm offsets with FP32
+normalization, and dequantizes only the vision positional table for interpolation.
+Downloaded files remain unchanged. Incompatible recognized exports fail loading;
+other models continue through their existing factories.
+
+The adapter uses the upstream tokenizer, image processor, strict weight loading,
+and inference preparation, then publishes the underlying `Qwen35` through the
+normal model container. Loading retains the runtime's cancellation, synchronization,
+error, and trace boundaries. Swift 1.5 remains experimental; this path does not
+enable MTP/speculative decoding or establish video support.
+
 ## Recoverable MLX failures
 
 `MLXGuardedGeneration` owns the upstream generation stream for Chat, Agent,
