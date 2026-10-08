@@ -5,6 +5,7 @@ package struct ChatModelConfiguration: Equatable, Sendable {
   package let localModelDirectory: URL
   package let contextTokenLimit: Int?
   package let supportsImageInput: Bool
+  package let usesBundledMTPDrafter: Bool
   package let reasoningTraceFormat: ReasoningTraceFormat
   package let supportsHistoricalReasoningPreservation: Bool
   package let reasoningCapability: ModelReasoningCapability
@@ -14,6 +15,7 @@ package struct ChatModelConfiguration: Equatable, Sendable {
     localModelDirectory: URL,
     contextTokenLimit: Int? = nil,
     supportsImageInput: Bool = false,
+    usesBundledMTPDrafter: Bool = false,
     reasoningTraceFormat: ReasoningTraceFormat = .none,
     supportsHistoricalReasoningPreservation: Bool = false,
     reasoningCapability: ModelReasoningCapability = .toggle,
@@ -22,6 +24,7 @@ package struct ChatModelConfiguration: Equatable, Sendable {
     self.localModelDirectory = localModelDirectory
     self.contextTokenLimit = contextTokenLimit
     self.supportsImageInput = supportsImageInput
+    self.usesBundledMTPDrafter = usesBundledMTPDrafter
     self.reasoningTraceFormat = reasoningTraceFormat
     self.supportsHistoricalReasoningPreservation = supportsHistoricalReasoningPreservation
     self.reasoningCapability = reasoningCapability
