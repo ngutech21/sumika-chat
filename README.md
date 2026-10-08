@@ -22,27 +22,18 @@ approved.
 
 - 💬 **Everyday AI assistance**: write, brainstorm, translate, summarize,
   research, and ask questions without needing a technical background.
-- 🏠 **Everything you need in one app**: download a model from the built-in
-  model browser and start chatting. No Ollama, LM Studio, or separate inference
-  backend is required.
 - 🌟 **No recurring subscription**: use local models without paying for a
   hosted AI assistant plan.
 - 🧭 **Explicit context**: attach files, focus workspace context, and inspect
   what the model sees before the workflow grows opaque.
 - 🛠 **Approval-aware agent workflows**: keep manual approval prompts or opt in
-  to Auto-approve for new Agent sessions.
+  to Auto-approve from an Agent session's options.
 - 🧩 **Connect local apps**: extend Agent mode through Model Context
   Protocol (MCP) servers and choose the integrations available to each session.
-- ✅ **Choose your approval level**: Manual is the default for Agent tools;
-  Auto-approve and web access policies remain explicit user settings.
-- 🌐 **Bring your own search**: connect a self-hosted SearXNG instance or use the
-  built-in DuckDuckGo search provider.
-- 📄 **Bring your own fetcher**: keep the built-in page extractor or point fetch
-  at a self-hosted Firecrawl instance.
-- 🧰 **Terminal and browser built in**: run approval-aware workspace commands and
-  inspect local previews without leaving the app.
+- 🌐 **Web research when you need it**: enable search and page fetching with
+  built-in providers or your own services.
 - 🖥 **Build and preview locally**: create small apps, prototypes, and HTML
-  experiments, then inspect them beside the chat.
+  experiments with the integrated terminal and browser preview beside the chat.
 - 🗣 **Speak and dictate**: listen to assistant responses with Apple system voices
   and turn speech into prompts with local English or multilingual transcription
   models.
@@ -73,6 +64,10 @@ All listed models run locally and support Chat mode and Agent tool calling. The
 model browser groups them by use case, highlights recommended choices, and
 marks whether a model accepts images or text only.
 
+Download sizes are estimates of storage space, not the memory required to run a
+model. Larger models need more memory, and memory usage also grows with the length
+of the conversation. Start with a smaller model if your Mac has limited memory.
+
 | Model | Input | Download size |
 | --- | --- | ---: |
 | [Gemma 4 E4B QAT 4-bit](https://huggingface.co/mlx-community/gemma-4-e4b-it-qat-4bit) | Images | 6.8 GB |
@@ -86,6 +81,7 @@ marks whether a model accepts images or text only.
 | [Qwen 3.6 27B OptiQ 4-bit](https://huggingface.co/mlx-community/Qwen3.6-27B-OptiQ-4bit) | Images | 20.0 GB |
 | [Qwen 3.6 27B 8-bit](https://huggingface.co/mlx-community/Qwen3.6-27B-8bit) | Images | 29.5 GB |
 | [Qwen 3.8 27B OptiQ 4-bit](https://huggingface.co/mlx-community/Qwen3.8-27B-OptiQ-4bit) | Images | 20.0 GB |
+| [Swift-1.5 4-bit](https://huggingface.co/ukisai/Swift-1.5-4bit-MLX) | Images | 15.8 GB |
 | [Qwen 3.6 40B uncensored 8-bit](https://huggingface.co/mlx-community/Qwen3.6-40B-Claude-4.6-Opus-Deckard-Heretic-Uncensored-Thinking-8bit) | Text only | 41.5 GB |
 
 ## Screenshots
@@ -111,7 +107,7 @@ native preview pane.
 Download, load, and inspect local models from the macOS app without turning the
 chat into a cloud workflow.
 
-### Document attachments
+## Document Attachments
 
 Attach Word, PDF, PowerPoint, Excel (including legacy XLS), OpenDocument, RTF,
 or EPUB files to ask about their complete extracted text. Conversion runs locally.
@@ -123,39 +119,17 @@ be up to **64 MiB each**. Accepted attachment text is supplied in full. These
 attachment limits do not cap conversation history or reduce the selected response
 length. Scanned PDFs require text recognition first; Sumika does not perform OCR.
 
-## What You Can Do
-
-- Write and refine text, brainstorm ideas, translate languages, and summarize
-  longer content.
-- Ask questions about your own files and choose what the model can see.
-- Research topics on the public web through reviewable search and fetch tools.
-- Connect local apps and services through configured MCP integrations when you
-  want Sumika to take action beyond the chat.
-- Let the agent read, organize, search, and update local project files with
-  manual approval or an explicitly selected Auto-approve policy.
-- Build small apps, scripts, games, and UI prototypes in short, reviewable
-  steps.
-- Keep manual approval prompts for generated file writes, file edits, and shell
-  commands, or opt in to Auto-approve for a session.
-- Use the integrated terminal and browser preview while working through an agent
-  task.
-- Open local HTML previews and inspect browser state while iterating.
-- Transcribe speech locally and dictate prompts in English, German, and other
-  supported European languages instead of typing them.
-- Listen to assistant responses with installed Apple voices.
-- Receive automatic update checks and install signed releases from the app.
-- Follow prompts, assistant responses, tool calls, approvals, and command output
-  in one visible transcript.
-
 ## Interaction Modes
 
 Choose how much Sumika can do in each conversation:
 
 - **Chat**: talk, write, translate, summarize, and research the public web. Chat
-  mode cannot access local files, run commands, or make changes.
+  can use files you attach, but cannot browse your workspace, run commands, or
+  change files.
 - **Agent**: let Sumika work with a selected folder, connected tools, commands,
-  and browser previews. Manual approval is the default; Auto-approve is an
-  explicit option for new sessions.
+  and browser previews. Manual approval is the default. Enable or disable
+  Auto-approve in the composer's **Options** for the current session, or set the
+  default for new sessions in Settings.
 
 You select the mode yourself. Sumika never grants itself access because of how
 a prompt is worded.
@@ -187,9 +161,15 @@ assistants.
 - Network access is explicit. Model downloads and update checks connect to their
   configured sources; enabled web and MCP tools can send queries, URLs, and tool
   arguments to the service you selected.
-- You can use the built-in DuckDuckGo search provider or point Sumika at your
-  own SearXNG instance. Fetch uses the built-in extractor by default and can
-  optionally use a self-hosted Firecrawl instance without storing an API key.
+
+## Web Access
+
+Web access is off by default in both Chat and Agent. For public web research,
+enable it in **Settings > Web Access** and choose **Ask each time** or **Allow**.
+
+Search uses DuckDuckGo by default, or you can connect your own SearXNG instance.
+Page fetching uses the built-in extractor by default and can optionally use a
+self-hosted Firecrawl instance without storing an API key.
 
 ## Voice And Dictation
 
@@ -223,20 +203,6 @@ cache under `~/Library/Caches/Sumika/MCP/uv/`. Explicit executable paths use you
 chosen installation; other commands, including `python`, `python3`, and `npx`,
 keep their normal behavior. Server environment settings remain explicit overrides;
 for example, `UV_OFFLINE=1` prevents downloads and requires cached dependencies.
-
-## Why Local First
-
-Most AI assistants send conversations to cloud models and charge a recurring
-subscription. Sumika takes a different approach:
-
-- Local-first model execution on macOS
-- Everyday assistance without requiring technical knowledge
-- No recurring AI subscription
-- User-controlled workspace context
-- Reviewable agent steps instead of hidden automation
-- Configurable Manual or Auto-approve tool execution
-- Visible transcripts and tool states for review
-- Native macOS workflows instead of a browser-first interface
 
 ## The Name
 
