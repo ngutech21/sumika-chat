@@ -5,7 +5,7 @@ import Testing
 @Suite(.serialized, TemporaryDirectoryTrait(named: "sumika-mtp-performance-report-tests"))
 struct TracePerformanceReportTests {
   @Test
-  func reportSummarizesMTPRequestModeAndZeroDecodeCounters() throws {
+  func reportPreservesMTPAndTerminalDiagnostics() throws {
     let temporaryDirectory = try scopedTemporaryDirectory()
     let traceURL = temporaryDirectory.appending(
       path: "mtp-trace.jsonl", directoryHint: .notDirectory)
@@ -21,7 +21,13 @@ struct TracePerformanceReportTests {
       + #""mtpTargetModelCallCount":0,"mtpDraftModelCallCount":0,"#
       + #""mtpTargetVerifiedTokenCount":0,"mtpEmittedTokenCount":0,"#
       + #""mtpPassthroughReason":"main model did not emit drafter state"}"#
-    let trace = [requestRow, decodeRow].joined(separator: "\n")
+    let streamEndRow =
+      #"{"kind":"turn_trace","generationID":"12345678-1234-1234-1234-123456789abc","#
+      + #""phase":"runtime_stream_end","evictedTokenCount":2,"reasoningTokenCount":3,"#
+      + #""answerTokenCount":4,"proposedDraftTokens":0,"acceptedDraftTokens":0,"#
+      + #""cacheAllocationAfter":{"phase":"realized","allocatedBytes":4096,"#
+      + #""layers":[{"path":[0],"kind":"standard","allocatedBytes":4096}]}}"#
+    let trace = [requestRow, decodeRow, streamEndRow].joined(separator: "\n")
     try trace.write(to: traceURL, atomically: true, encoding: .utf8)
 
     let process = Process()
@@ -70,6 +76,14 @@ struct TracePerformanceReportTests {
     let generation = try #require(generations.first)
     #expect(generation["mtpDrafterLoaded"] as? Bool == true)
     #expect(generation["speculativeDecodingMode"] as? String == "mtp")
+    #expect(generation["evictedTokenCount"] as? Int == 2)
+    #expect(generation["reasoningTokenCount"] as? Int == 3)
+    #expect(generation["answerTokenCount"] as? Int == 4)
+    #expect(generation["proposedDraftTokens"] as? Int == 0)
+    #expect(generation["acceptedDraftTokens"] as? Int == 0)
+    let allocation = try #require(generation["cacheAllocationAfter"] as? [String: Any])
+    #expect(allocation["phase"] as? String == "realized")
+    #expect(allocation["allocatedBytes"] as? Int == 4096)
     #expect(generation["mtpProposedDraftTokens"] as? Int == 0)
     #expect(generation["mtpAcceptedDraftTokens"] as? Int == 0)
     #expect(generation["mtpAcceptanceRate"] as? Double == 0)
