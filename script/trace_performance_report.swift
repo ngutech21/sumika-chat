@@ -930,7 +930,8 @@ for (rowIndex, row) in rows.enumerated() {
       report.answerTokenCount = intValue(object, "answerTokenCount")
       report.proposedDraftTokens = intValue(object, "proposedDraftTokens")
       report.acceptedDraftTokens = intValue(object, "acceptedDraftTokens")
-      report.mtpAcceptanceRate = doubleValue(object, "mtpAcceptanceRate")
+      report.mtpAcceptanceRate =
+        doubleValue(object, "mtpAcceptanceRate") ?? report.mtpAcceptanceRate
       report.cacheAllocationBefore = cacheAllocation(object, "cacheAllocationBefore")
       report.cacheAllocationAfter = cacheAllocation(object, "cacheAllocationAfter")
       report.prefillStepSize = intValue(object, "prefillStepSize")

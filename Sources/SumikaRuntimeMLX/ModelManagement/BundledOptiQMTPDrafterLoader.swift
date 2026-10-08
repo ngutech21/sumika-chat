@@ -62,7 +62,7 @@ enum BundledOptiQMTPDrafterLoader {
     try Task.checkCancellation()
     try validateWeights(weights, expectedCount: configuration.mtpTensorCount)
 
-    let sanitizedWeights = model.sanitize(weights: weights, metadata: metadata)
+    let sanitizedWeights = try model.sanitize(weights: weights, metadata: metadata)
     quantize(model: model) { path, _ in
       sanitizedWeights["\(path).scales"] == nil
         ? nil

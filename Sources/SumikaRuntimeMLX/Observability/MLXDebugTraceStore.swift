@@ -254,16 +254,10 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     var trace = turnTraceObject(from: runtimeTrace.event)
     if let diagnostics = runtimeTrace.cacheDiagnostics {
       trace["mlxCacheDecision"] = diagnostics.decision.rawValue
-      if let mismatchReason = diagnostics.mismatchReason {
-        trace["mlxCacheMismatchReason"] = mismatchReason.rawValue
-      }
+      trace["mlxCacheMismatchReason"] = diagnostics.mismatchReason?.rawValue
       trace["fullPromptTokens"] = diagnostics.fullPromptTokens
-      if let expectedCachedTokens = diagnostics.expectedCachedTokens {
-        trace["expectedCachedTokens"] = expectedCachedTokens
-      }
-      if let expectedSuffixTokens = diagnostics.expectedSuffixTokens {
-        trace["expectedSuffixTokens"] = expectedSuffixTokens
-      }
+      trace["expectedCachedTokens"] = diagnostics.expectedCachedTokens
+      trace["expectedSuffixTokens"] = diagnostics.expectedSuffixTokens
       trace["reusedPromptTokens"] = diagnostics.reusedPromptTokens
       trace["cacheEfficiency"] = diagnostics.cacheEfficiency
       trace["inputMaskPresent"] = diagnostics.inputMaskPresent
@@ -389,22 +383,15 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
 
     var trace = turnTraceObject(from: runtimeTrace.event)
     if let mtp = runtimeTrace.mtp {
-      let optionalFields: [(String, Any?)] = [
-        ("mtpProposedDraftTokens", mtp.proposedDraftTokens),
-        ("mtpAcceptedDraftTokens", mtp.acceptedDraftTokens),
-        ("mtpAcceptanceRate", mtp.acceptanceRate),
-        ("mtpRoundCount", mtp.roundCount),
-        ("mtpTargetModelCallCount", mtp.targetModelCallCount),
-        ("mtpDraftModelCallCount", mtp.draftModelCallCount),
-        ("mtpTargetVerifiedTokenCount", mtp.targetVerifiedTokenCount),
-        ("mtpEmittedTokenCount", mtp.emittedTokenCount),
-        ("mtpPassthroughReason", mtp.passthroughReason),
-      ]
-      for (key, value) in optionalFields {
-        if let value {
-          trace[key] = value
-        }
-      }
+      trace["mtpProposedDraftTokens"] = mtp.proposedDraftTokens
+      trace["mtpAcceptedDraftTokens"] = mtp.acceptedDraftTokens
+      trace["mtpAcceptanceRate"] = mtp.acceptanceRate
+      trace["mtpRoundCount"] = mtp.roundCount
+      trace["mtpTargetModelCallCount"] = mtp.targetModelCallCount
+      trace["mtpDraftModelCallCount"] = mtp.draftModelCallCount
+      trace["mtpTargetVerifiedTokenCount"] = mtp.targetVerifiedTokenCount
+      trace["mtpEmittedTokenCount"] = mtp.emittedTokenCount
+      trace["mtpPassthroughReason"] = mtp.passthroughReason
     }
     append(trace)
   }
