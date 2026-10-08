@@ -543,10 +543,6 @@ struct ToolFollowUpNoticePolicy: Sendable {
 private struct RepeatedToolCallSignature: Equatable {
   var toolName: ToolName
   var value: RepeatedToolCallSignatureValue
-
-  static func == (lhs: RepeatedToolCallSignature, rhs: RepeatedToolCallSignature) -> Bool {
-    lhs.toolName == rhs.toolName && lhs.value == rhs.value
-  }
 }
 
 private enum RepeatedToolCallSignatureValue: Equatable {

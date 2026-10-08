@@ -256,15 +256,6 @@ enum FocusedFilePromptReusePlanner {
       fullContentAvailable = context.fullContentAvailable
       truncation = candidate.truncation
     }
-
-    static func == (lhs: Fingerprint, rhs: Fingerprint) -> Bool {
-      lhs.path == rhs.path
-        && lhs.source == rhs.source
-        && lhs.contentHash == rhs.contentHash
-        && lhs.excerpt == rhs.excerpt
-        && lhs.fullContentAvailable == rhs.fullContentAvailable
-        && lhs.truncation == rhs.truncation
-    }
   }
 
   private struct FocusedFileCandidate {

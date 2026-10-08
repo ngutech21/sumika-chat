@@ -54,18 +54,6 @@ struct RunCommandExecutionSignature: Hashable {
     workingDirectory = try workspace.resolveAllowedPath(".").path(percentEncoded: false)
     timeoutSeconds = input.effectiveTimeoutSeconds
   }
-
-  static func == (lhs: Self, rhs: Self) -> Bool {
-    lhs.commandUTF8 == rhs.commandUTF8
-      && lhs.workingDirectory == rhs.workingDirectory
-      && lhs.timeoutSeconds == rhs.timeoutSeconds
-  }
-
-  func hash(into hasher: inout Hasher) {
-    hasher.combine(commandUTF8)
-    hasher.combine(workingDirectory)
-    hasher.combine(timeoutSeconds)
-  }
 }
 
 package struct RunCommandDuplicateResult: Codable, Equatable, Sendable {

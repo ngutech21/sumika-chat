@@ -127,27 +127,6 @@ internal struct WorkspaceDiagnosticsRepeatSignature: Equatable, Hashable, Sendab
   let offset: Int
   let limit: Int?
   let pattern: String?
-
-  static func == (
-    lhs: WorkspaceDiagnosticsRepeatSignature,
-    rhs: WorkspaceDiagnosticsRepeatSignature
-  ) -> Bool {
-    lhs.outputRef == rhs.outputRef
-      && lhs.operation == rhs.operation
-      && lhs.stream == rhs.stream
-      && lhs.offset == rhs.offset
-      && lhs.limit == rhs.limit
-      && lhs.pattern == rhs.pattern
-  }
-
-  func hash(into hasher: inout Hasher) {
-    hasher.combine(outputRef)
-    hasher.combine(operation)
-    hasher.combine(stream)
-    hasher.combine(offset)
-    hasher.combine(limit)
-    hasher.combine(pattern)
-  }
 }
 
 extension WorkspaceDiagnosticsInput {

@@ -58,10 +58,6 @@ actor MCPClientManager: MCPToolCalling {
   private struct ActiveScope: Equatable {
     var sessionID: ChatSession.ID
     var workspaceRootURL: URL
-
-    static func == (lhs: Self, rhs: Self) -> Bool {
-      lhs.sessionID == rhs.sessionID && lhs.workspaceRootURL == rhs.workspaceRootURL
-    }
   }
 
   private let makeConnection: @Sendable (MCPServerConfig, URL) -> MCPServerConnection

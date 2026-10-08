@@ -956,15 +956,6 @@ private struct ToolCallSignature: Hashable, Sendable {
   var toolName: ToolName
   var arguments: Arguments
 
-  static func == (lhs: ToolCallSignature, rhs: ToolCallSignature) -> Bool {
-    lhs.toolName == rhs.toolName && lhs.arguments == rhs.arguments
-  }
-
-  func hash(into hasher: inout Hasher) {
-    hasher.combine(toolName)
-    hasher.combine(arguments)
-  }
-
   enum Arguments: Hashable, Sendable {
     case readDocument(path: WorkspaceRelativePath)
     case readFile(path: WorkspaceRelativePath, offset: Int, limit: Int?)
