@@ -67,7 +67,9 @@ contract changes:
 - Agent continuation, budgets, or completion: [agent loop](docs/agent-loop.md).
 - Persisted domain ownership: [model overview](docs/model.md).
 - Storage formats, migrations, or recovery: [persistence](docs/persistence.md).
-- Setup, dependencies, or contribution workflow: [contributing](CONTRIBUTING.md).
+- Setup, architecture, or dependencies: [development](docs/development.md).
+- Verification, sanitizer limitations, or benchmarks: [testing](docs/testing.md).
+- Contribution workflow: [contributing](CONTRIBUTING.md).
 
 `docs/data-model.md` is the generated schema inventory. Regenerate it with
 `just data-model` after schema changes and include the result; never edit it by hand.

@@ -5,6 +5,10 @@ Tools are self-contained and type-safe: each tool owns its typed input,
 definition, permission evaluation, and execution. Tools do not parse XML, JSON,
 or provider-specific payloads.
 
+Tools must use this typed runtime. Registry membership controls availability,
+and write, edit, and command tools must enter the approval flow before execution.
+Update this document when a tool contract changes.
+
 ## Flow
 
 ```mermaid

@@ -735,7 +735,7 @@ and acceptance as a percentage in Markdown; unavailable values render as `-`.
 Production continues to use a balanced ceiling of 512. An internal constructor
 argument allows the installed-model benchmark to select 512, 1024, or 2048;
 unsupported values fall back to 512. This is not a persisted preference. See
-[the prefill benchmark workflow](../CONTRIBUTING.md#prefill-benchmarks) for isolated
+[the prefill benchmark workflow](testing.md#prefill-benchmarks) for isolated
 measurements, including explicit benchmark-only resets of the global peak counter.
 
 ## Prompt Cost Regression

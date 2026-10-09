@@ -240,8 +240,9 @@ links only the local `SumikaApp` product.
   permissions, registries, and model-facing tool calls.
 - [Chat Runtime](docs/chat-runtime.md): chat turn lifecycle, cancellation,
   transcript state, and model-context filtering.
-- [Contributing](CONTRIBUTING.md): development requirements, architecture,
-  verification, and pull request guidance.
+- [Contributing](CONTRIBUTING.md): contribution and pull request expectations.
+- [Development](docs/development.md): requirements, architecture, and dependencies.
+- [Testing](docs/testing.md): verification, sanitizer limitations, and benchmarks.
 - [Security](SECURITY.md): supported versions and private vulnerability
   reporting.
 - [Changelog](CHANGELOG.md): release history and notable changes.
@@ -262,8 +263,8 @@ brew version-install typos-cli@1.50.0
 just deps
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete development and
-verification workflow.
+See [Development](docs/development.md) for the complete setup and build workflow,
+and [Testing](docs/testing.md) for verification requirements.
 
 Build the app locally:
 

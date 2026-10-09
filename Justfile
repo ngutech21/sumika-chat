@@ -174,14 +174,14 @@ data-model:
     HOME="$PWD/.build/swiftpm-home" CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" {{swift}} run -q --disable-sandbox --build-path .build/data-model-build --cache-path .build/swiftpm-cache DataModelGenerator
 
 test-tsan:
-    # Temporary exclusion for upstream MLX scheduler/allocator races; see CONTRIBUTING.md.
+    # Temporary exclusion for upstream MLX scheduler/allocator races; see docs/testing.md#sanitizers.
     {{swift}} test --no-parallel --sanitize thread \
         --skip 'MLXChatSessionContinuationTests|MLXGuardedGenerationTests' \
         --skip 'Swift15ModelLoaderTests/test(CheckpointMapping|RawNormOffsets|StrictLoadingAndPreparation)'
 
 test-asan:
-    # Optimize instrumented SwiftSoup frames to fit Swift Testing worker stacks; see CONTRIBUTING.md.
-    # Temporary exclusion for upstream MLX Metal heap initialization on VMs; see CONTRIBUTING.md.
+    # Optimize instrumented SwiftSoup frames to fit Swift Testing worker stacks; see docs/testing.md#sanitizers.
+    # Temporary exclusion for upstream MLX Metal heap initialization on VMs; see docs/testing.md#sanitizers.
     {{swift}} test --no-parallel --sanitize address -Xswiftc -O \
         --skip 'MLXChatSessionContinuationTests|MLXGuardedGenerationTests'
 

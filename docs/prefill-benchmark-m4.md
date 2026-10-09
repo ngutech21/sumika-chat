@@ -82,7 +82,7 @@ by the focused unit test. M5 claims must be validated in a separate measured run
 
 ## Reproduction and retained artifacts
 
-See [the benchmark workflow](../CONTRIBUTING.md#prefill-benchmarks) for build and
+See [the benchmark workflow](testing.md#prefill-benchmarks) for build and
 measurement details. The primary sweep used:
 
 ```sh

@@ -4,6 +4,17 @@ This diagram is a curated view of the persisted chat/tool model and its derived
 model-context projection. See [`data-model.md`](data-model.md) for the generated,
 source-complete `SumikaCore` model inventory.
 
+## Persisted Data
+
+Treat `ChatSession.turns` and `ChatTurn.items` as the persisted transcript and
+tool-state source of truth. Avoid duplicate persisted collections, caches, or
+projections when the same information can be derived reliably.
+
+Persisted-schema changes need focused tests for ownership, ordering, invariants,
+and encode/decode round trips. Run `just data-model` and include the regenerated
+`docs/data-model.md` when the schema changes. That file is generated and should
+not be edited manually; `docs/model.md` is the curated model overview.
+
 A partially restored library is an in-memory read model: it retains every validated
 workspace and only readable sessions. Its load issues block persistence and cleanup,
 so this projection never replaces the complete manifest or unavailable session files.
