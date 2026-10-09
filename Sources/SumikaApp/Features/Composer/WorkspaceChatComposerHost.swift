@@ -10,6 +10,7 @@ struct WorkspaceChatComposerHost: View {
   let mcpServerStatuses: [MCPServerStatus]
   let previewState: WorkspacePreviewFeatureState
   let speechInputController: ComposerSpeechInputController
+  let onCreateSession: (Workspace.ID) -> ChatSession.ID?
   let onSendMessage: (MessageSubmission) async -> Bool
   let onSelectMCPServerIDs: ([UUID]) -> Void
   let onOpenAudioModels: () -> Void
@@ -146,6 +147,12 @@ struct WorkspaceChatComposerHost: View {
 
     composerErrorMessage = nil
     switch command {
+    case .newSession:
+      guard onCreateSession(workspace.id) != nil else {
+        composerErrorMessage = "Could not create a new session."
+        return .handled(shouldClearDraft: false)
+      }
+      clearLocalPresentationErrors()
     case .preview(let path):
       guard
         previewState.showHTMLPreview(

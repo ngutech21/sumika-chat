@@ -44,11 +44,33 @@ struct SlashCommandParserTests {
   }
 
   @Test
+  func parsesNewSessionWithoutArguments() {
+    let parser = SlashCommandParser()
+
+    #expect(parser.parse("/new") == .newSession)
+    #expect(parser.parse("/NeW") == .newSession)
+    #expect(parser.parse(" \t/new \n") == .newSession)
+  }
+
+  @Test
+  func rejectsNewSessionArgumentsAndPrefixMatches() {
+    let parser = SlashCommandParser()
+
+    #expect(parser.parse("/new anything") == nil)
+    #expect(parser.parse("/new\nanything") == nil)
+    #expect(parser.parse("/newer") == nil)
+    #expect(parser.parse("/n") == nil)
+    #expect(parser.parse("new") == nil)
+  }
+
+  @Test
   func matchingByPrefixSuggestsCommands() {
     #expect(SlashCommandRegistry.matching(prefix: "s").map(\.name) == ["show"])
     #expect(SlashCommandRegistry.matching(prefix: "pre").map(\.name) == ["preview"])
     #expect(SlashCommandRegistry.matching(prefix: "SH").map(\.name) == ["show"])
-    #expect(SlashCommandRegistry.matching(prefix: "").map(\.name) == ["show", "preview"])
+    #expect(SlashCommandRegistry.matching(prefix: "n").map(\.name) == ["new"])
+    #expect(SlashCommandRegistry.matching(prefix: "NE").map(\.name) == ["new"])
+    #expect(SlashCommandRegistry.matching(prefix: "").map(\.name) == ["show", "preview", "new"])
     #expect(SlashCommandRegistry.matching(prefix: "zzz").isEmpty)
   }
 
@@ -58,5 +80,9 @@ struct SlashCommandParserTests {
     #expect(SlashCommandRegistry.descriptor(named: "Preview")?.name == "preview")
     #expect(SlashCommandRegistry.descriptor(named: "previewer") == nil)
     #expect(SlashCommandRegistry.descriptor(named: "show")?.usage == "Usage: /show <path>")
+    #expect(SlashCommandRegistry.descriptor(named: "NEW")?.name == "new")
+    #expect(SlashCommandRegistry.descriptor(named: "new")?.argumentHint == nil)
+    #expect(SlashCommandRegistry.descriptor(named: "new")?.usage == "Usage: /new")
+    #expect(SlashCommandRegistry.descriptor(named: "newer") == nil)
   }
 }

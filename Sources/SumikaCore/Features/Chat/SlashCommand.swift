@@ -3,6 +3,7 @@ import Foundation
 package enum SlashCommand: Equatable, Sendable {
   case preview(path: String)
   case show(path: String)
+  case newSession
 }
 
 /// Static metadata for a slash command, used both for parsing and to drive the
@@ -43,6 +44,11 @@ package enum SlashCommandRegistry {
       name: "preview",
       summary: "Preview an HTML file in a live browser pane",
       argumentHint: "<path-to-html-file>"
+    ),
+    SlashCommandDescriptor(
+      name: "new",
+      summary: "Create a new session in the current workspace",
+      argumentHint: nil
     ),
   ]
 
@@ -87,15 +93,13 @@ package struct SlashCommandParser: Sendable {
   }
 
   private func command(for descriptor: SlashCommandDescriptor, argument: String) -> SlashCommand? {
-    guard !argument.isEmpty else {
-      return nil
-    }
-
     switch descriptor.name {
     case "show":
-      return .show(path: argument)
+      return argument.isEmpty ? nil : .show(path: argument)
     case "preview":
-      return .preview(path: argument)
+      return argument.isEmpty ? nil : .preview(path: argument)
+    case "new":
+      return argument.isEmpty ? .newSession : nil
     default:
       return nil
     }

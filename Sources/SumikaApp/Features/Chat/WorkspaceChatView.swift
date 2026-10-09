@@ -63,6 +63,7 @@ struct WorkspaceChatView: View, Equatable {
         speechInputController: speechInputController,
         previewState: previewState,
         isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
+        onCreateSession: onCreateSession,
         onSendMessage: onSendMessage,
         onSelectMCPServerIDs: onSelectMCPServerIDs,
         onOpenAudioModels: onOpenAudioModels
@@ -129,6 +130,7 @@ private struct WorkspaceChatMainColumn: View, Equatable {
   let speechInputController: ComposerSpeechInputController
   let previewState: WorkspacePreviewFeatureState
   @Binding var isWorkspaceTerminalVisible: Bool
+  let onCreateSession: (Workspace.ID) -> ChatSession.ID?
   let onSendMessage: (MessageSubmission) async -> Bool
   let onSelectMCPServerIDs: ([UUID]) -> Void
   let onOpenAudioModels: () -> Void
@@ -182,6 +184,7 @@ private struct WorkspaceChatMainColumn: View, Equatable {
           mcpServerStatuses: mcpServerStatuses,
           previewState: previewState,
           speechInputController: speechInputController,
+          onCreateSession: onCreateSession,
           onSendMessage: onSendMessage,
           onSelectMCPServerIDs: onSelectMCPServerIDs,
           onOpenAudioModels: onOpenAudioModels

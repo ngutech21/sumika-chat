@@ -166,6 +166,91 @@ final class SumikaUITests: XCTestCase {
   }
 
   @MainActor
+  func testNewSlashCommandCreatesSessionsWithoutLoadingModel() throws {
+    let fixture = try launchFixture()
+    let application = try launchApp(fixture: fixture)
+    defer { application.terminate() }
+
+    let loadButton = application.buttons["load-model-button"]
+    XCTAssertTrue(loadButton.waitForExistence(timeout: 10))
+    XCTAssertTrue(loadButton.isEnabled)
+
+    for mode in WorkspaceInteractionMode.allCases {
+      try selectMode(mode.rawValue, title: mode.displayName, in: application)
+
+      for (draft, useSendButton) in [("/new", false), ("/new", true), ("/n", false)] {
+        XCTAssertTrue(
+          waitUntil(timeout: 10) {
+            (try? self.persistedSelectedSession(in: fixture.storageRoot))?.interactionMode == mode
+          }
+        )
+        let before = try persistedWorkspaceManifest(in: fixture.storageRoot)
+        let originalSession = try XCTUnwrap(persistedSelectedSession(in: fixture.storageRoot))
+        let originalWorkspace = try XCTUnwrap(
+          before.workspaces.first { $0.id == before.activeWorkspaceID }
+        )
+        let messageField = waitForMessageField(in: application)
+        messageField.click()
+        messageField.typeText(draft)
+
+        if draft == "/n" {
+          XCTAssertTrue(
+            application.descendants(matching: .any)["slash-command-suggestions"]
+              .waitForExistence(timeout: 5)
+          )
+          messageField.typeKey(.return, modifierFlags: [])
+          XCTAssertEqual(messageField.value as? String, "/new ")
+          XCTAssertEqual(
+            try persistedSelectedSession(in: fixture.storageRoot)?.id, originalSession.id
+          )
+        }
+
+        let sendButton = application.buttons["send-button"]
+        XCTAssertTrue(
+          waitUntil(timeout: 10) { sendButton.exists && sendButton.isEnabled },
+          "The local /new command must be runnable without loading a model."
+        )
+        if useSendButton {
+          sendButton.click()
+        } else {
+          messageField.typeKey(.return, modifierFlags: [])
+        }
+
+        XCTAssertTrue(
+          waitUntil(timeout: 10) {
+            guard let session = try? self.persistedSelectedSession(in: fixture.storageRoot) else {
+              return false
+            }
+            return session.id != originalSession.id
+          },
+          "Submitting /new once must create and select a persisted session."
+        )
+        let after = try persistedWorkspaceManifest(in: fixture.storageRoot)
+        let session = try XCTUnwrap(persistedSelectedSession(in: fixture.storageRoot))
+        let workspace = try XCTUnwrap(
+          after.workspaces.first { $0.id == after.activeWorkspaceID }
+        )
+        XCTAssertEqual(after.activeWorkspaceID, before.activeWorkspaceID)
+        XCTAssertEqual(after.workspaces.map(\.id), before.workspaces.map(\.id))
+        XCTAssertEqual(workspace.rootURL, fixture.workspaceURL)
+        XCTAssertEqual(workspace.sessionIDs, originalWorkspace.sessionIDs + [session.id])
+        XCTAssertEqual(session.title, ChatSession.defaultTitle)
+        XCTAssertEqual(session.interactionMode, mode)
+        XCTAssertTrue(session.turns.isEmpty)
+        XCTAssertEqual(
+          try persistedSession(id: originalSession.id, in: fixture.storageRoot), originalSession
+        )
+        XCTAssertTrue(
+          waitUntil(timeout: 5) { (messageField.value as? String) == "" },
+          "Creating a session must clear the command draft."
+        )
+        XCTAssertTrue(loadButton.isEnabled)
+        XCTAssertFalse(application.buttons["cancel-generation-button"].exists)
+      }
+    }
+  }
+
+  @MainActor
   func testPreviewSlashCommandShowsAndHidesHTMLPreviewWithoutChatTurn() throws {
     let fixture = try launchFixture(
       files: [
@@ -959,23 +1044,33 @@ final class SumikaUITests: XCTestCase {
     )
   }
 
-  private func persistedSelectedSession(in storageRoot: URL) throws -> ChatSession? {
+  private func persistedWorkspaceManifest(in storageRoot: URL) throws -> WorkspaceLibraryManifest {
     let libraryURL = storageRoot.appending(path: "WorkspaceLibrary", directoryHint: .isDirectory)
     let manifestURL = libraryURL.appending(path: "workspaces.json", directoryHint: .notDirectory)
-    let decoder = WorkspacePersistenceCoding.makeDecoder()
-    let manifest = try decoder.decode(
+    return try WorkspacePersistenceCoding.makeDecoder().decode(
       WorkspaceLibraryManifest.self,
       from: Data(contentsOf: manifestURL)
     )
+  }
+
+  private func persistedSelectedSession(in storageRoot: URL) throws -> ChatSession? {
+    let manifest = try persistedWorkspaceManifest(in: storageRoot)
     guard let sessionID = manifest.activeSessionID else { return nil }
+    return try persistedSession(id: sessionID, in: storageRoot)
+  }
+
+  private func persistedSession(id sessionID: ChatSession.ID, in storageRoot: URL) throws
+    -> ChatSession
+  {
     let sessionURL =
-      libraryURL
+      storageRoot
+      .appending(path: "WorkspaceLibrary", directoryHint: .isDirectory)
       .appending(path: "sessions", directoryHint: .isDirectory)
       .appending(
         path: WorkspacePersistenceCoding.sessionFileName(for: sessionID),
         directoryHint: .notDirectory
       )
-    return try decoder.decode(
+    return try WorkspacePersistenceCoding.makeDecoder().decode(
       WorkspaceSessionDocument.self,
       from: Data(contentsOf: sessionURL)
     ).session

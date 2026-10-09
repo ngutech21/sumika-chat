@@ -99,6 +99,24 @@ flowchart TD
   using `ChatTranscriptMutator`. These events are not persisted; persistence
   stores only the resulting turns, turn items, and tool-call records.
 
+## Local Slash Commands
+
+`/new` creates and selects a fresh session in the displayed workspace through the
+same app-owned action as New Chat. It uses the standard new-session model, mode,
+and approval defaults and preserves existing session history. Library persistence
+is queued through the normal workspace save path.
+
+The command works in Chat and Agent without loading a model. It is handled before
+normal message submission, so it creates no transcript turn or model request.
+Command names are case-insensitive and surrounding whitespace is ignored; `/new`
+accepts no arguments. Invalid arguments show `Usage: /new` through the existing
+local-command error path and preserve the draft.
+
+A fully typed `/new` runs with one Enter press or a click on Send. Partial `/n`
+still completes through autocomplete before submission. Existing preparation,
+generation, submission, and read-only composer guards remain in effect. Successful
+creation clears the command draft; failed creation preserves it and shows an error.
+
 ## Turn Lifecycle
 
 The app owns workspace/session selection. Core binds at most one validated

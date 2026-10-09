@@ -507,7 +507,7 @@ struct ChatComposer: View {
 
   private func sendMessage() {
     let suggestions = composerSuggestions
-    if !suggestions.isEmpty {
+    if !suggestions.isEmpty, slashCommandParser.parse(draftBridge.text) == nil {
       acceptSuggestion(suggestions[clampedSuggestionIndex(for: suggestions)])
       return
     }
