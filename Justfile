@@ -176,7 +176,8 @@ data-model:
 test-tsan:
     # Temporary exclusion for upstream MLX scheduler/allocator races; see CONTRIBUTING.md.
     {{swift}} test --no-parallel --sanitize thread \
-        --skip 'MLXChatSessionContinuationTests|MLXGuardedGenerationTests'
+        --skip 'MLXChatSessionContinuationTests|MLXGuardedGenerationTests' \
+        --skip 'Swift15ModelLoaderTests/test(CheckpointMapping|RawNormOffsets|StrictLoadingAndPreparation)'
 
 test-asan:
     # Optimize instrumented SwiftSoup frames to fit Swift Testing worker stacks; see CONTRIBUTING.md.
