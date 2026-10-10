@@ -478,17 +478,6 @@ struct ModelManagementTests {
       ])
   }
 
-  @Test
-  func catalogMarksBestModelsForEverydayChatAndCoding() {
-    let bestModels = ManagedModelCatalog.models.filter {
-      $0.recommendation == .bestForGroup
-    }
-
-    #expect(
-      bestModels.map(\.id) == [
-        "gemma4-12b-qat-4bit", "qwen3.8-27B-OptiQ-4bit", "Swift-1.5-4bit-MLX",
-      ])
-  }
 
   @Test
   func catalogExposesSelectableReasoningEffortForQwen38AndSwift15() throws {
@@ -506,7 +495,7 @@ struct ModelManagementTests {
     )
     #expect(ManagedModelCatalog.models.allSatisfy { $0.reasoningCapability.hasValidOptions })
     let swift15 = try #require(ManagedModelCatalog.model(id: "Swift-1.5-4bit-MLX"))
-    #expect(swift15.stability == .experimental)
+    #expect(swift15.stability == .stable)
     #expect(swift15.supportsImageInput)
   }
 

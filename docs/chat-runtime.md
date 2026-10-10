@@ -253,7 +253,7 @@ other models continue through their existing factories.
 The adapter uses the upstream tokenizer, image processor, strict weight loading,
 and inference preparation, then publishes the underlying `Qwen35` through the
 normal model container. Loading retains the runtime's cancellation, synchronization,
-error, and trace boundaries. Swift 1.5 remains experimental; this path does not
+error, and trace boundaries. The catalog marks Swift 1.5 as stable; this path does not
 enable MTP/speculative decoding or establish video support.
 
 ## Recoverable MLX failures
