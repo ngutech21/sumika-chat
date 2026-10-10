@@ -42,6 +42,13 @@ Report the checks you actually ran and their real outcomes in the pull request.
 If an unrelated failure or environment restriction blocks a check, identify it
 instead of reporting the suite as passing.
 
+For Apple toolchain setup changes, also run
+`python3 .github/actions/setup-apple-toolchain/test_metal_toolchain.py`, `actionlint`,
+and `shellcheck .github/actions/setup-apple-toolchain/*.sh`. The setup regression
+tests use fake commands to check cached lookups, delayed registration, and failure
+paths without downloading or modifying the host toolchain. Actions Lint runs them
+on Ubuntu. A hosted macOS run must still verify the real installation and build.
+
 ## Sanitizers
 
 `just test-asan` enables Swift optimization with `-Xswiftc -O` while retaining

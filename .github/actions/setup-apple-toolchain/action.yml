@@ -1,5 +1,5 @@
 name: Setup Apple toolchain
-description: Select and verify the repository's required Xcode, Swift, and macOS SDK versions.
+description: Select and verify the repository's Apple toolchain, including the Metal compiler.
 
 outputs:
   cache-key:
@@ -16,8 +16,4 @@ runs:
 
     - name: Ensure Metal toolchain is available
       shell: bash
-      run: |
-        if ! xcrun --sdk macosx metal --version; then
-          xcodebuild -downloadComponent metalToolchain
-        fi
-        xcrun --sdk macosx metal --version
+      run: bash "$GITHUB_ACTION_PATH/ensure-metal.sh"

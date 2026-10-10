@@ -24,6 +24,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Test Apple toolchain setup
+        run: python3 .github/actions/setup-apple-toolchain/test_metal_toolchain.py
+
       - name: Verify immutable action pins
         uses: suzuki-shunsuke/pinact-action@896d595f299e71d65b9d28349d6956abe144390a # v3.0.0
         with:

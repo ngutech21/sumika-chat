@@ -25,6 +25,11 @@ toolchain versions together, and update the approved hosted runner labels in
 `.github/workflows/apple-toolchain.yml` when selecting a new runner. This does
 not change the app's macOS 15 minimum deployment target.
 
+The shared setup action downloads the optional Metal Toolchain when its compiler
+is unavailable. It clears `xcrun`'s lookup cache and retries discovery for up to
+55 seconds after the download to allow component registration to finish. A missing
+component requires network access; failed downloads or discovery fail the job.
+
 Install `just`, then use the project recipe to install its primary development
 tools:
 
