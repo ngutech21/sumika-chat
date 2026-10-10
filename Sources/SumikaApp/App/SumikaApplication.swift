@@ -157,6 +157,13 @@ public struct SumikaApplication: App {
       .applicationVersion: buildInfo.aboutApplicationVersion
     ]
 
+    // Use the original artwork without macOS's app-icon background.
+    if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+      let icon = NSImage(contentsOf: iconURL)
+    {
+      options[.applicationIcon] = icon
+    }
+
     if let buildVersion = buildInfo.aboutBuildVersion {
       options[.version] = buildVersion
     }
