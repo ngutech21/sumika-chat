@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.14.0](https://github.com/ngutech21/sumika-chat/compare/v1.13.0...v1.14.0) (2026-10-10)
+
+
+### Features
+
+* add /new slash command to create and select a new session without loading a model ([6fd06ed](https://github.com/ngutech21/sumika-chat/commit/6fd06ed2edb261731a12539f43d31747ea700eea))
+* add Swift 1.5 model support  ([#288](https://github.com/ngutech21/sumika-chat/issues/288)) ([4829d74](https://github.com/ngutech21/sumika-chat/commit/4829d7475c5925a711ba8d6eeb3014fe39dd2428))
+* record MLX KV-cache memory and generation observability ([d79cf20](https://github.com/ngutech21/sumika-chat/commit/d79cf2033b8fdd129a5a907f0fb980256b917c7f)), closes [#286](https://github.com/ngutech21/sumika-chat/issues/286)
+* rename Agent to Work and update empty states ([346025f](https://github.com/ngutech21/sumika-chat/commit/346025f17bec7580f6692ce012c0cb52271162f4))
+
+
+### Bug Fixes
+
+* disable Hugging Face cache for model downloads ([9b0c5bc](https://github.com/ngutech21/sumika-chat/commit/9b0c5bcd57cded8475b9e404f603dd1368ee51ef))
+* remove white border from update dialog icon ([802e6e9](https://github.com/ngutech21/sumika-chat/commit/802e6e96c5e008abc8616d82a9de687548e3b9a2))
+* remove white frame from About dialog icon ([71fdb6c](https://github.com/ngutech21/sumika-chat/commit/71fdb6cd344d1f716b1565e6c27030fdb7b51958))
+* unify token limits for chat and agent modes in MLXThinkingBudget ([e942add](https://github.com/ngutech21/sumika-chat/commit/e942add965ef22f6b535a7bf878c6dc919549e90))
+* update model stability and recommendation settings in ManagedModelCatalog ([91cdc0f](https://github.com/ngutech21/sumika-chat/commit/91cdc0fef505e1285fd54a7b7ac1b8c07b610683))
+* update revision for mlx-swift-lm dependency in Package.swift and Package.resolved ([7c0d9fc](https://github.com/ngutech21/sumika-chat/commit/7c0d9fcb0451d24caa8b469ab53f32e1f6a4f557))
+
 ## [1.13.0](https://github.com/ngutech21/sumika-chat/compare/v1.12.0...v1.13.0) (2026-10-02)
 
 
