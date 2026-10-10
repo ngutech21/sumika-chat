@@ -18,6 +18,7 @@ struct ChatTranscriptHost: View {
     let presentation = chatState.transcript
     ChatTranscript(
       turns: presentation.turns,
+      interactionMode: presentation.interactionMode,
       attachmentImageLoader: chatState.attachmentImageLoader,
       modelState: modelState,
       isGenerating: presentation.isGenerating,

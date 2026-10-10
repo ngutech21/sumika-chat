@@ -3,7 +3,7 @@
 ## Project Goal
 
 Sumika is a private macOS AI assistant running local Gemma and Qwen models through
-MLX. Chat supports everyday assistance; Agent supports coding, files, and connected
+MLX. Chat supports everyday assistance; Work supports coding, files, and connected
 tools. Keep context, tool actions, and network access explicit and inspectable,
 with a macOS-native SwiftUI/AppKit UI. Do not assume network access is available
 or desirable.
@@ -64,7 +64,7 @@ contract changes:
 
 - Transcript, turn lifecycle, or model context: [chat runtime](docs/chat-runtime.md).
 - Tool execution or permissions: [tool runtime](docs/tool-runtime.md).
-- Agent continuation, budgets, or completion: [agent loop](docs/agent-loop.md).
+- Work mode continuation, budgets, or completion: [Work mode loop](docs/agent-loop.md).
 - Persisted domain ownership: [model overview](docs/model.md).
 - Storage formats, migrations, or recovery: [persistence](docs/persistence.md).
 - Setup, architecture, or dependencies: [development](docs/development.md).
@@ -151,7 +151,7 @@ and use a single source of truth (SSOT):
   Parsers emit neutral `ToolCallRequest` values; concrete tools receive typed inputs.
 - Keep denied decisions distinct from approval-required decisions.
 - Write, edit, command, and MCP tools must enter `awaitingApproval` in canonical
-  `ChatTurn.items` before execution. The Agent session's manual or automatic
+  `ChatTurn.items` before execution. The Work session's manual or automatic
   `toolApprovalPolicy` determines whether to pause for human approval. Both paths
   revalidate before execution; neither bypasses denial or `ask_user`.
 
@@ -159,16 +159,19 @@ and use a single source of truth (SSOT):
 
 The chat composer has a manual `WorkspaceInteractionMode` per session:
 
-- `chat`: normal conversation with public web tools only
+- `chat` (**Chat**): normal conversation with public web tools only
   (`ToolExecutorRegistry.chatWeb`, `web_search`, `web_fetch`); no workspace
   tools, writes, shell commands, or local file access.
-- `agent`: file, coding, and connected-tool workflows. Production composition uses
+- `agent` (**Work**): file, coding, and connected-tool workflows. Production
+  composition uses
   `AgentToolConfiguration.executorRegistry(selectedMCPServerIDs:)` to combine
   configured built-ins and selected MCP servers, with the approval flow above.
 
 Do not infer tool availability from prompt keywords. Mode is explicit
 product/session state. Persist it on `ChatSession` and trace
 `turn_trace.interactionMode`.
+
+Keep the internal `agent` value unchanged when editing the user-facing Work name.
 
 ## Implementation And UX
 
@@ -184,7 +187,7 @@ product/session state. Persist it on `ChatSession` and trace
   defaults. Do not assume an async function moves work off the main actor.
 - Prefer narrow patches, focused tests, sparse useful comments, and ASCII source
   unless a file already uses non-ASCII for a reason.
-- Support everyday Chat and Agent workflows with dense macOS-native layouts.
+- Support everyday Chat and Work workflows with dense macOS-native layouts.
   Show model context, tool actions, and generated diffs where relevant, with clear
   loading/generating/cancelled/failed/applied states.
 - Keep SwiftUI state at the smallest component that renders or mutates it.

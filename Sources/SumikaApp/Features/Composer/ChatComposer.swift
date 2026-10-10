@@ -786,9 +786,19 @@ extension ChatComposer {
     }
     .buttonStyle(.plain)
     .disabled(!canChangeInteractionMode)
+    .help(modeExplanation(mode))
     .accessibilityLabel(mode.displayName)
     .accessibilityValue(isSelected ? "Selected" : "Not selected")
     .accessibilityIdentifier("chat.mode.\(mode.rawValue)")
+  }
+
+  private func modeExplanation(_ mode: WorkspaceInteractionMode) -> String {
+    switch mode {
+    case .chat:
+      "Ask questions, draft text, and discuss attached documents."
+    case .agent:
+      "Work with files, run commands, and use connected tools."
+    }
   }
 
   fileprivate func modeButtonForeground(isSelected: Bool) -> Color {

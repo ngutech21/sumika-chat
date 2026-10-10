@@ -9,7 +9,7 @@ PDF, DOCX, and EPUB currently fail as `non-UTF-8 text`.
 
 ## Proposed V1
 
-Add an Agent-mode `read_document` tool that converts one workspace document to
+Add a Work-mode `read_document` tool that converts one workspace document to
 Markdown using the same local AnyDoc converter and supported-format list as chat
 attachments.
 
@@ -37,7 +37,7 @@ The tool should:
 - Return an actionable failure when conversion requires OCR or fails for
   another reason. The failure must state that no document content was
   extracted and must not encourage guessing from the filename or metadata.
-- Be read-only, low-risk, and available only in Agent mode.
+- Be read-only, low-risk, and available only in Work mode.
 
 `read_file` remains the tool for UTF-8 text and source code. A successful
 `read_document` result is derived Markdown, not the literal editable contents of
@@ -48,13 +48,13 @@ focused-file editing snapshots.
 
 - Add typed `read_document` input, result, definition, codec, executor, and
   model/transcript projection in `SumikaCore`.
-- Inject the existing document converter from `SumikaApp` into the Agent tool
+- Inject the existing document converter from `SumikaApp` into the Work tool
   registry without adding public API.
 - Resolve the path and security-scoped workspace access through the existing
   workspace policy before reading bytes.
 - Share the attachment document-extension and size policies instead of
   duplicating constants.
-- Update Agent guidance so supported workspace documents use `read_document`,
+- Update Work guidance so supported workspace documents use `read_document`,
   while chat attachments continue to use their supplied prompt content.
 - Update `docs/tool-runtime.md` and the persisted tool data-model documentation.
 
@@ -78,7 +78,7 @@ focused-file editing snapshots.
 - [ ] Unsupported extensions, directories, oversized input/output, conversion
       failures, and OCR-required documents return typed, actionable failures.
 - [ ] Failed conversion returns no partial document content.
-- [ ] The tool is present in Agent mode and absent from Chat mode.
+- [ ] The tool is present in Work mode and absent from Chat mode.
 - [ ] Tool results are persisted and rendered through the typed tool runtime.
 - [ ] `read_document` results never enter the `read_file`/`edit_file` focused-file
       workflow.

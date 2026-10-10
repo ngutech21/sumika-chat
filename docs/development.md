@@ -82,7 +82,7 @@ Before changing chat or tool behavior, read the relevant documentation:
 
 - [Chat runtime](chat-runtime.md)
 - [Tool runtime](tool-runtime.md)
-- [Agent loop](agent-loop.md)
+- [Work mode loop](agent-loop.md)
 - [Data model](model.md)
 
 ## Implementation Guidelines

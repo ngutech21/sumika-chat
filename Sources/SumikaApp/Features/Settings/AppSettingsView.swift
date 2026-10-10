@@ -78,7 +78,7 @@ struct AppSettingsView: View {
       }
     } message: {
       Text(
-        "New Agent sessions will run allowed tools without approval prompts. Existing sessions keep their current approval mode."
+        "New Work sessions will run allowed tools without approval prompts. Existing sessions keep their current approval mode."
       )
     }
   }
@@ -112,7 +112,7 @@ struct AppSettingsView: View {
           Text("Auto-approve").tag(ToolApprovalPolicy.automatic)
         }
       } header: {
-        Text("Agent")
+        Text("Work")
       } footer: {
         Text(
           "Small local models may struggle with todo_write. Approval mode is used for new sessions; existing sessions keep their current mode."
@@ -160,7 +160,7 @@ struct AppSettingsView: View {
         Text("Web Access")
       } footer: {
         Text(
-          "Lets Chat and Agent use public web tools. Search can use DuckDuckGo or SearXNG; fetch can use the built-in extractor or a self-hosted Firecrawl instance."
+          "Lets Chat and Work use public web tools. Search can use DuckDuckGo or SearXNG; fetch can use the built-in extractor or a self-hosted Firecrawl instance."
         )
       }
     }

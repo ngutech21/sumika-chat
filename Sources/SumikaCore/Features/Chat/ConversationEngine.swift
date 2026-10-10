@@ -1205,7 +1205,7 @@ extension ConversationEngine {
   }
 
   private func unsupportedInteractionModeMessage(for model: ManagedModel) -> String {
-    "\(model.displayName) supports plain chat only. Select a model with workspace tool support to use Agent tools."
+    "\(model.displayName) supports plain chat only. Select a model with workspace tool support to use Work mode."
   }
 
   private func unsupportedImageInputMessage(for model: ManagedModel) -> String {

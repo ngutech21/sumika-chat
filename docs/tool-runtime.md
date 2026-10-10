@@ -9,6 +9,11 @@ Tools must use this typed runtime. Registry membership controls availability,
 and write, edit, and command tools must enter the approval flow before execution.
 Update this document when a tool contract changes.
 
+The UI calls the workspace-tool mode **Work**. Its internal
+`WorkspaceInteractionMode.agent` case, persisted `agent` value, and trace value
+remain unchanged. The display name does not change tool availability or approval
+policy.
+
 ## Flow
 
 ```mermaid
@@ -73,14 +78,14 @@ flowchart TD
   with the canonical live `ChatSession` and active turn. Its internal
   `ChatTurnExecutionCoordinator` invokes `ToolLoopCoordinator` with the one
   orchestrator already selected and frozen by the Engine for that turn. The
-  shared Tool Loop does not select between Chat Web and Agent orchestrators. It
+  shared Tool Loop does not select between Chat Web and Work orchestrators. It
   applies `ChatWorkflowStep` continuations through workflow events, pauses on
   approval or `ask_user`, and resumes approved, denied, or answered tool flows.
 - `ChatSession.toolApprovalPolicy` is persisted per session. New sessions copy
   the app's approval-mode preference, which defaults to `manual` for existing
   installations. Changing that preference does not mutate existing sessions,
   and changing a session does not update the app preference. The policy is
-  effective only while that same session is in Agent mode; switching to Chat
+  effective only while that same session is in Work mode; switching to Chat
   preserves it without enabling workspace tools.
 - With the `automatic` session policy, a `.requiresApproval` result enters the
   same approved execution path without showing Approve/Deny. The complete batch
@@ -125,7 +130,7 @@ flowchart TD
   A mixed batch is rejected in full and no sibling side effect runs. Other
   direct-result behavior is also limited to single-call responses. Invalid
   batches consume a normal loop iteration and receive a tool-capable correction
-  generation only when budget remains. After any Agent path consumes its final
+  generation only when budget remains. After any Work path consumes its final
   action batch, including a continuation resumed after approval, `ask_user`,
   denial, or reload, it starts exactly one additional generation exposing only
   `finish_task`. At this hard boundary, finish-only finalization takes precedence
@@ -152,7 +157,7 @@ flowchart TD
   deterministic missing-finish fallback and is never retried. Runtime failures
   such as cancellation or a failed model stream remain normal errors rather than
   budget fallbacks. Chat-web finalization keeps its no-tools prompt context and
-  never receives the Agent-only transient instruction. If the model nevertheless
+  never receives the Work-only transient instruction. If the model nevertheless
   emits a native call in any tools-stripped final response, every call is stored
   as an unavailable failed audit record, no executor runs, and deterministic
   assistant text completes the turn instead of raising a conversation error.
@@ -173,7 +178,7 @@ flowchart TD
   `ask_user`, persistence, or reload pauses do not reset the consumed count.
   Its action-batch maximum comes from the selected `ManagedModel`, so
   model-specific catalog configuration remains effective across resumed turns.
-  When an Agent turn has exactly two or one action batches remaining, the latest
+  When a Work turn has exactly two or one action batches remaining, the latest
   tool result tells the model the remaining count and to prioritize required
   work and verification over optional exploration. No earlier budget warning is
   emitted.
@@ -181,9 +186,9 @@ flowchart TD
   budget without adding persisted budget state.
 - Successful write/edit follow-ups use the normal tool loop and keep the active
   tool schema while budget remains. Explicit denial and other force-final rules
-  may still select a no-tools follow-up before the Agent action budget is
+  may still select a no-tools follow-up before the Work action budget is
   exhausted.
-- `finish_task` is an Agent-only terminal control tool. A valid call stores its
+- `finish_task` is a Work-only terminal control tool. A valid call stores its
   typed request/result like every other tool, then projects the request's
   `summary` directly as visible assistant content and stops the turn without a
   model follow-up. It is not registered in the chat-web or read-only profiles.
@@ -215,7 +220,7 @@ flowchart TD
 - `ToolResultModelMessage` stores only `callID`, `toolName`, and
   `ToolResultPayload`. It does not persist UI display output or model
   observations.
-- `todo_write` is an Agent-only state tool. It updates `ChatSession.todoState`
+- `todo_write` is a Work-only state tool. It updates `ChatSession.todoState`
   through workflow events instead of writing a full plan into transcript text.
   Its model observation is intentionally limited to `Plan updated.`.
 - `ToolResultProjector` derives transient projections from
@@ -583,10 +588,10 @@ declarations.
   is capped and marked truncated, and non-text content blocks become explicit
   unsupported placeholders.
 - `MCPClientManager` stores global configuration but starts regular connections
-  only for enabled server IDs selected by the active Agent session. Its scope is
-  the active session ID plus workspace root. While an Agent turn is busy, regular
+  only for enabled server IDs selected by the active Work session. Its scope is
+  the active session ID plus workspace root. While a Work turn is busy, regular
   connections retain that turn's scope even if sidebar selection changes.
-  Leaving Agent mode, changing the connection scope or transport settings, or
+  Leaving Work mode, changing the connection scope or transport settings, or
   deselecting a server shuts down connections no longer in scope. The manager
   reports per-server statuses for Settings and projects every
   connected tool as an `AnyToolExecutor(dynamic:)`, grouped by the stable
@@ -597,15 +602,15 @@ declarations.
   connection tokens before stopping and awaiting startup cleanup. Revision-tagged
   snapshots publish connection states and tools only for the current configuration.
 - Settings `Test Connection` reconnects a server already active in the current
-  Agent session. For any other enabled server it creates an isolated connection
+  Work session. For any other enabled server it creates an isolated connection
   with the currently selected workspace root, runs initialization and `tools/list`,
   reports the tool count, and always shuts the connection down. Probes do not change
-  the session selection, Agent registry, regular status, or connection token. The
+  the session selection, Work registry, regular status, or connection token. The
   action is unavailable without an open workspace. Tests are tracked independently
   of reconciliation, with one pending test per server and a Settings Cancel action.
   Server edits, disabling/removal, workspace changes, and termination cancel
   invalidated tests. Workspace navigation cancels probes independently of regular
-  connection reconciliation, including while an Agent turn retains another
+  connection reconciliation, including while a Work turn retains another
   workspace's scope. Session or server selection changes within the same workspace
   do not cancel isolated probes. Active reconnect cancellation stops its pending
   connection without changing selection or retrying automatically. Termination
@@ -644,13 +649,13 @@ declarations.
 - Every MCP tool call requires approval before every execution, with a preview
   of server, tool, and arguments. `ChatSession.selectedMCPServerIDs` is the
   ordered, deduplicated per-session selection; new sessions select no MCP
-  servers. The composer exposes configured servers in Agent mode, including
+  servers. The composer exposes configured servers in Work mode, including
   disabled or disconnected servers, so a selection survives until that server
   reconnects. IDs removed from global configuration are pruned when the session
   becomes active.
-- Tool availability is Agent-only. `SumikaApp` forwards the todo-write setting,
+- Tool availability is Work-only. `SumikaApp` forwards the todo-write setting,
   connected MCP executor groups, and selected server IDs as configuration
-  facts; it does not assemble a registry. The Agent feature filters
+  facts; it does not assemble a registry. The `AgentFeature` filters
   contributions by the active session and composes them with its built-in
   coding tools. `ToolExecutorRegistry` and duplicate-name handling remain
   internal implementation details. The effective registry is recomposed on
@@ -664,7 +669,7 @@ declarations.
   connection tests follow the same rule and report cancellation when superseded.
   `ConversationEngine` installs or defers registry changes using the current or
   pending session selection so an active or paused turn keeps its frozen tools.
-  Updating the Agent registry does not reconstruct the shared
+  Updating the Work registry does not reconstruct the shared
   Tool Loop. Chat (web) sessions never expose MCP tools, and user
   selection changes are blocked during generation or unresolved
   approval/user-input interactions.
@@ -745,7 +750,7 @@ declarations.
   converted Markdown. Its typed definition, codec, executor, and results live
   together in `Services/Tools/ReadDocumentTool.swift`. It is registered only when
   a `DocumentMarkdownConverting` implementation is supplied. Production shares
-  one local AnyDoc converter with attachments and retains it through Agent
+  one local AnyDoc converter with attachments and retains it through Work
   registry rebuilds, including settings and MCP selection changes. Chat excludes
   the tool.
 - Document input must be workspace-relative: absolute paths and URLs are
@@ -760,7 +765,7 @@ declarations.
 - Document failures return typed errors without partial content, including
   unreadable or missing files, directories, unsupported formats, unknown size,
   limit violations, empty extraction, OCR requirements, and conversion errors.
-  Agent guidance treats document content as reference material, uses supplied
+  Work guidance treats document content as reference material, uses supplied
   attachment content directly, and reports extraction failures without guessing
   or proposing command-based conversion fallbacks.
 - `ReadDocumentResult.success` stores only its canonical workspace-relative path
@@ -772,7 +777,7 @@ declarations.
   renderer; reload never rereads the original file. Documents neither update
   focused-file snapshots nor offer editing actions. Citations, OCR, indexing,
   chunking, pagination, and a dedicated document viewer are outside this tool.
-- `read_skill_resource` is registered only in an Agent turn that activated at
+- `read_skill_resource` is registered only in a Work turn that activated at
   least one skill. Its executor receives an immutable map of the exact scoped
   `SkillID` values and canonical skill roots captured during that turn's send
   preflight; this authority is not added to `ToolContext`, shared with another
@@ -827,16 +832,16 @@ declarations.
   path kind. Results are capped. A valid pattern is treated as a regular
   expression; invalid regular expressions fall back to literal substring
   matching.
-- `browser_refresh` and `browser_inspect` are Agent-only preview tools. They
+- `browser_refresh` and `browser_inspect` are Work-only preview tools. They
   operate only on the current integrated HTML preview target, not arbitrary
   URLs or file paths. `browser_refresh` reloads the current preview page without
   approval. `browser_inspect` returns compact page metadata plus body text or a
   selector-scoped excerpt, with optional HTML when explicitly requested. If the
   preview navigation is still loading, `browser_inspect` waits for completion but
-  fails the tool call after a fixed timeout instead of blocking the Agent loop
+  fails the tool call after a fixed timeout instead of blocking the Work loop
   indefinitely. If no preview page is active yet, both tools fail with a clear
   instruction to open `/preview <path-to-html-file>` first.
-- `workspace_diff` is a read-only Agent review tool with an optional literal,
+- `workspace_diff` is a read-only Work review tool with an optional literal,
   workspace-relative `path`. It returns a typed snapshot ordered by workspace-relative
   path, with separate staged and unstaged changes, rename sources, optional line
   counts, and bounded patches. Counts are not a net diff against HEAD. Untracked
@@ -870,9 +875,9 @@ declarations.
   remain displayable after migration; their missing file metadata is never inferred
   from the old text. New executions produce structured snapshots only.
 - Write tools and command tools must enter the approval-required path before
-  execution. The active Agent session's manual or automatic policy decides
+  execution. The active Work session's manual or automatic policy decides
   whether that path pauses for user input.
-- `ask_user` is available only in the Agent registry. It is a read-only control
+- `ask_user` is available only in the Work registry. It is a read-only control
   tool for genuinely blocking clarification, not routine confirmation and not
   side-effect approval. Its model-facing answer options are plain string
   parameters: `option1` and `option2` are required, `option3` and `option4` are
@@ -897,7 +902,7 @@ declarations.
   file unchanged; after the write starts, the whole group finishes and all of
   its records are updated together. Cancellation still prevents every later
   unstarted batch member and the model follow-up from starting.
-- `run_command` is available only in the Agent registry. It executes
+- `run_command` is available only in the Work registry. It executes
   `/bin/bash -c <command>` in the active workspace root through the approved
   execution path. The
   approval preview and record must preserve the exact command string from the
@@ -946,7 +951,7 @@ declarations.
   only when the new output survives the count and byte retention budgets; an
   output that is pruned immediately is not advertised in the result or hint.
   Retained output is process-local and does not survive an app restart.
-- `workspace_diagnostics` is a read-only Agent tool for bounded,
+- `workspace_diagnostics` is a read-only Work tool for bounded,
   format-agnostic access to retained command output. New model calls must
   provide `outputRef`, an explicit `operation` (`read` or `search`), and an
   explicit `stream` (`stdout`, `stderr`, or `combined`). It never runs or
@@ -985,9 +990,9 @@ declarations.
   replayed diagnostic observations remain Codable-compatible as internal
   legacy variants. The legacy request variant can be loaded and rendered but
   cannot be executed by a new model call.
-- `web_search` and `web_fetch` are web tools available to Chat and Agent
+- `web_search` and `web_fetch` are web tools available to Chat and Work
   through explicit tool profiles. Chat uses a web-only registry containing only
-  these two tools; Agent uses the coding-agent registry. They are provider
+  these two tools; Work uses the coding-agent registry. They are provider
   independent in the model-facing API and are gated by global
   `WebAccessPolicy`: off, ask each time, or allow. The model
   must not include private source code, secrets, full logs, or local paths in
@@ -1015,11 +1020,11 @@ declarations.
   narrows DNS-rebinding and DNS TOCTOU exposure but does not fully pin DNS
   validation to the pre-connect endpoint because `URLSession` still opens the
   actual connection.
-- `todo_write` is available only in the active Agent registry when the global
+- `todo_write` is available only in the active Work registry when the global
   app setting enables it. It accepts 2 to 6 short todo items and never requires
   approval because it mutates only session state. Registry membership controls
   prompt visibility, native tool schema exposure, and unavailable-tool
-  validation. Chat prompts, and Agent prompts while the setting is disabled,
+  validation. Chat prompts, and Work prompts while the setting is disabled,
   must not render the todo tool or current todo plan. When enabled, the current
   todo plan is rendered as transient runtime prompt context, not as
   `ChatSession.instructions`, so todo updates do not change the cache identity.

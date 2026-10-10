@@ -40,7 +40,7 @@
 <table>
   <tr>
     <td align="center" valign="top">
-      <a href="screenshots/snake.webp"><img src="screenshots/snake.webp" alt="Sumika Agent creating a local Python snake game" width="350"></a>
+      <a href="screenshots/snake.webp"><img src="screenshots/snake.webp" alt="Sumika creating a local Python snake game in Work mode" width="350"></a>
     </td>
     <td align="center" valign="top">
       <a href="screenshots/pomodoro.webp"><img src="screenshots/pomodoro.webp" alt="Sumika generating HTML code for a Pomodoro timer" width="350"></a>
@@ -74,21 +74,22 @@ You can also check manually from **Sumika > Check for Updates…**.
   Sumika to read public web pages for summaries or follow-up questions. Web access
   is optional and off by default.
 - **Connect apps and services.** Use compatible MCP servers to bring tools from
-  other apps and services into Agent mode. Choose which connections each
+  other apps and services into Work mode. Choose which connections each
   conversation can use.
 - **Write, translate, and brainstorm.** Draft emails, improve your writing,
   translate text, or develop ideas in Chat mode.
-- **Create and preview local projects.** Use Agent mode to write code, edit text
+- **Create and preview local projects.** Use Work mode to write code, edit text
   files, run commands, and preview HTML projects beside the conversation.
 - **Speak and listen.** Dictate prompts with local speech recognition and hear
   responses using Apple system voices.
 
-### Chat and Agent
+### Chat and Work
 
-- **Chat**: write, translate, brainstorm, summarize, research the public web, and
-  ask about attached files. No workspace access, commands, or file changes.
-- **Agent**: work with files in a selected folder, write code, run commands, and
-  connect apps and services through MCP servers. Build local prototypes with an
+- **Chat**: ask questions, draft text, and discuss attached documents. Translate,
+  brainstorm, or research the public web. No workspace access, commands, or file
+  changes.
+- **Work**: work with files, run commands, and use connected tools. Choose a
+  workspace folder for coding and file tasks. Build local prototypes with an
   integrated terminal and browser preview.
 
 Choose the files and folder you share with Sumika. Inspect model context, tool
@@ -102,7 +103,7 @@ new sessions in Settings.
 
 Ask about Word, PDF, PowerPoint, Excel (including legacy XLS), OpenDocument, RTF,
 EPUB, CSV, and text files. Sumika reads documents locally with AnyDoc and reads CSV
-and text files directly. Agent mode can also read supported documents from the
+and text files directly. Work mode can also read supported documents from the
 selected workspace.
 
 Attach up to **eight files**, with **32,000 extracted characters total per
@@ -125,7 +126,7 @@ page fetching uses the built-in extractor or self-hosted Firecrawl.
 ### MCP Servers
 
 Connect apps and services through Model Context Protocol (MCP) servers. Configure
-stdio or Streamable HTTP servers in Settings, then select them per Agent session.
+stdio or Streamable HTTP servers in Settings, then select them per Work session.
 MCP tools follow the session's approval policy and are unavailable in Chat.
 
 For Python servers, use `uvx` or `uv`: Sumika includes uv and downloads Python
@@ -135,7 +136,7 @@ handling, and offline configuration.
 
 ### Project Instructions And Skills
 
-Agent mode reads the workspace-root `AGENTS.md` before each turn. Type `$` to
+Work mode reads the workspace-root `AGENTS.md` before each turn. Type `$` to
 browse skills or `$name` to activate one. Skills come from project and user
 `.agents/skills`, `.claude/skills`, and `.cursor/skills` folders, in that order;
 project skills take precedence over user skills.
@@ -178,7 +179,7 @@ search provider, and page fetching sends URLs to the requested site or your
 configured Firecrawl service. MCP calls pass tool arguments to the selected
 server; connected services may receive the data you ask them to use.
 
-Agent commands and HTML previews can also make network requests, depending on the
+Work commands and HTML previews can also make network requests, depending on the
 code you run or load. The Web Access setting controls Sumika's built-in web tools;
 it does not block network access for commands, previews, or MCP servers.
 
@@ -189,8 +190,8 @@ your Mac.
 
 ## Supported Models
 
-All listed models run locally and support Chat mode and Agent tool calling. The
-model browser groups them by use case, highlights recommended choices, and
+All listed models run locally and support Chat mode and tool calling in Work mode.
+The model browser groups them by use case, highlights recommended choices, and
 marks whether a model accepts images or text only.
 
 Download sizes are estimates of storage space, not the memory required to run a

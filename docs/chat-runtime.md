@@ -106,7 +106,7 @@ same app-owned action as New Chat. It uses the standard new-session model, mode,
 and approval defaults and preserves existing session history. Library persistence
 is queued through the normal workspace save path.
 
-The command works in Chat and Agent without loading a model. It is handled before
+The command works in Chat and Work without loading a model. It is handled before
 normal message submission, so it creates no transcript turn or model request.
 Command names are case-insensitive and surrounding whitespace is ignored; `/new`
 accepts no arguments. Invalid arguments show `Usage: /new` through the existing
@@ -160,7 +160,7 @@ state.
    explicitly asked to display them in chat, and it must not say files changed
    unless a successful `write_file` or `edit_file` result exists in the turn;
    failed or invalid write/edit results mean no workspace change happened.
-   A successful Agent-only `finish_task` takes a separate direct-response path:
+   A successful Work-only `finish_task` takes a separate direct-response path:
    its validated `summary` is appended as the final visible assistant message,
    the workflow returns `.stopTurn`, and no placeholder or follow-up model
    generation is created. The call must be the only tool call in its native
@@ -227,9 +227,9 @@ state.
   generating the direct follow-up response.
 - Direct follow-up responses may emit another tool call within the turn
   coordinator's configured turn budget. With exactly two or one action batches
-  remaining, an Agent follow-up reports the remaining count and asks the model
+  remaining, a Work follow-up reports the remaining count and asks the model
   to prioritize required work and verification. No earlier budget warning is
-  emitted. When the Agent action budget is exhausted, exactly one additional
+  emitted. When the Work action budget is exhausted, exactly one additional
   generation exposes only `finish_task`, including continuations resumed after
   approval, `ask_user`, denial, or reload.
   A blocked duplicate or another force-final reason before that boundary sends no
@@ -258,7 +258,7 @@ enable MTP/speculative decoding or establish video support.
 
 ## Recoverable MLX failures
 
-`MLXGuardedGeneration` owns the upstream generation stream for Chat, Agent,
+`MLXGuardedGeneration` owns the upstream generation stream for Chat, Work,
 tool continuations, and approval resumptions. It creates `ChatSession.streamDetails`
 inside a scoped `MLX.withErrorHandler`; the pinned upstream producer and decode
 tasks inherit that task-local handler. The callback records only the first native
@@ -323,8 +323,8 @@ produce an actionable error and no partial attachment.
 
 The converter interface and `DocumentContentPolicy` belong to Core's document
 service. App composition creates one `AnyDocDocumentMarkdownConverter` and
-injects it into both attachment loading and Agent's `read_document` tool. The
-engine retains that dependency when rebuilding the Agent registry.
+injects it into both attachment loading and the `read_document` tool in Work mode.
+The engine retains that dependency when rebuilding the Work registry.
 
 Source-byte guards are independent of prompt admission: documents are limited
 to 64 MiB before reading/conversion, plain text to 256 KiB, images to 20 MiB,
@@ -383,13 +383,13 @@ of attachment or chat/workspace cleanup.
 
 Every `MLXChatRuntime.streamReply` request passes the selected response maximum
 unchanged to MLX as `maxTokens`. Qwen defaults to 32,768 output tokens in both
-Chat and Agent modes; manual Response Length overrides and other models' settings
+Chat and Work modes; manual Response Length overrides and other models' settings
 remain authoritative. Thinking, visible text, and tool-call tokens share this
 per-generation output allowance. Existing thinking-budget validation still
 requires room for the configured thinking, protocol, and answer budgets.
 
 Sumika does not impose a conversation token cap or subtract prompt/history tokens
-from the output allowance. Chat, Agent tool continuations, approval resumptions,
+from the output allowance. Chat, Work tool continuations, approval resumptions,
 and reused sessions all use direct `ChatSession.streamDetails` generation with
 `maxKVSize: nil`. The existing Context Length value remains configuration and
 request-trace metadata; it does not reject input or clamp generation. Model-native
@@ -800,7 +800,7 @@ families MLX can infer or explicitly configure.
 ## MLX Thinking Budgets
 
 Every catalog model that uses the Qwen thinking-tag protocol applies the
-`hardLimitImmediate` policy when reasoning is enabled. Chat and Agent modes both
+`hardLimitImmediate` policy when reasoning is enabled. Chat and Work modes both
 permit at most 2,048 reasoning tokens and reserve at least 1,024 answer tokens.
 Reaching the reasoning limit closes the validated thinking block
 immediately and continues visible output in the same generation. Disabling

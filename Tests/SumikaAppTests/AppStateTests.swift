@@ -178,10 +178,17 @@ struct AppStateTests {
     #expect(appState.workspaceState.activeSessionID == sessionID)
     #expect(appState.chatFeatureState.transcript.turns.isEmpty)
     #expect(appState.chatFeatureState.composer.session.interactionMode == .chat)
+    #expect(appState.chatFeatureState.transcript.interactionMode == .chat)
 
     appState.chatFeatureState.setInteractionMode(.agent)
 
     #expect(appState.chatFeatureState.composer.session.interactionMode == .agent)
+    #expect(appState.chatFeatureState.transcript.interactionMode == .agent)
+
+    appState.chatFeatureState.setInteractionMode(.chat)
+
+    #expect(appState.chatFeatureState.composer.session.interactionMode == .chat)
+    #expect(appState.chatFeatureState.transcript.interactionMode == .chat)
   }
 
   @Test

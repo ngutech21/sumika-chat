@@ -34,7 +34,7 @@
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Sumika connects to MCP servers on your local network to make their tools available in Agent mode.</string>
+	<string>Sumika connects to MCP servers on your local network to make their tools available in Work mode.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Sumika uses the microphone to transcribe your speech into chat messages on this Mac.</string>
 	<key>SumikaGitCommit</key>

@@ -7,7 +7,7 @@ package enum WorkspaceInteractionMode: String, Codable, CaseIterable, Equatable,
     case .chat:
       "Chat"
     case .agent:
-      "Agent"
+      "Work"
     }
   }
 }

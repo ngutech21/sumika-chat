@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ChatTranscript: View {
   let turns: [ChatTurn]
+  let interactionMode: WorkspaceInteractionMode
   let attachmentImageLoader: AttachmentImageLoader
   let modelState: ModelLoadState
   let isGenerating: Bool
@@ -70,27 +71,39 @@ struct ChatTranscript: View {
 
   private var emptyStateTitle: String {
     switch modelState {
-    case .ready:
-      "What should we work on?"
+    case .ready, .notLoaded:
+      switch interactionMode {
+      case .chat:
+        "What\u{2019}s on your mind?"
+      case .agent:
+        "What should we work on?"
+      }
     case .loading:
       "Getting ready"
     case .failed:
       "Model unavailable"
-    case .notLoaded:
-      "Start a local chat"
     }
   }
 
   private var emptyStateDescription: String {
     switch modelState {
     case .ready:
-      "Ask about this workspace, attach files for context, or dictate a prompt to get started."
+      modeDescription
     case .loading:
       "You can draft your message while the local model loads."
     case .failed:
       "Check Models, then try loading again."
     case .notLoaded:
-      "Write a prompt now, then load a local model before sending."
+      "\(modeDescription)\n\nWrite a prompt now, then load a local model before sending."
+    }
+  }
+
+  private var modeDescription: String {
+    switch interactionMode {
+    case .chat:
+      "Ask questions, draft text, and discuss attached documents."
+    case .agent:
+      "Work with files, run commands, and use connected tools."
     }
   }
 

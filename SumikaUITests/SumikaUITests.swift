@@ -177,6 +177,22 @@ final class SumikaUITests: XCTestCase {
 
     for mode in WorkspaceInteractionMode.allCases {
       try selectMode(mode.rawValue, title: mode.displayName, in: application)
+      XCTAssertEqual(
+        application.descendants(matching: .any)["chat.mode.\(mode.rawValue)"].label,
+        mode.displayName
+      )
+      let title = mode == .chat ? "What\u{2019}s on your mind?" : "What should we work on?"
+      let description =
+        mode == .chat
+        ? "Ask questions, draft text, and discuss attached documents."
+        : "Work with files, run commands, and use connected tools."
+      XCTAssertTrue(application.staticTexts[title].waitForExistence(timeout: 5))
+      XCTAssertTrue(
+        application.staticTexts[
+          "\(description)\n\nWrite a prompt now, then load a local model before sending."
+        ].waitForExistence(timeout: 5)
+      )
+      XCTAssertFalse(application.descendants(matching: .any)["chat.modeExplanation"].exists)
 
       for (draft, useSendButton) in [("/new", false), ("/new", true), ("/n", false)] {
         XCTAssertTrue(
@@ -316,7 +332,8 @@ final class SumikaUITests: XCTestCase {
     let application = try launchApp(fixture: fixture)
     defer { application.terminate() }
 
-    let emptyStateTitle = application.staticTexts["Start a local chat"]
+    try selectChatMode(in: application)
+    let emptyStateTitle = application.staticTexts["What\u{2019}s on your mind?"]
     XCTAssertTrue(
       waitUntil(timeout: 10) {
         emptyStateTitle.exists && !emptyStateTitle.frame.isEmpty
@@ -670,7 +687,7 @@ final class SumikaUITests: XCTestCase {
         return session.modeSettings[.chat].generationSettings.reasoningSelection == .effort(.low)
           && session.modeSettings[.agent].generationSettings.reasoningSelection == .effort(.xhigh)
       },
-      "Chat and Agent reasoning levels should persist independently on the session."
+      "Chat and Work reasoning levels should persist independently on the session."
     )
   }
 
@@ -793,7 +810,7 @@ final class SumikaUITests: XCTestCase {
       </html>
       """
     let fixture = try launchFixture(
-      readme: "Agent mode workspace\n",
+      readme: "Work mode workspace\n",
       files: ["table.html": html]
     )
     let application = try launchApp(fixture: fixture)
@@ -834,7 +851,7 @@ final class SumikaUITests: XCTestCase {
     XCTAssertEqual(htmlAfterAgent, html)
 
     recordTraceSummary(chatRows, expectedMode: "chat", label: "Chat mode trace")
-    recordTraceSummary(agentRows, expectedMode: "agent", label: "Agent mode trace")
+    recordTraceSummary(agentRows, expectedMode: "agent", label: "Work mode trace")
     XCTAssertEqual(
       agentRows.toolExecutionCount(
         named: "read_file",
@@ -1290,7 +1307,7 @@ final class SumikaUITests: XCTestCase {
 
   @MainActor
   private func selectAgentMode(in application: XCUIApplication) throws {
-    try selectMode("agent", title: "Agent", in: application)
+    try selectMode("agent", title: "Work", in: application)
   }
 
   @MainActor

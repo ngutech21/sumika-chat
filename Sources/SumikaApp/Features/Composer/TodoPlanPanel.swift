@@ -40,7 +40,7 @@ struct TodoPlanPanel: View {
       }
       .buttonStyle(.plain)
       .accessibilityIdentifier("agent.todoPanel.toggle")
-      .accessibilityLabel(isExpanded ? "Collapse Agent plan" : "Expand Agent plan")
+      .accessibilityLabel(isExpanded ? "Collapse task plan" : "Expand task plan")
 
       if isExpanded {
         Divider()
@@ -75,7 +75,7 @@ struct TodoPlanPanel: View {
     if let blocked = todoState.items.first(where: { $0.status == .blocked }) {
       return blocked.content
     }
-    return todoState.items.first?.content ?? "Agent plan"
+    return todoState.items.first?.content ?? "Task plan"
   }
 
   private var progressSummary: String {

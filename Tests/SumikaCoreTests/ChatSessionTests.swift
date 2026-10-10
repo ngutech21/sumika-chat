@@ -5,6 +5,18 @@ import Testing
 
 struct ChatSessionTests {
   @Test
+  func workModeKeepsAgentPersistenceValue() throws {
+    let session = ChatSession(interactionMode: .agent)
+    let data = try JSONEncoder().encode(session)
+    let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let restored = try JSONDecoder().decode(ChatSession.self, from: data)
+
+    #expect(object["interactionMode"] as? String == "agent")
+    #expect(restored.interactionMode == .agent)
+    #expect(restored.interactionMode.displayName == "Work")
+  }
+
+  @Test
   func newQwen38SessionMaterializesMediumForBothModes() {
     let session = ChatSession(
       selectedModelID: "qwen3.8-27B-OptiQ-4bit",

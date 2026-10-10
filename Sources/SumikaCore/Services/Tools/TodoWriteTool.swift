@@ -165,7 +165,7 @@ nonisolated extension ToolDefinition {
   package static let todoWrite = ToolDefinition(
     name: .todoWrite,
     description:
-      "Create or update the Agent's compact todo plan for multi-step work. Send the full current plan in one call, not one call per item.",
+      "Create or update the assistant's compact todo plan for multi-step work. Send the full current plan in one call, not one call per item.",
     parameters: (1...6).map { index in
       ToolParameterDefinition(
         name: "item\(index)",
@@ -226,7 +226,7 @@ struct TodoWriteToolExecutor: TypedToolExecutor {
     _ = context
     return ToolPermissionEvaluation(
       decision: .allowed,
-      reason: "Updating Agent todo state is allowed.",
+      reason: "Updating the task plan is allowed.",
       riskLevel: .low
     )
   }

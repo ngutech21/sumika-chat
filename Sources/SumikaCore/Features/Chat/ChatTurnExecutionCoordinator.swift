@@ -57,7 +57,7 @@ private enum FinalResponseRecovery {
       switch interactionMode {
       case .chat:
         "Chat mode could not complete this request because the model attempted another "
-          + "unavailable tool call. No additional tool was executed. Switch to Agent mode "
+          + "unavailable tool call. No additional tool was executed. Switch to Work mode "
           + "to work with local files or shell commands."
       case .agent:
         "The model attempted another tool call after tool access had ended. No additional "

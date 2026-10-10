@@ -66,7 +66,7 @@ struct ChatComposerOptions: View {
     } message: {
       Text(
         """
-        Agent will execute file changes, web and MCP actions, and arbitrary shell commands without asking again. Shell commands run with your user permissions and can access files outside this workspace and the network.
+        In Work mode, Sumika will execute file changes, web and MCP actions, and arbitrary shell commands without asking again. Shell commands run with your user permissions and can access files outside this workspace and the network.
         """
       )
     }
@@ -173,7 +173,7 @@ struct ChatComposerOptions: View {
 
   private var agentOptions: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text("Agent")
+      Text("Work")
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
         .textCase(.uppercase)
@@ -204,7 +204,7 @@ struct ChatComposerOptions: View {
     ) {
       optionLabel(
         title: "Auto-approve",
-        description: "Skip approval prompts for allowed Agent tools.",
+        description: "Skip approval prompts for allowed tools in Work mode.",
         systemImage: isAutomatic ? "shield.fill" : "shield"
       )
     }

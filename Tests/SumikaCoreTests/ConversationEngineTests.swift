@@ -1898,7 +1898,7 @@ struct ConversationEngineTests {
     #expect(!engine.hasPendingApproval)
     let expectedFallback =
       "Chat mode could not complete this request because the model attempted another "
-      + "unavailable tool call. No additional tool was executed. Switch to Agent mode "
+      + "unavailable tool call. No additional tool was executed. Switch to Work mode "
       + "to work with local files or shell commands."
     #expect(engine.chatSession.testMessages.last?.content == expectedFallback)
 

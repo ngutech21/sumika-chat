@@ -1,4 +1,4 @@
-# Agent Loop Target
+# Work Mode Loop
 
 Sumika's agent loop is a small model/tool state machine. The loop must be
 correct when run from the persisted turn history alone; MLX session reuse is a
@@ -32,7 +32,7 @@ while turn is running and turn-wide tool-batch budget remains:
 The loop stops only on one of these conditions:
 
 - visible assistant text with no pending tool call
-- a successful Agent-only `finish_task` call, which appends its `summary` as
+- a successful Work-only `finish_task` call, which appends its `summary` as
   visible assistant text and stops without another model generation
 - a tool approval or user-answer pause
 - user cancellation
@@ -99,7 +99,7 @@ reasoning-only output are not successful stop conditions.
   follow-up reports the remaining count and prioritizes required work and
   verification over optional exploration; no earlier budget warning is emitted.
   Invalid batches consume normal budget and receive no extra repair round at the
-  hard boundary. After any Agent path consumes the final action batch, including
+  hard boundary. After any Work path consumes the final action batch, including
   a continuation resumed after approval, `ask_user`, denial, or reload, exactly
   one additional generation exposes only `finish_task`.
 
