@@ -15,9 +15,14 @@ private enum ModelDownloadError: LocalizedError {
 
 struct HuggingFaceModelDownloader: ModelDownloading {
   private let hubClient: HubClient
+  private let modelDirectoryBaseURL: URL
 
-  init(hubClient: HubClient = .default) {
+  init(
+    hubClient: HubClient = HubClient(cache: nil),
+    modelDirectoryBaseURL: URL = LocalModelDirectory.defaultBaseURL
+  ) {
     self.hubClient = hubClient
+    self.modelDirectoryBaseURL = modelDirectoryBaseURL
   }
 
   func download(
@@ -29,15 +34,22 @@ struct HuggingFaceModelDownloader: ModelDownloading {
     }
 
     try FileManager.default.createDirectory(
-      at: LocalModelDirectory.defaultBaseURL,
+      at: modelDirectoryBaseURL,
       withIntermediateDirectories: true
     )
 
-    return try await hubClient.downloadSnapshot(
-      of: repoID,
-      to: model.localDirectoryURL,
-      matching: ["*.safetensors", "*.json", "*.jinja"],
-      progressHandler: progressHandler
-    )
+    let destination = modelDirectoryBaseURL.appending(
+      path: model.localDirectoryName, directoryHint: .isDirectory)
+    do {
+      return try await hubClient.downloadSnapshot(
+        of: repoID,
+        to: destination,
+        matching: ["*.safetensors", "*.json", "*.jinja"],
+        progressHandler: progressHandler
+      )
+    } catch HubCacheError.snapshotRequiresCacheOrDestination where hubClient.cache == nil {
+      // shortcut: swift-huggingface 0.13 throws after downloading; remove when cache-free returns are fixed.
+      return destination
+    }
   }
 }

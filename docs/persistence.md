@@ -42,6 +42,10 @@ artifacts owned by their publishers, not Sumika configuration schemas. Debug
 traces and attachment payloads are operational data and likewise are outside
 this versioning contract.
 
+Sumika downloads models into `~/Library/Application Support/Sumika/Models` with
+the Hugging Face Hub file cache disabled. Downloads do not read or populate the
+shared Hub cache; existing cached models are left untouched.
+
 ## Workspace deletion and attachment recovery
 
 Session document v2 added the `readDocument` tool input and result variants.

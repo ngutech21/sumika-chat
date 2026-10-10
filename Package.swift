@@ -165,6 +165,7 @@ let package = Package(
         "SumikaRuntimeMLX",
         "SumikaCore",
         "SumikaTestSupport",
+        .product(name: "HuggingFace", package: "swift-huggingface"),
         .product(name: "MLX", package: "mlx-swift"),
         .product(name: "MLXLLM", package: "mlx-swift-lm"),
         .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
