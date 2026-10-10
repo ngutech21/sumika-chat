@@ -478,7 +478,6 @@ struct ModelManagementTests {
       ])
   }
 
-
   @Test
   func catalogExposesSelectableReasoningEffortForQwen38AndSwift15() throws {
     let effortModels = ["qwen3.8-27B-OptiQ-4bit", "Swift-1.5-4bit-MLX"]
