@@ -6,8 +6,8 @@ import MLXVLM
 
 enum Swift15ModelLoader {
   static func loadIfSupported(
-    from directory: URL, using tokenizerLoader: any TokenizerLoader
-  ) async throws -> ModelContainer? {
+    from directory: URL, using tokenizerLoader: any TokenizerLoader, loadMTPDrafter: Bool
+  ) async throws -> (target: ModelContainer, mtpDrafter: MTPDrafterContainer?)? {
     try Task.checkCancellation()
     let supported = try await Task.detached {
       let url = directory.appending(path: "QUANTIZATION_MANIFEST.json")
@@ -37,7 +37,7 @@ enum Swift15ModelLoader {
         do {
           let config = try JSONDecoder().decode(Qwen35Configuration.self, from: data)
           try validate(config, data: data)
-          return try CheckpointAdapter(config)
+          return try CheckpointAdapter(config, loadMTPDrafter: loadMTPDrafter)
         } catch let error as CompatibilityError {
           throw error
         } catch {
@@ -53,8 +53,15 @@ enum Swift15ModelLoader {
     guard let adapter = context.model as? CheckpointAdapter else {
       throw CompatibilityError("The checkpoint adapter was not used during loading.")
     }
+    let draftModel = try adapter.loadMTPDrafter()
+    try Task.checkCancellation()
+    let drafter = draftModel.map {
+      MTPDrafterContainer(
+        context: MTPDrafterContext(
+          configuration: ModelConfiguration(directory: directory), model: $0))
+    }
     context.model = adapter.qwen
-    return ModelContainer(context: context)
+    return (ModelContainer(context: context), drafter)
   }
 
   private static func validate(_ config: Qwen35Configuration, data: Data) throws {
@@ -102,14 +109,20 @@ enum Swift15ModelLoader {
   // Internal for small checkpoint tests; inference always receives the unwrapped Qwen35.
   final class CheckpointAdapter: Module, LanguageModel {
     @ModuleInfo private(set) var qwen: Qwen35
+    private let shouldLoadMTPDrafter: Bool
+    private var mtpCheckpoint: ModelCheckpoint?
 
-    init(_ configuration: Qwen35Configuration) throws {
-      let model = Qwen35(configuration)
-      let norms: [(String, Module)] = model.leafModules().flattened().compactMap { path, module in
-        guard path.hasPrefix("language_model."), let norm = module as? RMSNorm else { return nil }
-        return (path, OffsetRMSNorm(dimensions: norm.weight.dim(0), eps: norm.eps))
+    init(_ configuration: Qwen35Configuration, loadMTPDrafter: Bool) throws {
+      if loadMTPDrafter {
+        guard configuration.textConfiguration.mtpNumHiddenLayers == 1,
+          !configuration.textConfiguration.mtpUseDedicatedEmbeddings
+        else {
+          throw CompatibilityError("Expected one MTP layer with shared target embeddings.")
+        }
       }
-      try model.update(modules: ModuleChildren.unflattened(norms), verify: [.noUnusedKeys])
+      shouldLoadMTPDrafter = loadMTPDrafter
+      let model = Qwen35(configuration)
+      try installOffsetNorms(on: model, prefix: "language_model.")
       _qwen.wrappedValue = model
       super.init()
     }
@@ -121,6 +134,9 @@ enum Swift15ModelLoader {
         })
       else {
         throw CompatibilityError("Expected MLX-converted weights with raw normalization offsets.")
+      }
+      if shouldLoadMTPDrafter {
+        mtpCheckpoint = try checkpoint.mapNames { $0.hasPrefix("mtp.") ? $0 : nil }
       }
       var prepared = try checkpoint.mapNames { name in
         if name == "visual" { return "vision_tower" }
@@ -151,6 +167,52 @@ enum Swift15ModelLoader {
       return try prepared.mapNames { "qwen." + $0 }
     }
 
+    func loadMTPDrafter() throws -> Qwen35VLMNextNDraftModel? {
+      guard shouldLoadMTPDrafter else { return nil }
+      defer { mtpCheckpoint = nil }
+      try Task.checkCancellation()
+      guard let checkpoint = mtpCheckpoint, !checkpoint.weights.isEmpty else {
+        throw CompatibilityError("The embedded MTP checkpoint is missing.")
+      }
+      guard
+        checkpoint.weights.keys.allSatisfy({
+          checkpoint.metadata(forWeight: $0)["mlx_swift_lm.qwen_mtp.norm_convention"] == nil
+        })
+      else {
+        throw CompatibilityError(
+          "Unexpected conversion metadata on raw Swift MTP normalization offsets.")
+      }
+      let model = Qwen35VLMNextNDraftModel(qwen.config, preconvertedNorms: true)
+      try installOffsetNorms(on: model, prefix: "mtp.")
+      let prepared = try model.prepareCheckpoint(checkpoint)
+      let weights = prepared.weights
+      let settings = prepared.perLayerQuantization
+      for (path, module) in model.leafModules().flattened() {
+        guard let linear = module as? Linear else { continue }
+        guard let quantization = settings?.quantization(layer: path),
+          quantization.bits == 4, quantization.groupSize == 64, quantization.mode == .affine,
+          let weight = weights[path + ".weight"], weight.dtype == .uint32,
+          weight.shape == [linear.weight.dim(0), linear.weight.dim(1) / 8],
+          let scales = weights[path + ".scales"], scales.dtype == .bfloat16,
+          scales.shape == [weight.dim(0), weight.dim(1) / 8],
+          let biases = weights[path + ".biases"], biases.dtype == .bfloat16,
+          biases.shape == scales.shape
+        else {
+          throw CompatibilityError(
+            "Missing or incompatible affine 4-bit/group-64 MTP projection: \(path).")
+        }
+      }
+      quantize(model: model) { path, _ in
+        weights[path + ".scales"] == nil ? nil : settings?.quantization(layer: path)?.asTuple
+      }
+      try model.update(parameters: ModuleParameters.unflattened(weights), verify: [.all])
+      try model.validateCompatibility(with: qwen)
+      try Task.checkCancellation()
+      eval(model)
+      try Task.checkCancellation()
+      return model
+    }
+
     var toolCallFormat: ToolCallFormat? { qwen.toolCallFormat }
     var reasoningConfig: ReasoningConfig? { qwen.reasoningConfig }
 
@@ -179,6 +241,14 @@ enum Swift15ModelLoader {
     func newCache(parameters: GenerateParameters?) throws -> [KVCache] {
       try qwen.newCache(parameters: parameters)
     }
+  }
+
+  private static func installOffsetNorms(on model: Module, prefix: String) throws {
+    let norms: [(String, Module)] = model.leafModules().flattened().compactMap { path, module in
+      guard path.hasPrefix(prefix), let norm = module as? RMSNorm else { return nil }
+      return (path, OffsetRMSNorm(dimensions: norm.weight.dim(0), eps: norm.eps))
+    }
+    try model.update(modules: ModuleChildren.unflattened(norms), verify: [.noUnusedKeys])
   }
 
   private final class OffsetRMSNorm: RMSNorm {

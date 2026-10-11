@@ -110,6 +110,11 @@ enum BundledOptiQMTPDrafterLoader {
         BundledOptiQMTPConfiguration.self,
         from: data
       )
+    } catch DecodingError.keyNotFound(let key, let context) {
+      let path = (context.codingPath.map(\.stringValue) + [key.stringValue]).joined(separator: ".")
+      throw BundledOptiQMTPDrafterLoaderError.invalidConfiguration(
+        "Unable to decode config.json: Missing required key '\(path)'."
+      )
     } catch {
       throw BundledOptiQMTPDrafterLoaderError.invalidConfiguration(
         "Unable to decode config.json: \(error.localizedDescription)"

@@ -448,6 +448,7 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
+      usesBundledMTPDrafter: true,
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       reasoningCapability: .selectableEffort(
@@ -472,6 +473,7 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
+      usesBundledMTPDrafter: true,
       reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       reasoningCapability: .selectableEffort(

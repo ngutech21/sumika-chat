@@ -582,6 +582,8 @@ struct ModelManagementTests {
       enabledModelIDs == [
         "qwen3.6-35b-a3b-optiq-4bit",
         "Qwen3.6-27B-OptiQ-4bit",
+        "qwen3.8-27B-OptiQ-4bit",
+        "Swift-1.5-4bit-MLX",
       ]
     )
   }

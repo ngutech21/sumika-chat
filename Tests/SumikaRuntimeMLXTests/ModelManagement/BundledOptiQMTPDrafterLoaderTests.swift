@@ -10,6 +10,30 @@ import Testing
 
 @Suite(.serialized)
 nonisolated struct BundledOptiQMTPDrafterLoaderTests {
+  @Test("missing configuration keys identify the key and JSON path")
+  func missingConfigurationKeysIdentifyJSONPath() async throws {
+    for (configuration, path) in [
+      (#"{"model_type":"qwen3_5"}"#, "mtp_file"),
+      (
+        #"{"model_type":"qwen3_5","mtp_file":"optiq/mtp.safetensors","mtplx_mtp_quantization":{"bits":4}}"#,
+        "mtplx_mtp_quantization.group_size"
+      ),
+    ] {
+      try await withTemporaryModelDirectory { directory in
+        try configuration.write(
+          to: directory.appendingPathComponent("config.json"), atomically: true,
+          encoding: .utf8)
+        do {
+          _ = try await BundledOptiQMTPDrafterLoader.load(
+            for: makeValidationTarget(modelDirectory: directory))
+          Issue.record("Expected a missing configuration key")
+        } catch let error as BundledOptiQMTPDrafterLoaderError {
+          #expect(error.localizedDescription.contains("Missing required key '\(path)'"))
+        }
+      }
+    }
+  }
+
   @Test("missing target configuration fails closed")
   func missingTargetConfigurationFailsClosed() async throws {
     try await withTemporaryModelDirectory { modelDirectory in
