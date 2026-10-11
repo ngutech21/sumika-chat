@@ -429,6 +429,7 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
+      usesBundledMTPDrafter: true,
       supportsHistoricalReasoningPreservation: true,
       reasoningCapability: .selectableEffort(
         supported: [.low, .medium, .xhigh],
@@ -452,6 +453,7 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
+      usesBundledMTPDrafter: true,
       supportsHistoricalReasoningPreservation: true,
       reasoningCapability: .selectableEffort(
         supported: [.low, .medium, .xhigh],

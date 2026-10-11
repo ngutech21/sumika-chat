@@ -81,9 +81,9 @@ nonisolated final class MLXDetokenizerBenchmarkTests: XCTestCase {
       let loader = makeHuggingFaceTokenizerLoader()
       let container =
         if let adapted = try await Swift15ModelLoader.loadIfSupported(
-          from: model.localDirectoryURL, using: loader)
+          from: model.localDirectoryURL, using: loader, loadMTPDrafter: false)
         {
-          adapted
+          adapted.target
         } else if model.supportsImageInput {
           try await VLMModelFactory.shared.loadContainer(
             from: model.localDirectoryURL, using: loader)

@@ -390,26 +390,6 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     return trace
   }
 
-  func recordRuntimeDecodeTrace(_ runtimeTrace: MLXRuntimeDecodeTrace) async {
-    guard tracingIsEnabled else {
-      return
-    }
-
-    var trace = turnTraceObject(from: runtimeTrace.event)
-    if let mtp = runtimeTrace.mtp {
-      trace["mtpProposedDraftTokens"] = mtp.proposedDraftTokens
-      trace["mtpAcceptedDraftTokens"] = mtp.acceptedDraftTokens
-      trace["mtpAcceptanceRate"] = mtp.acceptanceRate
-      trace["mtpRoundCount"] = mtp.roundCount
-      trace["mtpTargetModelCallCount"] = mtp.targetModelCallCount
-      trace["mtpDraftModelCallCount"] = mtp.draftModelCallCount
-      trace["mtpTargetVerifiedTokenCount"] = mtp.targetVerifiedTokenCount
-      trace["mtpEmittedTokenCount"] = mtp.emittedTokenCount
-      trace["mtpPassthroughReason"] = mtp.passthroughReason
-    }
-    append(trace)
-  }
-
   private func turnTraceObject(from event: TurnTraceEvent) -> [String: Any] {
     var trace: [String: Any] = [
       "timestamp": timestamp(),
@@ -693,6 +673,26 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
 }
 
 extension MLXDebugTraceStore {
+  func recordRuntimeDecodeTrace(_ runtimeTrace: MLXRuntimeDecodeTrace) async {
+    guard tracingIsEnabled else {
+      return
+    }
+
+    var trace = turnTraceObject(from: runtimeTrace.event)
+    if let mtp = runtimeTrace.mtp {
+      trace["mtpProposedDraftTokens"] = mtp.proposedDraftTokens
+      trace["mtpAcceptedDraftTokens"] = mtp.acceptedDraftTokens
+      trace["mtpAcceptanceRate"] = mtp.acceptanceRate
+      trace["mtpRoundCount"] = mtp.roundCount
+      trace["mtpTargetModelCallCount"] = mtp.targetModelCallCount
+      trace["mtpDraftModelCallCount"] = mtp.draftModelCallCount
+      trace["mtpTargetVerifiedTokenCount"] = mtp.targetVerifiedTokenCount
+      trace["mtpEmittedTokenCount"] = mtp.emittedTokenCount
+      trace["mtpPassthroughReason"] = mtp.passthroughReason
+    }
+    append(trace)
+  }
+
   func traceTokenProgress(
     id: UUID, metadata: TurnTraceMetadata?, durationMs: Double,
     tokenCount: Int, prefix: [Int], suffix: [Int],

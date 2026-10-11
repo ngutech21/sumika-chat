@@ -68,26 +68,38 @@ final actor MLXChatRuntime: ChatModelRuntime {
 
     do {
       let (container, speculativeDecoding) = try await MLX.withError { error in
-        let container =
-          if let adapted = try await Swift15ModelLoader.loadIfSupported(
-            from: configuration.localModelDirectory, using: tokenizerLoader)
-          {
-            adapted
-          } else if configuration.supportsImageInput {
-            try await VLMModelFactory.shared.loadContainer(
-              from: configuration.localModelDirectory,
-              using: tokenizerLoader
-            )
-          } else {
-            try await LLMModelFactory.shared.loadContainer(
-              from: configuration.localModelDirectory,
-              using: tokenizerLoader
-            )
-          }
+        let container: ModelContainer
+        let drafter: MTPDrafterContainer?
+        if let adapted = try await Swift15ModelLoader.loadIfSupported(
+          from: configuration.localModelDirectory, using: tokenizerLoader,
+          loadMTPDrafter: configuration.usesBundledMTPDrafter)
+        {
+          container = adapted.target
+          drafter = adapted.mtpDrafter
+        } else {
+          container =
+            if configuration.supportsImageInput {
+              try await VLMModelFactory.shared.loadContainer(
+                from: configuration.localModelDirectory,
+                using: tokenizerLoader
+              )
+            } else {
+              try await LLMModelFactory.shared.loadContainer(
+                from: configuration.localModelDirectory,
+                using: tokenizerLoader
+              )
+            }
+          drafter =
+            if configuration.usesBundledMTPDrafter {
+              try await BundledOptiQMTPDrafterLoader.load(for: container)
+            } else {
+              nil
+            }
+        }
         let speculativeDecoding: SpeculativeDecodingConfig? =
-          if configuration.usesBundledMTPDrafter {
+          if let drafter {
             try SpeculativeDecodingConfig(
-              mtpDrafter: try await BundledOptiQMTPDrafterLoader.load(for: container),
+              mtpDrafter: drafter,
               blockSize: 2
             )
           } else {
