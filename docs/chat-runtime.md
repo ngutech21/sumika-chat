@@ -254,7 +254,17 @@ The adapter uses the upstream tokenizer, image processor, strict weight loading,
 and inference preparation, then publishes the underlying `Qwen35` through the
 normal model container. Loading retains the runtime's cancellation, synchronization,
 error, and trace boundaries. The catalog marks Swift 1.5 as stable; this path does not
-enable MTP/speculative decoding or establish video support.
+establish video support.
+
+When the catalog's `usesBundledMTPDrafter` flag is enabled, the same checkpoint
+read retains Swift's embedded `mtp.*` tensors before preparing the target. The
+loader builds a Qwen VLM drafter with one prediction layer and shared target
+embeddings, including its affine 4-bit/group-64 fusion projection. Its RMSNorm
+modules use the same FP32 offset normalization as the target; `format=mlx` does
+not imply that this export's raw offsets have already been converted. Strict
+parameter loading and compatibility validation precede publication of either
+model. A missing or incompatible embedded head fails the complete load. No
+sidecar metadata, extra download, or model-file rewrite is required.
 
 ## Recoverable MLX failures
 
@@ -755,6 +765,33 @@ argument allows the installed-model benchmark to select 512, 1024, or 2048;
 unsupported values fall back to 512. This is not a persisted preference. See
 [the prefill benchmark workflow](testing.md#prefill-benchmarks) for isolated
 measurements, including explicit benchmark-only resets of the global peak counter.
+
+## Bundled OptiQ MTP
+
+`ManagedModel.usesBundledMTPDrafter` opts an individual catalog entry into its
+bundled drafter, whether stored in a sidecar or embedded in a supported export;
+model names, repository IDs, and `mtp_file` metadata never enable it implicitly.
+The Qwen3.6 27B and 35B A3B OptiQ entries, Qwen3.8 27B OptiQ, and Swift 1.5 opt in.
+Swift's recognized export uses the embedded compatibility path above. OptiQ
+loading fails closed unless the configured sidecar remains inside the model
+directory and is the expected prequantized 4-bit, group-size-64 affine Qwen MTP
+checkpoint. The target model and drafter are committed to the runtime only
+after both loads succeed.
+
+The loaded drafter remains resident with the target, but a `ChatSession` receives
+MTP speculative decoding only when `ChatGenerationSettings.isMTPEnabled` is true.
+Enabling MTP forces greedy generation (`temperature == 0`). The resolved `.none`
+or `.mtp` mode is part of the MLX cache identity, so toggling MTP rebuilds the
+session once while an unchanged mode retains normal warm-cache reuse.
+Request traces record `mtpDrafterLoaded` and
+`speculativeDecodingMode`; terminal decode traces keep the non-persisted MTP
+proposal, acceptance, call, verification, emission, and passthrough telemetry.
+
+`SUMIKA_RUN_SWIFT15_MTP_TEST=1 swift test --filter Swift15MTPRealModelTests` runs
+the local Swift greedy/MTP parity test across two turns and a structured tool
+result continuation. It never downloads a model and skips when the installed
+checkpoint or bundled Metal library is absent. Console results separate drafter
+acceptance, decode throughput, prefill time, and total response latency.
 
 ## Prompt Cost Regression
 
