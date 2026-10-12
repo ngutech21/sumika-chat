@@ -1003,10 +1003,13 @@ Cases:
 
 Cases:
 
+- `cancelling`
 - `downloaded`
 - `downloading(progress: Double?)`
 - `failed(String)`
 - `idle`
+- `paused(progress: Double?)`
+- `pausing(progress: Double?)`
 
 ### ModelLoadState
 
@@ -1032,6 +1035,7 @@ Properties:
 - `availableModels: [ManagedModel]`
 - `canPerformSelectedModelAction: Bool`
 - `deletingModelID: ManagedModel.ID?`
+- `downloadModel: ManagedModel?`
 - `downloadState: ModelDownloadState`
 - `downloadedModelIDs: Set<ManagedModel.ID>`
 - `modelContextTokenLimit: Int`

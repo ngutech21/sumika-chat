@@ -148,19 +148,99 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
-  func selectingModelRefreshesSelectedModelAvailability() async throws {
+  func selectingModelRefreshesAvailabilityOffMainThread() async throws {
     let selectedModel = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
     let store = RuntimeFakeModelSettingsStore()
     let controller = await makeController(
       initialModelID: "gemma4-26b-qat-4bit",
       modelSettingsStore: store,
-      modelAvailability: { $0.id == selectedModel.id }
+      modelAvailability: { model in
+        #expect(!Thread.isMainThread)
+        return model.id == selectedModel.id
+      }
     )
     controller.modelAvailabilitySnapshot[selectedModel.id] = false
 
     controller.selectModel(selectedModel)
 
-    #expect(controller.state.isModelDownloaded(selectedModel))
+    try await waitUntil { controller.state.isModelDownloaded(selectedModel) }
+  }
+
+  @Test
+  func pauseDrainsDownloadBeforeResumeAndIgnoresOldProgress() async throws {
+    let downloader = RuntimeControllerControlledDownloader()
+    let controller = await makeController(modelDownloader: downloader)
+    controller.downloadSelectedModel()
+    try await waitUntil { controller.downloadState == .downloading(progress: 0.25) }
+    controller.pauseDownload()
+    #expect(controller.downloadState == .pausing(progress: 0.25))
+    controller.resumeDownload()
+    try await waitUntil { controller.downloadState == .paused(progress: 0.25) }
+    #expect(await downloader.attempts == 1)
+    #expect(await downloader.discards == 0)
+    #expect(!controller.canPerformSelectedModelAction)
+    controller.resumeDownload()
+    try await waitUntil { controller.downloadState == .downloaded }
+    await downloader.emitOldProgress()
+    #expect(controller.downloadState == .downloaded)
+    #expect(await downloader.attempts == 2)
+  }
+
+  @Test(arguments: [false, true])
+  func cancelActiveOrPausedDownloadDiscardsAndCanStartAgain(paused: Bool) async throws {
+    let downloader = RuntimeControllerControlledDownloader()
+    let controller = await makeController(modelDownloader: downloader)
+    var errors: [String] = []
+    controller.onError = { errors.append($0) }
+    controller.downloadSelectedModel()
+    try await waitUntil { controller.downloadState == .downloading(progress: 0.25) }
+    if paused {
+      controller.pauseDownload()
+      try await waitUntil { controller.downloadState == .paused(progress: 0.25) }
+    }
+    controller.cancelDownload()
+    controller.downloadSelectedModel()
+    try await waitUntil { controller.downloadState == .idle }
+    #expect(await downloader.discards == 1)
+    #expect(errors.isEmpty)
+    #expect(!controller.state.isModelDownloaded(controller.selectedModel))
+    controller.downloadSelectedModel()
+    try await waitUntil { controller.downloadState == .downloaded }
+    #expect(await downloader.attempts == 2)
+  }
+
+  @Test
+  func changingConversationKeepsDownloadBoundToOriginalModel() async throws {
+    let downloader = RuntimeControllerControlledDownloader()
+    let controller = await makeController(modelDownloader: downloader)
+    let originalModel = controller.selectedModel
+    controller.downloadSelectedModel()
+    try await waitUntil { controller.downloadState == .downloading(progress: 0.25) }
+    let otherModel = try #require(controller.availableModels.first { $0.id != originalModel.id })
+    _ = controller.applySessionModel(otherModel)
+    #expect(controller.state.downloadModel == originalModel)
+    #expect(controller.downloadState.isDownloading)
+    controller.pauseDownload()
+    try await waitUntil { controller.downloadState == .paused(progress: 0.25) }
+    controller.resumeDownload()
+    try await waitUntil { controller.downloadState == .downloaded }
+    #expect(controller.selectedModel == otherModel)
+    #expect(controller.modelPath == otherModel.localPath)
+    #expect(controller.state.isModelDownloaded(originalModel))
+    #expect(!controller.state.isModelDownloaded(otherModel))
+  }
+
+  @Test(arguments: [false, true])
+  func committedDownloadStaysReadyAfterLateCancellation(paused: Bool) async throws {
+    var controller: ModelRuntimeController?
+    let downloader = RuntimeControllerFakeModelDownloader(onDownload: {
+      if paused { controller?.pauseDownload() } else { controller?.cancelDownload() }
+    })
+    let runtime = await makeController(modelDownloader: downloader)
+    controller = runtime
+    runtime.downloadSelectedModel()
+    try await waitUntil { runtime.downloadState == .downloaded }
+    #expect(runtime.state.isModelDownloaded(runtime.selectedModel))
   }
 
   @Test
@@ -699,7 +779,7 @@ struct ModelRuntimeControllerTests {
     initialSettings: StoredModelSettings? = nil,
     modelSettingsStore: RuntimeFakeModelSettingsStore =
       RuntimeFakeModelSettingsStore(),
-    modelDownloader: RuntimeControllerFakeModelDownloader = RuntimeControllerFakeModelDownloader(),
+    modelDownloader: any ModelDownloading = RuntimeControllerFakeModelDownloader(),
     runtime: any ChatModelRuntime = RuntimeControllerRecordingRuntime(),
     modelPath: String? = nil,
     initialOperationID: UUID = UUID(),
@@ -857,6 +937,8 @@ private final class RuntimeControllerFakeModelDownloader: ModelDownloading, @unc
     self.onProgress = onProgress
     self.onDownload = onDownload
   }
+
+  func discardDownload(model: ManagedModel) async throws {}
 
   func download(
     model: ManagedModel,
@@ -1081,4 +1163,31 @@ private actor RuntimeControllerDelayedUnloadRuntime: ChatModelRuntime {
       continuation.finish()
     }
   }
+}
+
+private actor RuntimeControllerControlledDownloader: ModelDownloading {
+  private(set) var attempts = 0
+  private(set) var discards = 0
+  private var firstProgressHandler: (@MainActor @Sendable (Progress) -> Void)?
+
+  func download(
+    model: ManagedModel,
+    progressHandler: @MainActor @Sendable @escaping (Progress) -> Void
+  ) async throws -> URL {
+    attempts += 1
+    if attempts == 1 {
+      firstProgressHandler = progressHandler
+      let progress = Progress(totalUnitCount: 100)
+      progress.completedUnitCount = 25
+      await progressHandler(progress)
+      try await Task.sleep(for: .seconds(30))
+    }
+    return model.localDirectoryURL
+  }
+
+  func emitOldProgress() async {
+    await firstProgressHandler?(Progress(totalUnitCount: 100))
+  }
+
+  func discardDownload(model: ManagedModel) async throws { discards += 1 }
 }

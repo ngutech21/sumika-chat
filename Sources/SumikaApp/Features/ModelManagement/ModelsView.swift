@@ -66,17 +66,6 @@ struct ModelsView: View {
     let state = modelManagementState.state
 
     return Form {
-      Section {
-        Text(
-          "QAT and OptiQ models are recommended for most uses. Standard Qwen models support images."
-        )
-        .font(.callout)
-        .foregroundStyle(.secondary)
-      } header: {
-        Text("Choose a model")
-          .textCase(nil)
-      }
-
       ForEach(ManagedModelGroup.allCases, id: \.self) { group in
         Section {
           modelRows(in: group)
@@ -97,8 +86,16 @@ struct ModelsView: View {
           onAction: modelManagementState.performPrimaryAction
         )
 
-        if case .downloading(let progress) = state.downloadState {
-          DownloadProgressView(progress: progress)
+        if state.downloadState.isInProgress {
+          if let model = state.downloadModel, model.id != state.selectedModel.id {
+            Text(model.displayName).font(.headline)
+          }
+          ModelDownloadControls(
+            state: state.downloadState,
+            onPause: modelManagementState.pauseDownload,
+            onResume: modelManagementState.resumeDownload,
+            onCancel: modelManagementState.cancelDownload
+          )
         }
 
         if let errorMessage {
@@ -208,7 +205,7 @@ struct ModelsView: View {
       isActive: state.selectedModel.id == model.id
         && state.modelState == .ready,
       isDownloaded: state.isModelDownloaded(model),
-      downloadState: state.selectedModel.id == model.id
+      downloadState: state.downloadModel?.id == model.id
         ? state.downloadState : .idle,
       canSelect: modelManagementState.canChangeModel,
       canDelete: modelManagementState.canDeleteModel(model),
@@ -242,7 +239,10 @@ struct ModelsView: View {
             },
             onDownload: {
               audioModelController.download(model.id)
-            }
+            },
+            onPause: { audioModelController.pause(model.id) },
+            onResume: { audioModelController.resume(model.id) },
+            onCancel: { audioModelController.cancelDownload(model.id) }
           )
         }
       } header: {
@@ -316,10 +316,13 @@ private struct AudioModelRow: View {
   let installState: ComposerAudioModelInstallState
   let onSelect: () -> Void
   let onDownload: () -> Void
+  let onPause: () -> Void
+  let onResume: () -> Void
+  let onCancel: () -> Void
 
   var body: some View {
-    Button(action: rowAction) {
-      VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: 10) {
+      Button(action: rowAction) {
         HStack(spacing: 12) {
           RoundedRectangle(cornerRadius: 7, style: .continuous)
             .fill(tileTint.opacity(0.16))
@@ -383,21 +386,25 @@ private struct AudioModelRow: View {
             .frame(width: 16)
         }
 
-        if case .downloading(let progress) = installState {
-          DownloadProgressView(progress: progress)
-        }
-
-        if case .failed(let message) = installState {
-          Label(message, systemImage: "exclamationmark.triangle")
-            .font(.callout)
-            .foregroundStyle(.red)
-            .textSelection(.enabled)
-        }
+        .contentShape(Rectangle())
       }
-      .contentShape(Rectangle())
+      .buttonStyle(.plain)
+      .disabled(installState.isInProgress)
+
+      if installState.isInProgress {
+        ModelDownloadControls(
+          state: installState.downloadState, onPause: onPause,
+          onResume: onResume, onCancel: onCancel
+        )
+      }
+
+      if case .failed(let message) = installState {
+        Label(message, systemImage: "exclamationmark.triangle")
+          .font(.callout)
+          .foregroundStyle(.red)
+          .textSelection(.enabled)
+      }
     }
-    .buttonStyle(.plain)
-    .disabled(installState.isDownloading)
     .listRowBackground(isSelected ? Color.accentColor.opacity(0.10) : nil)
     .accessibilityIdentifier("audio-model-row-\(model.id.rawValue)")
   }
@@ -408,7 +415,7 @@ private struct AudioModelRow: View {
 
   private var showsStatusDot: Bool {
     switch installState {
-    case .installed, .downloading, .failed:
+    case .installed, .downloading, .pausing, .paused, .cancelling, .failed:
       true
     case .notInstalled:
       false
@@ -424,6 +431,8 @@ private struct AudioModelRow: View {
         return "Installing"
       }
       return progress.formatted(.percent.precision(.fractionLength(0)))
+    case .pausing, .paused, .cancelling:
+      return installState.downloadState.label
     case .failed:
       return "Failed"
     case .notInstalled:
@@ -435,7 +444,7 @@ private struct AudioModelRow: View {
     switch installState {
     case .installed:
       return isSelected ? .accentColor : .green
-    case .downloading:
+    case .downloading, .pausing, .paused, .cancelling:
       return .secondary
     case .failed:
       return .red
@@ -450,7 +459,7 @@ private struct AudioModelRow: View {
       return onSelect
     case .notInstalled, .failed:
       return onDownload
-    case .downloading:
+    case .downloading, .pausing, .paused, .cancelling:
       return {}
     }
   }

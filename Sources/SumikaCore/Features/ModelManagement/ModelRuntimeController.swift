@@ -7,6 +7,8 @@ final class ModelRuntimeController {
   var availableModels = ManagedModelCatalog.models
   var selectedModelID: ManagedModel.ID
   var downloadState: ModelDownloadState = .idle
+  private var downloadModelID: ManagedModel.ID?
+  private var downloadOperationID: UUID?
   var modelPath: String
   var modelState: ModelLoadState = .notLoaded
   var modelContextTokenLimit = ManagedModelCatalog.defaultContextTokenLimit
@@ -38,7 +40,7 @@ final class ModelRuntimeController {
 
   var canPerformSelectedModelAction: Bool {
     modelState != .loading
-      && !downloadState.isDownloading
+      && !downloadState.isInProgress
       && deletingModelID == nil
       && !isRuntimeOperationInProgress
   }
@@ -53,6 +55,7 @@ final class ModelRuntimeController {
         }
       ),
       downloadState: downloadState,
+      downloadModel: availableModels.first { $0.id == downloadModelID },
       modelState: modelState,
       modelContextTokenLimit: modelContextTokenLimit,
       deletingModelID: deletingModelID,
@@ -150,10 +153,7 @@ final class ModelRuntimeController {
     modelPath = model.localPath
     downloadState = .idle
     modelContextTokenLimit = model.defaultContextTokenLimit
-    updateModelAvailability(
-      modelLifecycleCoordinator.isModelDownloaded(model),
-      for: model.id
-    )
+    Task { await refreshModelAvailability() }
 
     let predecessor = modelSelectionTask
     modelSelectionTask = Task { @MainActor [weak self, modelSettingsStore] in
@@ -189,7 +189,7 @@ final class ModelRuntimeController {
       loadTask = nil
       selectedModelID = model.id
       modelPath = model.localPath
-      downloadState = .idle
+      if !downloadState.isInProgress { downloadState = .idle }
       modelContextTokenLimit = model.defaultContextTokenLimit
     } else if modelPath.isEmpty {
       modelPath = model.localPath
@@ -245,34 +245,87 @@ final class ModelRuntimeController {
   }
 
   func downloadSelectedModel() {
-    guard !downloadState.isDownloading else {
-      return
-    }
+    guard canPerformSelectedModelAction, downloadTask == nil else { return }
+    startDownload(selectedModel)
+  }
 
-    let model = selectedModel
-    let lifecycleCoordinator = modelLifecycleCoordinator
+  func pauseDownload() {
+    guard case .downloading(let progress) = downloadState else { return }
+    downloadState = .pausing(progress: progress)
     downloadTask?.cancel()
-    downloadState = .downloading(progress: nil)
+  }
 
+  func resumeDownload() {
+    guard case .paused = downloadState, downloadTask == nil,
+      let model = availableModels.first(where: { $0.id == downloadModelID })
+    else { return }
+    startDownload(model)
+  }
+
+  func cancelDownload() {
+    guard downloadState.isInProgress, downloadState != .cancelling,
+      let model = availableModels.first(where: { $0.id == downloadModelID })
+    else { return }
+    downloadState = .cancelling
+    if let downloadTask {
+      downloadTask.cancel()
+    } else {
+      downloadTask = Task {
+        await discardDownload(model)
+        downloadTask = nil
+      }
+    }
+  }
+
+  private func startDownload(_ model: ManagedModel) {
+    let operationID = UUID()
+    downloadOperationID = operationID
+    downloadModelID = model.id
+    downloadState = .downloading(progress: nil)
+    let lifecycleCoordinator = modelLifecycleCoordinator
     downloadTask = Task {
       do {
         let result = try await lifecycleCoordinator.download(model: model) { progress in
-          let fraction = Self.normalizedDownloadProgress(progress)
-          self.downloadState = .downloading(progress: fraction)
+          guard self.downloadOperationID == operationID, self.downloadState.isDownloading else {
+            return
+          }
+          self.downloadState = .downloading(progress: Self.normalizedDownloadProgress(progress))
         }
-        try Task.checkCancellation()
         downloadState = .downloaded
-        modelPath = result.localPath
+        if selectedModelID == model.id { modelPath = result.localPath }
         updateModelAvailability(true, for: model.id)
         await refreshResolvedSettings(for: model)
-      } catch is CancellationError {
-        downloadState = .idle
       } catch {
-        downloadState = .failed(error.localizedDescription)
-        onError?(error.localizedDescription)
+        switch downloadState {
+        case .pausing(let progress):
+          downloadState = .paused(progress: progress)
+        case .cancelling:
+          await discardDownload(model)
+        default:
+          if Task.isCancelled || error is CancellationError
+            || (error as? URLError)?.code == .cancelled
+          {
+            downloadState = .paused(progress: nil)
+          } else {
+            downloadState = .failed(error.localizedDescription)
+            onError?(error.localizedDescription)
+          }
+        }
       }
-
       downloadTask = nil
+    }
+  }
+
+  private func discardDownload(_ model: ManagedModel) async {
+    do {
+      // The cancelled task has drained before its partial files are removed.
+      try await modelLifecycleCoordinator.discardDownload(model: model)
+      downloadState = .idle
+      downloadModelID = nil
+      downloadOperationID = nil
+    } catch {
+      downloadState = .failed(error.localizedDescription)
+      onError?(error.localizedDescription)
     }
   }
 
@@ -295,7 +348,7 @@ final class ModelRuntimeController {
   }
 
   func loadModel() {
-    guard !downloadState.isDownloading, deletingModelID == nil else {
+    guard !downloadState.isInProgress, deletingModelID == nil else {
       return
     }
 

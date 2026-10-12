@@ -60,6 +60,20 @@ package final class ModelManagementFeature {
     modelController.downloadSelectedModel()
   }
 
+  package func pauseDownload() {
+    modelController.pauseDownload()
+  }
+
+  package func resumeDownload() {
+    errorMessage = nil
+    modelController.resumeDownload()
+  }
+
+  package func cancelDownload() {
+    errorMessage = nil
+    modelController.cancelDownload()
+  }
+
   package func loadSelectedModel() {
     prepareForModelOperation(cancelGeneration: false)
     modelController.loadModel()

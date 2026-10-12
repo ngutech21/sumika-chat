@@ -40,12 +40,12 @@ final class ModelManagementFeatureState {
 
   var effectiveDownloadState: ModelDownloadState {
     if state.isModelDownloaded(state.selectedModel),
-      !state.downloadState.isDownloading
+      state.downloadModel?.id != state.selectedModel.id || !state.downloadState.isInProgress
     {
       return .downloaded
     }
 
-    return state.downloadState
+    return state.downloadModel?.id == state.selectedModel.id ? state.downloadState : .idle
   }
 
   var primaryAction: ModelManagementPrimaryAction {
@@ -84,6 +84,12 @@ final class ModelManagementFeatureState {
   func deleteModel(_ model: ManagedModel) {
     models.deleteModel(model)
   }
+
+  func pauseDownload() { models.pauseDownload() }
+
+  func resumeDownload() { models.resumeDownload() }
+
+  func cancelDownload() { models.cancelDownload() }
 
   func performPrimaryAction() {
     switch primaryAction {

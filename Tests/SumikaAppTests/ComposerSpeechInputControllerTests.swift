@@ -208,6 +208,59 @@ struct ComposerAudioModelControllerTests {
   }
 
   @Test
+  func audioDownloadCanPauseResumeAndSurviveAvailabilityRefresh() async throws {
+    let service = ControlledAudioModelService()
+    let controller = ComposerAudioModelController(service: service)
+    controller.download(.smallEnglish)
+    try await waitForComposerSpeechCondition {
+      controller.installState(for: .smallEnglish) == .downloading(progress: 0.5)
+    }
+    controller.pause(.smallEnglish)
+    controller.resume(.smallEnglish)
+    try await waitForComposerSpeechCondition {
+      controller.installState(for: .smallEnglish) == .paused(progress: 0.5)
+    }
+    controller.refreshAvailability()
+    try await Task.sleep(for: .milliseconds(30))
+    #expect(controller.installState(for: .smallEnglish) == .paused(progress: 0.5))
+    #expect(await service.attempts == 1)
+    controller.resume(.smallEnglish)
+    try await waitForComposerSpeechCondition {
+      controller.installState(for: .smallEnglish) == .installed
+    }
+    await service.emitOldProgress()
+    try await Task.sleep(for: .milliseconds(30))
+    #expect(controller.installState(for: .smallEnglish) == .installed)
+    #expect(await service.attempts == 2)
+  }
+
+  @Test(arguments: [false, true])
+  func audioDownloadCancelDrainsBeforeDiscardAndRestart(paused: Bool) async throws {
+    let service = ControlledAudioModelService()
+    let controller = ComposerAudioModelController(service: service)
+    controller.download(.smallEnglish)
+    try await waitForComposerSpeechCondition {
+      controller.installState(for: .smallEnglish) == .downloading(progress: 0.5)
+    }
+    if paused {
+      controller.pause(.smallEnglish)
+      try await waitForComposerSpeechCondition {
+        controller.installState(for: .smallEnglish) == .paused(progress: 0.5)
+      }
+    }
+    controller.cancelDownload(.smallEnglish)
+    controller.download(.smallEnglish)
+    try await waitForComposerSpeechCondition {
+      controller.installState(for: .smallEnglish) == .notInstalled
+    }
+    #expect(await service.discards == 1)
+    controller.download(.smallEnglish)
+    try await waitForComposerSpeechCondition {
+      controller.installState(for: .smallEnglish) == .installed
+    }
+  }
+
+  @Test
   func downloadSuccessMarksModelInstalledAndSelected() async throws {
     let service = FakeAudioModelService()
     let controller = ComposerAudioModelController(service: service)
@@ -344,6 +397,8 @@ private actor FakeAudioModelService: ComposerAudioModelServicing {
     installedModelIDs.contains(modelID)
   }
 
+  func discardDownload(_ modelID: ComposerAudioModelID) async throws {}
+
   func download(
     _ modelID: ComposerAudioModelID,
     progressHandler: @escaping @Sendable (Double?) -> Void
@@ -381,4 +436,35 @@ private func waitForComposerSpeechCondition(
       try await Task.sleep(for: .milliseconds(20))
     }
   }
+}
+
+private actor ControlledAudioModelService: ComposerAudioModelServicing {
+  private(set) var attempts = 0
+  private(set) var discards = 0
+  private var firstProgressHandler: (@Sendable (Double?) -> Void)?
+  private var active = false
+
+  func isInstalled(_ modelID: ComposerAudioModelID) async -> Bool { false }
+
+  func download(
+    _ modelID: ComposerAudioModelID,
+    progressHandler: @escaping @Sendable (Double?) -> Void
+  ) async throws {
+    #expect(!active)
+    active = true
+    defer { active = false }
+    attempts += 1
+    if attempts == 1 {
+      firstProgressHandler = progressHandler
+      progressHandler(0.5)
+      try await Task.sleep(for: .seconds(30))
+    }
+  }
+
+  func discardDownload(_ modelID: ComposerAudioModelID) async throws {
+    #expect(!active)
+    discards += 1
+  }
+
+  func emitOldProgress() { firstProgressHandler?(0.1) }
 }

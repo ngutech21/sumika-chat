@@ -1,14 +1,20 @@
 import Foundation
 
 package protocol ModelDownloading: Sendable {
+  /// Returns only after installation commits. Cancellation retains resumable files.
   func download(
     model: ManagedModel,
     progressHandler: @MainActor @Sendable @escaping (Progress) -> Void
   ) async throws -> URL
+
+  /// Called after the download task drains; removes only the unfinished installation.
+  func discardDownload(model: ManagedModel) async throws
 }
 
 package struct UnavailableModelDownloader: ModelDownloading {
   package init() {}
+
+  package func discardDownload(model: ManagedModel) async throws {}
 
   package func download(
     model: ManagedModel,

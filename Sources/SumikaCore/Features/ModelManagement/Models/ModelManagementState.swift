@@ -3,6 +3,7 @@ package struct ModelManagementState: Equatable, Sendable {
   package let selectedModel: ManagedModel
   package let downloadedModelIDs: Set<ManagedModel.ID>
   package let downloadState: ModelDownloadState
+  package let downloadModel: ManagedModel?
   package let modelState: ModelLoadState
   package let modelContextTokenLimit: Int
   package let deletingModelID: ManagedModel.ID?

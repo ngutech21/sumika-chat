@@ -2,6 +2,7 @@
 import FluidAudio
 import Foundation
 import Observation
+import SumikaCore
 import Synchronization
 
 enum ComposerAudioModelID: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -42,8 +43,25 @@ struct ComposerAudioModelDescriptor: Identifiable, Equatable, Sendable {
 enum ComposerAudioModelInstallState: Equatable, Sendable {
   case notInstalled
   case downloading(progress: Double?)
+  case pausing(progress: Double?)
+  case paused(progress: Double?)
+  case cancelling
   case installed
   case failed(String)
+
+  var downloadState: ModelDownloadState {
+    switch self {
+    case .notInstalled: .idle
+    case .installed: .downloaded
+    case .downloading(let progress): .downloading(progress: progress)
+    case .pausing(let progress): .pausing(progress: progress)
+    case .paused(let progress): .paused(progress: progress)
+    case .cancelling: .cancelling
+    case .failed(let message): .failed(message)
+    }
+  }
+
+  var isInProgress: Bool { downloadState.isInProgress }
 
   var isInstalled: Bool {
     if case .installed = self {
@@ -66,6 +84,7 @@ nonisolated protocol ComposerAudioModelServicing: Sendable {
     _ modelID: ComposerAudioModelID,
     progressHandler: @escaping @Sendable (Double?) -> Void
   ) async throws
+  func discardDownload(_ modelID: ComposerAudioModelID) async throws
 }
 
 @MainActor
@@ -82,6 +101,7 @@ final class ComposerAudioModelController {
   @ObservationIgnored var onSelectionChanged: (@MainActor (ComposerAudioModelID) -> Void)?
   @ObservationIgnored private let service: any ComposerAudioModelServicing
   @ObservationIgnored private var refreshTask: Task<Void, Never>?
+  @ObservationIgnored private var downloadOperationIDs: [ComposerAudioModelID: UUID] = [:]
   @ObservationIgnored private var downloadTasks: [ComposerAudioModelID: Task<Void, Never>] = [:]
 
   init(service: any ComposerAudioModelServicing = FluidAudioModelService()) {
@@ -133,44 +153,89 @@ final class ComposerAudioModelController {
     refreshTask?.cancel()
     let service = service
     refreshTask = Task {
-      var snapshot: [ComposerAudioModelID: ComposerAudioModelInstallState] = [:]
       for modelID in ComposerAudioModelID.allCases {
-        if Task.isCancelled {
-          return
+        let operationID = downloadOperationIDs[modelID]
+        let installed = await service.isInstalled(modelID)
+        guard !Task.isCancelled else { return }
+        if !installState(for: modelID).isInProgress, operationID == downloadOperationIDs[modelID] {
+          installStates[modelID] = installed ? .installed : .notInstalled
         }
-        snapshot[modelID] = await service.isInstalled(modelID) ? .installed : .notInstalled
       }
-      installStates = snapshot
     }
   }
 
   func download(_ modelID: ComposerAudioModelID) {
-    guard !installState(for: modelID).isDownloading else {
+    guard !installState(for: modelID).isInProgress, downloadTasks[modelID] == nil else { return }
+    startDownload(modelID)
+  }
+
+  func pause(_ modelID: ComposerAudioModelID) {
+    guard case .downloading(let progress) = installState(for: modelID) else { return }
+    installStates[modelID] = .pausing(progress: progress)
+    downloadTasks[modelID]?.cancel()
+  }
+
+  func resume(_ modelID: ComposerAudioModelID) {
+    guard case .paused = installState(for: modelID), downloadTasks[modelID] == nil else { return }
+    startDownload(modelID)
+  }
+
+  func cancelDownload(_ modelID: ComposerAudioModelID) {
+    guard installState(for: modelID).isInProgress, installState(for: modelID) != .cancelling else {
       return
     }
+    installStates[modelID] = .cancelling
+    if let task = downloadTasks[modelID] {
+      task.cancel()
+    } else {
+      downloadTasks[modelID] = Task {
+        await discardDownload(modelID)
+        downloadTasks[modelID] = nil
+      }
+    }
+  }
 
+  private func startDownload(_ modelID: ComposerAudioModelID) {
+    let operationID = UUID()
+    downloadOperationIDs[modelID] = operationID
     installStates[modelID] = .downloading(progress: nil)
     let service = service
-    downloadTasks[modelID]?.cancel()
     downloadTasks[modelID] = Task {
       do {
         try await service.download(modelID) { [weak self = self] progress in
           Task { @MainActor in
-            guard let self, self.installState(for: modelID).isDownloading else {
-              return
-            }
+            guard let self, self.downloadOperationIDs[modelID] == operationID,
+              self.installState(for: modelID).isDownloading
+            else { return }
             self.installStates[modelID] = .downloading(progress: progress)
           }
         }
-        try Task.checkCancellation()
         installStates[modelID] = .installed
         select(modelID)
-      } catch is CancellationError {
-        installStates[modelID] = .notInstalled
       } catch {
-        installStates[modelID] = .failed(Self.errorMessage(for: error))
+        switch installState(for: modelID) {
+        case .pausing(let progress): installStates[modelID] = .paused(progress: progress)
+        case .cancelling: await discardDownload(modelID)
+        default:
+          if Task.isCancelled || error is CancellationError
+            || (error as? URLError)?.code == .cancelled
+          {
+            installStates[modelID] = .paused(progress: nil)
+          } else {
+            installStates[modelID] = .failed(Self.errorMessage(for: error))
+          }
+        }
       }
       downloadTasks[modelID] = nil
+    }
+  }
+
+  private func discardDownload(_ modelID: ComposerAudioModelID) async {
+    do {
+      try await service.discardDownload(modelID)
+      installStates[modelID] = .notInstalled
+    } catch {
+      installStates[modelID] = .failed(Self.errorMessage(for: error))
     }
   }
 
@@ -184,24 +249,92 @@ final class ComposerAudioModelController {
   }
 }
 
-private struct FluidAudioModelService: ComposerAudioModelServicing {
+actor FluidAudioModelService: ComposerAudioModelServicing {
+  private let directory: @Sendable (ComposerAudioModelID) -> URL
+  private let downloadModel:
+    @Sendable (ComposerAudioModelID, URL, @escaping @Sendable (Double?) -> Void) async throws ->
+      Void
+
+  init(
+    directory: @escaping @Sendable (ComposerAudioModelID) -> URL = {
+      AsrModels.defaultCacheDirectory(for: $0.asrModelVersion)
+    },
+    downloadModel:
+      @escaping @Sendable (ComposerAudioModelID, URL, @escaping @Sendable (Double?) -> Void)
+      async throws -> Void = { modelID, target, progressHandler in
+        _ = try await AsrModels.download(
+          to: target, version: modelID.asrModelVersion,
+          progressHandler: { progressHandler($0.fractionCompleted) }
+        )
+      }
+  ) {
+    self.directory = directory
+    self.downloadModel = downloadModel
+  }
+
   func isInstalled(_ modelID: ComposerAudioModelID) async -> Bool {
-    AsrModels.modelsExist(
-      at: AsrModels.defaultCacheDirectory(for: modelID.asrModelVersion),
-      version: modelID.asrModelVersion
-    )
+    isComplete(modelID, at: directory(modelID))
   }
 
   func download(
     _ modelID: ComposerAudioModelID,
     progressHandler: @escaping @Sendable (Double?) -> Void
   ) async throws {
-    _ = try await AsrModels.download(
-      version: modelID.asrModelVersion,
-      progressHandler: { progress in
-        progressHandler(progress.fractionCompleted)
+    let destination = directory(modelID)
+    let workDirectory = try downloadDirectory(modelID)
+    let staging = workDirectory.appending(path: destination.lastPathComponent)
+    try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
+    try await downloadModel(modelID, staging, progressHandler)
+    try Task.checkCancellation()
+    guard isComplete(modelID, at: staging) else {
+      throw CocoaError(.fileReadCorruptFile)
+    }
+    if FileManager.default.fileExists(atPath: destination.path) {
+      _ = try FileManager.default.replaceItemAt(destination, withItemAt: staging)
+    } else {
+      try FileManager.default.moveItem(at: staging, to: destination)
+    }
+    try? FileManager.default.removeItem(at: workDirectory)
+  }
+
+  func discardDownload(_ modelID: ComposerAudioModelID) async throws {
+    let workDirectory = try downloadDirectory(modelID)
+    if FileManager.default.fileExists(atPath: workDirectory.path) {
+      try FileManager.default.removeItem(at: workDirectory)
+    }
+  }
+
+  private func downloadDirectory(_ modelID: ComposerAudioModelID) throws -> URL {
+    let destination = directory(modelID)
+    let stagingRoot = destination.deletingLastPathComponent().resolvingSymlinksInPath()
+      .appending(path: ".sumika-downloads")
+    let workDirectory = stagingRoot.appending(path: modelID.rawValue)
+    let staging = workDirectory.appending(path: destination.lastPathComponent)
+    for path in [stagingRoot, workDirectory, staging]
+    where (try? FileManager.default.attributesOfItem(atPath: path.path)[.type])
+      as? FileAttributeType
+      == .typeSymbolicLink
+    {
+      throw CocoaError(.fileWriteInvalidFileName)
+    }
+    return workDirectory
+  }
+
+  private func isComplete(_ modelID: ComposerAudioModelID, at directory: URL) -> Bool {
+    guard AsrModels.modelsExist(at: directory, version: modelID.asrModelVersion),
+      let paths = try? FileManager.default.subpathsOfDirectory(atPath: directory.path)
+    else { return false }
+    for path in paths {
+      if path.hasSuffix(".partial") { return false }
+      if path.hasSuffix(".mlmodelc") {
+        let metadata = directory.appending(path: path).appending(path: "coremldata.bin")
+        guard
+          let values = try? metadata.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+          values.isRegularFile == true, (values.fileSize ?? 0) > 0
+        else { return false }
       }
-    )
+    }
+    return true
   }
 }
 

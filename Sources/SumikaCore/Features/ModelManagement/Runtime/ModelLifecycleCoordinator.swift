@@ -47,7 +47,7 @@ struct ModelLifecycleCoordinator: Sendable {
   func modelAvailabilitySnapshot(for models: [ManagedModel]) -> [ManagedModel.ID: Bool] {
     Dictionary(
       uniqueKeysWithValues: models.map { model in
-        (model.id, isModelDownloaded(model))
+        (model.id, modelAvailability(model))
       })
   }
 
@@ -57,6 +57,10 @@ struct ModelLifecycleCoordinator: Sendable {
   ) async throws -> DownloadModelResult {
     _ = try await modelDownloader.download(model: model, progressHandler: progressHandler)
     return DownloadModelResult(localPath: model.localPath)
+  }
+
+  func discardDownload(model: ManagedModel) async throws {
+    try await modelDownloader.discardDownload(model: model)
   }
 
   func loadModel(
@@ -115,24 +119,8 @@ struct ModelLifecycleCoordinator: Sendable {
     try await runtimeOperations.clearContext(operationID: operationID)
   }
 
-  func isModelDownloaded(_ model: ManagedModel) -> Bool {
-    modelAvailability(model)
-  }
-
   static func defaultModelAvailability(_ model: ManagedModel) -> Bool {
-    let modelDirectory = model.localDirectoryURL
-    let configURL = modelDirectory.appending(path: "config.json", directoryHint: .notDirectory)
-    var isDirectory: ObjCBool = false
-    guard
-      FileManager.default.fileExists(
-        atPath: modelDirectory.path(percentEncoded: false),
-        isDirectory: &isDirectory
-      ), isDirectory.boolValue
-    else {
-      return false
-    }
-
-    return FileManager.default.fileExists(atPath: configURL.path(percentEncoded: false))
+    LocalModelDirectory.isComplete(at: model.localDirectoryURL)
   }
 
   static func defaultModelDirectoryRemover(_ modelDirectory: URL) throws {

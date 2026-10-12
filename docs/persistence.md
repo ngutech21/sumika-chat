@@ -46,6 +46,25 @@ Sumika downloads models into `~/Library/Application Support/Sumika/Models` with
 the Hugging Face Hub file cache disabled. Downloads do not read or populate the
 shared Hub cache; existing cached models are left untouched.
 
+Text-model downloads use `Models/.downloads/<model-folder>/` until installation
+finishes. A `revision` file pins the immutable Hugging Face commit for every retry;
+`model/` contains completed files and resumable `.partial` files. Pause cancels and
+drains network transfers while retaining those bytes. Resume sends HTTP range
+requests for partial files and reuses completed files from that revision. If a
+server ignores a range request, that file restarts safely. After relaunch, Download
+also reuses this unfinished installation. Cancel drains transfers before removing
+only that model's unfinished directory. A successful transfer validates file sizes
+and required artifacts, then atomically promotes the model directory. Existing
+installed files remain available until that commit succeeds.
+
+Availability requires configuration, tokenizer, and weights; indexed models must
+have every referenced shard. A configuration file alone never marks a model ready.
+Audio downloads follow the same staging-and-promotion rule in the FluidAudio cache
+parent's `.sumika-downloads/<audio-model-id>/` directory, using FluidAudio's existing
+partial-file resume support. Download controls and progress are transient state;
+no chat or settings schema changes are involved. Audio availability also rejects
+missing compiled-model metadata and leftover partial files.
+
 ## Workspace deletion and attachment recovery
 
 Session document v2 added the `readDocument` tool input and result variants.

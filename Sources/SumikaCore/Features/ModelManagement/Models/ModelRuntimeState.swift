@@ -3,6 +3,9 @@ import Foundation
 package enum ModelDownloadState: Equatable, Sendable {
   case idle
   case downloading(progress: Double?)
+  case pausing(progress: Double?)
+  case paused(progress: Double?)
+  case cancelling
   case downloaded
   case failed(String)
 
@@ -12,6 +15,13 @@ package enum ModelDownloadState: Equatable, Sendable {
     }
 
     return false
+  }
+
+  package var isInProgress: Bool {
+    switch self {
+    case .downloading, .pausing, .paused, .cancelling: true
+    case .idle, .downloaded, .failed: false
+    }
   }
 
   package var label: String {
@@ -26,6 +36,12 @@ package enum ModelDownloadState: Equatable, Sendable {
       }
     case .downloaded:
       "Downloaded"
+    case .pausing:
+      "Pausing"
+    case .paused:
+      "Paused"
+    case .cancelling:
+      "Cancelling"
     case .failed:
       "Download failed"
     }

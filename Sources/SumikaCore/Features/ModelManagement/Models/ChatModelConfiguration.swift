@@ -48,6 +48,37 @@ package enum LocalModelDirectory {
     return url
   }
 
+  package static func isComplete(at directory: URL) -> Bool {
+    func hasFile(_ path: String) -> Bool {
+      let url = directory.appending(path: path).resolvingSymlinksInPath()
+      guard url.path.hasPrefix(directory.resolvingSymlinksInPath().path + "/"),
+        let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+      else { return false }
+      return values.isRegularFile == true && (values.fileSize ?? 0) > 0
+    }
+    guard hasFile("config.json"), hasFile("tokenizer.json") else { return false }
+    let index = directory.appending(path: "model.safetensors.index.json")
+    if FileManager.default.fileExists(atPath: index.path) {
+      guard let data = try? Data(contentsOf: index),
+        let weights = try? JSONDecoder().decode(ModelWeightIndex.self, from: data),
+        !weights.weightMap.isEmpty
+      else { return false }
+      return Set(weights.weightMap.values).allSatisfy(hasFile)
+    }
+    guard let files = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else {
+      return false
+    }
+    let weights = files.filter { $0.hasSuffix(".safetensors") }
+    guard !weights.isEmpty, weights.allSatisfy(hasFile) else { return false }
+    // Older exports can have numbered shards without an index.
+    for weight in weights {
+      let parts = weight.replacingOccurrences(of: ".safetensors", with: "").components(
+        separatedBy: "-of-")
+      if parts.count == 2, let count = Int(parts[1]), count != weights.count { return false }
+    }
+    return true
+  }
+
   package static func readContextTokenLimit(from modelDirectory: URL) -> Int? {
     let configURL = modelDirectory.appending(path: "config.json", directoryHint: .notDirectory)
     guard
@@ -161,4 +192,9 @@ package enum LocalModelDirectory {
     }
     return CFGetTypeID(number) == CFBooleanGetTypeID()
   }
+}
+
+private struct ModelWeightIndex: Decodable {
+  let weightMap: [String: String]
+  enum CodingKeys: String, CodingKey { case weightMap = "weight_map" }
 }

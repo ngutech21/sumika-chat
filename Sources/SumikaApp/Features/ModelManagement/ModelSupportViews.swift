@@ -21,6 +21,45 @@ struct DownloadProgressView: View {
   }
 }
 
+struct ModelDownloadControls: View {
+  let state: ModelDownloadState
+  let onPause: () -> Void
+  let onResume: () -> Void
+  let onCancel: () -> Void
+
+  var body: some View {
+    HStack(spacing: 12) {
+      switch state {
+      case .downloading(let progress):
+        DownloadProgressView(progress: progress)
+        Button("Pause", systemImage: "pause", action: onPause)
+          .accessibilityIdentifier("pause-model-download-button")
+      case .paused(let progress):
+        if let progress {
+          ProgressView(value: progress) { Text("Download paused") }
+        } else {
+          Text("Download paused")
+          Spacer()
+        }
+        Button("Resume", systemImage: "play", action: onResume)
+          .accessibilityIdentifier("resume-model-download-button")
+      case .pausing, .cancelling:
+        ProgressView().controlSize(.small)
+        Text(state.label)
+        Spacer()
+      case .idle, .downloaded, .failed:
+        EmptyView()
+      }
+      if state.isInProgress {
+        Button("Cancel", systemImage: "xmark", action: onCancel)
+          .disabled(state == .cancelling)
+          .accessibilityIdentifier("cancel-model-download-button")
+      }
+    }
+    .buttonStyle(.borderless)
+  }
+}
+
 struct ManagedModelRow: View {
   let model: ManagedModel
   let isSelected: Bool
@@ -129,6 +168,9 @@ struct ManagedModelRow: View {
         .help("Delete downloaded files for \(model.displayName)")
         .accessibilityLabel("Delete \(model.displayName)")
         .accessibilityIdentifier("delete-model-\(model.id)")
+      } else {
+        Color.clear
+          .frame(width: 20, height: 20)
       }
     }
     .listRowBackground(isSelected ? Color.accentColor.opacity(0.10) : nil)
@@ -151,6 +193,8 @@ struct ManagedModelRow: View {
         return "Downloading"
       }
       return progress.formatted(.percent.precision(.fractionLength(0)))
+    case .pausing, .paused, .cancelling:
+      return downloadState.label
     case .failed:
       return "Failed"
     case .downloaded:
@@ -238,6 +282,8 @@ struct CurrentModelSummary: View {
         return "Downloading \(progress.formatted(.percent.precision(.fractionLength(0))))"
       }
       return "Downloading"
+    case .pausing, .paused, .cancelling:
+      return downloadState.label
     case .failed:
       return "Download failed"
     }
@@ -279,7 +325,7 @@ struct ModelRuntimeStatus: View {
       .green
     case .failed:
       .red
-    case .idle, .downloading:
+    case .idle, .downloading, .pausing, .paused, .cancelling:
       .secondary
     }
   }

@@ -7,6 +7,30 @@ import Testing
 @Suite(TemporaryDirectoryTrait(named: "sumika-local-model-directory-tests"))
 struct LocalModelDirectoryTests {
   @Test
+  func incompleteModelIsUnavailableUntilTokenizerAndEveryShardExist() throws {
+    let directory = try scopedTemporaryDirectory().appending(path: "incomplete")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try Data("{}".utf8).write(to: directory.appending(path: "config.json"))
+    #expect(!LocalModelDirectory.isComplete(at: directory))
+    try Data("{}".utf8).write(to: directory.appending(path: "tokenizer.json"))
+    try Data("weights".utf8).write(
+      to: directory.appending(path: "model-00001-of-00002.safetensors"))
+    #expect(!LocalModelDirectory.isComplete(at: directory))
+    try Data("weights".utf8).write(
+      to: directory.appending(path: "model-00002-of-00002.safetensors"))
+    #expect(LocalModelDirectory.isComplete(at: directory))
+    try Data("{\"weight_map\":{\"vision\":\"vision/weights.safetensors\"}}".utf8)
+      .write(to: directory.appending(path: "model.safetensors.index.json"))
+    #expect(!LocalModelDirectory.isComplete(at: directory))
+    try FileManager.default.createDirectory(
+      at: directory.appending(path: "vision"), withIntermediateDirectories: true)
+    try Data("weights".utf8).write(to: directory.appending(path: "vision/weights.safetensors"))
+    #expect(LocalModelDirectory.isComplete(at: directory))
+    try Data().write(to: directory.appending(path: "vision/weights.safetensors"))
+    #expect(!LocalModelDirectory.isComplete(at: directory))
+  }
+
+  @Test
   func readContextTokenLimitReadsKnownTopLevelKeys() throws {
     let modelDirectory = try makeTemporaryModelDirectory(
       configJSON: #"{"max_position_embeddings":4096}"#)

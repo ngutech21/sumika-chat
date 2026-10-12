@@ -8,6 +8,11 @@ struct ModelRuntimeStateTests {
   func downloadStateIdentifiesActiveDownloads() {
     #expect(ModelDownloadState.downloading(progress: nil).isDownloading)
     #expect(ModelDownloadState.downloading(progress: 0.4).isDownloading)
+    for state in [ModelDownloadState.paused(progress: 0.4), .pausing(progress: nil), .cancelling] {
+      #expect(!state.isDownloading)
+      #expect(state.isInProgress)
+    }
+    #expect(!ModelDownloadState.idle.isInProgress)
     #expect(!ModelDownloadState.idle.isDownloading)
     #expect(!ModelDownloadState.downloaded.isDownloading)
     #expect(!ModelDownloadState.failed("error").isDownloading)
