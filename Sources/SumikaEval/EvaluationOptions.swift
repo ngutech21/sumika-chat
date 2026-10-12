@@ -1,0 +1,85 @@
+import Foundation
+
+struct EvaluationOptions: Sendable {
+  let modelID: String
+  let workspaceRoot: URL
+  let bridgeURL: URL
+  let bridgeToken: String
+  let promptFile: URL
+  let outputDirectory: URL
+  let timeoutSeconds: Double
+
+  static let usage = """
+    Usage: SumikaEval --model-id ID --workspace-root /container/workspace \
+    --bridge-url http://127.0.0.1:PORT --prompt-file /host/prompt.txt \
+    --output-dir /host/artifacts [--timeout-seconds 600]
+    Set SUMIKA_HARBOR_TOKEN to the bridge's per-trial authentication token.
+    """
+
+  init(arguments: [String], environment: [String: String]) throws {
+    let accepted = Set([
+      "--model-id", "--workspace-root", "--bridge-url", "--prompt-file",
+      "--output-dir", "--timeout-seconds",
+    ])
+    var values: [String: String] = [:]
+    var index = 0
+    while index < arguments.count {
+      let key = arguments[index]
+      guard accepted.contains(key), values[key] == nil,
+        index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--")
+      else {
+        throw EvaluationError("Unknown, duplicate, or incomplete argument: \(key)")
+      }
+      values[key] = arguments[index + 1]
+      index += 2
+    }
+    func required(_ key: String) throws -> String {
+      guard let value = values[key], !value.trimmingCharacters(in: .whitespaces).isEmpty else {
+        throw EvaluationError("Missing \(key)")
+      }
+      return value
+    }
+    func absoluteFileURL(_ key: String) throws -> URL {
+      let path = try required(key)
+      guard path.hasPrefix("/"), !path.contains("\0") else {
+        throw EvaluationError("\(key) must be an absolute path")
+      }
+      return URL(filePath: path).standardizedFileURL
+    }
+    modelID = try required("--model-id")
+    workspaceRoot = try absoluteFileURL("--workspace-root")
+    promptFile = try absoluteFileURL("--prompt-file")
+    outputDirectory = try absoluteFileURL("--output-dir")
+    let rawBridgeURL = try required("--bridge-url")
+    guard let url = URL(string: rawBridgeURL), url.scheme == "http",
+      url.host == "127.0.0.1", let port = url.port, (1...65_535).contains(port),
+      url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
+      url.path.isEmpty || url.path == "/"
+    else {
+      throw EvaluationError("--bridge-url must be http://127.0.0.1:PORT")
+    }
+    bridgeURL = url
+    guard let token = environment["SUMIKA_HARBOR_TOKEN"], !token.isEmpty,
+      !token.contains("\n"), !token.contains("\r")
+    else {
+      throw EvaluationError("SUMIKA_HARBOR_TOKEN must contain the per-trial bridge token")
+    }
+    bridgeToken = token
+    guard let timeout = Double(values["--timeout-seconds"] ?? "600"), timeout.isFinite,
+      timeout > 0, timeout <= 86_400
+    else {
+      throw EvaluationError("--timeout-seconds must be between 0 and 86400")
+    }
+    timeoutSeconds = timeout
+  }
+}
+
+struct EvaluationError: LocalizedError {
+  let message: String
+
+  init(_ message: String) {
+    self.message = message
+  }
+
+  var errorDescription: String? { message }
+}

@@ -72,15 +72,15 @@ struct WriteFileToolExecutor: TypedToolExecutor {
   func evaluatePermission(
     _ input: WriteFileInput,
     context: ToolContext
-  ) -> ToolPermissionEvaluation {
+  ) async -> ToolPermissionEvaluation {
     do {
-      let resolvedPath = try context.workspace.resolveAllowedPath(input.path)
+      let location = try await context.fileIO.resolve(path: input.path, in: context.workspace)
       return ToolPermissionEvaluation(
         decision: .requiresApproval,
         reason: "Writing files inside the workspace requires approval.",
         riskLevel: .high,
-        normalizedPaths: [resolvedPath.path(percentEncoded: false)],
-        workspaceRelativePaths: [context.workspace.relativePath(for: resolvedPath)]
+        normalizedPaths: [location.absolutePath],
+        workspaceRelativePaths: [location.relativePath]
       )
     } catch {
       return ToolPermissionEvaluation(
@@ -92,27 +92,24 @@ struct WriteFileToolExecutor: TypedToolExecutor {
   }
 
   func run(_ input: WriteFileInput, context: ToolContext) async -> ToolResultPayload {
-    var resolvedURL: URL?
+    var location: WorkspaceFileLocation?
     do {
-      return try context.workspace.withSecurityScopedAccess {
-        let resolvedPathURL = try context.workspace.resolveAllowedPath(input.path)
-        resolvedURL = resolvedPathURL
-        let relativePath = context.workspace.relativePath(for: resolvedPathURL)
-        try FileManager.default.createDirectory(
-          at: resolvedPathURL.deletingLastPathComponent(),
-          withIntermediateDirectories: true
-        )
-        try input.content.write(to: resolvedPathURL, atomically: true, encoding: .utf8)
-        return .writeFile(
-          .success(path: relativePath, bytesWritten: input.content.utf8.count)
-        )
-      }
+      let resolved = try await context.fileIO.resolve(path: input.path, in: context.workspace)
+      location = resolved
+      try await context.fileIO.write(
+        path: resolved.absolutePath, in: context.workspace,
+        data: Data(input.content.utf8), expectedContents: nil
+      )
+      return .writeFile(
+        .success(path: resolved.relativePath, bytesWritten: input.content.utf8.count)
+      )
     } catch {
       return .writeFile(
         .failed(
-          path: ToolResultFailureMapper.relativePath(
-            for: input.path, resolvedURL: resolvedURL, workspace: context.workspace),
-          reason: ToolResultFailureMapper.reason(from: error)
+          path: location?.relativePath ?? WorkspaceRelativePath(rawValue: input.path),
+          reason: await context.fileIO.failureReason(
+            for: error, path: input.path, location: location, in: context.workspace
+          )
         )
       )
     }

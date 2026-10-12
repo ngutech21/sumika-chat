@@ -4,11 +4,13 @@ import Foundation
 /// The application supplies settings and connected MCP contributions; Agent
 /// owns built-in membership, selection filtering, and duplicate handling.
 struct AgentToolConfiguration: Sendable {
+  var workspaceExecution: WorkspaceExecution?
   var documentMarkdownConverter: (any DocumentMarkdownConverting)?
   let todoWriteEnabled: Bool
   let mcpExecutorGroups: [MCPAgentToolExecutorGroup]
 
   func executorRegistry(selectedMCPServerIDs: [UUID]) -> ToolExecutorRegistry {
+    if let workspaceExecution { return workspaceExecution.executorRegistry }
     let selectedIDs = Set(selectedMCPServerIDs)
     let mcpExecutors =
       mcpExecutorGroups
@@ -74,6 +76,7 @@ extension ToolExecutorRegistry {
 extension ToolOrchestrator {
   static func agent(
     todoWriteEnabled: Bool,
+    workspaceExecution: WorkspaceExecution? = nil,
     documentMarkdownConverter: (any DocumentMarkdownConverting)? = nil,
     browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
     webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
@@ -81,9 +84,11 @@ extension ToolOrchestrator {
     }
   ) -> ToolOrchestrator {
     ToolOrchestrator(
-      executorRegistry: .codingAgentRegistry(
-        todoWriteEnabled: todoWriteEnabled, documentMarkdownConverter: documentMarkdownConverter
-      ),
+      executorRegistry: workspaceExecution?.executorRegistry
+        ?? .codingAgentRegistry(
+          todoWriteEnabled: todoWriteEnabled, documentMarkdownConverter: documentMarkdownConverter
+        ),
+      fileIO: workspaceExecution?.fileIO ?? LocalWorkspaceFileIO(),
       browserToolService: browserToolService,
       webAccessSettingsProvider: webAccessSettingsProvider
     )

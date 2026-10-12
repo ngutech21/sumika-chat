@@ -54,8 +54,8 @@ struct ShowFileToolExecutor: TypedToolExecutor {
   func evaluatePermission(
     _ input: ReadFileInput,
     context: ToolContext
-  ) -> ToolPermissionEvaluation {
-    readFileExecutor.evaluatePermission(input, context: context)
+  ) async -> ToolPermissionEvaluation {
+    await readFileExecutor.evaluatePermission(input, context: context)
   }
 
   func run(_ input: ReadFileInput, context: ToolContext) async -> ToolResultPayload {

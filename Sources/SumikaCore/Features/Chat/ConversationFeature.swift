@@ -187,6 +187,12 @@ package final class ConversationFeature {
     engine.cancelGeneration()
   }
 
+  package func cancelGenerationAndDrain() async {
+    let task = engine.activeTurnTask
+    engine.cancelGeneration()
+    await task?.value
+  }
+
   package func approveToolCall(id: ToolCallRecord.ID) throws {
     try requireActiveConversation()
     engine.approveToolCall(id: id)

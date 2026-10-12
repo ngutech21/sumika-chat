@@ -294,15 +294,15 @@ struct EditFileToolExecutor: TypedToolExecutor {
   func evaluatePermission(
     _ input: EditFileInput,
     context: ToolContext
-  ) -> ToolPermissionEvaluation {
+  ) async -> ToolPermissionEvaluation {
     do {
-      let resolvedPath = try context.workspace.resolveAllowedPath(input.path)
+      let location = try await context.fileIO.resolve(path: input.path, in: context.workspace)
       return ToolPermissionEvaluation(
         decision: .requiresApproval,
         reason: "Editing files inside the workspace requires approval.",
         riskLevel: .high,
-        normalizedPaths: [resolvedPath.path(percentEncoded: false)],
-        workspaceRelativePaths: [context.workspace.relativePath(for: resolvedPath)]
+        normalizedPaths: [location.absolutePath],
+        workspaceRelativePaths: [location.relativePath]
       )
     } catch {
       return ToolPermissionEvaluation(
@@ -340,11 +340,11 @@ struct EditFileToolExecutor: TypedToolExecutor {
   private func failurePreview(
     for input: EditFileInput,
     context: ToolContext,
-    resolvedURL: URL?,
+    location: WorkspaceFileLocation?,
     error: Error
   ) async -> ToolResultPreview {
     if case EditFileValidationError.oldTextNotFound = error {
-      return oldTextNotFoundResult(input, context: context, resolvedURL: resolvedURL).preview
+      return await oldTextNotFoundResult(input, context: context, location: location).preview
     }
 
     guard ToolResultFailureMapper.isFileNotFound(error) else {
@@ -353,10 +353,9 @@ struct EditFileToolExecutor: TypedToolExecutor {
 
     return ToolResultPayload.editFile(
       .failed(
-        path: ToolResultFailureMapper.relativePath(
-          for: input.path, resolvedURL: resolvedURL, workspace: context.workspace),
-        reason: await ToolResultFailureMapper.missingFileReason(
-          for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
+        path: location?.relativePath ?? WorkspaceRelativePath(rawValue: input.path),
+        reason: await context.fileIO.failureReason(
+          for: error, path: input.path, location: location, in: context.workspace)
       )
     ).preview
   }
@@ -364,13 +363,10 @@ struct EditFileToolExecutor: TypedToolExecutor {
   private func oldTextNotFoundResult(
     _ input: EditFileInput,
     context: ToolContext,
-    resolvedURL: URL?
-  ) -> ToolResultPayload {
-    let path =
-      ToolResultFailureMapper.relativePath(
-        for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
-      ?? WorkspaceRelativePath(rawValue: input.path)
-    let content = currentContentExcerpt(from: resolvedURL)
+    location: WorkspaceFileLocation?
+  ) async -> ToolResultPayload {
+    let path = location?.relativePath ?? WorkspaceRelativePath(rawValue: input.path)
+    let content = await currentContentExcerpt(from: location, context: context)
     return .editFile(
       .oldTextNotFound(
         path: path,
@@ -380,11 +376,15 @@ struct EditFileToolExecutor: TypedToolExecutor {
     )
   }
 
-  private func currentContentExcerpt(from url: URL?) -> ToolTextOutput? {
-    guard let url, let data = try? Data(contentsOf: url) else {
-      return nil
-    }
+  private func currentContentExcerpt(
+    from location: WorkspaceFileLocation?, context: ToolContext
+  ) async -> ToolTextOutput? {
     let maxBytes = 24 * 1024
+    guard let location,
+      let data = try? await context.fileIO.read(
+        path: location.absolutePath, in: context.workspace, offset: 0, maxBytes: maxBytes + 1
+      )
+    else { return nil }
     guard data.count <= maxBytes else {
       let excerptData = data.prefix(maxBytes)
       guard let excerpt = String(data: excerptData, encoding: .utf8) else {
@@ -839,7 +839,7 @@ extension EditFileToolExecutor {
   ) async -> EditFileGroupPreparation {
     precondition(!inputs.isEmpty)
     do {
-      let preview = try EditFileTransaction(receiptPolicy: receiptPolicy).preview(
+      let preview = try await EditFileTransaction(receiptPolicy: receiptPolicy).preview(
         inputs,
         context: context
       )
@@ -848,7 +848,7 @@ extension EditFileToolExecutor {
       return .failed(
         await failurePreviews(for: inputs, context: context, failure: failure))
     } catch {
-      let failure = EditFileTransactionFailure(inputIndex: 0, resolvedURL: nil, cause: error)
+      let failure = EditFileTransactionFailure(inputIndex: 0, location: nil, cause: error)
       return .failed(
         await failurePreviews(for: inputs, context: context, failure: failure))
     }
@@ -860,7 +860,7 @@ extension EditFileToolExecutor {
   ) async -> EditFileGroupExecution {
     precondition(!inputs.isEmpty)
     do {
-      let receipts = try EditFileTransaction(receiptPolicy: receiptPolicy).commit(
+      let receipts = try await EditFileTransaction(receiptPolicy: receiptPolicy).commit(
         inputs,
         context: context
       )
@@ -871,7 +871,7 @@ extension EditFileToolExecutor {
       return .failed(
         await failurePayloads(for: inputs, context: context, failure: failure))
     } catch {
-      let failure = EditFileTransactionFailure(inputIndex: 0, resolvedURL: nil, cause: error)
+      let failure = EditFileTransactionFailure(inputIndex: 0, location: nil, cause: error)
       return .failed(
         await failurePayloads(for: inputs, context: context, failure: failure))
     }
@@ -889,17 +889,13 @@ extension EditFileToolExecutor {
           await failurePreview(
             for: input,
             context: context,
-            resolvedURL: failure.resolvedURL,
+            location: failure.location,
             error: failure.cause
           ))
         continue
       }
       let path =
-        ToolResultFailureMapper.relativePath(
-          for: input.path,
-          resolvedURL: failure.resolvedURL,
-          workspace: context.workspace
-        ) ?? WorkspaceRelativePath(rawValue: input.path)
+        failure.location?.relativePath ?? WorkspaceRelativePath(rawValue: input.path)
       previews.append(
         ToolResultPreview(
           status: .failed,
@@ -919,11 +915,7 @@ extension EditFileToolExecutor {
     for (index, input) in inputs.enumerated() {
       guard index == failure.inputIndex else {
         let path =
-          ToolResultFailureMapper.relativePath(
-            for: input.path,
-            resolvedURL: failure.resolvedURL,
-            workspace: context.workspace
-          ) ?? WorkspaceRelativePath(rawValue: input.path)
+          failure.location?.relativePath ?? WorkspaceRelativePath(rawValue: input.path)
         payloads.append(
           .editFile(
             .failed(
@@ -936,7 +928,7 @@ extension EditFileToolExecutor {
         await failurePayload(
           for: input,
           context: context,
-          resolvedURL: failure.resolvedURL,
+          location: failure.location,
           error: failure.cause
         ))
     }
@@ -946,18 +938,15 @@ extension EditFileToolExecutor {
   private func failurePayload(
     for input: EditFileInput,
     context: ToolContext,
-    resolvedURL: URL?,
+    location: WorkspaceFileLocation?,
     error: Error
   ) async -> ToolResultPayload {
     if case EditFileValidationError.oldTextNotFound = error {
-      return context.workspace.withSecurityScopedAccess {
-        oldTextNotFoundResult(input, context: context, resolvedURL: resolvedURL)
-      }
+      return await oldTextNotFoundResult(input, context: context, location: location)
     }
     if case EditFileValidationError.ambiguousOldText = error {
       let path =
-        ToolResultFailureMapper.relativePath(
-          for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
+        location?.relativePath
         ?? WorkspaceRelativePath(rawValue: input.path)
       return .editFile(
         .multipleMatches(
@@ -968,20 +957,16 @@ extension EditFileToolExecutor {
     }
     if case EditFileValidationError.identicalReplacement = error {
       let path =
-        ToolResultFailureMapper.relativePath(
-          for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
+        location?.relativePath
         ?? WorkspaceRelativePath(rawValue: input.path)
       return .editFile(.unchanged(path: path))
     }
 
     return .editFile(
       .failed(
-        path: ToolResultFailureMapper.relativePath(
-          for: input.path, resolvedURL: resolvedURL, workspace: context.workspace),
-        reason: ToolResultFailureMapper.isFileNotFound(error)
-          ? await ToolResultFailureMapper.missingFileReason(
-            for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
-          : ToolResultFailureMapper.reason(from: error)
+        path: location?.relativePath ?? WorkspaceRelativePath(rawValue: input.path),
+        reason: await context.fileIO.failureReason(
+          for: error, path: input.path, location: location, in: context.workspace)
       ))
   }
 
@@ -1260,86 +1245,84 @@ nonisolated private struct EditFileTransaction {
   func preview(
     _ inputs: [EditFileInput],
     context: ToolContext
-  ) throws -> ToolResultPreview {
-    try context.workspace.withSecurityScopedAccess {
-      let group = try validatedGroup(inputs, context: context)
-      return ToolResultPreview(
-        text: combinedPreviewDiff(for: group),
-        affectedPaths: [group.path]
-      )
-    }
+  ) async throws -> ToolResultPreview {
+    let group = try await validatedGroup(inputs, context: context)
+    return ToolResultPreview(
+      text: combinedPreviewDiff(for: group),
+      affectedPaths: [group.path]
+    )
   }
 
   func commit(
     _ inputs: [EditFileInput],
     context: ToolContext
-  ) throws -> [AppliedEditReceipt] {
-    try context.workspace.withSecurityScopedAccess {
-      let group = try validatedGroup(inputs, context: context)
-      let receiptBuilder = AppliedEditReceiptBuilder(policy: receiptPolicy)
-      var cumulativeLineOffset = 0
-      var indexedReceipts: [(inputIndex: Int, receipt: AppliedEditReceipt)] = []
-      for edit in group.edits.sorted(by: { $0.lowerUTF8Offset < $1.lowerUTF8Offset }) {
-        let receipt = receiptBuilder.build(
-          path: group.path,
-          originalContent: group.originalContent,
-          matchedRange: edit.range,
-          replacementText: edit.replacementText,
-          matchStrategy: edit.matchStrategy,
-          newStartLineOffset: cumulativeLineOffset
-        )
-        indexedReceipts.append((edit.inputIndex, receipt))
-        cumulativeLineOffset += receipt.newRange.lineCount - receipt.oldRange.lineCount
-      }
-      let receipts = indexedReceipts.sorted { $0.inputIndex < $1.inputIndex }.map(\.receipt)
-      try Task.checkCancellation()
-      try group.updatedContent.write(
-        to: group.resolvedURL,
-        atomically: true,
-        encoding: .utf8
+  ) async throws -> [AppliedEditReceipt] {
+    let group = try await validatedGroup(inputs, context: context)
+    let receiptBuilder = AppliedEditReceiptBuilder(policy: receiptPolicy)
+    var cumulativeLineOffset = 0
+    var indexedReceipts: [(inputIndex: Int, receipt: AppliedEditReceipt)] = []
+    for edit in group.edits.sorted(by: { $0.lowerUTF8Offset < $1.lowerUTF8Offset }) {
+      let receipt = receiptBuilder.build(
+        path: group.path,
+        originalContent: group.originalContent,
+        matchedRange: edit.range,
+        replacementText: edit.replacementText,
+        matchStrategy: edit.matchStrategy,
+        newStartLineOffset: cumulativeLineOffset
       )
-      return receipts
+      indexedReceipts.append((edit.inputIndex, receipt))
+      cumulativeLineOffset += receipt.newRange.lineCount - receipt.oldRange.lineCount
     }
+    let receipts = indexedReceipts.sorted { $0.inputIndex < $1.inputIndex }.map(\.receipt)
+    try Task.checkCancellation()
+    try await context.fileIO.write(
+      path: group.location.absolutePath, in: context.workspace,
+      data: Data(group.updatedContent.utf8), expectedContents: group.originalData
+    )
+    return receipts
   }
 
   private func validatedGroup(
     _ inputs: [EditFileInput],
     context: ToolContext
-  ) throws -> ValidatedEditGroup {
+  ) async throws -> ValidatedEditGroup {
     precondition(!inputs.isEmpty)
-    var resolvedURLs: [URL] = []
+    var locations: [WorkspaceFileLocation] = []
     for (index, input) in inputs.enumerated() {
       do {
-        resolvedURLs.append(try context.workspace.resolveAllowedPath(input.path))
+        locations.append(try await context.fileIO.resolve(path: input.path, in: context.workspace))
       } catch {
         throw EditFileTransactionFailure(
           inputIndex: index,
-          resolvedURL: nil,
+          location: nil,
           cause: error
         )
       }
     }
 
-    let resolvedURL = resolvedURLs[0]
-    let normalizedPath = Workspace.normalizedPath(for: resolvedURL)
-    for (index, candidateURL) in resolvedURLs.enumerated()
-    where Workspace.normalizedPath(for: candidateURL) != normalizedPath {
+    let location = locations[0]
+    let normalizedPath = location.absolutePath
+    for (index, candidateLocation) in locations.enumerated()
+    where candidateLocation.absolutePath != normalizedPath {
       throw EditFileTransactionFailure(
         inputIndex: index,
-        resolvedURL: candidateURL,
+        location: candidateLocation,
         cause: EditFileValidationError.mixedPaths
       )
     }
 
     let content: String
+    let data: Data
     do {
-      let data = try Data(contentsOf: resolvedURL)
+      data = try await context.fileIO.read(
+        path: location.absolutePath, in: context.workspace, offset: 0, maxBytes: nil
+      )
       guard let decoded = String(data: data, encoding: .utf8) else {
         throw EditFileValidationError.nonUTF8
       }
       content = decoded
     } catch {
-      throw EditFileTransactionFailure(inputIndex: 0, resolvedURL: resolvedURL, cause: error)
+      throw EditFileTransactionFailure(inputIndex: 0, location: location, cause: error)
     }
 
     var edits: [ValidatedTransactionEdit] = []
@@ -1368,7 +1351,7 @@ nonisolated private struct EditFileTransaction {
       } catch {
         throw EditFileTransactionFailure(
           inputIndex: index,
-          resolvedURL: resolvedURL,
+          location: location,
           cause: error
         )
       }
@@ -1383,15 +1366,16 @@ nonisolated private struct EditFileTransaction {
       guard previous.upperUTF8Offset <= current.lowerUTF8Offset else {
         throw EditFileTransactionFailure(
           inputIndex: current.inputIndex,
-          resolvedURL: resolvedURL,
+          location: location,
           cause: EditFileValidationError.overlappingEdits
         )
       }
     }
 
     return ValidatedEditGroup(
-      path: context.workspace.relativePath(for: resolvedURL),
-      resolvedURL: resolvedURL,
+      path: location.relativePath,
+      location: location,
+      originalData: data,
       originalContent: content,
       edits: edits,
       updatedContent: applying(edits, to: content)
@@ -1504,7 +1488,8 @@ nonisolated private struct EditFileTransaction {
 
 nonisolated private struct ValidatedEditGroup {
   let path: WorkspaceRelativePath
-  let resolvedURL: URL
+  let location: WorkspaceFileLocation
+  let originalData: Data
   let originalContent: String
   let edits: [ValidatedTransactionEdit]
   let updatedContent: String
@@ -1521,7 +1506,7 @@ nonisolated private struct ValidatedTransactionEdit {
 
 nonisolated private struct EditFileTransactionFailure: Error {
   let inputIndex: Int
-  let resolvedURL: URL?
+  let location: WorkspaceFileLocation?
   let cause: Error
 }
 

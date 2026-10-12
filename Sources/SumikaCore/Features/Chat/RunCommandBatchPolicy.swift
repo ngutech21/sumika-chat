@@ -1,13 +1,15 @@
 enum RunCommandBatchPolicy {
   /// The first valid request reserves its signature, regardless of execution outcome.
   static func blockedRecords(
-    for requests: [ToolCallRequest], workspace: Workspace
-  ) -> [ToolCallRecord.ID: ToolCallRecord] {
+    for requests: [ToolCallRequest], workspace: Workspace,
+    fileIO: any WorkspaceFileIO = LocalWorkspaceFileIO()
+  ) async -> [ToolCallRecord.ID: ToolCallRecord] {
     var originals: [RunCommandExecutionSignature: ToolCallRecord.ID] = [:]
     var blocked: [ToolCallRecord.ID: ToolCallRecord] = [:]
     for request in requests {
       guard case .runCommand(let input) = request.payload,
-        let signature = try? RunCommandExecutionSignature(input: input, workspace: workspace)
+        let signature = try? await RunCommandExecutionSignature(
+          input: input, workspace: workspace, fileIO: fileIO)
       else {
         continue
       }

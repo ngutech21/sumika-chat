@@ -75,13 +75,16 @@ struct ToolLoopRequest: Sendable {
 }
 
 struct ToolLoopCoordinator: Sendable {
+  private let fileIO: any WorkspaceFileIO
   private let focusedFileReducer: FocusedFileStateReducer
   private let turnTracer: any TurnTracing
 
   init(
+    fileIO: any WorkspaceFileIO = LocalWorkspaceFileIO(),
     focusedFileReducer: FocusedFileStateReducer = FocusedFileStateReducer(),
     turnTracer: any TurnTracing = NoopTurnTracer()
   ) {
+    self.fileIO = fileIO
     self.focusedFileReducer = focusedFileReducer
     self.turnTracer = turnTracer
   }
@@ -183,11 +186,11 @@ struct ToolLoopCoordinator: Sendable {
     var isAwaitingApproval = false
     var isAwaitingUserAnswer = false
     var batchAnchorID: ToolCallRecord.ID?
-    let mutationGroups = samePathMutationGroups(outputs, workspace: request.workspace)
+    let mutationGroups = await samePathMutationGroups(outputs, workspace: request.workspace)
     var preparedMutationRecords: [ToolCallRecord.ID: ToolCallRecord] = [:]
-    let blockedCommands = RunCommandBatchPolicy.blockedRecords(
+    let blockedCommands = await RunCommandBatchPolicy.blockedRecords(
       for: outputs.map { ToolCallRequestValidator().validate($0.request, registry: registry) },
-      workspace: request.workspace
+      workspace: request.workspace, fileIO: fileIO
     )
 
     for (index, output) in outputs.enumerated() {
@@ -357,7 +360,7 @@ struct ToolLoopCoordinator: Sendable {
       return record
     }
 
-    if let duplicateRecord = duplicateToolCallRecord(
+    if let duplicateRecord = await duplicateToolCallRecord(
       for: output,
       registry: registry,
       workspace: request.workspace,
@@ -402,20 +405,20 @@ extension ToolLoopCoordinator {
   private func samePathMutationGroups(
     _ outputs: [ToolCallParseOutput],
     workspace: Workspace
-  ) -> [Int: SamePathMutationGroup] {
+  ) async -> [Int: SamePathMutationGroup] {
     var indicesByPath: [String: [Int]] = [:]
     var relativePathByPath: [String: String] = [:]
 
     for (index, output) in outputs.enumerated() {
       guard output.request.toolName == .writeFile || output.request.toolName == .editFile,
         case .string(let inputPath) = output.request.arguments["path"],
-        let resolvedURL = try? workspace.resolveAllowedPath(inputPath)
+        let location = try? await fileIO.resolve(path: inputPath, in: workspace)
       else {
         continue
       }
-      let normalizedPath = Workspace.normalizedPath(for: resolvedURL)
+      let normalizedPath = location.absolutePath
       indicesByPath[normalizedPath, default: []].append(index)
-      relativePathByPath[normalizedPath] = workspace.relativePath(for: resolvedURL).rawValue
+      relativePathByPath[normalizedPath] = location.relativePath.rawValue
     }
 
     var groupsByIndex: [Int: SamePathMutationGroup] = [:]
@@ -530,7 +533,7 @@ extension ToolLoopCoordinator {
     registry: ToolRegistry,
     workspace: Workspace,
     items: [ChatTurnItem]
-  ) -> ToolCallRecord? {
+  ) async -> ToolCallRecord? {
     let validatedRequest = ToolCallRequestValidator().validate(
       output.request,
       registry: registry
@@ -538,7 +541,7 @@ extension ToolLoopCoordinator {
     if case .invalid = validatedRequest.payload {
       return nil
     }
-    return duplicateValidatedToolCallRecord(
+    return await duplicateValidatedToolCallRecord(
       for: validatedRequest,
       workspace: workspace,
       items: items
@@ -549,8 +552,9 @@ extension ToolLoopCoordinator {
     for validatedRequest: ToolCallRequest,
     workspace: Workspace,
     items: [ChatTurnItem]
-  ) -> ToolCallRecord? {
-    guard let signature = toolCallSignature(for: validatedRequest, workspace: workspace) else {
+  ) async -> ToolCallRecord? {
+    guard let signature = await toolCallSignature(for: validatedRequest, workspace: workspace)
+    else {
       return nil
     }
 
@@ -558,13 +562,13 @@ extension ToolLoopCoordinator {
     for index in currentItems.indices.reversed() {
       guard case .tool(let previousRecord) = currentItems[index],
         previousRecord.status == .completed,
-        toolCallSignature(for: previousRecord.request, workspace: workspace) == signature
+        await toolCallSignature(for: previousRecord.request, workspace: workspace) == signature
       else {
         continue
       }
 
       guard
-        let source = duplicateObservationSource(
+        let source = await duplicateObservationSource(
           matching: signature,
           candidate: previousRecord,
           candidateIndex: index,
@@ -576,7 +580,7 @@ extension ToolLoopCoordinator {
       }
 
       guard
-        canReuseCompletedToolResult(
+        await canReuseCompletedToolResult(
           source.record,
           after: source.index,
           workspace: workspace,
@@ -590,7 +594,7 @@ extension ToolLoopCoordinator {
       // Off-by-one: this new record is the 2nd (or later) consecutive identical
       // duplicate exactly when at least one matching duplicate already trails the turn.
       let blocked =
-        priorDuplicateStreak(
+        await priorDuplicateStreak(
           for: signature,
           workspace: workspace,
           in: currentItems
@@ -635,7 +639,7 @@ extension ToolLoopCoordinator {
     candidateIndex: ArraySlice<ChatTurnItem>.Index,
     workspace: Workspace,
     items: ArraySlice<ChatTurnItem>
-  ) -> (record: ToolCallRecord, index: ArraySlice<ChatTurnItem>.Index)? {
+  ) async -> (record: ToolCallRecord, index: ArraySlice<ChatTurnItem>.Index)? {
     guard isDuplicateToolCall(candidate.resultPayload) else {
       return (candidate, candidateIndex)
     }
@@ -643,7 +647,7 @@ extension ToolLoopCoordinator {
     for index in items[..<candidateIndex].indices.reversed() {
       guard case .tool(let previousRecord) = items[index],
         previousRecord.status == .completed,
-        toolCallSignature(for: previousRecord.request, workspace: workspace) == signature,
+        await toolCallSignature(for: previousRecord.request, workspace: workspace) == signature,
         !isDuplicateToolCall(previousRecord.resultPayload)
       else {
         continue
@@ -686,18 +690,18 @@ extension ToolLoopCoordinator {
     after index: ArraySlice<ChatTurnItem>.Index,
     workspace: Workspace,
     in items: ArraySlice<ChatTurnItem>
-  ) -> Bool {
+  ) async -> Bool {
     switch previousRecord.request.toolName {
     case .readFile, .readDocument:
       guard let previousPath = successfulReadPath(from: previousRecord.resultPayload),
-        let canonicalPreviousPath = canonicalWorkspacePath(
+        let canonicalPreviousPath = await canonicalWorkspacePath(
           previousPath.rawValue,
           workspace: workspace
         )
       else {
         return false
       }
-      return !hasCompletedMutation(
+      return await !hasCompletedMutation(
         affectingReadAt: canonicalPreviousPath,
         after: index,
         workspace: workspace,
@@ -742,14 +746,14 @@ extension ToolLoopCoordinator {
     for signature: ToolCallSignature,
     workspace: Workspace,
     in items: ArraySlice<ChatTurnItem>
-  ) -> Int {
+  ) async -> Int {
     var count = 0
     for item in items.reversed() {
       guard case .tool(let record) = item else {
         continue
       }
       guard isDuplicateToolCall(record.resultPayload),
-        toolCallSignature(for: record.request, workspace: workspace) == signature
+        await toolCallSignature(for: record.request, workspace: workspace) == signature
       else {
         break
       }
@@ -796,36 +800,37 @@ extension ToolLoopCoordinator {
     after index: ArraySlice<ChatTurnItem>.Index,
     workspace: Workspace,
     in items: ArraySlice<ChatTurnItem>
-  ) -> Bool {
+  ) async -> Bool {
     let nextIndex = items.index(after: index)
     guard nextIndex < items.endIndex else {
       return false
     }
 
-    return items[nextIndex...].contains { item in
+    for item in items[nextIndex...] {
       guard case .tool(let record) = item,
         record.status == .completed
       else {
-        return false
+        continue
       }
 
       switch record.request.payload {
       case .writeFile(let input):
-        return canonicalWorkspacePath(input.path, workspace: workspace) == path
+        if await canonicalWorkspacePath(input.path, workspace: workspace) == path { return true }
       case .editFile(let input):
-        return canonicalWorkspacePath(input.path, workspace: workspace) == path
+        if await canonicalWorkspacePath(input.path, workspace: workspace) == path { return true }
       case .runCommand:
         return true
       default:
-        return false
+        continue
       }
     }
+    return false
   }
 
   private func toolCallSignature(
     for request: ToolCallRequest,
     workspace: Workspace
-  ) -> ToolCallSignature? {
+  ) async -> ToolCallSignature? {
     let arguments: ToolCallSignature.Arguments
     switch request.payload {
     case .readDocument(let input):
@@ -834,22 +839,22 @@ extension ToolLoopCoordinator {
       }
       arguments = .readDocument(path: workspace.relativePath(for: url))
     case .readFile(let input):
-      guard let path = canonicalWorkspacePath(input.path, workspace: workspace) else {
+      guard let path = await canonicalWorkspacePath(input.path, workspace: workspace) else {
         return nil
       }
       arguments = .readFile(path: path, offset: input.offset ?? 1, limit: input.limit)
     case .listFiles(let input):
-      guard let path = canonicalWorkspacePath(input.path ?? ".", workspace: workspace) else {
+      guard let path = await canonicalWorkspacePath(input.path ?? ".", workspace: workspace) else {
         return nil
       }
       arguments = .listFiles(path: path)
     case .globFiles(let input):
-      guard let path = canonicalWorkspacePath(input.path ?? ".", workspace: workspace) else {
+      guard let path = await canonicalWorkspacePath(input.path ?? ".", workspace: workspace) else {
         return nil
       }
       arguments = .globFiles(pattern: input.pattern, path: path)
     case .searchFiles(let input):
-      guard let path = canonicalWorkspacePath(input.path ?? ".", workspace: workspace) else {
+      guard let path = await canonicalWorkspacePath(input.path ?? ".", workspace: workspace) else {
         return nil
       }
       arguments = .searchFiles(pattern: input.pattern, path: path, include: input.include)
@@ -873,11 +878,11 @@ extension ToolLoopCoordinator {
   private func canonicalWorkspacePath(
     _ input: String,
     workspace: Workspace
-  ) -> WorkspaceRelativePath? {
-    guard let resolvedPath = try? workspace.resolveAllowedPath(input) else {
+  ) async -> WorkspaceRelativePath? {
+    guard let location = try? await fileIO.resolve(path: input, in: workspace) else {
       return nil
     }
-    return workspace.relativePath(for: resolvedPath)
+    return location.relativePath
   }
 
   private func hasCompletedWorkspaceMutation(

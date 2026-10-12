@@ -32,6 +32,7 @@ package final class Sumika {
   }
 
   package struct Dependencies: Sendable {
+    let workspaceExecution: WorkspaceExecution?
     let runtime: any ChatModelRuntime
     let modelSettingsStore: any ModelSettingsStoring
     let modelDownloader: any ModelDownloading
@@ -46,6 +47,7 @@ package final class Sumika {
 
     package init(
       runtime: any ChatModelRuntime,
+      workspaceExecution: WorkspaceExecution? = nil,
       modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
       modelDownloader: any ModelDownloading = UnavailableModelDownloader(),
       modelAvailability: (@Sendable (ManagedModel) -> Bool)? = nil,
@@ -59,6 +61,7 @@ package final class Sumika {
       turnTracer: any TurnTracing = NoopTurnTracer(),
       mcpRuntimeConfiguration: MCPRuntimeConfiguration? = nil
     ) {
+      self.workspaceExecution = workspaceExecution
       self.runtime = runtime
       self.modelSettingsStore = modelSettingsStore
       self.modelDownloader = modelDownloader
@@ -116,13 +119,16 @@ package final class Sumika {
       ),
       toolOrchestrator: ToolOrchestrator.agent(
         todoWriteEnabled: false,
+        workspaceExecution: dependencies.workspaceExecution,
         documentMarkdownConverter: dependencies.documentMarkdownConverter,
         browserToolService: dependencies.browserToolService,
         webAccessSettingsProvider: dependencies.webAccessSettingsProvider
       ),
       documentMarkdownConverter: dependencies.documentMarkdownConverter,
       chatAttachmentLoader: dependencies.chatAttachmentLoader,
-      workspaceInstructionsLoader: WorkspaceInstructionsLoader(),
+      workspaceInstructionsLoader: WorkspaceInstructionsLoader(
+        fileIO: dependencies.workspaceExecution?.fileIO ?? LocalWorkspaceFileIO()),
+      workspaceExecution: dependencies.workspaceExecution,
       skillCatalog: dependencies.skillCatalog,
       turnTracer: dependencies.turnTracer
     )

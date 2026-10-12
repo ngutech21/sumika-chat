@@ -331,7 +331,20 @@ flowchart TD
   `personal:review/references/example.md`; it does not establish filesystem access
   permission. Executors still validate access before file IO.
 - `ToolContext` carries runtime context such as the active workspace, active
-  session ID, read tracker, and latest command result store.
+  session ID, read tracker, latest command result store, and `WorkspaceFileIO`.
+  Read, edit, and write tools share their validation, paging, matching, and result
+  construction across native and injected file I/O. Permission evaluation is
+  asynchronous so it can resolve paths at the actual execution boundary.
+  Approved calls still revalidate before execution. Edits compare the original
+  bytes again before the atomic replacement and fail if they changed.
+- `Sumika.Dependencies.workspaceExecution` supplies an alternate file and command
+  boundary for `SumikaEval`. Its registry contains only the implemented file and
+  command tools plus `ask_user` and `finish_task`; configuration updates retain
+  that profile. Workspace instruction discovery and mutation grouping use the
+  same file boundary. Skill discovery is disabled for this profile. The Harbor
+  adapter executes all task file and command operations inside Docker; there is
+  no host execution fallback. See [Harbor evaluation](testing.md#harbor-agent-evaluation)
+  for the initial profile's limits.
 - `ToolDefinition` describes a tool for prompts and provider adapters,
   including capability, risk, structured parameter metadata, and an optional
   provider-neutral raw parameter schema for dynamic tools. Provider-specific

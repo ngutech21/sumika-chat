@@ -609,15 +609,15 @@ struct ReadFileToolExecutor: TypedToolExecutor {
   func evaluatePermission(
     _ input: ReadFileInput,
     context: ToolContext
-  ) -> ToolPermissionEvaluation {
+  ) async -> ToolPermissionEvaluation {
     do {
-      let resolvedPath = try context.workspace.resolveAllowedPath(input.path)
+      let location = try await context.fileIO.resolve(path: input.path, in: context.workspace)
       return ToolPermissionEvaluation(
         decision: .allowed,
         reason: "Reading files inside the workspace is allowed.",
         riskLevel: .low,
-        normalizedPaths: [resolvedPath.path(percentEncoded: false)],
-        workspaceRelativePaths: [context.workspace.relativePath(for: resolvedPath)]
+        normalizedPaths: [location.absolutePath],
+        workspaceRelativePaths: [location.relativePath]
       )
     } catch {
       return ToolPermissionEvaluation(
@@ -629,40 +629,27 @@ struct ReadFileToolExecutor: TypedToolExecutor {
   }
 
   func run(_ input: ReadFileInput, context: ToolContext) async -> ToolResultPayload {
-    var resolvedURL: URL?
-    var relativePath: WorkspaceRelativePath?
-    var result: ReadFileResult?
-
+    var location: WorkspaceFileLocation?
     do {
-      let failure: ToolResultPayload? = try context.workspace.withSecurityScopedAccess {
-        let resolvedPathURL = try context.workspace.resolveAllowedPath(input.path)
-        resolvedURL = resolvedPathURL
-        let path = context.workspace.relativePath(for: resolvedPathURL)
-        relativePath = path
-        let readResult = try Self.readPage(
-          from: resolvedPathURL,
-          path: path,
-          startLine: input.offset ?? 1,
-          maxLines: resolvedMaxLines(requestedLimit: input.limit),
-          maxBytes: maxBytes
+      let resolved = try await context.fileIO.resolve(path: input.path, in: context.workspace)
+      location = resolved
+      let relativePath = resolved.relativePath
+      guard
+        let result = try await context.fileIO.withReader(
+          path: resolved.absolutePath, in: context.workspace,
+          { readChunk in
+            try await Self.readPage(
+              path: relativePath,
+              startLine: input.offset ?? 1,
+              maxLines: resolvedMaxLines(requestedLimit: input.limit),
+              maxBytes: maxBytes,
+              readChunk: readChunk
+            )
+          }
         )
-        guard let readResult else {
-          return .readFile(
-            .failed(path: path, reason: .unsupportedFileType("non-UTF-8 text"))
-          )
-        }
-
-        result = readResult
-        return nil
-      }
-
-      if let failure {
-        return failure
-      }
-
-      guard let relativePath, let result else {
+      else {
         return .readFile(
-          .failed(path: relativePath, reason: .executionError("read_file result unavailable."))
+          .failed(path: relativePath, reason: .unsupportedFileType("non-UTF-8 text"))
         )
       }
 
@@ -686,12 +673,10 @@ struct ReadFileToolExecutor: TypedToolExecutor {
     } catch {
       return .readFile(
         .failed(
-          path: ToolResultFailureMapper.relativePath(
-            for: input.path, resolvedURL: resolvedURL, workspace: context.workspace),
-          reason: ToolResultFailureMapper.isFileNotFound(error)
-            ? await ToolResultFailureMapper.missingFileReason(
-              for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
-            : ToolResultFailureMapper.reason(from: error)
+          path: location?.relativePath ?? WorkspaceRelativePath(rawValue: input.path),
+          reason: await context.fileIO.failureReason(
+            for: error, path: input.path, location: location, in: context.workspace
+          )
         )
       )
     }
@@ -724,23 +709,18 @@ struct ReadFileToolExecutor: TypedToolExecutor {
   }
 
   static func readPage(
-    from url: URL,
     path: WorkspaceRelativePath,
     startLine: Int,
     maxLines: Int?,
-    maxBytes: Int
-  ) throws -> ReadFileResult? {
-    let fileHandle = try FileHandle(forReadingFrom: url)
-    defer {
-      try? fileHandle.close()
-    }
-
-    var reader = ReadFileLineReader(fileHandle: fileHandle)
+    maxBytes: Int,
+    readChunk: @escaping @Sendable (Int, Int) async throws -> Data
+  ) async throws -> ReadFileResult? {
+    var reader = ReadFileLineReader(readChunk: readChunk)
     var lineNumber = 1
     let pageByteLimit = max(maxBytes, 0)
 
     while lineNumber < startLine {
-      guard try reader.nextLine(maxBufferedBytes: 0) != nil else {
+      guard try await reader.nextLine(maxBufferedBytes: 0) != nil else {
         return .offsetOutOfRange(
           path: path,
           requestedOffset: startLine,
@@ -751,7 +731,7 @@ struct ReadFileToolExecutor: TypedToolExecutor {
     }
 
     guard
-      var currentLine = try reader.nextLine(
+      var currentLine = try await reader.nextLine(
         maxBufferedBytes: availableContentBytes(
           for: lineNumber,
           pageByteLimit: pageByteLimit
@@ -838,7 +818,7 @@ struct ReadFileToolExecutor: TypedToolExecutor {
       lineNumber += 1
 
       guard
-        let nextLine = try reader.nextLine(
+        let nextLine = try await reader.nextLine(
           maxBufferedBytes: availableContentBytes(
             for: lineNumber,
             pageByteLimit: pageByteLimit
@@ -868,23 +848,31 @@ struct ReadFileToolExecutor: TypedToolExecutor {
 }
 
 private struct ReadFileLineReader {
-  let fileHandle: FileHandle
+  let readChunk: @Sendable (Int, Int) async throws -> Data
+  private var offset = 0
   private var chunk = Data()
   private var chunkIndex = 0
   private var reachedEndOfFile = false
 
-  init(fileHandle: FileHandle) {
-    self.fileHandle = fileHandle
+  init(readChunk: @escaping @Sendable (Int, Int) async throws -> Data) {
+    self.readChunk = readChunk
   }
 
-  mutating func nextLine(maxBufferedBytes: Int) throws -> ReadFileScannedLine? {
+  mutating func nextLine(maxBufferedBytes: Int) async throws -> ReadFileScannedLine? {
     var content = Data()
     var byteCount = 0
     var lastByte: UInt8?
     var sawContentByte = false
 
     while true {
-      guard let byte = try nextByte() else {
+      if chunkIndex >= chunk.endIndex, !reachedEndOfFile {
+        try Task.checkCancellation()
+        chunk = try await readChunk(offset, 8 * 1024)
+        offset += chunk.count
+        chunkIndex = chunk.startIndex
+        reachedEndOfFile = chunk.isEmpty
+      }
+      guard chunkIndex < chunk.endIndex else {
         guard sawContentByte else {
           return nil
         }
@@ -895,6 +883,8 @@ private struct ReadFileLineReader {
         )
       }
 
+      let byte = chunk[chunkIndex]
+      chunkIndex += 1
       if byte == 0x0A {
         return normalizedLine(
           content: content,
@@ -910,23 +900,6 @@ private struct ReadFileLineReader {
         content.append(byte)
       }
     }
-  }
-
-  private mutating func nextByte() throws -> UInt8? {
-    while chunkIndex >= chunk.endIndex {
-      guard !reachedEndOfFile else {
-        return nil
-      }
-      chunk = try fileHandle.read(upToCount: 8 * 1024) ?? Data()
-      chunkIndex = chunk.startIndex
-      if chunk.isEmpty {
-        reachedEndOfFile = true
-      }
-    }
-
-    let byte = chunk[chunkIndex]
-    chunkIndex += 1
-    return byte
   }
 
   private func normalizedLine(

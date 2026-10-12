@@ -49,9 +49,12 @@ struct RunCommandExecutionSignature: Hashable {
   private let workingDirectory: String
   private let timeoutSeconds: Int
 
-  init(input: RunCommandInput, workspace: Workspace) throws {
+  init(
+    input: RunCommandInput, workspace: Workspace,
+    fileIO: any WorkspaceFileIO = LocalWorkspaceFileIO()
+  ) async throws {
     commandUTF8 = Data(input.command.utf8)
-    workingDirectory = try workspace.resolveAllowedPath(".").path(percentEncoded: false)
+    workingDirectory = try await fileIO.resolve(path: ".", in: workspace).absolutePath
     timeoutSeconds = input.effectiveTimeoutSeconds
   }
 }
@@ -326,14 +329,14 @@ struct RunCommandToolExecutor: TypedToolExecutor {
   func evaluatePermission(
     _ input: RunCommandInput,
     context: ToolContext
-  ) -> ToolPermissionEvaluation {
+  ) async -> ToolPermissionEvaluation {
     do {
-      let workspaceRoot = try context.workspace.resolveAllowedPath(".")
+      let workspaceRoot = try await context.fileIO.resolve(path: ".", in: context.workspace)
       return ToolPermissionEvaluation(
         decision: .requiresApproval,
         reason: "Running commands inside the workspace requires approval.",
         riskLevel: .high,
-        normalizedPaths: [workspaceRoot.path(percentEncoded: false)],
+        normalizedPaths: [workspaceRoot.absolutePath],
         workspaceRelativePaths: [WorkspaceRelativePath(rawValue: ".")]
       )
     } catch {
@@ -352,7 +355,7 @@ struct RunCommandToolExecutor: TypedToolExecutor {
     ToolResultPreview(
       text: [
         "Command requires approval.",
-        "Workspace: \(context.workspace.normalizedRootPath)",
+        "Workspace: \(context.workspace.rootURL.path(percentEncoded: false))",
         "Timeout: \(input.effectiveTimeoutSeconds) seconds",
         input.reason.map { "Reason: \($0)" },
         "Command:\n\(input.command)",
@@ -363,78 +366,82 @@ struct RunCommandToolExecutor: TypedToolExecutor {
 
   func run(_ input: RunCommandInput, context: ToolContext) async -> ToolResultPayload {
     do {
+      let location = try await context.fileIO.resolve(path: ".", in: context.workspace)
+      let workspaceRoot = URL(filePath: location.absolutePath)
       return try await context.workspace.withAsyncSecurityScopedAccess {
-        let workspaceRoot = try context.workspace.resolveAllowedPath(".")
-        let timeoutSeconds = input.effectiveTimeoutSeconds
-        let request = CommandProcessRequest(
-          executableURL: bashExecutableURL,
-          arguments: ["-c", input.command],
-          environment: commandEnvironment(workspaceRoot: workspaceRoot),
-          workingDirectoryURL: workspaceRoot,
-          timeoutSeconds: timeoutSeconds,
-          maxStdoutBytes: 512 * 1024,
-          maxStderrBytes: 512 * 1024,
-          stdoutRetention: .headTail,
-          stderrRetention: .headTail
-        )
-        let processResult = try await processRunner.run(request)
-        let limits = previewLimits(exitCode: processResult.exitCode)
-        let stdoutPreview = previewOutput(
-          processResult.stdout,
-          maxBytes: min(limits.stdoutBytes, maxOutputBytes)
-        )
-        let stderrPreview = previewOutput(
-          processResult.stderr,
-          maxBytes: min(limits.stderrBytes, maxOutputBytes)
-        )
-        var result = RunCommandResult(
-          command: input.command,
-          timeoutSeconds: timeoutSeconds,
-          exitCode: processResult.exitCode,
-          durationMs: processResult.durationMs,
-          stdout: stdoutPreview.output,
-          stderr: stderrPreview.output,
-          outputRef: nil,
-          stdoutOmittedChars: stdoutPreview.omittedChars,
-          stderrOmittedChars: stderrPreview.omittedChars,
-          stdoutCaptureOmittedBytes: processResult.stdoutOmittedBytes,
-          stderrCaptureOmittedBytes: processResult.stderrOmittedBytes,
-          timedOut: processResult.timedOut,
-          cancelled: processResult.cancelled
-        )
-        if let sessionID = context.sessionID,
-          let latestCommandResultStore = context.latestCommandResultStore
-        {
-          let outputRef = outputRefGenerator()
-          var retainedResult = result
-          retainedResult.outputRef = outputRef
-          let retained = await latestCommandResultStore.record(
-            retainedResult,
-            output: CommandOutputRecord(
-              outputRef: outputRef,
-              stdout: processResult.stdout,
-              stderr: processResult.stderr,
-              stdoutOmittedBytes: processResult.stdoutOmittedBytes,
-              stderrOmittedBytes: processResult.stderrOmittedBytes
-            ),
-            workspaceID: context.workspace.id,
-            sessionID: sessionID
-          )
-          if retained {
-            result = retainedResult
-          }
-        }
-        return .runCommand(result)
+        try await runCommand(input, context: context, workspaceRoot: workspaceRoot)
       }
     } catch {
       return .failure(
         ToolFailure(
-          toolName: .runCommand,
-          path: WorkspaceRelativePath(rawValue: "."),
-          reason: ToolResultFailureMapper.reason(from: error)
-        )
-      )
+          toolName: .runCommand, path: WorkspaceRelativePath(rawValue: "."),
+          reason: ToolResultFailureMapper.reason(from: error)))
     }
+  }
+
+  private func runCommand(_ input: RunCommandInput, context: ToolContext, workspaceRoot: URL)
+    async throws -> ToolResultPayload
+  {
+    let timeoutSeconds = input.effectiveTimeoutSeconds
+    let request = CommandProcessRequest(
+      executableURL: bashExecutableURL,
+      arguments: ["-c", input.command],
+      environment: commandEnvironment(workspaceRoot: workspaceRoot),
+      workingDirectoryURL: workspaceRoot,
+      timeoutSeconds: timeoutSeconds,
+      maxStdoutBytes: 512 * 1024,
+      maxStderrBytes: 512 * 1024,
+      stdoutRetention: .headTail,
+      stderrRetention: .headTail
+    )
+    let processResult = try await processRunner.run(request)
+    let limits = previewLimits(exitCode: processResult.exitCode)
+    let stdoutPreview = previewOutput(
+      processResult.stdout,
+      maxBytes: min(limits.stdoutBytes, maxOutputBytes)
+    )
+    let stderrPreview = previewOutput(
+      processResult.stderr,
+      maxBytes: min(limits.stderrBytes, maxOutputBytes)
+    )
+    var result = RunCommandResult(
+      command: input.command,
+      timeoutSeconds: timeoutSeconds,
+      exitCode: processResult.exitCode,
+      durationMs: processResult.durationMs,
+      stdout: stdoutPreview.output,
+      stderr: stderrPreview.output,
+      outputRef: nil,
+      stdoutOmittedChars: stdoutPreview.omittedChars,
+      stderrOmittedChars: stderrPreview.omittedChars,
+      stdoutCaptureOmittedBytes: processResult.stdoutOmittedBytes,
+      stderrCaptureOmittedBytes: processResult.stderrOmittedBytes,
+      timedOut: processResult.timedOut,
+      cancelled: processResult.cancelled
+    )
+    if let sessionID = context.sessionID,
+      let latestCommandResultStore = context.latestCommandResultStore
+    {
+      let outputRef = outputRefGenerator()
+      var retainedResult = result
+      retainedResult.outputRef = outputRef
+      let retained = await latestCommandResultStore.record(
+        retainedResult,
+        output: CommandOutputRecord(
+          outputRef: outputRef,
+          stdout: processResult.stdout,
+          stderr: processResult.stderr,
+          stdoutOmittedBytes: processResult.stdoutOmittedBytes,
+          stderrOmittedBytes: processResult.stderrOmittedBytes
+        ),
+        workspaceID: context.workspace.id,
+        sessionID: sessionID
+      )
+      if retained {
+        result = retainedResult
+      }
+    }
+    return .runCommand(result)
   }
 
   private func commandEnvironment(workspaceRoot: URL) -> [String: String] {

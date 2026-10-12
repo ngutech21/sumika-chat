@@ -1256,7 +1256,7 @@ struct ToolExecutionTests {
     let workspace = try makeWorkspace()
     let executor = WriteFileToolExecutor()
 
-    let evaluation = executor.evaluatePermission(
+    let evaluation = await executor.evaluatePermission(
       WriteFileInput(path: "Sources/App.swift", content: "let value = 1"),
       context: ToolContext(workspace: workspace)
     )
@@ -1278,11 +1278,11 @@ struct ToolExecutionTests {
     let workspace = try makeWorkspace()
     let executor = WriteFileToolExecutor()
 
-    let parentEscape = executor.evaluatePermission(
+    let parentEscape = await executor.evaluatePermission(
       WriteFileInput(path: "../secret.txt", content: "secret"),
       context: ToolContext(workspace: workspace)
     )
-    let absoluteEscape = executor.evaluatePermission(
+    let absoluteEscape = await executor.evaluatePermission(
       WriteFileInput(path: "/tmp/secret.txt", content: "secret"),
       context: ToolContext(workspace: workspace)
     )

@@ -198,11 +198,11 @@ struct ReadSkillResourceToolTests {
   }
 
   @Test
-  func runCommandStillRequiresApprovalForScriptsInsideAnActivatedSkill() throws {
+  func runCommandStillRequiresApprovalForScriptsInsideAnActivatedSkill() async throws {
     let root = try makeDirectory(named: "script-approval")
     let context = ToolContext(workspace: Workspace(name: "Project", rootURL: root))
 
-    let permission = RunCommandToolExecutor().evaluatePermission(
+    let permission = await RunCommandToolExecutor().evaluatePermission(
       RunCommandInput(
         command: "./.agents/skills/testing/scripts/check.sh",
         timeoutSeconds: 30,

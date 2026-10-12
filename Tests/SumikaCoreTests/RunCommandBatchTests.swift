@@ -119,18 +119,18 @@ struct RunCommandBatchTests {
   }
 
   @Test
-  func workingDirectoryIdentityUsesTheExecutionResolver() throws {
+  func workingDirectoryIdentityUsesTheExecutionResolver() async throws {
     let root = try scopedTemporaryDirectory()
     let other = root.appending(path: "other")
     try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
     let alias = root.appending(path: "alias")
     try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: other)
     let input = RunCommandInput(command: "check", timeoutSeconds: 120)
-    let original = try RunCommandExecutionSignature(
+    let original = try await RunCommandExecutionSignature(
       input: input, workspace: Workspace(name: "Root", rootURL: root))
-    let different = try RunCommandExecutionSignature(
+    let different = try await RunCommandExecutionSignature(
       input: input, workspace: Workspace(name: "Other", rootURL: other))
-    let normalized = try RunCommandExecutionSignature(
+    let normalized = try await RunCommandExecutionSignature(
       input: input, workspace: Workspace(name: "Alias", rootURL: alias))
     #expect(original != different)
     #expect(different == normalized)
@@ -263,7 +263,7 @@ struct RunCommandBatchTests {
   }
 
   @Test
-  func unavailableCommandsDoNotReserveSignatures() throws {
+  func unavailableCommandsDoNotReserveSignatures() async throws {
     let workspace = Workspace(name: "Commands", rootURL: try scopedTemporaryDirectory())
     let registry = ToolRegistry(tools: [])
     let requests = (0..<2).map { _ in
@@ -272,7 +272,7 @@ struct RunCommandBatchTests {
           workspaceID: workspace.id, sessionID: UUID(), toolName: .runCommand,
           arguments: ["command": .string("check")]), registry: registry)
     }
-    #expect(RunCommandBatchPolicy.blockedRecords(for: requests, workspace: workspace).isEmpty)
+    #expect(await RunCommandBatchPolicy.blockedRecords(for: requests, workspace: workspace).isEmpty)
   }
 
   @Test(

@@ -117,17 +117,17 @@ internal struct CommandOutputRecord: Equatable, Sendable {
   }
 }
 
-internal struct CommandProcessRequest: Equatable, Sendable {
-  var executableURL: URL
-  var arguments: [String]
-  var environment: [String: String]
-  var workingDirectoryURL: URL
-  var timeoutSeconds: Int
-  var standardInput: Data?
-  var maxStdoutBytes: Int
-  var maxStderrBytes: Int
-  var stdoutRetention: ProcessOutputRetention
-  var stderrRetention: ProcessOutputRetention
+package struct CommandProcessRequest: Equatable, Sendable {
+  package internal(set) var executableURL: URL
+  package internal(set) var arguments: [String]
+  package internal(set) var environment: [String: String]
+  package internal(set) var workingDirectoryURL: URL
+  package internal(set) var timeoutSeconds: Int
+  package internal(set) var standardInput: Data?
+  package internal(set) var maxStdoutBytes: Int
+  package internal(set) var maxStderrBytes: Int
+  package internal(set) var stdoutRetention: ProcessOutputRetention
+  package internal(set) var stderrRetention: ProcessOutputRetention
 
   init(
     executableURL: URL, arguments: [String], environment: [String: String],
@@ -149,7 +149,7 @@ internal struct CommandProcessRequest: Equatable, Sendable {
   }
 }
 
-internal struct CommandProcessResult: Equatable, Sendable {
+package struct CommandProcessResult: Equatable, Sendable {
   var exitCode: Int32?
   var durationMs: Int
   var stdout: String
@@ -164,7 +164,7 @@ internal struct CommandProcessResult: Equatable, Sendable {
   var timedOut: Bool { termination == .timedOut }
   var cancelled: Bool { termination == .cancelled }
 
-  init(
+  package init(
     exitCode: Int32?, durationMs: Int, stdout: String, stderr: String,
     stdoutData: Data? = nil, timedOut: Bool = false, cancelled: Bool = false,
     stdoutTruncated: Bool = false, stderrTruncated: Bool = false,
@@ -183,7 +183,7 @@ internal struct CommandProcessResult: Equatable, Sendable {
   }
 }
 
-internal protocol CommandProcessRunning: Sendable {
+package protocol CommandProcessRunning: Sendable {
   func run(_ request: CommandProcessRequest) async throws -> CommandProcessResult
 }
 

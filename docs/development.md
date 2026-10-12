@@ -67,6 +67,9 @@ Keep changes within the existing ownership boundaries:
   core protocols.
 - `Sources/SumikaApp/` owns SwiftUI, AppKit, presentation adapters, and macOS
   integrations.
+- `Sources/SumikaEval/` composes Core and the MLX runtime for headless Harbor
+  evaluation, including the container transport adapter. See
+  [Harbor testing](testing.md#harbor-agent-evaluation) for its initial scope.
 - `sumika/` contains the Xcode app launcher, resources, entitlements, and bundle
   metadata.
 
