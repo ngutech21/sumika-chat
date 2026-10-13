@@ -556,8 +556,9 @@ extension ConversationEngine {
     containing batchAnchorID: ToolCallRecord.ID,
     in workspace: Workspace,
     turnID: ChatTurn.ID,
-    registry: ToolRegistry
-  ) {
+    registry: ToolRegistry,
+    fileIO: any WorkspaceFileIO
+  ) async {
     // Older saved batches may predate the barrier. Resolve their unstarted duplicates
     // against every sibling before any manual or automatic approval can execute.
     guard let turn = chatSession.turns.first(where: { $0.id == turnID }),
@@ -565,10 +566,11 @@ extension ConversationEngine {
     else {
       return
     }
-    let blockedCommands = RunCommandBatchPolicy.blockedRecords(
+    let blockedCommands = await RunCommandBatchPolicy.blockedRecords(
       for: batch.records.map {
         ToolCallRequestValidator().validate($0.request.raw, registry: registry)
-      }, workspace: workspace)
+      }, workspace: workspace, fileIO: fileIO)
+    guard !Task.isCancelled, isActive(turnID), activeWorkspaceID == workspace.id else { return }
     var resolvedDuplicates = false
     for var record in batch.pendingApprovalRecords {
       guard let blocked = blockedCommands[record.id] else { continue }
@@ -593,9 +595,9 @@ extension ConversationEngine {
     approvalSource: ToolApprovalSource,
     runtime: ChatTurnRuntimeContext
   ) async throws -> ChatTurnTaskOutcome {
-    resolvePendingCommandDuplicates(
+    await resolvePendingCommandDuplicates(
       containing: batchAnchorID, in: workspace, turnID: turnID,
-      registry: toolOrchestrator.toolRegistry)
+      registry: toolOrchestrator.toolRegistry, fileIO: toolOrchestrator.fileIO)
     var processedRecordIDs = Set<ToolCallRecord.ID>()
     for requestedRecord in existingRecords {
       guard !processedRecordIDs.contains(requestedRecord.id) else {

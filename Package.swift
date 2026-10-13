@@ -23,6 +23,7 @@ let package = Package(
     .macOS(.v15)
   ],
   products: [
+    .executable(name: "SumikaEval", targets: ["SumikaEval"]),
     .library(name: "SumikaCore", targets: ["SumikaCore"]),
     .library(name: "SumikaApp", targets: ["SumikaApp"]),
   ],
@@ -117,6 +118,16 @@ let package = Package(
       sources: ["scanner.c"],
       publicHeadersPath: "include",
       cSettings: [.headerSearchPath("include")]
+    ),
+    .executableTarget(
+      name: "SumikaEval",
+      dependencies: ["SumikaCore", "SumikaRuntimeMLX"],
+      swiftSettings: compilerChecking
+    ),
+    .testTarget(
+      name: "SumikaEvalTests",
+      dependencies: ["SumikaEval", "SumikaCore"],
+      swiftSettings: compilerChecking
     ),
     .executableTarget(
       name: "DataModelGenerator",

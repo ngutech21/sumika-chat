@@ -19,6 +19,26 @@
             "target": "DataModelGenerator",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release DataModelGenerator"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:sumika-chat}",
+            "name": "Debug SumikaEval",
+            "target": "SumikaEval",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug SumikaEval"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:sumika-chat}",
+            "name": "Release SumikaEval",
+            "target": "SumikaEval",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release SumikaEval"
         }
     ]
 }

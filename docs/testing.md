@@ -49,6 +49,28 @@ tests use fake commands to check cached lookups, delayed registration, and failu
 paths without downloading or modifying the host toolchain. Actions Lint runs them
 on Ubuntu. A hosted macOS run must still verify the real installation and build.
 
+## Harbor agent evaluation
+
+The first Harbor integration runs one Python repair task with the native
+`SumikaEval` executable. It uses the production MLX runtime, Work loop, model
+defaults, typed tools, and automatic approval lifecycle. Harbor owns the Docker
+workspace and independently verifies its final contents. A completed Sumika turn
+is not itself a passing evaluation.
+
+See [the Harbor runner instructions](../script/harbor/README.md) for installation,
+the single-trial command, baseline and oracle checks, and artifact locations.
+Use an already installed Work-capable model; evaluation never downloads weights.
+Run one trial at a time on the Mac. The CLI keeps settings and attachments in the
+trial directory and writes `session.json`, `result.json`, and the existing
+`mlx-trace.jsonl` format there.
+
+This initial profile enables `read_file`, `edit_file`, `write_file`, `run_command`,
+`ask_user`, and `finish_task`. Workspace instructions are read from the container.
+Skills, MCP, browser, web, and other tools are absent from the profile.
+Unexpected user questions end the trial as `needs_user`; Harbor still determines
+correctness through its verifier. The example is an integration smoke test, not
+a measure of general coding ability.
+
 ## Sanitizers
 
 `just test-asan` enables Swift optimization with `-Xswiftc -O` while retaining

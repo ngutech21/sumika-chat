@@ -261,18 +261,25 @@ struct ReadSkillResourceToolExecutor: TypedToolExecutor {
     context: ToolContext
   ) async -> ToolResultPayload {
     do {
-      return try context.workspace.withSecurityScopedAccess {
+      return try await context.workspace.withAsyncSecurityScopedAccess {
         let url = try resolve(input)
+        let resourceWorkspace = Workspace(
+          name: "Skill resource", rootURL: url.deletingLastPathComponent())
         guard
-          let result = try ReadFileToolExecutor.readPage(
-            from: url,
-            path: portablePath(for: input),
-            startLine: input.offset ?? 1,
-            maxLines: min(
-              input.limit ?? ReadSkillResourceLimits.maximumLinesPerPage,
-              ReadSkillResourceLimits.maximumLinesPerPage
-            ),
-            maxBytes: ReadSkillResourceLimits.renderedContentBytesPerPage
+          let result = try await LocalWorkspaceFileIO().withReader(
+            path: url.path(percentEncoded: false), in: resourceWorkspace,
+            { readChunk in
+              try await ReadFileToolExecutor.readPage(
+                path: portablePath(for: input),
+                startLine: input.offset ?? 1,
+                maxLines: min(
+                  input.limit ?? ReadSkillResourceLimits.maximumLinesPerPage,
+                  ReadSkillResourceLimits.maximumLinesPerPage
+                ),
+                maxBytes: ReadSkillResourceLimits.renderedContentBytesPerPage,
+                readChunk: readChunk
+              )
+            }
           )
         else {
           return failed(input, message: "Skill resource is not valid UTF-8.", status: .failed)

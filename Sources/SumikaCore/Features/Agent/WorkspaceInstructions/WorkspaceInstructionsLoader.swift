@@ -57,82 +57,45 @@ internal enum WorkspaceInstructionsLoadingError: LocalizedError, Equatable, Send
 internal struct WorkspaceInstructionsLoader: WorkspaceInstructionsLoading {
   package static let fileName = "AGENTS.md"
 
-  package init() {}
+  private let fileIO: any WorkspaceFileIO
 
-  package func loadInstructions(
-    from workspace: Workspace
-  ) async throws -> WorkspaceInstructionsLoadResult {
-    try await Task.detached(priority: .userInitiated) {
-      try workspace.withSecurityScopedAccess {
-        try loadInstructionsSynchronously(from: workspace)
-      }
-    }.value
+  init(fileIO: any WorkspaceFileIO = LocalWorkspaceFileIO()) {
+    self.fileIO = fileIO
   }
 
-  private func loadInstructionsSynchronously(
-    from workspace: Workspace
-  ) throws -> WorkspaceInstructionsLoadResult {
-    let children: [URL]
+  func loadInstructions(from workspace: Workspace) async throws -> WorkspaceInstructionsLoadResult {
+    let names: [String]
     do {
-      children = try FileManager.default.contentsOfDirectory(
-        at: workspace.rootURL,
-        includingPropertiesForKeys: [.isRegularFileKey],
-        options: []
-      )
+      names = try await fileIO.listDirectory(path: ".", in: workspace)
     } catch {
       throw WorkspaceInstructionsLoadingError.cannotInspectWorkspace
     }
-
-    guard
-      let selectedName = try Self.selectedFileName(
-        from: children.map(\.lastPathComponent)
-      )
-    else {
-      return .missing
-    }
-    guard let selectedURL = children.first(where: { $0.lastPathComponent == selectedName }) else {
-      return .missing
-    }
-
-    let selectedPath = selectedURL.lastPathComponent
-    let resolvedURL: URL
+    guard let selectedPath = try Self.selectedFileName(from: names) else { return .missing }
+    let location: WorkspaceFileLocation
     do {
-      resolvedURL = try workspace.resolveAllowedPath(selectedPath)
+      location = try await fileIO.resolve(path: selectedPath, in: workspace)
     } catch WorkspacePathResolutionError.pathOutsideWorkspace {
       throw WorkspaceInstructionsLoadingError.pathOutsideWorkspace(selectedPath)
     } catch {
       throw WorkspaceInstructionsLoadingError.cannotRead(selectedPath)
     }
-
-    do {
-      let values = try resolvedURL.resourceValues(forKeys: [.isRegularFileKey])
-      guard values.isRegularFile == true else {
-        throw WorkspaceInstructionsLoadingError.notRegularFile(selectedPath)
-      }
-    } catch let error as WorkspaceInstructionsLoadingError {
-      throw error
-    } catch {
-      throw WorkspaceInstructionsLoadingError.cannotRead(selectedPath)
+    guard location.isRegularFile else {
+      throw WorkspaceInstructionsLoadingError.notRegularFile(selectedPath)
     }
-
     let data: Data
     do {
-      data = try Data(contentsOf: resolvedURL)
+      data = try await fileIO.read(path: selectedPath, in: workspace, offset: 0, maxBytes: nil)
     } catch {
       throw WorkspaceInstructionsLoadingError.cannotRead(selectedPath)
     }
     guard let content = String(data: data, encoding: .utf8) else {
       throw WorkspaceInstructionsLoadingError.invalidUTF8(selectedPath)
     }
-    let digest = SHA256.hash(data: data)
-    let contentHash = digest.map { String(format: "%02x", $0) }.joined()
+    let contentHash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     return .found(
       WorkspaceInstructionsDocument(
-        path: WorkspaceRelativePath(rawValue: selectedPath),
-        contentHash: contentHash,
-        content: content
-      )
-    )
+        path: WorkspaceRelativePath(rawValue: selectedPath), contentHash: contentHash,
+        content: content))
   }
 
   static func selectedFileName(from names: [String]) throws -> String? {

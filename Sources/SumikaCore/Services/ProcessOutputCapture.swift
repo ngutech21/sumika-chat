@@ -1,6 +1,6 @@
 import Foundation
 
-enum ProcessOutputRetention: Equatable, Sendable {
+package enum ProcessOutputRetention: Equatable, Sendable {
   case prefix
   case headTail
   case tail

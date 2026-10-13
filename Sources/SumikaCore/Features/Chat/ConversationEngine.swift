@@ -65,6 +65,7 @@ final class ConversationEngine {
   @ObservationIgnored var turnToolOrchestrators: [ChatTurn.ID: ToolOrchestrator] = [:]
   @ObservationIgnored let turnExecutionCoordinator: ChatTurnExecutionCoordinator
   @ObservationIgnored var workspaceInstructionsLoader: any WorkspaceInstructionsLoading
+  @ObservationIgnored let workspaceExecution: WorkspaceExecution?
   @ObservationIgnored let skillCatalog: SkillCatalog
   @ObservationIgnored private var skillCatalogRefreshTask: Task<Void, Never>?
   @ObservationIgnored let toolResumeCoordinator = ToolResumeCoordinator()
@@ -141,6 +142,7 @@ final class ConversationEngine {
     chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
     workspaceInstructionsLoader: any WorkspaceInstructionsLoading =
       WorkspaceInstructionsLoader(),
+    workspaceExecution: WorkspaceExecution? = nil,
     skillCatalog: SkillCatalog = SkillCatalog(),
     turnTracer: any TurnTracing = NoopTurnTracer()
   ) {
@@ -152,9 +154,11 @@ final class ConversationEngine {
       turnTracer: turnTracer
     )
     self.workspaceInstructionsLoader = workspaceInstructionsLoader
+    self.workspaceExecution = workspaceExecution
     self.skillCatalog = skillCatalog
     self.toolOrchestrator = toolOrchestrator
     self.toolLoopCoordinator = ToolLoopCoordinator(
+      fileIO: toolOrchestrator.fileIO,
       turnTracer: turnTracer
     )
     self.attachmentCoordinator = ChatAttachmentCoordinator(loader: chatAttachmentLoader)
@@ -592,6 +596,7 @@ extension ConversationEngine {
     mcpExecutorGroups: [MCPAgentToolExecutorGroup]
   ) {
     agentToolConfiguration = AgentToolConfiguration(
+      workspaceExecution: workspaceExecution,
       documentMarkdownConverter: documentMarkdownConverter,
       todoWriteEnabled: todoWriteEnabled,
       mcpExecutorGroups: mcpExecutorGroups
@@ -607,7 +612,7 @@ extension ConversationEngine {
     guard let workspace = activeWorkspace else {
       throw ConversationIntentError.inactive
     }
-    guard chatSession.interactionMode == .agent else {
+    guard workspaceExecution == nil, chatSession.interactionMode == .agent else {
       skillCatalogSnapshot = .empty
       return .empty
     }
@@ -624,7 +629,9 @@ extension ConversationEngine {
   }
 
   private func scheduleSkillCatalogRefreshIfNeeded() {
-    guard let workspace = activeWorkspace, chatSession.interactionMode == .agent else {
+    guard workspaceExecution == nil, let workspace = activeWorkspace,
+      chatSession.interactionMode == .agent
+    else {
       return
     }
     let workspaceID = workspace.id
@@ -682,11 +689,13 @@ extension ConversationEngine {
     let interactionMode = chatSession.interactionMode
     let preparedSkills: PreparedSkillSubmission
     do {
-      preparedSkills = try await skillCatalog.prepareSubmission(
-        submission,
-        mode: interactionMode,
-        workspace: workspace
-      )
+      preparedSkills =
+        workspaceExecution == nil
+        ? try await skillCatalog.prepareSubmission(
+          submission,
+          mode: interactionMode,
+          workspace: workspace
+        ) : .empty
     } catch {
       errorMessage = error.localizedDescription
       throw error

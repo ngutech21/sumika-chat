@@ -2,6 +2,7 @@ import Foundation
 
 struct ToolContext: Sendable {
   let workspace: Workspace
+  let fileIO: any WorkspaceFileIO
   let sessionID: ChatSession.ID?
   let readTracker: ReadFileReadTracker?
   let latestCommandResultStore: LatestCommandResultStore?
@@ -12,6 +13,7 @@ struct ToolContext: Sendable {
 
   init(
     workspace: Workspace,
+    fileIO: any WorkspaceFileIO = LocalWorkspaceFileIO(),
     sessionID: ChatSession.ID? = nil,
     readTracker: ReadFileReadTracker? = nil,
     latestCommandResultStore: LatestCommandResultStore? = nil,
@@ -21,6 +23,7 @@ struct ToolContext: Sendable {
     browserToolService: any BrowserToolServing = UnavailableBrowserToolService()
   ) {
     self.workspace = workspace
+    self.fileIO = fileIO
     self.sessionID = sessionID
     self.readTracker = readTracker
     self.latestCommandResultStore = latestCommandResultStore
@@ -38,22 +41,6 @@ enum ToolResultFailureMapper {
       return false
     }
     return nsError.code == NSFileReadNoSuchFileError || nsError.code == NSFileNoSuchFileError
-  }
-
-  static func missingFileReason(
-    for inputPath: String,
-    resolvedURL: URL?,
-    workspace: Workspace
-  ) async -> ToolFailureReason {
-    let path = relativePath(for: inputPath, resolvedURL: resolvedURL, workspace: workspace)
-    let suggestions = await workspace.withAsyncSecurityScopedAccess {
-      await WorkspacePathSuggestionResolver()
-        .suggestions(forMissingPath: inputPath, workspace: workspace)
-    }
-    return .fileNotFound(
-      path: path,
-      suggestions: suggestions
-    )
   }
 
   static func reason(from error: Error) -> ToolFailureReason {
@@ -126,7 +113,7 @@ protocol TypedToolExecutor: Sendable {
 
   static var codec: ToolCodec<Input> { get }
 
-  func evaluatePermission(_ input: Input, context: ToolContext) -> ToolPermissionEvaluation
+  func evaluatePermission(_ input: Input, context: ToolContext) async -> ToolPermissionEvaluation
   func previewApproval(_ input: Input, context: ToolContext) async -> ToolResultPreview?
   func run(_ input: Input, context: ToolContext) async -> ToolResultPayload
 }
@@ -146,7 +133,7 @@ protocol DynamicToolExecutor: Sendable {
 
   var codec: ToolCodec<Input> { get }
 
-  func evaluatePermission(_ input: Input, context: ToolContext) -> ToolPermissionEvaluation
+  func evaluatePermission(_ input: Input, context: ToolContext) async -> ToolPermissionEvaluation
   func previewApproval(_ input: Input, context: ToolContext) async -> ToolResultPreview?
   func run(_ input: Input, context: ToolContext) async -> ToolResultPayload
 }
@@ -164,8 +151,9 @@ private struct TypedExecutorAdapter<T: TypedToolExecutor>: DynamicToolExecutor {
 
   var codec: ToolCodec<T.Input> { T.codec }
 
-  func evaluatePermission(_ input: T.Input, context: ToolContext) -> ToolPermissionEvaluation {
-    tool.evaluatePermission(input, context: context)
+  func evaluatePermission(_ input: T.Input, context: ToolContext) async -> ToolPermissionEvaluation
+  {
+    await tool.evaluatePermission(input, context: context)
   }
 
   func previewApproval(_ input: T.Input, context: ToolContext) async -> ToolResultPreview? {
@@ -179,14 +167,14 @@ private struct TypedExecutorAdapter<T: TypedToolExecutor>: DynamicToolExecutor {
 
 private struct AnyEditFileGroupExecutor: Sendable {
   private let evaluatePermissionHandler:
-    @Sendable (EditFileInput, ToolContext) -> ToolPermissionEvaluation
+    @Sendable (EditFileInput, ToolContext) async -> ToolPermissionEvaluation
   private let prepareApprovalHandler:
     @Sendable ([EditFileInput], ToolContext) async -> EditFileGroupPreparation
   private let runHandler: @Sendable ([EditFileInput], ToolContext) async -> EditFileGroupExecution
 
   init(_ tool: EditFileToolExecutor) {
     evaluatePermissionHandler = { input, context in
-      tool.evaluatePermission(input, context: context)
+      await tool.evaluatePermission(input, context: context)
     }
     prepareApprovalHandler = { inputs, context in
       await tool.prepareApprovalGroup(inputs, context: context)
@@ -199,8 +187,8 @@ private struct AnyEditFileGroupExecutor: Sendable {
   func evaluatePermission(
     _ input: EditFileInput,
     context: ToolContext
-  ) -> ToolPermissionEvaluation {
-    evaluatePermissionHandler(input, context)
+  ) async -> ToolPermissionEvaluation {
+    await evaluatePermissionHandler(input, context)
   }
 
   func prepareApprovalGroup(
@@ -296,8 +284,10 @@ struct AnyToolExecutor: Sendable {
   ) async -> ToolCallRecord {
     var record = makePendingRecord(request: request)
     let definition = tool.codec.definition
+    if let approvedEvaluation { record.evaluation = approvedEvaluation }
 
     do {
+      try Task.checkCancellation()
       guard request.payload.toolName == definition.name else {
         throw ToolInputDecodingError.payloadMismatch(
           expected: definition.name.rawValue,
@@ -305,7 +295,8 @@ struct AnyToolExecutor: Sendable {
         )
       }
       let input = try tool.codec.input(from: request.payload)
-      let evaluation = tool.evaluatePermission(input, context: context)
+      let evaluation = await tool.evaluatePermission(input, context: context)
+      try Task.checkCancellation()
       record.evaluation = evaluation
 
       if isApproved,
@@ -352,8 +343,12 @@ struct AnyToolExecutor: Sendable {
         return record
       }
 
+      try Task.checkCancellation()
       return await runEvaluatedTool(
         tool, input: input, record: record, context: context)
+    } catch is CancellationError {
+      record.state = .cancelled
+      return record
     } catch {
       return failedRecord(request: request, definition: definition, error: error)
     }
@@ -366,7 +361,12 @@ struct AnyToolExecutor: Sendable {
     record: inout ToolCallRecord,
     context: ToolContext
   ) async -> Bool {
-    guard let preview = await tool.previewApproval(input, context: context) else {
+    let preview = await tool.previewApproval(input, context: context)
+    guard !Task.isCancelled else {
+      record.state = .cancelled
+      return false
+    }
+    guard let preview else {
       return true
     }
 
@@ -454,9 +454,9 @@ struct AnyToolExecutor: Sendable {
     case .success:
       record.state = .completed(payload)
     case .failed:
-      record.state = .failed(payload)
+      record.state = Task.isCancelled ? .cancelled : .failed(payload)
     case .denied:
-      record.state = .denied(payload)
+      record.state = Task.isCancelled ? .cancelled : .denied(payload)
     }
 
     return record
@@ -637,6 +637,7 @@ enum ToolInputDecoder {
 
 struct ToolOrchestrator: Sendable {
   let executorRegistry: ToolExecutorRegistry
+  let fileIO: any WorkspaceFileIO
   private let validator: ToolCallRequestValidator
   private let readTracker: ReadFileReadTracker
   private let latestCommandResultStore: LatestCommandResultStore
@@ -647,6 +648,7 @@ struct ToolOrchestrator: Sendable {
 
   init(
     executorRegistry: ToolExecutorRegistry = .readOnly,
+    fileIO: any WorkspaceFileIO = LocalWorkspaceFileIO(),
     latestCommandResultStore: LatestCommandResultStore = LatestCommandResultStore(),
     webSearcher: any WebSearching = DefaultWebSearchService(),
     webFetcher: any WebFetching = DefaultWebFetchService(),
@@ -657,6 +659,7 @@ struct ToolOrchestrator: Sendable {
   ) {
     self.init(
       executorRegistry: executorRegistry,
+      fileIO: fileIO,
       validator: ToolCallRequestValidator(),
       readTracker: ReadFileReadTracker(),
       latestCommandResultStore: latestCommandResultStore,
@@ -669,6 +672,7 @@ struct ToolOrchestrator: Sendable {
 
   private init(
     executorRegistry: ToolExecutorRegistry,
+    fileIO: any WorkspaceFileIO,
     validator: ToolCallRequestValidator,
     readTracker: ReadFileReadTracker,
     latestCommandResultStore: LatestCommandResultStore,
@@ -678,6 +682,7 @@ struct ToolOrchestrator: Sendable {
     webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings
   ) {
     self.executorRegistry = executorRegistry
+    self.fileIO = fileIO
     self.validator = validator
     self.readTracker = readTracker
     self.latestCommandResultStore = latestCommandResultStore
@@ -696,6 +701,7 @@ struct ToolOrchestrator: Sendable {
   {
     ToolOrchestrator(
       executorRegistry: executorRegistry,
+      fileIO: fileIO,
       validator: validator,
       readTracker: readTracker,
       latestCommandResultStore: latestCommandResultStore,
@@ -883,7 +889,16 @@ struct ToolOrchestrator: Sendable {
       workspace: workspace,
       sessionID: requests.first?.sessionID
     )
-    let evaluations = inputs.map { tool.evaluatePermission($0, context: context) }
+    var evaluations: [ToolPermissionEvaluation] = []
+    for input in inputs {
+      evaluations.append(await tool.evaluatePermission(input, context: context))
+    }
+    func cancelledRecords() -> [ToolCallRecord] {
+      zip(requests, approvedRecords?.map(\.evaluation) ?? evaluations).map { request, evaluation in
+        ToolCallRecord(request: request, evaluation: evaluation, state: .cancelled)
+      }
+    }
+    guard !Task.isCancelled else { return cancelledRecords() }
     if let deniedEvaluation = evaluations.first(where: { $0.decision == .denied }) {
       return zip(requests, evaluations).map { request, evaluation in
         let reason =
@@ -911,20 +926,15 @@ struct ToolOrchestrator: Sendable {
       }
     }
 
-    let scopeChanged: Bool = {
-      guard enforceApprovedScope else {
-        return false
-      }
-      guard let approvedRecords, approvedRecords.count == evaluations.count else {
-        return true
-      }
-      return zip(approvedRecords, evaluations).contains { record, evaluation in
-        toolApprovalScopeChanged(from: record.evaluation, to: evaluation)
-      }
-    }()
+    let scopeChanged =
+      enforceApprovedScope
+      && editGroupApprovalScopeChanged(
+        approvedRecords: approvedRecords, evaluations: evaluations)
 
     if approvedRecords == nil || scopeChanged {
-      switch await tool.prepareApprovalGroup(inputs, context: context) {
+      let preparation = await tool.prepareApprovalGroup(inputs, context: context)
+      guard !Task.isCancelled else { return cancelledRecords() }
+      switch preparation {
       case .ready(let preview):
         return zip(requests, evaluations).enumerated().map { index, pair in
           ToolCallRecord(
@@ -958,13 +968,21 @@ struct ToolOrchestrator: Sendable {
         ToolCallRecord(request: pair.0, evaluation: pair.1, state: .completed(payload))
       }
     case .failed(let payloads):
+      guard !Task.isCancelled else { return cancelledRecords() }
       return zip(zip(requests, evaluations), payloads).map { pair, payload in
         ToolCallRecord(request: pair.0, evaluation: pair.1, state: .failed(payload))
       }
     case .cancelled:
-      return zip(requests, evaluations).map { request, evaluation in
-        ToolCallRecord(request: request, evaluation: evaluation, state: .cancelled)
-      }
+      return cancelledRecords()
+    }
+  }
+
+  private func editGroupApprovalScopeChanged(
+    approvedRecords: [ToolCallRecord]?, evaluations: [ToolPermissionEvaluation]
+  ) -> Bool {
+    guard let approvedRecords, approvedRecords.count == evaluations.count else { return true }
+    return zip(approvedRecords, evaluations).contains { record, evaluation in
+      toolApprovalScopeChanged(from: record.evaluation, to: evaluation)
     }
   }
 
@@ -1007,6 +1025,7 @@ struct ToolOrchestrator: Sendable {
   ) async -> ToolContext {
     ToolContext(
       workspace: workspace,
+      fileIO: fileIO,
       sessionID: sessionID,
       readTracker: readTracker,
       latestCommandResultStore: latestCommandResultStore,

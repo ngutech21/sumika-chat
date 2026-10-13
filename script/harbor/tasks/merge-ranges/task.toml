@@ -1,0 +1,18 @@
+schema_version = "1.4"
+
+[metadata]
+name = "sumika-merge-ranges"
+description = "A small Python repair task for the Sumika Harbor transport."
+
+[agent]
+timeout_sec = 660
+
+[verifier]
+timeout_sec = 30
+
+[environment]
+workdir = "/app"
+network_mode = "no-network"
+cpus = 1
+memory_mb = 512
+storage_mb = 1024
