@@ -11,6 +11,7 @@ import signal
 from harbor.agents.base import BaseAgent
 
 from script.harbor.bridge import SandboxBridge
+from script.harbor.evidence import capture_environment
 
 
 class SumikaAgent(BaseAgent):
@@ -41,6 +42,7 @@ class SumikaAgent(BaseAgent):
         location = await environment.exec("pwd", timeout_sec=10)
         if location.return_code or (location.stdout or "").strip() != "/app":
             raise ValueError("The initial Sumika evaluation requires the task working directory /app.")
+        await capture_environment(environment, self.logs_dir)
 
     async def run(self, instruction, environment, context):
         self.logs_dir.mkdir(parents=True, exist_ok=True)

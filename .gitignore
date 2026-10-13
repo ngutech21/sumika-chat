@@ -10,6 +10,9 @@ build/
 DerivedData/
 .build/
 
+# harbor framework results
+.harbor
+
 # Local performance reports
 .perf/
 tmp/

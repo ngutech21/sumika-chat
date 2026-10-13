@@ -34,6 +34,10 @@ struct EvaluationRunner {
       )
       let settings = await settingsStore.settings(for: model)
       result.contextTokenLimit = settings.contextTokenLimit
+      try await save(
+        EvaluationMetadata.capture(model: model, settings: settings, options: options),
+        named: "runtime.json"
+      )
       let environment = MLXRuntimeComposition.makeChatEnvironment()
       let instance = Sumika(
         configuration: Sumika.Configuration(
@@ -140,7 +144,9 @@ struct EvaluationRunner {
         throw EvaluationError("The prompt file is empty")
       }
       let stateDirectory = options.outputDirectory.appending(path: "state")
-      let existingArtifacts = ["state", "session.json", "result.json", "mlx-trace.jsonl"].contains {
+      let existingArtifacts = [
+        "state", "session.json", "result.json", "runtime.json", "mlx-trace.jsonl",
+      ].contains {
         FileManager.default.fileExists(
           atPath: options.outputDirectory.appending(path: $0).path(percentEncoded: false)
         )

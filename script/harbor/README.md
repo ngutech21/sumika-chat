@@ -47,10 +47,13 @@ ID, replace `MODEL_ID` in this command. Keep `-n 1` to avoid competing local MLX
 sessions:
 
 ```sh
+harbor_job_name="$(uuidgen)"
 HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" harbor run -p script/harbor/tasks/merge-ranges \
   -a script.harbor.agent:SumikaAgent -m MODEL_ID -n 1 \
+  --artifact /app --plugin script.harbor.evidence:EvidencePlugin \
   --ak binary="$PWD/.build/debug/SumikaEval" \
-  --ak timeout_seconds=600 --jobs-dir "$PWD/tmp/harbor/sumika"
+  --ak timeout_seconds=600 --jobs-dir "$PWD/tmp/harbor/sumika" --job-name "$harbor_job_name"
+python3 -B script/harbor/evidence.py "$PWD/tmp/harbor/sumika/$harbor_job_name"
 ```
 
 The unchanged task must score `0`; the reference solution must score `1`. The
@@ -66,6 +69,61 @@ Native `completed` and `needs_user` outcomes both proceed to Harbor's verifier;
 neither implies a passing reward. `needs_user` records that the unattended runner
 stopped at a question. Runner/model failures and timeouts remain trial exceptions.
 The adapter never assigns the task reward.
+
+## Trial evidence
+
+`run-harbor` enables workspace capture and the evidence plugin, then checks only
+the newly created job. Task definitions are unchanged. Harbor collects `/app`
+after Sumika and its command workers drain, before verification, under the
+existing `artifacts/` directory. Read `artifacts/manifest.json` for the actual
+destination and collection status; a passing reward does not prove capture
+succeeded. No captured task or workspace files are executed on the Mac.
+
+Each trial additionally retains:
+
+- `agent/task/`: a host-side copy of the exact task, including setup, initial
+  files, verifier, and reference solution. Its checksum must match Harbor's
+  planned task. These copies are never exposed to the agent's workspace.
+- `agent/reproduction.json`, `agent/source.patch`, `agent/source-untracked/`,
+  and `agent/Package.resolved`: source commit and working changes at run time,
+  executable SHA-256, Swift version, host architecture, and task fingerprints.
+  Source metadata describes the checkout at run time; it does not claim that an
+  arbitrary externally supplied binary was built from that checkout.
+- `agent/environment.json`: resolved task image IDs/digests and effective
+  workspace, network, CPU, memory, and storage configuration. Environment variable
+  values and the bridge token are not included. The Compose image lookup uses
+  the pinned Harbor version's Docker implementation.
+- `agent/runtime.json`: effective model settings, Work/approval policy, budgets,
+  native build configuration, host memory/OS, and SHA-256 fingerprints of every
+  non-hidden regular file in the installed model directory. Weights are hashed
+  before loading, not copied; this extra I/O counts toward the runner deadline.
+- `agent/completeness.json`: missing/invalid evidence, clipped trace rows, model
+  request/response/stream-boundary counts, and checksums of retained files.
+  Workspace symlinks are recorded without following their targets.
+
+The plugin writes an incomplete marker before execution, assesses each ended
+trial, and finalizes checksums after Harbor finishes logs and secret scrubbing.
+Missing workspace/native/verifier artifacts, identity mismatches, malformed or
+unpaired model traces, and clipped model content make evidence incomplete.
+Bounded/redacted tool argument previews remain diagnostic projections; canonical
+tool inputs and outputs stay in `session.json`. Tool output limits still apply.
+Harbor reward and trial exceptions are preserved independently. Failed runs keep
+their partial evidence; absent artifacts are never replaced with fabricated data.
+
+The recipe fails if the job has missing or changed evidence, regardless of reward.
+For direct Harbor commands, include both evidence flags above and run the checker:
+
+```sh
+python3 -B script/harbor/evidence.py /absolute/path/to/job-or-trial
+```
+
+The checker is read-only and also rejects changes since the plugin's final
+assessment. Harbor logs plugin errors without necessarily returning a nonzero
+exit status, so the explicit check is required for a complete-evidence gate.
+Existing runs without these artifacts fail the check; they are not backfilled.
+Retain the entire job directory, including Harbor config, lock, results, trial
+logs, and verifier files. `tmp/` is ignored by Git; archive needed runs separately.
+Treat sessions, source/workspace copies, and traces as private diagnostic data.
 
 ## Transport contract
 
