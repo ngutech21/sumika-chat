@@ -172,22 +172,35 @@ def assess_trial(trial):
     task = trial / "agent/task"
     if not task.is_dir() or task.is_symlink() or inventory(task) != reproduction.get("task_files"):
         issues.append("Retained task files are missing or changed.")
-    workspace = None
+    required_captures = {"/app": ()}
+    if harbor.get("task_name") == "openthoughts/python-api-rate-limit":
+        required_captures["/output"] = ("report.json", "a.json", "b.json")
+    captures = {}
     for entry in manifest if isinstance(manifest, list) else []:
         if entry.get("status") in ("failed", "skipped"):
             issues.append(f"Artifact collection {entry.get('status')}: {entry.get('source')}")
-        if entry.get("source") == "/app" and entry.get("service") in (None, "main"):
+        source = entry.get("source")
+        if source in required_captures and entry.get("service") in (None, "main"):
             destination = Path(entry.get("destination", ""))
             if destination.is_absolute() or ".." in destination.parts or destination.parts[:1] != ("artifacts",):
-                issues.append("Invalid workspace artifact destination.")
+                issues.append(f"Invalid artifact destination for {source}.")
                 continue
-            workspace = trial / destination
-            if any(parent.is_symlink() for parent in [workspace, *workspace.parents] if parent != trial and trial in parent.parents):
-                issues.append("Workspace capture has a symlink ancestor.")
+            capture = trial / destination
+            if any(parent.is_symlink() for parent in [capture, *capture.parents] if parent != trial and trial in parent.parents):
+                issues.append(f"Artifact capture has a symlink ancestor: {source}.")
+                continue
             if entry.get("status") not in ("ok", "empty") or entry.get("exclude"):
-                issues.append("Workspace capture failed or excluded files.")
-    if workspace is None or not workspace.is_dir() or workspace.is_symlink():
-        issues.append("The final /app workspace was not captured.")
+                issues.append(f"Artifact capture failed or excluded files: {source}.")
+            captures[source] = capture
+    for source, names in required_captures.items():
+        capture = captures.get(source)
+        if capture is None or capture.is_symlink() or not capture.is_dir():
+            issues.append(f"The final {source} directory was not captured.")
+            continue
+        for name in names:
+            path = capture / name
+            if path.is_symlink() or not path.is_file():
+                issues.append(f"Missing regular output file: {source}/{name}")
     for name in ("agent/instruction.md", "agent/runner.log", "agent/source.patch", "agent/Package.resolved"):
         if not (trial / name).is_file() or (trial / name).is_symlink():
             issues.append(f"Missing regular file: {name}")

@@ -326,7 +326,7 @@ run-harbor:
     -e docker -n 1 -k 1 \
     --ak binary="$PWD/.build/debug/SumikaEval" \
     --ak timeout_seconds=3300 \
-    --artifact /app \
+    --artifact /app --artifact /output \
     --plugin script.harbor.evidence:EvidencePlugin \
     --jobs-dir "$PWD/.harbor" --job-name "$job_name" || status=$?
 

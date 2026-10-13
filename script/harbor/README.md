@@ -32,7 +32,7 @@ Run these recipes from the repository root:
 
 ```sh
 just check-harbor-fixture
-just run-harbor
+just run-harbor-smoke-test
 ```
 
 The fixture check runs `nop` and `oracle` sequentially and fails unless their
@@ -40,8 +40,8 @@ fresh, completed trials have rewards `0` and `1`, respectively, with no trial
 exceptions. Results are kept under `tmp/harbor/baseline` and `tmp/harbor/oracle`.
 Run it during initial setup and after fixture, verifier, or container changes.
 
-`run-harbor` builds `SumikaEval` and runs only Sumika with the installed
-`Swift-1.5-4bit-MLX` model. Its results are kept under `tmp/harbor/sumika`.
+`run-harbor-smoke-test` builds `SumikaEval` and runs only Sumika with the installed
+`Swift-1.5-4bit-MLX` model. Its results are kept under `.harbor`.
 Both recipes disable Harbor telemetry. To use another installed Sumika catalog
 ID, replace `MODEL_ID` in this command. Keep `-n 1` to avoid competing local MLX
 sessions:
@@ -72,12 +72,19 @@ The adapter never assigns the task reward.
 
 ## Trial evidence
 
-`run-harbor` enables workspace capture and the evidence plugin, then checks only
-the newly created job. Task definitions are unchanged. Harbor collects `/app`
+`just run-harbor` runs `openthoughts/python-api-rate-limit` with the same model,
+captures `/app` and `/output`, and checks only the newly created job under
+`.harbor`. Task definitions are unchanged. Harbor collects these directories
 after Sumika and its command workers drain, before verification, under the
 existing `artifacts/` directory. Read `artifacts/manifest.json` for the actual
 destination and collection status; a passing reward does not prove capture
 succeeded. No captured task or workspace files are executed on the Mac.
+
+For this task, completeness requires `/output/report.json`, `/output/a.json`, and
+`/output/b.json` to be retained as regular files. Missing captures, missing files,
+symlinks in required output paths, or excluded files fail the check regardless of
+verifier reward. Contents are checksummed; correctness remains the verifier's job.
+`run-harbor-smoke-test` and the merge-ranges command above only require `/app`.
 
 Each trial additionally retains:
 
@@ -113,7 +120,9 @@ Harbor reward and trial exceptions are preserved independently. Failed runs keep
 their partial evidence; absent artifacts are never replaced with fabricated data.
 
 The recipe fails if the job has missing or changed evidence, regardless of reward.
-For direct Harbor commands, include both evidence flags above and run the checker:
+For direct Harbor commands, include `--artifact /app` and
+`--plugin script.harbor.evidence:EvidencePlugin`; also include `--artifact /output`
+for `openthoughts/python-api-rate-limit`. Then run the checker:
 
 ```sh
 python3 -B script/harbor/evidence.py /absolute/path/to/job-or-trial
@@ -124,7 +133,8 @@ assessment. Harbor logs plugin errors without necessarily returning a nonzero
 exit status, so the explicit check is required for a complete-evidence gate.
 Existing runs without these artifacts fail the check; they are not backfilled.
 Retain the entire job directory, including Harbor config, lock, results, trial
-logs, and verifier files. `tmp/` is ignored by Git; archive needed runs separately.
+logs, and verifier files. `.harbor/` and `tmp/` are ignored by Git; archive needed
+runs separately.
 Treat sessions, source/workspace copies, and traces as private diagnostic data.
 
 ## Transport contract

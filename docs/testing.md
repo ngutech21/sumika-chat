@@ -64,14 +64,17 @@ Run one trial at a time on the Mac. The CLI keeps settings and attachments in th
 trial directory and writes `session.json`, `result.json`, and the existing
 `mlx-trace.jsonl` format there.
 
-`just run-harbor` also enables run-level `/app` artifact collection and a Harbor
-evidence plugin without changing task definitions. Each trial retains the task
-inputs/reference solution, source and binary provenance, resolved image IDs,
-model file fingerprints and effective settings, and a completeness/checksum
-report. The recipe checks the fresh job after Harbor finishes; incomplete or
-changed evidence fails this gate independently of verifier reward. Failed trials
-retain partial evidence. See the runner instructions for artifact paths, capture
-limits, and the read-only checker for individual jobs or trials.
+`just run-harbor` also enables run-level `/app` and `/output` artifact collection
+and a Harbor evidence plugin without changing task definitions. Each trial retains
+the task inputs/reference solution, source and binary provenance, resolved image
+IDs, model file fingerprints and effective settings, and a completeness/checksum
+report. For `openthoughts/python-api-rate-limit`, completeness requires captured
+regular files for `/output/report.json`, `/output/a.json`, and `/output/b.json`;
+missing files or symlinks fail the check. The merge-ranges smoke fixture only
+requires `/app`. The recipe checks the fresh job after Harbor finishes; incomplete
+or changed evidence fails this gate independently of verifier reward. Failed
+trials retain partial evidence. See the runner instructions for artifact paths,
+capture limits, and the read-only checker for individual jobs or trials.
 
 This initial profile enables `read_file`, `edit_file`, `write_file`, `run_command`,
 `ask_user`, and `finish_task`. Workspace instructions are read from the container.

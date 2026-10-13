@@ -64,6 +64,84 @@ class EvidenceTests(unittest.TestCase):
     def trace(self):
         self.write("agent/mlx-trace.jsonl", "".join(json.dumps(row) + "\n" for row in self.rows))
 
+    def rate_limit_outputs(self):
+        result = json.loads((self.trial / "result.json").read_text())
+        result["task_name"] = "openthoughts/python-api-rate-limit"
+        self.json("result.json", result)
+        manifest = json.loads((self.trial / "artifacts/manifest.json").read_text())
+        manifest.append({"source": "/output", "destination": "artifacts/reports",
+                         "status": "ok", "exclude": []})
+        self.json("artifacts/manifest.json", manifest)
+        for name in ("report.json", "a.json", "b.json"):
+            self.json(f"artifacts/reports/{name}", {"total_requests": 1})
+        return manifest
+
+    def test_rate_limiter_requires_output_capture_even_if_not_configured(self):
+        result = json.loads((self.trial / "result.json").read_text())
+        result["task_name"] = "openthoughts/python-api-rate-limit"
+        self.json("result.json", result)
+        report = save_assessment(self.trial)
+        self.assertFalse(report["complete"])
+        self.assertIn("/output", " ".join(report["issues"]))
+        with self.assertRaisesRegex(ValueError, "/output"):
+            check_evidence(self.trial)
+
+    def test_required_outputs_use_manifest_destination_and_are_checksummed(self):
+        self.rate_limit_outputs()
+        report = save_assessment(self.trial)
+        self.assertTrue(report["complete"], report["issues"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            check_evidence(self.trial)
+        for name in ("report.json", "a.json", "b.json"):
+            self.assertIn("sha256", report["files"][f"artifacts/reports/{name}"])
+        self.json("artifacts/reports/a.json", {"total_requests": 2})
+        with self.assertRaisesRegex(ValueError, "changed evidence"):
+            check_evidence(self.trial)
+
+    def test_each_missing_required_output_fails_completeness(self):
+        self.rate_limit_outputs()
+        for name in ("report.json", "a.json", "b.json"):
+            with self.subTest(name=name):
+                path = self.trial / "artifacts/reports" / name
+                contents = path.read_bytes()
+                path.unlink()
+                report = save_assessment(self.trial)
+                self.assertFalse(report["complete"])
+                self.assertIn(f"/output/{name}", " ".join(report["issues"]))
+                with self.assertRaisesRegex(ValueError, f"/output/{name}"):
+                    check_evidence(self.trial)
+                path.write_bytes(contents)
+
+    def test_failed_excluded_or_unsafe_output_capture_is_incomplete(self):
+        manifest = self.rate_limit_outputs()
+        for change in ({"status": "failed"}, {"status": "skipped"},
+                       {"exclude": ["report.json"]}, {"destination": "../escape"},
+                       {"destination": "/tmp/reports"}, {"service": "sidecar"}):
+            with self.subTest(change=change):
+                self.json("artifacts/manifest.json", [manifest[0], {**manifest[1], **change}])
+                report = assess_trial(self.trial)
+                self.assertFalse(report["complete"])
+                self.assertIn("/output", " ".join(report["issues"]))
+
+    def test_required_outputs_reject_symlinks_and_directories(self):
+        self.rate_limit_outputs()
+        path = self.trial / "artifacts/reports/report.json"
+        path.unlink()
+        path.symlink_to("a.json")
+        self.assertFalse(assess_trial(self.trial)["complete"])
+        path.unlink()
+        path.mkdir()
+        self.assertFalse(assess_trial(self.trial)["complete"])
+
+    def test_output_capture_rejects_symlink_ancestors(self):
+        manifest = self.rate_limit_outputs()
+        (self.trial / "artifacts/link").symlink_to(".", target_is_directory=True)
+        manifest[1]["destination"] = "artifacts/link/reports"
+        self.json("artifacts/manifest.json", manifest)
+        report = assess_trial(self.trial)
+        self.assertFalse(report["complete"])
+        self.assertIn("/output", " ".join(report["issues"]))
+
     def test_reward_zero_is_complete_and_changed_solution_fails_integrity(self):
         self.assertTrue(save_assessment(self.trial)["complete"])
         with contextlib.redirect_stdout(io.StringIO()):
