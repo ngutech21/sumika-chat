@@ -1,3 +1,5 @@
+from pathlib import Path
+import sys
 import unittest
 
 from ranges import merge_ranges
@@ -25,4 +27,9 @@ class RepairTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    result = unittest.main(argv=[sys.argv[0]], exit=False).result
+    passed = result.wasSuccessful() and result.testsRun == 5 and not result.skipped
+    if passed:
+        # shortcut: same-process reports can be forged; isolate scoring for adversarial tasks.
+        Path(sys.argv[1]).write_text("passed\n")
+    raise SystemExit(0 if passed else 1)

@@ -45,7 +45,9 @@ PYTHONPATH="$PWD" harbor run -p script/harbor/tasks/merge-ranges \
 
 The unchanged task must score `0`; the reference solution must score `1`. The
 verifier checks the container's actual `/app/ranges.py`, independently of the
-assistant's final answer. An infrastructure error is not a model failure. Inspect
+assistant's final answer. Reward `1` requires a fresh completion report after all
+five verifier tests pass without skips, as well as a successful process exit.
+An infrastructure error is not a model failure. Inspect
 Harbor's trial `result.json` and verifier output separately from the native
 `agent/result.json`, `agent/session.json`, `agent/runner.log`, and
 `agent/mlx-trace.jsonl`.

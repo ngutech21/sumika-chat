@@ -205,15 +205,59 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
 
 
 class FixtureTests(unittest.TestCase):
-    def test_verifier_rejects_starter_and_accepts_reference(self):
+    def run_verifier(self, source, suffix=""):
         fixture = Path(__file__).with_name("tasks") / "merge-ranges"
-        verifier = fixture / "tests/test_ranges.py"
-        for source, expected in (("environment", 1), ("solution", 0)):
-            with tempfile.TemporaryDirectory(prefix="sumika-fixture-test-") as directory:
-                shutil.copyfile(fixture / source / "ranges.py", Path(directory) / "ranges.py")
-                result = subprocess.run([sys.executable, str(verifier)], cwd=directory,
-                                        env={"PYTHONPATH": directory}, capture_output=True)
-                self.assertEqual(result.returncode, expected, result.stderr.decode())
+        with tempfile.TemporaryDirectory(prefix="sumika-fixture-test-") as directory:
+            root = Path(directory)
+            workspace = root / "app"
+            logs = root / "logs/verifier"
+            binaries = root / "bin"
+            for path in (workspace, logs, binaries):
+                path.mkdir(parents=True)
+            (workspace / "ranges.py").write_text((fixture / source / "ranges.py").read_text() + suffix)
+            (binaries / "python3").symlink_to(sys.executable)
+            (logs / "reward.txt").write_text("1\n")
+            (logs / "completion.txt").write_text("passed\n")
+            # Redirect only container paths; execute the actual verifier's shell logic.
+            script = (fixture / "tests/test.sh").read_text()
+            for original, replacement in (("/app", workspace), ("/tests", fixture / "tests"),
+                                          ("/logs/verifier", logs)):
+                script = script.replace(original, shlex.quote(str(replacement)))
+            verifier = root / "test.sh"
+            verifier.write_text(script)
+            result = subprocess.run(["/bin/sh", str(verifier)], cwd=workspace,
+                                    env={**os.environ, "PATH": f"{binaries}:{os.defpath}",
+                                         "PYTHONDONTWRITEBYTECODE": "1"},
+                                    capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return (logs / "reward.txt").read_text().strip(), result
+
+    def test_verifier_rejects_starter_and_accepts_reference(self):
+        for source, expected in (("environment", "0"), ("solution", "1")):
+            with self.subTest(source=source):
+                reward, result = self.run_verifier(source)
+                self.assertEqual(reward, expected, result.stderr)
+                self.assertIn("Ran 5 tests", result.stderr)
+
+    def test_verifier_rejects_successful_exit_during_import(self):
+        for suffix in ("\nimport os; os._exit(0)\n", "\nraise SystemExit(0)\n"):
+            with self.subTest(suffix=suffix):
+                reward, result = self.run_verifier("environment", suffix)
+                self.assertEqual(reward, "0", result.stderr)
+                self.assertEqual(result.stdout + result.stderr, "")
+
+    def test_verifier_rejects_incomplete_test_runs(self):
+        cases = (
+            ("\nimport unittest\nunittest.TestLoader.testMethodPrefix = 'missing_'\n", "Ran 0 tests"),
+            ("\nimport unittest\nunittest.TestLoader.testNamePatterns = ['*.test_empty']\n", "Ran 1 test"),
+            ("\ndef merge_ranges(ranges):\n    import unittest\n    raise unittest.SkipTest('skip')\n",
+             "skipped=5"),
+        )
+        for suffix, output in cases:
+            with self.subTest(output=output):
+                reward, result = self.run_verifier("solution", suffix)
+                self.assertEqual(reward, "0", result.stderr)
+                self.assertIn(output, result.stderr)
 
 
 if __name__ == "__main__":
