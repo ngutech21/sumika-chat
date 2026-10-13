@@ -25,6 +25,7 @@ class SandboxBridge:
         self.worker = self.control + "/worker.py"
         self.token = secrets.token_urlsafe(32)
         self.active = {}
+        self.command_failure = None
         self.closed = False
 
     async def start(self):
@@ -121,11 +122,20 @@ class SandboxBridge:
                     raise RuntimeError("Duplicate command request ID.")
                 self.active[identifier] = asyncio.current_task()
             try:
-                return await self._execute(request)
+                response = await self._execute(request)
+                if operation == "run" and response.get("error", {}).get("code") == "transportFailure":
+                    self.command_failure = response["error"]["message"]
+                return response
             finally:
                 if operation == "run":
                     self.active.pop(identifier, None)
+        except asyncio.CancelledError:
+            if operation == "run":
+                self.command_failure = "Command transport was cancelled before the worker drained."
+            raise
         except Exception as error:
+            if operation == "run":
+                self.command_failure = str(error)
             return {"id": identifier, "error": {"code": "transportFailure", "message": str(error)}}
 
     async def close(self):
@@ -140,7 +150,11 @@ class SandboxBridge:
                                for identifier, _ in pending), return_exceptions=True)
         if pending:
             _, unfinished = await asyncio.wait([task for _, task in pending], timeout=8)
+            if unfinished:
+                self.command_failure = "Timed out waiting for command workers."
             for task in unfinished:
                 task.cancel()
             await asyncio.gather(*unfinished, return_exceptions=True)
+        if self.command_failure is not None:
+            raise RuntimeError(f"Cannot drain task commands: {self.command_failure}")
         await self.environment.exec(f"rm -rf {shlex.quote(self.control)}", timeout_sec=10)

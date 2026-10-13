@@ -4,6 +4,7 @@
 import base64
 import codecs
 import contextlib
+import ctypes
 import errno
 import fcntl
 import hashlib
@@ -206,6 +207,28 @@ def request_id(value):
     return value
 
 
+def stop_descendants():
+    if sys.platform != "linux":
+        return
+    deadline = time.monotonic() + 5
+    try:
+        while time.monotonic() < deadline:
+            try:
+                pid, _ = os.waitpid(-1, os.WNOHANG)
+            except ChildProcessError:
+                return
+            if pid:
+                continue
+            children = Path(f"/proc/self/task/{os.getpid()}/children").read_text().split()
+            for child in children:
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(int(child), signal.SIGKILL)
+            time.sleep(0.01)
+    except OSError as error:
+        raise RPCError("transportFailure", f"Cannot drain command descendants: {error}") from error
+    raise RPCError("transportFailure", "Timed out draining command descendants.")
+
+
 def run_command(root, control, request):
     identifier = request_id(request["id"])
     marker = control / (identifier + ".cancel")
@@ -232,6 +255,13 @@ def run_command(root, control, request):
             if marker.exists():
                 cancelled = True
             else:
+                # Each Linux RPC worker adopts orphaned descendants, including detached sessions.
+                if sys.platform == "linux":
+                    libc = ctypes.CDLL(None, use_errno=True)
+                    libc.prctl.argtypes = [ctypes.c_int] + [ctypes.c_ulong] * 4
+                    if libc.prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
+                        raise RPCError("transportFailure", "Cannot supervise command descendants: "
+                                       + os.strerror(ctypes.get_errno()))
                 process = subprocess.Popen(
                     [sys.executable, "-c", "import os,sys; os.fchdir(int(sys.argv[1])); "
                      "os.close(int(sys.argv[1])); os.execvpe(sys.argv[2],sys.argv[2:],os.environ)",
@@ -262,16 +292,20 @@ def run_command(root, control, request):
                                 selector.unregister(key.fileobj)
                         if stopping is not None and now - stopping > 3:
                             break
-                    process.wait(timeout=5)
     finally:
-        if process is not None:
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(process.pid, signal.SIGKILL)
-            process.wait(timeout=5)
-            process.stdout.close()
-            process.stderr.close()
-        with contextlib.suppress(FileNotFoundError):
-            marker.unlink()
+        try:
+            if process is not None:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                try:
+                    process.wait(timeout=5)
+                finally:
+                    process.stdout.close()
+                    process.stderr.close()
+                    stop_descendants()
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                marker.unlink()
     stdout_data, stdout_text, stdout_omitted = stdout.snapshot()
     _, stderr_text, stderr_omitted = stderr.snapshot()
     return {"exitCode": None if timed_out or cancelled else process.returncode,
@@ -300,8 +334,10 @@ def dispatch(root, control, request):
         else:
             raise RPCError("invalidArgument", "Unknown operation.")
         return {"id": request["id"], "result": result}
-    except (RPCError, OSError, KeyError, TypeError, ValueError) as error:
+    except (RPCError, OSError, KeyError, TypeError, ValueError, subprocess.SubprocessError) as error:
         code = error.code if isinstance(error, RPCError) else "invalidArgument"
+        if isinstance(error, subprocess.SubprocessError):
+            code = "transportFailure"
         if isinstance(error, OSError):
             if error.errno == errno.ENOENT:
                 code = "notFound"

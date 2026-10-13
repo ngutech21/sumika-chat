@@ -85,6 +85,11 @@ Commands return `exitCode`, `durationMs`, `stdout`, `stderr`, `stdoutDataBase64`
 `stdoutOmittedBytes`, and `stderrOmittedBytes`. Retention accepts `prefix`,
 `headTail`, and `tail`. Commands inherit only the task environment. The worker
 terminates each command's process group on completion, timeout, or cancellation.
+On Linux, each command worker is also a child subreaper: it kills and reaps
+orphaned descendants even when they create a new session or double-fork. A command
+response is returned only after this cleanup. Cleanup failures return
+`transportFailure`; bridge shutdown fails if a command worker failed or could
+not be drained, preventing the adapter from proceeding to verification.
 
 ## Checks and current limits
 
@@ -99,6 +104,22 @@ bounded output, command cancellation, and the fixture's failing/passing states.
 Loopback sockets must be permitted by the test runner's sandbox.
 Adapter lifecycle tests also need Harbor installed in that Python interpreter;
 they skip explicitly when it is unavailable.
+
+Detached-descendant regressions require Linux and skip on macOS. Run the bridge,
+worker, and fixture tests in the pinned Linux image as the unprivileged task UID:
+
+```sh
+docker run --rm --network=none --user=10001:10001 --cap-drop=ALL \
+  --security-opt=no-new-privileges --read-only --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+  --mount "type=bind,src=$PWD,dst=/repo,readonly" --workdir /repo \
+  python:3.13.7-slim-bookworm python3 -B -m unittest -v script.harbor.test_bridge
+```
+
+These checks cover detached and double-forked children after completion,
+cancellation, timeout, and bridge shutdown, including children that ignore TERM.
+The non-Linux local fake retains process-group cleanup only. Descendant supervision
+assumes the Linux worker remains alive; Docker remains the isolation and final
+cleanup boundary if the worker is killed or cleanup fails.
 
 The first bridge rejects all symlink paths, including internal symlinks that the
 native filesystem adapter can accept. Full-file reads, writes, command input,

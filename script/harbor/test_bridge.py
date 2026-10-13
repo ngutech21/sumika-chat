@@ -2,16 +2,19 @@
 
 import asyncio
 import base64
+import contextlib
 import json
 import os
 from pathlib import Path
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import AsyncMock, patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import uuid
@@ -176,6 +179,92 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(1.2)
         self.assertFalse((Path(self.temporary.name) / "descendant").exists())
 
+    async def assert_detached_child_stopped(self, outcome, double_fork=False):
+        root = Path(self.temporary.name)
+        ready = root / (uuid.uuid4().hex + ".ready")
+        release = root / (uuid.uuid4().hex + ".release")
+        late = root / (uuid.uuid4().hex + ".late")
+        child = f"""import os, signal, time
+from pathlib import Path
+if {double_fork!r} and os.fork():
+    os._exit(0)
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+ready = Path({str(ready)!r})
+ready.with_suffix('.pid').write_text(str(os.getpid()))
+ready.with_suffix('.pid').replace(ready)
+deadline = time.monotonic() + 15
+while not Path({str(release)!r}).exists() and time.monotonic() < deadline:
+    time.sleep(0.01)
+if Path({str(release)!r}).exists():
+    Path({str(late)!r}).write_text('after drain')
+"""
+        script = f"""import subprocess, sys, time
+from pathlib import Path
+subprocess.Popen([sys.executable, '-c', {child!r}], start_new_session=True,
+                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+deadline = time.monotonic() + 5
+while not Path({str(ready)!r}).exists() and time.monotonic() < deadline:
+    time.sleep(0.01)
+if {outcome != 'completion'!r}:
+    time.sleep(10)
+"""
+        request = self.run_request(script, timeoutSeconds=2 if outcome == "timeout" else 10)
+        running = asyncio.create_task(self.bridge.dispatch(request))
+        pid = None
+        try:
+            async with asyncio.timeout(5):
+                while not ready.exists():
+                    await asyncio.sleep(0.01)
+            pid = int(ready.read_text())
+            if outcome == "cancellation":
+                await self.bridge.dispatch({"id": uuid.uuid4().hex, "operation": "cancel",
+                                            "targetRequestID": request["id"]})
+            elif outcome == "shutdown":
+                await self.bridge.close()
+            response = await asyncio.wait_for(asyncio.shield(running), timeout=15)
+            self.assertIn("result", response)
+            result = response["result"]
+            self.assertEqual(result["cancelled"], outcome in ("cancellation", "shutdown"))
+            self.assertEqual(result["timedOut"], outcome == "timeout")
+            self.assertEqual(result["exitCode"], 0 if outcome == "completion" else None)
+            self.assertFalse(late.exists())
+            release.touch()
+            await asyncio.sleep(0.2)
+            self.assertFalse(late.exists(), "Detached descendant wrote after drain")
+            with self.assertRaises(ProcessLookupError):
+                os.kill(pid, 0)
+            pid = None
+        finally:
+            if not running.done():
+                await self.bridge.dispatch({"id": uuid.uuid4().hex, "operation": "cancel",
+                                            "targetRequestID": request["id"]})
+                await asyncio.wait_for(running, timeout=15)
+            if pid is not None:
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(pid, signal.SIGKILL)
+
+    @unittest.skipUnless(sys.platform == "linux", "Requires Linux descendant supervision")
+    async def test_detached_children_stop_on_completion(self):
+        for double_fork in (False, True):
+            with self.subTest(double_fork=double_fork):
+                await self.assert_detached_child_stopped("completion", double_fork)
+
+    @unittest.skipUnless(sys.platform == "linux", "Requires Linux descendant supervision")
+    async def test_detached_children_stop_on_cancellation(self):
+        for double_fork in (False, True):
+            with self.subTest(double_fork=double_fork):
+                await self.assert_detached_child_stopped("cancellation", double_fork)
+
+    @unittest.skipUnless(sys.platform == "linux", "Requires Linux descendant supervision")
+    async def test_detached_children_stop_on_timeout(self):
+        for double_fork in (False, True):
+            with self.subTest(double_fork=double_fork):
+                await self.assert_detached_child_stopped("timeout", double_fork)
+
+    @unittest.skipUnless(sys.platform == "linux", "Requires Linux descendant supervision")
+    async def test_detached_children_stop_on_bridge_shutdown(self):
+        await self.assert_detached_child_stopped("shutdown", double_fork=True)
+
     async def test_cancellation_before_command_starts(self):
         request = self.run_request("open('must-not-run', 'w').write('bad')")
         await self.bridge.dispatch({"id": uuid.uuid4().hex, "operation": "cancel",
@@ -202,6 +291,54 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("result", response)
         self.assertEqual((Path(self.temporary.name) / "large").read_bytes(), data)
         self.assertTrue(all(len(command) < 1024 for command in self.environment.calls))
+
+
+class BridgeDrainTests(unittest.IsolatedAsyncioTestCase):
+    async def test_completed_worker_failure_blocks_trial_shutdown(self):
+        for failure in (RuntimeError("Worker exited without a response"),
+                        {"id": "run", "error": {"code": "transportFailure",
+                                                "message": "Cannot drain descendants"}}):
+            with self.subTest(failure=failure):
+                environment = SimpleNamespace(exec=AsyncMock())
+                bridge = SandboxBridge(environment)
+                execute = (AsyncMock(side_effect=failure) if isinstance(failure, Exception)
+                           else AsyncMock(return_value=failure))
+                with patch.object(bridge, "_execute", execute):
+                    response = await bridge.dispatch({"id": "run", "operation": "run"})
+                    self.assertEqual(response["error"]["code"], "transportFailure")
+                    self.assertFalse(bridge.active)
+                    with self.assertRaisesRegex(RuntimeError, "Cannot drain task commands"):
+                        await bridge.close()
+                environment.exec.assert_not_awaited()
+
+    async def test_cancelled_transport_blocks_trial_shutdown(self):
+        bridge = SandboxBridge(SimpleNamespace(exec=AsyncMock()))
+        with patch.object(bridge, "_execute", AsyncMock(side_effect=asyncio.CancelledError)):
+            with self.assertRaises(asyncio.CancelledError):
+                await bridge.dispatch({"id": "run", "operation": "run"})
+            with self.assertRaisesRegex(RuntimeError, "cancelled before the worker drained"):
+                await bridge.close()
+
+    async def test_undrained_worker_blocks_trial_shutdown(self):
+        environment = SimpleNamespace(exec=AsyncMock())
+        bridge = SandboxBridge(environment)
+        started = asyncio.Event()
+
+        async def execute(request):
+            if request["operation"] == "run":
+                started.set()
+                await asyncio.Event().wait()
+            return {"result": {"cancelled": True}}
+
+        with patch.object(bridge, "_execute", execute):
+            running = asyncio.create_task(bridge.dispatch({"id": "run", "operation": "run"}))
+            await started.wait()
+            with patch("script.harbor.bridge.asyncio.wait",
+                       AsyncMock(return_value=(set(), {running}))):
+                with self.assertRaisesRegex(RuntimeError, "Cannot drain task commands"):
+                    await bridge.close()
+            self.assertTrue(running.cancelled())
+        environment.exec.assert_not_awaited()
 
 
 class FixtureTests(unittest.TestCase):
