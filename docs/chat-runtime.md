@@ -822,7 +822,7 @@ families MLX can infer or explicitly configure.
 
 Every catalog model that uses the Qwen thinking-tag protocol applies the
 `hardLimitImmediate` policy when reasoning is enabled. Chat and Work modes both
-permit at most 2,048 reasoning tokens and reserve at least 1,024 answer tokens.
+permit at most 3,072 reasoning tokens and reserve at least 1,024 answer tokens.
 Reaching the reasoning limit closes the validated thinking block
 immediately and continues visible output in the same generation. Disabling
 reasoning leaves the budget unapplied.
@@ -833,6 +833,14 @@ so an already emitted newline is completed rather than duplicated. Natural
 `</think>` closes and implicit tool boundaries remain accepted. This preserves
 the generated token prefix across historical rendering at the budget boundary;
 exact cache validation still rebuilds for other prefix or alignment mismatches.
+
+The MLX tool decoder starts inside reasoning when the full prepared prompt ends
+with its configured opening delimiter, allowing trailing whitespace. This state
+is detected before cache slicing and passed to fresh and reused generations.
+Reasoning text remains byte-for-byte intact, while Markdown fences or inline code
+inside it cannot hide a later natural, budget-forced, or configured implicit
+close. After the close, normal protection of tool examples inside answer code
+fences and structured data still applies.
 
 Budget setup fails before generation when the interaction mode or validated
 Qwen protocol is unavailable, or when the generation token limit cannot provide

@@ -105,7 +105,7 @@ struct MLXRuntimeConfigurationTests {
       interactionMode: .agent
     )
 
-    #expect(chat.maximumTokenCount == 2_048)
+    #expect(chat.maximumTokenCount == 3_072)
     #expect(chat.minimumAnswerTokenCount == 1_024)
     #expect(chat.transitionMode == .immediate)
     #expect(chat == agent)
@@ -130,7 +130,7 @@ struct MLXRuntimeConfigurationTests {
       let first = try #require(traces.first)
 
       #expect(traces.allSatisfy { $0 == first })
-      #expect(first.maximumTokenCount == 2_048)
+      #expect(first.maximumTokenCount == 3_072)
       #expect(first.minimumAnswerTokenCount == 1_024)
     }
   }

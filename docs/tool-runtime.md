@@ -926,6 +926,16 @@ declarations.
   approval preview and record must preserve the exact command string from the
   request. The command must never spawn before that path is entered, and denied
   approval must append a denied result without creating a process.
+- Work prompts and tool descriptions prefer `edit_file` for targeted edits and
+  `write_file` for ordinary new files or intentional full-file replacement.
+  Short, bounded Python, shell, `sed`, `awk`, or helper scripts through
+  `run_command` may generate data or perform bulk transformations when they
+  substantially reduce repetition. Choose a finite record count or explicit
+  target set before execution, then verify the resulting files and changes.
+  This is shared generation guidance, not a model-specific setting or an
+  approval exemption. Commands retain their approval flow and command audit;
+  they do not provide native edit matching, stale-content checks, or applied-edit
+  receipts. Output-limit recovery preserves the same choice of tools.
 - The macOS app target currently builds without App Sandbox so developer
   toolchains such as Homebrew, `uv`, Python, Git, and project package managers
   can be launched by `run_command`. The command tool still owns explicit
@@ -1056,13 +1066,14 @@ declarations.
   contents and creates missing parent directories. That payload may be either a
   finished small file or an intermediate scaffold; "entire current contents"
   does not mean the user's final requested file must fit in one call. If the
-  final file may not fit comfortably in one response, including Markdown or
-  prose, the model should call `write_file` immediately with a minimal
+  literal file content may not fit comfortably in one response, including
+  Markdown or prose, the model should call `write_file` immediately with a minimal
   syntactically valid scaffold rather than drafting the full content in
   reasoning. After success, it should complete one natural named section at a
-  time with `edit_file`, without artificial placeholder markers or helper
-  scripts. Missing-path suggestions do not apply to `write_file`, because
-  creating a new file is a normal write case.
+  time with `edit_file`, without artificial placeholder markers. Generated data
+  and bulk transformations may instead use a bounded script through
+  `run_command` under the shared guidance above. Missing-path suggestions do not
+  apply to `write_file`, because creating a new file is a normal write case.
 - `edit_file` replaces exactly one safe `old_text` span in a UTF-8 workspace
   file with `new_text`. It tries an exact, case-sensitive match first, then a
   small deterministic fallback pipeline for normalized line endings, trailing

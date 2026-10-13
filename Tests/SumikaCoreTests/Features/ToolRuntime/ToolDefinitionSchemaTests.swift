@@ -79,7 +79,7 @@ struct ToolDefinitionSchemaTests {
 
     #expect(
       writeDefinition.description
-        == "Create or replace one text file. Use for new files or intentional full-file replacement. Parent directories are created automatically. Do not combine this call with another write_file/edit_file for the same file, including equivalent paths, in one response; wait for its result first."
+        == "Create or replace one text file. Prefer for ordinary new files or intentional full-file replacement; use edit_file for targeted changes. For generated data or bulk transformations, use a short, bounded script through run_command when it substantially reduces repetition. Parent directories are created automatically. Do not combine this call with another write_file/edit_file for the same file, including equivalent paths, in one response; wait for its result first."
     )
     #expect(
       writeDefinition.parameters.first { $0.name == "path" }?.description
@@ -94,7 +94,7 @@ struct ToolDefinitionSchemaTests {
     #expect(editDefinition.functionSchema.parameters.required == ["path", "old_text", "new_text"])
     #expect(
       editDefinition.description
-        == "Replace one unique text span in an existing file. Read first unless the current content is already in context. When emitting multiple edit_file calls for the same path in one response, every old_text MUST match a unique, pairwise non-overlapping span of the same current file snapshot. Never combine a broad replacement with a narrower replacement inside it. If any spans overlap, the entire same-file batch fails and no changes are applied. Never combine edit_file with write_file for the same path."
+        == "Replace one unique text span in an existing file. Prefer for targeted changes. Read first unless the current content is already in context. When emitting multiple edit_file calls for the same path in one response, every old_text MUST match a unique, pairwise non-overlapping span of the same current file snapshot. Never combine a broad replacement with a narrower replacement inside it. If any spans overlap, the entire same-file batch fails and no changes are applied. Never combine edit_file with write_file for the same path."
     )
     #expect(
       editDefinition.parameters.first { $0.name == "path" }?.description
@@ -119,6 +119,15 @@ struct ToolDefinitionSchemaTests {
 
     #expect(definition.capabilities == [.runCommand])
     #expect(definition.riskLevel == .high)
+    #expect(definition.description.contains("approved foreground shell command"))
+    #expect(definition.description.contains("Prefer edit_file for targeted edits"))
+    #expect(definition.description.contains("write_file for ordinary new files"))
+    #expect(definition.description.contains("short, bounded scripts for generated data"))
+    #expect(definition.description.contains("bulk transformations"))
+    #expect(definition.description.contains("when they substantially reduce repetition"))
+    #expect(definition.description.contains("finite record count or explicit target set"))
+    #expect(definition.description.contains("verify the resulting files and changes"))
+    #expect(!definition.description.contains("Do not use this to write files"))
     #expect(schema.parameters.required == ["command"])
     #expect(schema.parameters.properties["command"]?.type == .string)
     #expect(schema.parameters.properties["timeoutSeconds"]?.type == .integer)

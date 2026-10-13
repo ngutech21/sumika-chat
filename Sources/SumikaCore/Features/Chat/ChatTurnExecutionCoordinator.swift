@@ -921,7 +921,7 @@ extension ChatTurnExecutionCoordinator {
     [Output-limit recovery]
     The previous generation reached its output limit while emitting an incomplete tool call. No call from that generation was accepted.
     Retry only the remaining work. Keep each individual tool payload small. Multiple complete tool calls are allowed.
-    For a large new file, create a compact valid scaffold first, then extend it with edit_file in later calls.
+    For a large ordinary new file, create a compact valid scaffold first, then extend it with edit_file in later calls. For generated data or bulk transformations, use a short, bounded script through run_command when it substantially reduces repetition.
     Do not repeat changes that already completed earlier in this turn.
     """
 
@@ -929,7 +929,7 @@ extension ChatTurnExecutionCoordinator {
     """
     The previous generation reached its output limit after the tool calls above. Those complete tool calls were accepted; do not repeat them.
     Continue only the remaining work with smaller individual tool payloads. Multiple complete tool calls are allowed.
-    For a large new file, create a compact valid scaffold first, then extend it with edit_file in later calls.
+    For a large ordinary new file, create a compact valid scaffold first, then extend it with edit_file in later calls. For generated data or bulk transformations, use a short, bounded script through run_command when it substantially reduces repetition.
     """
 
   func outputLimitFollowUpNotice(for result: ChatGenerationResult) -> String? {

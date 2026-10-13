@@ -125,6 +125,9 @@ Update `script/uv-release.sh` and the bundled upstream license together when
 upgrading uv, then verify embedding, managed MCP startup, and the exported app.
 
 All product Swift package dependencies are declared in the root `Package.swift`.
+MLX Swift LM is pinned to the Sumika maintainer's fork for the prefilled-reasoning
+tool-parser fix. The patch preserves generated text and history bytes while
+passing the prepared prompt's reasoning state into the streaming decoder.
 The isolated SwiftLint tool package lives under `script/swiftlint`. After
 changing product dependencies, run:
 

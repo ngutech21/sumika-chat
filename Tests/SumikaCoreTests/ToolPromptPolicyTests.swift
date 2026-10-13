@@ -49,7 +49,7 @@ struct ToolPromptPolicyTests {
     #expect(
       prompt.contains(
         "Reuse current read, list, glob, or search results unless the relevant content changed."))
-    #expect(prompt.contains("Use edit_file for targeted changes to existing files."))
+    #expect(prompt.contains("Prefer edit_file for targeted changes to existing files"))
     #expect(prompt.contains("Multiple edit_file calls may target one file in a response"))
     #expect(prompt.contains("approved and applied atomically per file"))
     #expect(
@@ -58,13 +58,34 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("including equivalent paths"))
     #expect(prompt.contains("Keep file mutations bounded."))
     #expect(
-      prompt.contains("If a file being created or fully replaced may not fit in one response"))
+      prompt.contains("If literal file content being created or fully replaced may not fit"))
     #expect(prompt.contains("do not draft the full file in reasoning"))
     #expect(prompt.contains("one coherent section per edit_file call"))
     #expect(prompt.contains("After a successful edit or write, inspect or verify as needed"))
     #expect(prompt.contains("Never print tool-call XML, JSON"))
     #expect(prompt.contains("native tool calls"))
     #expect(!prompt.contains("Available tools:"))
+  }
+
+  @Test(arguments: [
+    ToolPromptMode.agent, .afterToolResultCanContinue, .afterToolResultFinal,
+    .afterToolBudgetExhausted,
+  ])
+  func workPromptsAllowBoundedScriptsAndRequireVerification(mode: ToolPromptMode) {
+    let prompt = ToolPromptPolicy().systemPrompt(
+      basePrompt: "Base",
+      mode: mode,
+      toolRegistry: ToolExecutorRegistry.codingAgent.toolRegistry
+    )
+
+    #expect(prompt.contains("write_file for ordinary new files"))
+    #expect(prompt.contains("short, bounded Python, shell, sed, awk, or helper scripts"))
+    #expect(prompt.contains("through run_command for generated data or bulk transformations"))
+    #expect(prompt.contains("when they substantially reduce repetition"))
+    #expect(prompt.contains("Choose a finite record count or explicit target set before execution"))
+    #expect(prompt.contains("verify the resulting files and changes"))
+    #expect(prompt.contains("Use run_command after approval"))
+    #expect(!prompt.contains("Never use Python"))
   }
 
   @Test
@@ -123,6 +144,7 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("Never print tool-call XML, JSON envelopes"))
     #expect(!prompt.contains("edit_file"))
     #expect(!prompt.contains("run_command"))
+    #expect(!prompt.contains("bulk transformations"))
     #expect(!prompt.contains("finish_task"))
     #expect(!prompt.contains("Inspect before editing"))
   }

@@ -41,6 +41,44 @@ nonisolated final class MLXThinkingBudgetCloseTests: XCTestCase {
     }
   }
 
+  func testForcedCloseInsideReasoningCodeStillDeliversWriteFile() throws {
+    try Device.withDefaultDevice(.cpu) {
+      try Stream.withNewDefaultStream(device: .cpu) {
+        let tokenizer = BudgetCloseTestTokenizer()
+        let call = """
+          <tool_call><function=write_file><parameter=content>print(50)</parameter>
+          <parameter=path>/app/src/limiter/window.py</parameter></function></tool_call>
+          """
+        for body in ["`unfinished", "```python\ndef choose_limit():\n    return 50"] {
+          let closed = try MLXBudgetCloseTestSupport.close(
+            body: body, maximumTokenCount: tokenizer.encode(text: body).count,
+            tokenizer: tokenizer)
+          let parser = ToolCallProcessor(
+            format: .qwen35,
+            tools: [["function": ["name": "write_file"] as [String: any Sendable]]],
+            initialReasoning: QwenReasoningProtocol.tagged)
+          let outputs =
+            (closed + tokenizer.encode(text: call)).flatMap {
+              parser.processChunkOutputs(tokenizer.decode(tokenIds: [$0]))
+            } + parser.processEOSOutputs()
+          let calls = outputs.compactMap {
+            if case .toolCall(let call) = $0 { call } else { nil }
+          }
+          XCTAssertEqual(calls.count, 1)
+          XCTAssertEqual(calls.first?.function.name, "write_file")
+          XCTAssertEqual(calls.first?.function.arguments["content"], .string("print(50)"))
+          XCTAssertEqual(
+            calls.first?.function.arguments["path"], .string("/app/src/limiter/window.py"))
+          XCTAssertEqual(parser.rejectedToolCallCount, 0)
+          let response = outputs.compactMap {
+            if case .response(let text) = $0 { text } else { nil }
+          }.joined()
+          XCTAssertEqual(response, tokenizer.decode(tokenIds: closed))
+        }
+      }
+    }
+  }
+
   func testNaturalAndImplicitClosesRemainUnforced() throws {
     try Device.withDefaultDevice(.cpu) {
       try Stream.withNewDefaultStream(device: .cpu) {

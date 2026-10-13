@@ -871,50 +871,50 @@ private enum PromptCostBaseline {
     PromptCostSnapshot(
       name: "list_files_read_file",
       toolCount: 2,
-      systemPromptBytes: 3_511,
-      toolSchemaBytes: 10_291,
+      systemPromptBytes: 3_745,
+      toolSchemaBytes: 10_707,
       conversationBytes: 798,
       toolCallBytes: 197,
       toolResultBytes: 745,
-      totalBytes: 14_797,
-      estimatedTokens: 3_700,
-      checkpointEstimatedTokens: [3_582, 3_700]
+      totalBytes: 15_447,
+      estimatedTokens: 3_862,
+      checkpointEstimatedTokens: [3_745, 3_862]
     ),
     PromptCostSnapshot(
       name: "read_file_edit_file_test",
       toolCount: 3,
-      systemPromptBytes: 3_511,
-      toolSchemaBytes: 10_291,
+      systemPromptBytes: 3_745,
+      toolSchemaBytes: 10_707,
       conversationBytes: 1_429,
       toolCallBytes: 480,
       toolResultBytes: 1_354,
-      totalBytes: 15_711,
-      estimatedTokens: 3_928,
-      checkpointEstimatedTokens: [3_587, 3_768, 3_928]
+      totalBytes: 16_361,
+      estimatedTokens: 4_091,
+      checkpointEstimatedTokens: [3_750, 3_930, 4_091]
     ),
     PromptCostSnapshot(
       name: "failed_command_diagnostics",
       toolCount: 2,
-      systemPromptBytes: 3_511,
-      toolSchemaBytes: 10_291,
+      systemPromptBytes: 3_745,
+      toolSchemaBytes: 10_707,
       conversationBytes: 4_898,
       toolCallBytes: 359,
       toolResultBytes: 4_851,
-      totalBytes: 19_059,
-      estimatedTokens: 4_765,
-      checkpointEstimatedTokens: [3_789, 4_765]
+      totalBytes: 19_709,
+      estimatedTokens: 4_928,
+      checkpointEstimatedTokens: [3_952, 4_928]
     ),
     PromptCostSnapshot(
       name: "long_tool_loop",
       toolCount: 9,
-      systemPromptBytes: 3_511,
-      toolSchemaBytes: 10_291,
+      systemPromptBytes: 3_745,
+      toolSchemaBytes: 10_707,
       conversationBytes: 12_875,
       toolCallBytes: 1_386,
       toolResultBytes: 12_785,
-      totalBytes: 28_063,
-      estimatedTokens: 7_016,
-      checkpointEstimatedTokens: [3_591, 3_735, 3_853, 4_034, 4_360, 6_517, 6_653, 6_856, 7_016]
+      totalBytes: 28_713,
+      estimatedTokens: 7_179,
+      checkpointEstimatedTokens: [3_754, 3_898, 4_015, 4_196, 4_523, 6_680, 6_816, 7_018, 7_179]
     ),
   ]
 }

@@ -234,7 +234,7 @@ nonisolated extension ToolDefinition {
   package static let runCommand = ToolDefinition(
     name: .runCommand,
     description:
-      "Run an approved foreground shell command in the workspace root. Do not use this to write files when write_file or edit_file can do the change.",
+      "Run an approved foreground shell command in the workspace root. Prefer edit_file for targeted edits and write_file for ordinary new files. Use short, bounded scripts for generated data or bulk transformations when they substantially reduce repetition; choose a finite record count or explicit target set and verify the resulting files and changes.",
     parameters: [
       ToolParameterDefinition(
         name: "command",
