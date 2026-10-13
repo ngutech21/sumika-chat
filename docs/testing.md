@@ -83,6 +83,15 @@ Unexpected user questions end the trial as `needs_user`; Harbor still determines
 correctness through its verifier. The example is an integration smoke test, not
 a measure of general coding ability.
 
+## Known upstream parser regression
+
+`MLXThinkingBudgetCloseTests.testForcedCloseInsideReasoningCodeStillDeliversWriteFile`
+uses the pinned `mlx-swift-lm` API and records a strict expected failure for each
+unfinished reasoning code fixture. Revision `4cc5504` loses the following tool
+call, so these expectations do not establish correct tool parsing. When adopting
+upstream support for prompt-primed reasoning, update the test's parser
+initialization and remove the expectations. An unexpected pass fails the test.
+
 ## Sanitizers
 
 `just test-asan` enables Swift optimization with `-Xswiftc -O` while retaining
