@@ -6,7 +6,7 @@ import Synchronization
 enum MLXThinkingBudgetPolicy: String, Equatable, Sendable {
   case unmanaged
   case unsupported
-  case qwen36ImmediateV1 = "qwen36_immediate_v1"
+  case qwen36ImmediateV2 = "qwen36_immediate_v2"
 }
 
 enum MLXThinkingBudgetTransitionMode: String, Equatable, Sendable {
@@ -145,7 +145,7 @@ enum MLXThinkingBudgetPlanner {
 
     var identity: MLXThinkingBudgetIdentity {
       MLXThinkingBudgetIdentity(
-        policy: .qwen36ImmediateV1,
+        policy: .qwen36ImmediateV2,
         maximumTokenCount: maximumTokenCount,
         minimumAnswerTokenCount: minimumAnswerTokenCount,
         transitionMode: .immediate
@@ -277,14 +277,19 @@ enum MLXThinkingBudgetPlanner {
     generateParameters: GenerateParameters,
     enforcementState: MLXThinkingBudgetEnforcementState
   ) throws -> GenerationComponents {
+    var budgetReasoning = reasoning
+    // Track template newlines so prompt spacing is uncharged and a partial close completes once.
+    budgetReasoning.startDelimiter = reasoning.startDelimiter + "\n"
+    budgetReasoning.endDelimiter = "\n" + reasoning.endDelimiter
+    budgetReasoning.implicitEndDelimiters.append(reasoning.endDelimiter)
     let budgetConfiguration = try ThinkingBudgetConfiguration(
       maximumTokenCount: maximumTokenCount,
       minimumAnswerTokenCount: minimumAnswerTokenCount,
-      transitionOverride: .immediate
+      transitionOverride: ReasoningBudgetTransition(afterEndDelimiter: "\n\n")
     )
     let components = try GenerationComponents().applyingThinkingBudget(
       budgetConfiguration,
-      reasoning: reasoning,
+      reasoning: budgetReasoning,
       tokenizer: tokenizer,
       diagnosticHandler: { diagnostic in
         enforcementState.record(diagnostic)
@@ -325,7 +330,7 @@ enum MLXThinkingBudgetPlanner {
     case .unsupported:
       .unsupported
     case .hardLimitImmediate:
-      .qwen36ImmediateV1
+      .qwen36ImmediateV2
     }
   }
 }

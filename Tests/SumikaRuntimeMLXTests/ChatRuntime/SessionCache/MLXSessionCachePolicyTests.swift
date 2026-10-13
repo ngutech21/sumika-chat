@@ -13,13 +13,13 @@ struct MLXSessionCachePolicyTests {
   @Test
   func thinkingBudgetChangeForcesCacheIdentityRebuild() {
     let previousBudget = MLXThinkingBudgetIdentity(
-      policy: .qwen36ImmediateV1,
+      policy: .qwen36ImmediateV2,
       maximumTokenCount: 1_024,
       minimumAnswerTokenCount: 512,
       transitionMode: .immediate
     )
     let currentBudget = MLXThinkingBudgetIdentity(
-      policy: .qwen36ImmediateV1,
+      policy: .qwen36ImmediateV2,
       maximumTokenCount: 2_048,
       minimumAnswerTokenCount: 1_024,
       transitionMode: .immediate

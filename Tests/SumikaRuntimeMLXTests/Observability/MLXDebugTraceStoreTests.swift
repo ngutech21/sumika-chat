@@ -372,7 +372,7 @@ struct MLXDebugTraceStoreTests {
       effectiveReasoningSelection: .effort(.medium),
       contextTokenLimit: nil,
       thinkingBudget: MLXThinkingBudgetTrace(
-        policy: .qwen36ImmediateV1,
+        policy: .qwen36ImmediateV2,
         maximumTokenCount: 1_024,
         minimumAnswerTokenCount: 512,
         transitionMode: .immediate,
@@ -396,7 +396,7 @@ struct MLXDebugTraceStoreTests {
     #expect(tracedSettings["repetitionContextSize"] as? Int == 512)
     #expect(object["interactionMode"] as? String == "chat")
     let budget = try #require(object["thinkingBudget"] as? [String: Any])
-    #expect(budget["policy"] as? String == "qwen36_immediate_v1")
+    #expect(budget["policy"] as? String == "qwen36_immediate_v2")
     #expect(budget["maximumTokenCount"] as? Int == 1_024)
     #expect(budget["minimumAnswerTokenCount"] as? Int == 512)
     #expect(budget["transitionMode"] as? String == "immediate")
@@ -416,7 +416,7 @@ struct MLXDebugTraceStoreTests {
       metrics: nil,
       error: "rejected",
       thinkingBudget: MLXThinkingBudgetTrace(
-        policy: .qwen36ImmediateV1,
+        policy: .qwen36ImmediateV2,
         maximumTokenCount: 2_048,
         minimumAnswerTokenCount: 1_024,
         transitionMode: .immediate,

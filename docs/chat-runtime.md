@@ -827,6 +827,13 @@ Reaching the reasoning limit closes the validated thinking block
 immediately and continues visible output in the same generation. Disabling
 reasoning leaves the budget unapplied.
 
+The `qwen36_immediate_v2` runtime policy forces the template boundary
+`\n</think>\n\n`. The leading newline belongs to the tracked closing delimiter,
+so an already emitted newline is completed rather than duplicated. Natural
+`</think>` closes and implicit tool boundaries remain accepted. This preserves
+the generated token prefix across historical rendering at the budget boundary;
+exact cache validation still rebuilds for other prefix or alignment mismatches.
+
 Budget setup fails before generation when the interaction mode or validated
 Qwen protocol is unavailable, or when the generation token limit cannot provide
 the required answer headroom. Once generation starts, enforcement fails closed

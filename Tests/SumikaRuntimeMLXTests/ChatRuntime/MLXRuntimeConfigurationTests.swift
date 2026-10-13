@@ -137,17 +137,17 @@ struct MLXRuntimeConfigurationTests {
 
   @Test
   func reasoningOffLeavesQwenUnbudgetedAndUnsupportedQwenFailsPreflight() async throws {
-    let tokenizer = ThinkingBudgetTestTokenizer()
+    let tokenizer = BudgetCloseTestTokenizer()
     let state = MLXThinkingBudgetEnforcementState()
     let components = try MLXThinkingBudgetPlanner.makeComponents(
       maximumTokenCount: 1_024,
       minimumAnswerTokenCount: 512,
       reasoning: QwenReasoningProtocol.tagged,
       tokenizer: tokenizer,
-      generateParameters: GenerateParameters(maxTokens: 1_540),
+      generateParameters: GenerateParameters(maxTokens: 1_542),
       enforcementState: state
     )
-    try components.validate(parameters: GenerateParameters(maxTokens: 1_540))
+    try components.validate(parameters: GenerateParameters(maxTokens: 1_542))
 
     let disabledTrace = MLXThinkingBudgetPlanner.trace(
       policy: .unsupported,
@@ -165,7 +165,7 @@ struct MLXRuntimeConfigurationTests {
 
   @Test
   func thinkingBudgetFailsBeforeGenerationWhenAnswerHeadroomIsInsufficient() throws {
-    let tokenizer = ThinkingBudgetTestTokenizer()
+    let tokenizer = BudgetCloseTestTokenizer()
     let state = MLXThinkingBudgetEnforcementState()
 
     do {
@@ -301,40 +301,4 @@ struct MLXRuntimeConfigurationTests {
     #expect(matches.isEmpty, "Model stop tokens must come from MLX/model config: \(matches)")
   }
 
-}
-
-private struct ThinkingBudgetTestTokenizer: Tokenizer {
-  func encode(text: String, addSpecialTokens: Bool) -> [Int] {
-    switch text {
-    case "<think>": [1]
-    case "</think>": [2]
-    case "<tool_call>": [3]
-    default: Array(text.utf8).map { 1_000 + Int($0) }
-    }
-  }
-
-  func decode(tokenIds: [Int], skipSpecialTokens: Bool) -> String {
-    tokenIds.map { id in
-      switch id {
-      case 1: "<think>"
-      case 2: "</think>"
-      case 3: "<tool_call>"
-      default: String(UnicodeScalar(id - 1_000) ?? "?")
-      }
-    }.joined()
-  }
-
-  func convertTokenToId(_ token: String) -> Int? { nil }
-  func convertIdToToken(_ id: Int) -> String? { nil }
-  var bosToken: String? { nil }
-  var eosToken: String? { nil }
-  var unknownToken: String? { nil }
-
-  func applyChatTemplate(
-    messages: [[String: any Sendable]],
-    tools: [[String: any Sendable]]?,
-    additionalContext: [String: any Sendable]?
-  ) throws -> [Int] {
-    []
-  }
 }

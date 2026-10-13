@@ -2118,7 +2118,7 @@ struct MLXModelStreamProcessorTests {
 
   private func testThinkingBudgetTrace() -> MLXThinkingBudgetTrace {
     MLXThinkingBudgetTrace(
-      policy: .qwen36ImmediateV1,
+      policy: .qwen36ImmediateV2,
       maximumTokenCount: 1_024,
       minimumAnswerTokenCount: 512,
       transitionMode: .immediate,
