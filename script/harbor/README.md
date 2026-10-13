@@ -28,19 +28,29 @@ access while running; no model download is performed by the runner.
 
 ## Run the fixture
 
-Run these commands from the repository root. Replace `MODEL_ID` with an installed
-Sumika catalog ID. Keep `-n 1` to avoid competing local MLX sessions.
+Run these recipes from the repository root:
 
 ```sh
-export HARBOR_TELEMETRY=0
-harbor run -p script/harbor/tasks/merge-ranges -a nop -n 1 \
-  --jobs-dir /tmp/sumika-harbor-baseline
-harbor run -p script/harbor/tasks/merge-ranges -a oracle -n 1 \
-  --jobs-dir /tmp/sumika-harbor-oracle
-PYTHONPATH="$PWD" harbor run -p script/harbor/tasks/merge-ranges \
+just check-harbor-fixture
+just run-harbor
+```
+
+The fixture check runs `nop` and `oracle` sequentially and fails unless their
+fresh, completed trials have rewards `0` and `1`, respectively, with no trial
+exceptions. Results are kept under `tmp/harbor/baseline` and `tmp/harbor/oracle`.
+Run it during initial setup and after fixture, verifier, or container changes.
+
+`run-harbor` builds `SumikaEval` and runs only Sumika with the installed
+`Swift-1.5-4bit-MLX` model. Its results are kept under `tmp/harbor/sumika`.
+Both recipes disable Harbor telemetry. To use another installed Sumika catalog
+ID, replace `MODEL_ID` in this command. Keep `-n 1` to avoid competing local MLX
+sessions:
+
+```sh
+HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" harbor run -p script/harbor/tasks/merge-ranges \
   -a script.harbor.agent:SumikaAgent -m MODEL_ID -n 1 \
   --ak binary="$PWD/.build/debug/SumikaEval" \
-  --ak timeout_seconds=600 --jobs-dir /tmp/sumika-harbor-proof
+  --ak timeout_seconds=600 --jobs-dir "$PWD/tmp/harbor/sumika"
 ```
 
 The unchanged task must score `0`; the reference solution must score `1`. The
@@ -68,7 +78,7 @@ object containing a unique string `id` and an `operation`.
 | Operation | Request fields | Result fields |
 | --- | --- | --- |
 | `resolve` | `path` | `absolutePath`, `relativePath`, `isRegularFile` |
-| `read` | `path`, `offset`, optional `maxBytes` | `dataBase64` |
+| `read` | `path`, `offset`, optional `maxBytes`, optional `expectedVersion` | `dataBase64`, `version` |
 | `list` | `path` | `names` (basenames) |
 | `write` | `path`, `dataBase64`, optional `expectedContentsBase64` | empty object |
 | `run` | `executable`, `arguments`, `cwd`, `timeoutSeconds`, optional `standardInputBase64`, `maxStdoutBytes`, `maxStderrBytes`, `stdoutRetention`, `stderrRetention` | raw command result below |
@@ -79,6 +89,15 @@ include `notFound`, `permissionDenied`, `pathOutsideWorkspace`,
 `unsupportedURLScheme`, `contentChanged`, and `invalidArgument`; transport failures
 use `transportFailure`. A null/absent expected value means unconditional write;
 a supplied byte value must match the current file before atomic replacement.
+
+Each read returns an opaque `version` from the opened file's identity, size,
+and modification/change timestamps. The worker checks that version before and
+again after reading. A read with `maxBytes: 0` pins a version without fetching
+file content. Harbor's `withReader` supplies that version for every chunk,
+including EOF reads; a mismatch fails with `contentChanged` before the page is
+returned or recorded. This check is scoped to one tool call. Separate paginated
+tool calls start fresh reads. Metadata checks detect ordinary changes; they do
+not create an immutable filesystem snapshot.
 
 Commands return `exitCode`, `durationMs`, `stdout`, `stderr`, `stdoutDataBase64`,
 `timedOut`, `cancelled`, `stdoutTruncated`, `stderrTruncated`,

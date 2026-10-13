@@ -80,17 +80,28 @@ def directory_fd(root, parts, create=False):
         os.close(descriptor)
 
 
-def read_file(parent, name, offset=0, maximum=None):
+def file_version(info):
+    # shortcut: metadata is not an immutable snapshot; use filesystem snapshots for that guarantee.
+    return f"{info.st_dev}:{info.st_ino}:{info.st_size}:{info.st_mtime_ns}:{info.st_ctime_ns}"
+
+
+def read_file(parent, name, offset=0, maximum=None, expected_version=None):
     descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
                          dir_fd=parent)
     with os.fdopen(descriptor, "rb") as handle:
-        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode):
             raise RPCError("invalidArgument", "Expected a regular file.")
+        version = file_version(info)
+        if expected_version is not None and expected_version != version:
+            raise RPCError("contentChanged", "File changed while it was being read.")
         handle.seek(offset)
         data = handle.read(MAX_BYTES + 1 if maximum is None else maximum)
         if len(data) > MAX_BYTES:
             raise RPCError("invalidArgument", "File exceeds the full-read limit.")
-        return data
+        if file_version(os.fstat(handle.fileno())) != version:
+            raise RPCError("contentChanged", "File changed while it was being read.")
+        return data, version
 
 
 def files(root, control, request):
@@ -126,8 +137,12 @@ def files(root, control, request):
             maximum = request.get("maxBytes")
             if maximum is not None:
                 maximum = integer(maximum, "maxBytes")
-            return {"dataBase64": base64.b64encode(
-                read_file(parent, name, offset, maximum)).decode("ascii")}
+            expected_version = request.get("expectedVersion")
+            if expected_version is not None and (
+                    not isinstance(expected_version, str) or not 0 < len(expected_version) <= 256):
+                raise RPCError("invalidArgument", "Invalid expected file version.")
+            data, version = read_file(parent, name, offset, maximum, expected_version)
+            return {"dataBase64": base64.b64encode(data).decode("ascii"), "version": version}
         if operation != "write" or not parts:
             raise RPCError("invalidArgument", "Unsupported file operation.")
         data = decode(request["dataBase64"])
@@ -142,7 +157,7 @@ def files(root, control, request):
                 info = None
             if info is not None and not stat.S_ISREG(info.st_mode):
                 raise RPCError("permissionDenied", "Only regular files may be written.")
-            if expected is not None and (info is None or read_file(parent, name) != expected):
+            if expected is not None and (info is None or read_file(parent, name)[0] != expected):
                 raise RPCError("contentChanged", "File changed since it was read.")
             temporary = ".sumika-" + os.urandom(12).hex()
             try:

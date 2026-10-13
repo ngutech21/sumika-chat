@@ -43,8 +43,9 @@ class WorkerFileTests(unittest.TestCase):
     def test_binary_read_ranges_and_compare_and_swap(self):
         original = b"hello\x00\xffworld"
         self.assertIn("result", self.request("write", path="nested/data", dataBase64=encoded(original)))
-        self.assertEqual(self.request("read", path="nested/data", offset=5, maxBytes=2)["result"],
-                         {"dataBase64": encoded(b"\x00\xff")})
+        result = self.request("read", path="nested/data", offset=5, maxBytes=2)["result"]
+        self.assertEqual(result["dataBase64"], encoded(b"\x00\xff"))
+        self.assertIsInstance(result["version"], str)
         mismatch = self.request("write", path="nested/data", dataBase64=encoded(b"new"),
                                 expectedContentsBase64=encoded(b"stale"))
         self.assertEqual(mismatch["error"]["code"], "contentChanged")
@@ -74,8 +75,53 @@ class WorkerFileTests(unittest.TestCase):
     def test_full_read_rejects_truncation_but_paging_is_bounded(self):
         (self.root / "large").write_bytes(b"a" * (1024 * 1024 + 1))
         self.assertEqual(self.request("read", path="large")["error"]["code"], "invalidArgument")
-        self.assertEqual(self.request("read", path="large", offset=1024 * 1024, maxBytes=10)["result"],
-                         {"dataBase64": encoded(b"a")})
+        result = self.request("read", path="large", offset=1024 * 1024, maxBytes=10)["result"]
+        self.assertEqual(result["dataBase64"], encoded(b"a"))
+
+    def test_versioned_chunks_reject_atomic_replacement_including_eof(self):
+        for suffix in (b"tail", b""):
+            with self.subTest(suffix=suffix):
+                original = b"a" * 8192 + suffix
+                replacement = b"b" * 8192 + suffix
+                self.request("write", path="notes", dataBase64=encoded(original))
+                initial = self.request("read", path="notes", maxBytes=0)["result"]
+                first = self.request("read", path="notes", offset=0, maxBytes=8192,
+                                     expectedVersion=initial["version"])["result"]
+                self.assertEqual(base64.b64decode(first["dataBase64"]), original[:8192])
+                self.assertEqual(first["version"], initial["version"])
+                unchanged = self.request("read", path="notes", offset=8192, maxBytes=8192,
+                                         expectedVersion=initial["version"])["result"]
+                self.assertEqual(base64.b64decode(unchanged["dataBase64"]), suffix)
+                self.request("write", path="notes", dataBase64=encoded(replacement))
+                changed = self.request("read", path="notes", offset=8192, maxBytes=8192,
+                                       expectedVersion=initial["version"])
+                self.assertEqual(changed["error"]["code"], "contentChanged")
+
+    def test_version_check_rejects_in_place_change_during_chunk_read(self):
+        target = self.root / "notes"
+        target.write_bytes(b"original")
+        initial = target.stat()
+        real_fstat = os.fstat
+        checks = 0
+
+        def change_on_validation(descriptor):
+            nonlocal checks
+            checks += 1
+            if checks == 2:
+                target.write_bytes(b"modified")
+                os.utime(target, ns=(initial.st_atime_ns, initial.st_mtime_ns + 1_000_000_000))
+            return real_fstat(descriptor)
+
+        with patch("script.harbor.worker.os.fstat", side_effect=change_on_validation):
+            response = self.request("read", path="notes", maxBytes=8192)
+        self.assertEqual(response["error"]["code"], "contentChanged")
+
+    def test_invalid_expected_version_is_rejected(self):
+        (self.root / "notes").write_bytes(b"content")
+        for expected in (1, "", "x" * 257):
+            with self.subTest(expected=expected):
+                response = self.request("read", path="notes", expectedVersion=expected)
+                self.assertEqual(response["error"]["code"], "invalidArgument")
 
     def test_malformed_output_does_not_expand_capture_budget(self):
         for retention in ("prefix", "headTail", "tail"):

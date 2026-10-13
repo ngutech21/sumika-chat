@@ -337,6 +337,11 @@ flowchart TD
   asynchronous so it can resolve paths at the actual execution boundary.
   Approved calls still revalidate before execution. Edits compare the original
   bytes again before the atomic replacement and fail if they changed.
+  Harbor paged reads pin the opened file's identity and change metadata for one
+  `withReader` operation. Each chunk is checked before and after reading; a
+  version mismatch fails the whole page before it is returned or tracked.
+  Separate paginated tool calls start fresh reads. This preserves bounded
+  streaming without promising an immutable snapshot against arbitrary writers.
 - `Sumika.Dependencies.workspaceExecution` supplies an alternate file and command
   boundary for `SumikaEval`. Its registry contains only the implemented file and
   command tools plus `ask_user` and `finish_task`; configuration updates retain

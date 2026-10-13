@@ -295,3 +295,13 @@ outdated:
 update:
     swift package update
     just resolve-packages
+
+check-harbor-fixture:
+    HARBOR_TELEMETRY=0 python3 -B script/harbor/check_fixture.py
+
+run-harbor:
+    swift build --product SumikaEval
+    HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" harbor run -p script/harbor/tasks/merge-ranges \
+    -a script.harbor.agent:SumikaAgent -m Swift-1.5-4bit-MLX -n 1 \
+    --ak binary="$PWD/.build/debug/SumikaEval" \
+    --ak timeout_seconds=600 --jobs-dir "$PWD/tmp/harbor/sumika"

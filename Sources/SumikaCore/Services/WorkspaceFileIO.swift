@@ -65,7 +65,7 @@ package enum WorkspaceFileIOError: LocalizedError, Sendable {
   package var errorDescription: String? {
     switch self {
     case .contentChanged:
-      "The file changed before the edit could be written. Read it again before retrying."
+      "The file changed during the operation. Read it again before retrying."
     case .invalidReadRange:
       "File read offsets and byte limits must not be negative."
     }

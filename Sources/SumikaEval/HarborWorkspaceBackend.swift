@@ -5,6 +5,13 @@ import SumikaCore
 struct HarborWorkspaceBackend: WorkspaceFileIO, CommandProcessRunning {
   let bridgeURL: URL
   let token: String
+  private let session: URLSession
+
+  init(bridgeURL: URL, token: String, session: URLSession = .shared) {
+    self.bridgeURL = bridgeURL
+    self.token = token
+    self.session = session
+  }
 
   func resolve(path: String, in _: Workspace) async throws -> WorkspaceFileLocation {
     let result: Location = try await call(Request(operation: "resolve", path: path))
@@ -21,6 +28,26 @@ struct HarborWorkspaceBackend: WorkspaceFileIO, CommandProcessRunning {
       throw BridgeError.invalidResponse
     }
     return data
+  }
+
+  func withReader<Result: Sendable>(
+    path: String, in _: Workspace,
+    _ operation:
+      @Sendable (@escaping @Sendable (Int, Int) async throws -> Data) async throws -> Result
+  ) async throws -> Result {
+    let initial: Bytes = try await call(
+      Request(operation: "read", path: path, offset: 0, maxBytes: 0))
+    return try await operation { offset, maxBytes in
+      let result: Bytes = try await call(
+        Request(
+          operation: "read", path: path, offset: offset, maxBytes: maxBytes,
+          expectedVersion: initial.version))
+      guard result.version == initial.version else { throw WorkspaceFileIOError.contentChanged }
+      guard let data = Data(base64Encoded: result.dataBase64) else {
+        throw BridgeError.invalidResponse
+      }
+      return data
+    }
   }
 
   func write(path: String, in _: Workspace, data: Data, expectedContents: Data?) async throws {
@@ -81,7 +108,7 @@ struct HarborWorkspaceBackend: WorkspaceFileIO, CommandProcessRunning {
     http.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     http.setValue("application/json", forHTTPHeaderField: "Content-Type")
     http.httpBody = try JSONEncoder().encode(request)
-    let (data, response) = try await URLSession.shared.data(for: http)
+    let (data, response) = try await session.data(for: http)
     guard let response = response as? HTTPURLResponse, response.statusCode == 200 else {
       throw BridgeError.invalidResponse
     }
@@ -106,6 +133,7 @@ struct HarborWorkspaceBackend: WorkspaceFileIO, CommandProcessRunning {
     var path: String?
     var offset: Int?
     var maxBytes: Int?
+    var expectedVersion: String?
     var dataBase64: String?
     var expectedContentsBase64: String?
     var executable: String?
@@ -143,7 +171,10 @@ struct HarborWorkspaceBackend: WorkspaceFileIO, CommandProcessRunning {
     let relativePath: String
     let isRegularFile: Bool
   }
-  private struct Bytes: Decodable, Sendable { let dataBase64: String }
+  private struct Bytes: Decodable, Sendable {
+    let dataBase64: String
+    let version: String
+  }
   private struct Names: Decodable, Sendable { let names: [String] }
   private struct CommandResult: Decodable, Sendable {
     let exitCode: Int32?
