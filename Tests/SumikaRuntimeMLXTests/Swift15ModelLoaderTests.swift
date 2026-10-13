@@ -118,7 +118,7 @@ nonisolated final class Swift15ModelLoaderTests: XCTestCase {
     try MLX.save(arrays: checkpoint.weights, metadata: ["format": "mlx"], url: url)
     try loadWeights(
       modelDirectory: directory, model: adapter,
-      perLayerQuantization: checkpoint.perLayerQuantization)
+      perLayerQuantization: checkpoint.perLayerQuantization, componentLoading: .immediate)
     XCTAssertEqual(adapter.toolCallFormat, .qwen35)
     XCTAssertEqual(adapter.reasoningConfig, adapter.qwen.reasoningConfig)
     let modules = Dictionary(uniqueKeysWithValues: adapter.qwen.leafModules().flattened())
@@ -138,10 +138,61 @@ nonisolated final class Swift15ModelLoaderTests: XCTestCase {
     var missing = checkpoint.weights
     missing.removeValue(forKey: "visual.patch_embed.proj.weight")
     try MLX.save(arrays: missing, metadata: ["format": "mlx"], url: url)
-    XCTAssertThrowsError(try loadWeights(modelDirectory: directory, model: makeAdapter()))
+    XCTAssertThrowsError(
+      try loadWeights(modelDirectory: directory, model: makeAdapter(), componentLoading: .immediate)
+    )
   }
 
-  func testInstalledExportPublishesConcreteQwen() async throws {
+  func testStrictLoadingAndPreparationDefersVisionAndRetriesFailedMediaLoad() throws {
+    let directory = try temporaryDirectory()
+    let adapter = try makeAdapter()
+    let checkpoint = try makeCheckpoint(adapter)
+    let url = directory.appending(path: "model.safetensors")
+    try MLX.save(arrays: checkpoint.weights, metadata: ["format": "mlx"], url: url)
+    let eager = try makeAdapter()
+    try loadWeights(
+      modelDirectory: directory, model: eager,
+      perLayerQuantization: checkpoint.perLayerQuantization, componentLoading: .immediate)
+
+    var missing = checkpoint.weights
+    missing.removeValue(forKey: "visual.pos_embed.scales")
+    try MLX.save(arrays: missing, metadata: ["format": "mlx"], url: url)
+    try loadWeights(
+      modelDirectory: directory, model: adapter,
+      perLayerQuantization: checkpoint.perLayerQuantization)
+    let vision = try XCTUnwrap(adapter.onDemandComponents.first)
+    XCTAssertFalse(vision.isLoaded)
+    XCTAssertFalse(
+      adapter.parameters().flattened().contains { $0.0.hasPrefix("qwen.vision_tower.") })
+    let norm = try XCTUnwrap(
+      Dictionary(uniqueKeysWithValues: adapter.parameters().flattened())[
+        "qwen.language_model.model.norm.weight"])
+    XCTAssertEqual(
+      norm.asArray(Float.self),
+      checkpoint.weights["language_model.model.norm.weight"]?.asArray(Float.self))
+
+    let text = LMInput(tokens: MLXArray([1, 2, 3]))
+    XCTAssertEqual(try prefillLogits(adapter, input: text), try prefillLogits(eager, input: text))
+    XCTAssertFalse(vision.isLoaded)
+    let image = LMInput(
+      text: .init(tokens: MLXArray([1, 6, 5, 7, 2]).reshaped([1, 5])),
+      image: .init(pixels: MLXArray.zeros([4, 24]), frames: [.init(1, 2, 2)]))
+    XCTAssertThrowsError(try prefillLogits(adapter, input: image)) { error in
+      XCTAssertTrue(error.localizedDescription.contains("vision positional embeddings"), "\(error)")
+    }
+    XCTAssertFalse(vision.isLoaded)
+
+    try MLX.save(arrays: checkpoint.weights, metadata: ["format": "mlx"], url: url)
+    let expected = try prefillLogits(eager, input: image)
+    XCTAssertEqual(try prefillLogits(adapter, input: image), expected)
+    XCTAssertTrue(vision.isLoaded)
+    XCTAssertFalse(
+      adapter.parameters().flattened().contains { $0.0.hasPrefix("qwen.vision_tower.") })
+    try FileManager.default.removeItem(at: url)
+    XCTAssertEqual(try prefillLogits(adapter, input: image), expected)
+  }
+
+  func testInstalledExportRetainsAdapterWithDeferredVision() async throws {
     guard
       ProcessInfo.processInfo.environment["SUMIKA_DOCUMENT_SMOKE_MODEL_ID"]
         == "Swift-1.5-4bit-MLX"
@@ -151,7 +202,7 @@ nonisolated final class Swift15ModelLoaderTests: XCTestCase {
       .map { URL(filePath: $0) }
       ?? FileManager.default.homeDirectoryForCurrentUser.appending(
         path: "Library/Application Support/Sumika/Models")
-    let directory = root.appending(path: "ukisai/Swift-1.5-4bit-MLX")
+    let directory = root.appending(path: "Swift-1.5-4bit-MLX")
     guard FileManager.default.fileExists(atPath: directory.appending(path: "config.json").path)
     else {
       throw XCTSkip("Swift 1.5 is not installed.")
@@ -159,11 +210,28 @@ nonisolated final class Swift15ModelLoaderTests: XCTestCase {
     let loaded = try await Swift15ModelLoader.loadIfSupported(
       from: directory, using: makeHuggingFaceTokenizerLoader())
     let container = try XCTUnwrap(loaded)
-    let native = await container.perform { context in
-      context.model is Qwen35 && context.configuration.toolCallFormat == .qwen35
+    let deferred = await container.perform { context in
+      guard let adapter = context.model as? Swift15ModelLoader.CheckpointAdapter else {
+        return false
+      }
+      return context.configuration.toolCallFormat == .qwen35
         && context.configuration.reasoningConfig != nil
+        && adapter.onDemandComponents.allSatisfy { !$0.isLoaded }
+        && !adapter.parameters().flattened().contains { $0.0.hasPrefix("qwen.vision_tower.") }
     }
-    XCTAssertTrue(native)
+    XCTAssertTrue(deferred)
+  }
+
+  private func prefillLogits(_ adapter: Swift15ModelLoader.CheckpointAdapter, input: LMInput) throws
+    -> [Float]
+  {
+    let prepared = try adapter.prepare(
+      input, cache: adapter.newCache(parameters: nil), state: nil, prefill: .init())
+    guard case .logits(let output) = prepared else {
+      throw CocoaError(.coderInvalidValue)
+    }
+    XCTAssertTrue(all(isFinite(output.logits)).item(Bool.self))
+    return output.logits.asType(.float32).asArray(Float.self)
   }
 
   private func temporaryDirectory() throws -> URL {
@@ -207,6 +275,8 @@ nonisolated final class Swift15ModelLoaderTests: XCTestCase {
 
   private static let smallConfiguration = #"""
     {"model_type":"qwen3_5","architectures":["Qwen3_5ForConditionalGeneration"],
+     "image_token_id":5,"image_token_index":5,"video_token_id":8,"video_token_index":8,
+     "vision_start_token_id":6,"vision_end_token_id":7,
      "language_model_only":false,"quantization":{"bits":4,"group_size":64,"mode":"affine"},
      "quantization_config":{"bits":4,"group_size":64,"mode":"affine"},
      "text_config":{"model_type":"qwen3_5_text","hidden_size":64,"num_hidden_layers":2,

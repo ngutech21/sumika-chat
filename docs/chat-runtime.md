@@ -251,10 +251,15 @@ Downloaded files remain unchanged. Incompatible recognized exports fail loading;
 other models continue through their existing factories.
 
 The adapter uses the upstream tokenizer, image processor, strict weight loading,
-and inference preparation, then publishes the underlying `Qwen35` through the
-normal model container. Loading retains the runtime's cancellation, synchronization,
-error, and trace boundaries. The catalog marks Swift 1.5 as stable; this path does not
-enable MTP/speculative decoding or establish video support.
+and Qwen inference preparation. Initial loading defers the vision weights;
+the upstream on-demand vision component reads and validates its weights before
+the first image prefill, including the positional-table fix. The normal model
+container retains the adapter so deferred checkpoint preparation remains available.
+Vision weights are reused after a successful load; failures leave the component
+unloaded and retry on the next image input. Checkpoint files must remain readable
+until that first use. Loading retains the runtime's cancellation, synchronization,
+error, and trace boundaries. The catalog marks Swift 1.5 as stable; this path does
+not enable MTP/speculative decoding or establish video support.
 
 ## Recoverable MLX failures
 

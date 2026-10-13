@@ -48,13 +48,9 @@ enum Swift15ModelLoader {
     let factory = VLMModelFactory(
       typeRegistry: registry, processorRegistry: VLMProcessorTypeRegistry.shared,
       modelRegistry: VLMRegistry.shared)
-    var context = try await factory.load(from: directory, using: tokenizerLoader)
+    let container = try await factory.loadContainer(from: directory, using: tokenizerLoader)
     try Task.checkCancellation()
-    guard let adapter = context.model as? CheckpointAdapter else {
-      throw CompatibilityError("The checkpoint adapter was not used during loading.")
-    }
-    context.model = adapter.qwen
-    return ModelContainer(context: context)
+    return container
   }
 
   private static func validate(_ config: Qwen35Configuration, data: Data) throws {
@@ -99,8 +95,8 @@ enum Swift15ModelLoader {
     }
   }
 
-  // Internal for small checkpoint tests; inference always receives the unwrapped Qwen35.
-  final class CheckpointAdapter: Module, LanguageModel {
+  // Retained during inference because deferred vision loading calls prepareCheckpoint again.
+  final class CheckpointAdapter: Module, LanguageModel, ModelComponentsProviding {
     @ModuleInfo private(set) var qwen: Qwen35
 
     init(_ configuration: Qwen35Configuration) throws {
@@ -122,13 +118,25 @@ enum Swift15ModelLoader {
       else {
         throw CompatibilityError("Expected MLX-converted weights with raw normalization offsets.")
       }
-      var prepared = try checkpoint.mapNames { name in
-        if name == "visual" { return "vision_tower" }
-        if name.hasPrefix("visual.") {
-          return "vision_tower." + name.dropFirst("visual.".count)
-        }
-        return name
+      var prepared = try checkpoint.mapNames(
+        using: .init([
+          .replacePrefix("visual", with: "vision_tower"),
+          .replacePrefix("model.visual", with: "vision_tower"),
+        ]))
+      let hasVision = prepared.weights.keys.contains { $0.hasPrefix("vision_tower.") }
+      let visionOnly =
+        hasVision
+        && prepared.weights.keys.allSatisfy { $0.hasPrefix("vision_tower.") }
+      if hasVision {
+        prepared = try prepareVisionCheckpoint(prepared)
       }
+      prepared = try qwen.prepareCheckpoint(prepared)
+      // The deferred holder builds a native vision tower, without the wrapper's qwen prefix.
+      return visionOnly ? prepared : try prepared.mapNames { "qwen." + $0 }
+    }
+
+    private func prepareVisionCheckpoint(_ checkpoint: ModelCheckpoint) throws -> ModelCheckpoint {
+      var prepared = checkpoint
       let vision = qwen.config.visionConfiguration
       let path = "vision_tower.pos_embed"
       guard
@@ -147,9 +155,20 @@ enum Swift15ModelLoader {
         name == path + ".scales" || name == path + ".biases" ? nil : name
       }
       prepared.perLayerQuantization?.perLayerQuantization[path] = .skip
-      prepared = try qwen.prepareCheckpoint(prepared)
-      return try prepared.mapNames { "qwen." + $0 }
+      return prepared
     }
+
+    var modelComponents: [ModelComponent: [CheckpointComponent]] {
+      qwen.modelComponents.mapValues { parts in
+        parts.map {
+          CheckpointComponent(
+            name: $0.name, namespaces: $0.namespaces, destination: "qwen." + $0.destination,
+            excludedNamespaces: $0.excludedNamespaces)
+        }
+      }
+    }
+
+    var onDemandComponents: [AnyOnDemandComponent] { qwen.onDemandComponents }
 
     var toolCallFormat: ToolCallFormat? { qwen.toolCallFormat }
     var reasoningConfig: ReasoningConfig? { qwen.reasoningConfig }

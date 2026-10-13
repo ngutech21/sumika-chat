@@ -97,11 +97,13 @@ suppressions. `just test` and `just test-tsan` retain unoptimized Debug coverage
 
 `just test-tsan` temporarily excludes `MLXChatSessionContinuationTests` and
 `MLXGuardedGenerationTests` because of native MLX scheduler and allocator data
-races originally observed with `mlx-swift` 0.31.6. It also excludes three native
+races originally observed with `mlx-swift` 0.31.6. It also excludes four native
 execution tests in `Swift15ModelLoaderTests`: `testCheckpointMappingPreservesMetadataAndPrecision`,
-`testRawNormOffsetsUseFloat32MathAndKeepInputDtype`, and
-`testStrictLoadingAndPreparationKeepNativeQwenBehavior`. With `mlx-swift` 0.32.3,
-these paths trigger races in the native scheduler's active-task counter and
+`testRawNormOffsetsUseFloat32MathAndKeepInputDtype`,
+`testStrictLoadingAndPreparationKeepNativeQwenBehavior`, and
+`testStrictLoadingAndPreparationDefersVisionAndRetriesFailedMediaLoad`. The deferred-loading
+test uses the same existing native-execution exclusion. With `mlx-swift` 0.32.3,
+the original tests trigger races in the native scheduler's active-task counter and
 Metal completion callbacks, reproduced locally and in
 [CI](https://github.com/ngutech21/sumika-chat/actions/runs/37857235029/job/113584266209).
 Swift 1.5 manifest and configuration validation remain enabled under TSan.
