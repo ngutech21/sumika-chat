@@ -11,7 +11,8 @@ final class MLXGuardedGeneration: Sendable {
 
   convenience init(
     session: MLXLMCommon.ChatSession, messages: consuming [Chat.Message],
-    diagnostics: MLXGenerationDiagnostics? = nil
+    diagnostics: MLXGenerationDiagnostics? = nil,
+    tokenProgressTracer: MLXTokenProgressTracer? = nil
   ) {
     let stream = StreamOrDevice.default.stream
     // Runtime setup is serialized; upstream protects its cache with an async lock.
@@ -23,14 +24,16 @@ final class MLXGuardedGeneration: Sendable {
         await drainingSession.synchronize()
         stream.synchronize()
       },
-      diagnostics: diagnostics
+      diagnostics: diagnostics,
+      tokenProgressTracer: tokenProgressTracer
     )
   }
 
   init(
     makeStream: () -> AsyncThrowingStream<Generation, Error>,
     synchronize: @escaping @Sendable () async -> Void,
-    diagnostics: MLXGenerationDiagnostics? = nil
+    diagnostics: MLXGenerationDiagnostics? = nil,
+    tokenProgressTracer: MLXTokenProgressTracer? = nil
   ) {
     self.diagnostics = diagnostics
     let failure = self.failure
@@ -47,6 +50,9 @@ final class MLXGuardedGeneration: Sendable {
         while let event = try await iterator.next() {
           try failure.check()
           try Task.checkCancellation()
+          if event.toolCall != nil || event.rejectedToolCall != nil {
+            await tokenProgressTracer?.recordParserEvent(event)
+          }
           if event.info != nil || event.toolCall != nil || !terminalEvents.isEmpty {
             terminalEvents.append(event)
           } else if case .terminated = continuation.yield(event) {
@@ -66,6 +72,7 @@ final class MLXGuardedGeneration: Sendable {
       // lock must be released, and native work settled, before releasing arrays.
       await MLX.withErrorHandler(failure.capture) { await synchronize() }
       diagnostics?.didDrain()
+      await tokenProgressTracer?.finish()
       do {
         try failure.check()
         if let streamError { throw streamError }

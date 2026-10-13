@@ -300,6 +300,24 @@ final actor MLXChatRuntime: ChatModelRuntime {
       finalPrompt: finalPrompt,
       imageAttachments: imageAttachments
     )
+    let tokenProgressTracer: MLXTokenProgressTracer?
+    var generationComponents = thinkingBudgetPlan.components
+    if MLXDebugTraceStore.isEnabled {
+      let tokenizer = await modelContainer.tokenizer
+      let tracer = MLXTokenProgressTracer(
+        traceID: traceID, metadata: traceMetadata, store: debugTraceStore,
+        tokenProgressAvailable: thinkingBudgetPlan.enforcementState != nil,
+        decode: { tokenizer.decode(tokenIds: $0) }
+      )
+      tokenProgressTracer = tracer
+      if tracer.tokenProgressAvailable {
+        generationComponents = generationComponents.appendingLogitProcessor {
+          MLXTokenProgressProcessor(tracer: tracer)
+        }
+      }
+    } else {
+      tokenProgressTracer = nil
+    }
     let generationID = generationOwnership.beginGeneration()
     do {
       let prepareSessionInterval = ChatDiagnostics.beginInterval(
@@ -319,7 +337,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
           additionalContext: additionalContext,
           projectionMode: projectionMode,
           thinkingBudgetIdentity: thinkingBudgetPlan.identity,
-          components: thinkingBudgetPlan.components,
+          components: generationComponents,
           generationID: generationID
         )
       }
@@ -364,7 +382,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
       let startedGeneration = generationActivity.start {
         MLXGuardedGeneration(
           session: cachePlan.session, messages: cachePlan.streamMessages,
-          diagnostics: generationDiagnostics)
+          diagnostics: generationDiagnostics, tokenProgressTracer: tokenProgressTracer)
       }
       var activityLeaseHandedOff = false
       defer {

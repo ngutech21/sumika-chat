@@ -642,3 +642,93 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
       .appending(path: "debug", directoryHint: .isDirectory)
   }
 }
+
+extension MLXDebugTraceStore {
+  func traceTokenProgress(
+    id: UUID, metadata: TurnTraceMetadata?, durationMs: Double,
+    tokenCount: Int, prefix: [Int], suffix: [Int],
+    decode: @Sendable ([Int]) -> String, available: Bool, final: Bool
+  ) {
+    guard tracingIsEnabled else { return }
+    let prefixText = prefix.isEmpty ? "" : decode(prefix)
+    let suffixText = suffix.isEmpty ? "" : decode(suffix)
+    var trace = diagnosticTrace(
+      phase: "runtime_token_progress", id: id, metadata: metadata, durationMs: durationMs)
+    trace["tokenProgressAvailable"] = available
+    trace["tokenCountSource"] = "emitted_token_callback"
+    if available { trace["observedTokenCount"] = tokenCount }
+    trace["final"] = final
+    trace["prefixTokenCount"] = prefix.count
+    trace["suffixTokenCount"] = suffix.count
+    trace["tokenPrefixPreview"] = boundedUTF8(prefixText, limit: 512)
+    trace["tokenSuffixPreview"] = boundedUTF8(suffixText, limit: 1536, fromEnd: true)
+    trace["previewTruncated"] =
+      tokenCount > suffix.count || prefixText.utf8.count > 512 || suffixText.utf8.count > 1536
+    append(trace)
+  }
+
+  func traceToolParserEvent(
+    _ event: Generation, id: UUID, metadata: TurnTraceMetadata?, durationMs: Double
+  ) {
+    guard tracingIsEnabled else { return }
+    var trace = diagnosticTrace(
+      phase: "runtime_tool_parser", id: id, metadata: metadata, durationMs: durationMs)
+    let payload: String
+    if let call = event.toolCall {
+      trace["parserOutcome"] = "accepted"
+      trace["toolName"] = boundedUTF8(call.function.name, limit: 128)
+      trace["toolCallID"] = call.id.map { boundedUTF8($0, limit: 128) }
+      let encoder = JSONEncoder()
+      encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+      guard let data = try? encoder.encode(call.function.arguments),
+        let text = String(data: data, encoding: .utf8)
+      else {
+        trace["payloadEncodingFailed"] = true
+        append(trace)
+        return
+      }
+      payload = text
+      trace["payloadByteCount"] = data.count
+    } else if let rejection = event.rejectedToolCall {
+      trace["parserOutcome"] = "rejected"
+      trace["rejectionReason"] = rejection.reason.rawValue
+      trace["toolFormat"] = rejection.format.rawValue
+      trace["toolName"] = rejection.toolName.map { boundedUTF8($0, limit: 128) }
+      trace["toolCallID"] = rejection.callID.map { boundedUTF8($0, limit: 128) }
+      trace["payloadByteCount"] = rejection.rawTextByteCount
+      trace["parserPreviewTruncated"] = rejection.isPreviewTruncated
+      payload = rejection.rawTextPreview
+    } else {
+      return
+    }
+    trace["payloadPrefixPreview"] = boundedUTF8(payload, limit: 512)
+    trace["payloadSuffixPreview"] = boundedUTF8(payload, limit: 1536, fromEnd: true)
+    trace["previewTruncated"] =
+      payload.utf8.count > 1536 || event.rejectedToolCall?.isPreviewTruncated == true
+    append(trace)
+  }
+
+  private func diagnosticTrace(
+    phase: String, id: UUID, metadata: TurnTraceMetadata?, durationMs: Double
+  ) -> [String: Any] {
+    var trace = turnTraceObject(
+      from: TurnTraceEvent(
+        turnID: metadata?.turnID, generationID: id, phase: .runtimePartialDecode,
+        durationMs: durationMs, toolLoopIteration: metadata?.toolLoopIteration,
+        interactionMode: metadata?.interactionMode
+      )
+    )
+    trace["phase"] = phase
+    return trace
+  }
+
+  private func boundedUTF8(_ text: String, limit: Int, fromEnd: Bool = false) -> String {
+    let bytes = fromEnd ? Array(text.utf8.suffix(limit)) : Array(text.utf8.prefix(limit))
+    for trim in 0...min(3, bytes.count) {
+      let candidate = fromEnd ? bytes.dropFirst(trim) : bytes.dropLast(trim)
+      if let preview = String(bytes: candidate, encoding: .utf8) { return preview }
+    }
+    return ""
+  }
+
+}

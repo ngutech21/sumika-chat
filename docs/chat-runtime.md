@@ -593,6 +593,22 @@ is marked with `generatedTokenCountIsEstimate: true`; structured tool parsing
 can buffer provider syntax, so this running value is intentionally not presented
 as an exact MLX counter.
 
+With the existing reasoning-budget token tracking active, raw emitted tokens
+also produce `runtime_token_progress` rows before tool parsing: the first token,
+every 128 tokens, and a final row after the producer drains. `observedTokenCount`
+counts those token callbacks, including reasoning and tool syntax. Only the first
+64 and latest 256 token IDs are retained. Their decoded prefix/suffix previews
+are capped at 512/1536 UTF-8 bytes. These windows can overlap and are not a full
+response. The current upstream hook requires reasoning-budget tracking; other
+modes record `tokenProgressAvailable: false` and omit the count.
+
+`runtime_tool_parser` rows record actual accepted/rejected provider parser events
+before runtime terminal-event buffering, with tool name, argument/raw payload
+byte count, rejection reason when available, and prefix/suffix previews capped
+at 512/1536 UTF-8 bytes. An accepted row proves parsing completed, not that a tool
+executed. These diagnostics contain model output and tool arguments, are enabled
+only by debug tracing, and do not change sampling or parser behavior.
+
 The same JSONL stream uses additive `turn_trace` rows with
 `phase: runtime_memory` for event-based MLX memory snapshots. These rows contain
 `memoryScopeID`, `memoryPhase`, exact active/cache/peak byte counts, and, for a
