@@ -84,6 +84,8 @@ Each trial additionally retains:
 - `agent/task/`: a host-side copy of the exact task, including setup, initial
   files, verifier, and reference solution. Its checksum must match Harbor's
   planned task. These copies are never exposed to the agent's workspace.
+  Hub tasks use the resolved digest from Harbor's trial lock and its configured
+  download directory, so mutable references such as `latest` are not resolved again.
 - `agent/reproduction.json`, `agent/source.patch`, `agent/source-untracked/`,
   and `agent/Package.resolved`: source commit and working changes at run time,
   executable SHA-256, Swift version, host architecture, and task fingerprints.
@@ -208,6 +210,6 @@ The Python image tag is versioned, not locked to an immutable image digest.
 
 There is no host executor fallback, workspace bind mount, or Docker socket exposed
 by this integration. Docker still supplies the isolation boundary: do not add
-privileged mode or host mounts to these task definitions. This proof does not
-implement standard datasets, repeated runs, ACP, ATIF export, MCP/skill injection,
-or native macOS task execution.
+privileged mode or host mounts to these task definitions. Standard dataset
+compatibility and repeated runs are not validated. This proof does not implement
+ACP, ATIF export, MCP/skill injection, or native macOS task execution.

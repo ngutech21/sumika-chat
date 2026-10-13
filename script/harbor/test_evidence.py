@@ -165,6 +165,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             checksum = dirhash(task, "sha256")
             event = SimpleNamespace(trial_name="trial", trial_id="id", config=SimpleNamespace(
                 trials_dir=root / "job", agent=SimpleNamespace(kwargs={"binary": str(binary)})),
+                lock=SimpleNamespace(task=SimpleNamespace(type="local")),
                 result=SimpleNamespace(task_id=SimpleNamespace(get_local_path=lambda: task), task_checksum=checksum))
             with patch("script.harbor.evidence.command", side_effect=[
                     b"commit\n", b"working patch", b"new.py\0", b"Swift version"]), \
@@ -176,6 +177,55 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((agent / "source.patch").read_text(), "working patch")
             self.assertEqual(dirhash(task, "sha256"), checksum)
             self.assertFalse(json.loads((agent / "completeness.json").read_text())["complete"])
+
+    @unittest.skipIf(find_spec("harbor") is None or find_spec("dirhash") is None,
+                     "Requires Harbor and its task checksum dependency")
+    async def test_hub_snapshot_uses_locked_digest_and_checks_contents(self):
+        from dirhash import dirhash
+        from harbor.models.job.lock import TaskLock
+        from harbor.models.trial.config import TaskConfig
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repository"
+            repository.mkdir()
+            (repository / "Package.resolved").write_text("{}")
+            binary = repository / "runner"
+            binary.write_text("binary")
+            digest = "sha256:" + "a" * 64
+            lock = TaskLock(name="terminal-bench/regex-chess", type="package", digest=digest)
+            for download_dir in (None, root / "downloads"):
+                cache = download_dir or root / "cache"
+                task = cache / "terminal-bench/regex-chess" / digest.removeprefix("sha256:")
+                task.mkdir(parents=True)
+                (task / "instruction.md").write_text("instruction")
+                checksum = dirhash(task, "sha256")
+                config = TaskConfig(name=lock.name, ref="latest", download_dir=download_dir)
+                for changed in (False, True):
+                    with self.subTest(download_dir=download_dir, changed=changed):
+                        trial_name = f"{cache.name}-{changed}"
+                        task_id = config.get_task_id()
+                        event = SimpleNamespace(trial_name=trial_name, trial_id="id",
+                            config=SimpleNamespace(trials_dir=root / "job", task=config,
+                                agent=SimpleNamespace(kwargs={"binary": str(binary)})),
+                            lock=SimpleNamespace(task=lock),
+                            result=SimpleNamespace(task_id=task_id,
+                                task_checksum="changed" if changed else checksum))
+                        with patch("harbor.models.task.id.PACKAGE_CACHE_DIR", root / "cache"), \
+                                patch("script.harbor.evidence.command", side_effect=[
+                                    b"commit\n", b"working patch", b"", b"Swift version"]) as command, \
+                                patch("script.harbor.evidence.version", return_value="0.24.0"):
+                            if changed:
+                                with self.assertRaisesRegex(ValueError, "Task changed after Harbor planned"):
+                                    prepare_trial(event, repository)
+                                command.assert_not_called()
+                            else:
+                                prepare_trial(event, repository)
+                                agent = root / "job" / trial_name / "agent"
+                                self.assertEqual(inventory(agent / "task"), inventory(task))
+                                reproduction = json.loads((agent / "reproduction.json").read_text())
+                                self.assertEqual(reproduction["task_checksum"], checksum)
+                        self.assertEqual(task_id.ref, "latest")
 
     async def test_capture_must_be_enabled_and_hooks_run_after_trial_and_job(self):
         with patch("script.harbor.evidence.version", return_value="0.24.0"):

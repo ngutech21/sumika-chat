@@ -65,7 +65,17 @@ def prepare_trial(event, repository):
     write_json(agent / "completeness.json", {
         "schema_version": 1, "complete": False, "issues": ["Trial has not finished."]})
     task = agent / "task"
-    shutil.copytree(event.result.task_id.get_local_path(), task, symlinks=True)
+    task_id = event.result.task_id
+    if event.lock.task.type == "package":
+        # The result retains the requested ref; the lock records the downloaded version.
+        digest = event.lock.task.digest
+        source = task_id.model_copy(update={"ref": digest}).get_local_path()
+        if event.config.task.download_dir is not None:
+            source = (event.config.task.download_dir / task_id.org / task_id.name
+                      / digest.removeprefix("sha256:"))
+    else:
+        source = task_id.get_local_path()
+    shutil.copytree(source, task, symlinks=True)
     if dirhash(task, "sha256") != event.result.task_checksum:
         raise ValueError("Task changed after Harbor planned the trial.")
     git = ["git", "--no-optional-locks", "-C", str(repository)]

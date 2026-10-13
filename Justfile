@@ -299,7 +299,7 @@ update:
 check-harbor-fixture:
     HARBOR_TELEMETRY=0 python3 -B script/harbor/check_fixture.py
 
-run-harbor:
+run-harbor-smoke-test:
     #!/usr/bin/env bash
     set -eu
     swift build --product SumikaEval
@@ -310,5 +310,25 @@ run-harbor:
     --artifact /app --plugin script.harbor.evidence:EvidencePlugin \
     --ak binary="$PWD/.build/debug/SumikaEval" \
     --ak timeout_seconds=600 --jobs-dir "$PWD/.harbor/" --job-name "$job_name" || status=$?
+    python3 -B script/harbor/evidence.py "$PWD/.harbor/$job_name" || status=1
+    exit "$status"
+
+run-harbor:
+    #!/usr/bin/env bash
+    set -eu
+    swift build --product SumikaEval
+    job_name="$(uuidgen)"
+    status=0
+    HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" harbor run \
+    -t openthoughts/python-api-rate-limit \
+    -a script.harbor.agent:SumikaAgent \
+    -m Swift-1.5-4bit-MLX \
+    -e docker -n 1 -k 1 \
+    --ak binary="$PWD/.build/debug/SumikaEval" \
+    --ak timeout_seconds=3300 \
+    --artifact /app \
+    --plugin script.harbor.evidence:EvidencePlugin \
+    --jobs-dir "$PWD/.harbor" --job-name "$job_name" || status=$?
+
     python3 -B script/harbor/evidence.py "$PWD/.harbor/$job_name" || status=1
     exit "$status"
