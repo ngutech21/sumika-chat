@@ -7,6 +7,8 @@ from importlib.util import find_spec
 import logging
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -22,9 +24,11 @@ class EvidenceTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="sumika-evidence-")
         self.addCleanup(self.temporary.cleanup)
-        self.trial = Path(self.temporary.name) / "trial"
+        self.trial = (Path(self.temporary.name) / "trial").resolve()
         self.trial.mkdir()
         write_json(self.trial.parent / "result.json", {"finished_at": "now", "n_total_trials": 1})
+        write_json(self.trial.parent / "config.json", {"agents": [{"model_name": "model"}]})
+        write_json(self.trial.parent / "lock.json", {"trials": []})
         self.write("agent/task/instruction.md", "Repair")
         self.write("agent/task/task.toml", "")
         self.write("artifacts/app/result.py", "solution")
@@ -323,6 +327,94 @@ class EvidenceTests(unittest.TestCase):
             write_json(self.trial.parent / "result.json", job)
             with self.subTest(job=job), self.assertRaisesRegex(ValueError, message):
                 check_evidence(self.trial.parent)
+
+    def test_job_reports_every_failure_and_checks_later_trials_without_mutating_evidence(self):
+        save_assessment(self.trial)
+        root = self.trial.parent
+        for name in ("a-malformed", "b-missing-agent", "c-changed", "d-incomplete", "e-invalid-data"):
+            shutil.copytree(self.trial, root / name)
+        (root / "a-malformed/agent/completeness.json").write_text("{broken")
+        shutil.rmtree(root / "b-missing-agent/agent")
+        (root / "c-changed/artifacts/app/result.py").write_text("changed solution")
+        (root / "d-incomplete/agent/runner.log").unlink()
+        save_assessment(root / "d-incomplete")
+        (root / "e-invalid-data/agent/session.json").write_text("[]")
+        write_json(root / "result.json", {"finished_at": "now", "n_total_trials": 6})
+        before = inventory(root)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), self.assertRaises(ValueError) as caught:
+            check_evidence(root)
+        detail = str(caught.exception)
+        for name in ("a-malformed", "b-missing-agent", "c-changed", "d-incomplete", "e-invalid-data"):
+            self.assertIn(f"Incomplete or changed evidence in {root / name}:", detail)
+        self.assertIn("Evidence files changed since saved assessment: artifacts/app/result.py", detail)
+        incomplete = detail.split(f"{root / 'd-incomplete'}:\n", 1)[1].split("Incomplete or changed evidence", 1)[0]
+        self.assertEqual(incomplete.count("Missing regular file: agent/runner.log"), 1)
+        self.assertIn(f"Complete evidence: {self.trial}", output.getvalue())
+        self.assertIn("6 trials checked, 1 complete, 5 incomplete", output.getvalue())
+        self.assertEqual(inventory(root), before)
+
+    def test_job_metadata_errors_do_not_skip_available_trials(self):
+        save_assessment(self.trial)
+        for value in ("{broken", "[]", '{"n_total_trials": 2}'):
+            with self.subTest(value=value):
+                (self.trial.parent / "result.json").write_text(value)
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output), self.assertRaises(ValueError):
+                    check_evidence(self.trial.parent)
+                self.assertIn(f"Complete evidence: {self.trial}", output.getvalue())
+                self.assertIn("1 trials checked, 1 complete, 0 incomplete", output.getvalue())
+
+    def test_missing_or_malformed_report_does_not_skip_current_assessment(self):
+        self.write("agent/runtime.json", "{}")
+        for value in (None, "[]", '{"complete": true, "files": {}, "issues": [null]}'):
+            with self.subTest(value=value):
+                path = self.trial / "agent/completeness.json"
+                if value is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    path.write_text(value)
+                with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(ValueError) as caught:
+                    check_evidence(self.trial)
+                self.assertIn("agent/completeness.json", str(caught.exception))
+                self.assertIn("Runtime settings or build configuration are missing", str(caught.exception))
+
+    def test_missing_agent_directory_is_reported_for_a_single_trial(self):
+        shutil.rmtree(self.trial / "agent")
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(ValueError) as caught:
+            check_evidence(self.trial)
+        self.assertIn(f"Incomplete or changed evidence in {self.trial}", str(caught.exception))
+        self.assertIn("agent/completeness.json", str(caught.exception))
+
+    def test_missing_artifact_keys_are_reported_without_aborting_other_trials(self):
+        save_assessment(self.trial)
+        broken = self.trial.parent / "a-broken"
+        shutil.copytree(self.trial, broken)
+        write_json(broken / "config.json", {"agent": {"model_name": "model"}, "artifacts": [{}]})
+        self.assertFalse(save_assessment(broken)["complete"])
+        write_json(self.trial.parent / "result.json", {"finished_at": "now", "n_total_trials": 2})
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), self.assertRaises(ValueError) as caught:
+            check_evidence(self.trial.parent)
+        self.assertIn(f"Incomplete or changed evidence in {broken}", str(caught.exception))
+        self.assertIn(f"Complete evidence: {self.trial}", output.getvalue())
+
+    def test_cli_exits_after_reporting_all_failures(self):
+        self.write("agent/runtime.json", "{}")
+        (self.trial / "agent/mlx-trace.jsonl").unlink()
+        save_assessment(self.trial)
+        shutil.copytree(self.trial, self.trial.parent / "second")
+        save_assessment(self.trial.parent / "second")
+        write_json(self.trial.parent / "result.json", {"finished_at": "now", "n_total_trials": 2})
+        result = subprocess.run([sys.executable, "-B", str(Path(__file__).with_name("evidence.py").resolve()),
+                                 self.trial.parent.name], cwd=self.trial.parent.parent,
+                                capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("2 trials checked, 0 complete, 2 incomplete", result.stdout)
+        self.assertIn(f"Incomplete or changed evidence in {self.trial}:", result.stderr)
+        self.assertIn(f"Incomplete or changed evidence in {self.trial.parent / 'second'}:", result.stderr)
+        self.assertEqual(result.stderr.count("agent/mlx-trace.jsonl:"), 2)
+        self.assertNotIn("Traceback", result.stderr)
 
 
 class PluginTests(unittest.IsolatedAsyncioTestCase):

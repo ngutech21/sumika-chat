@@ -322,7 +322,7 @@ def assess_trial(trial):
 def save_assessment(trial):
     try:
         report = assess_trial(trial)
-    except (OSError, ValueError, TypeError, AttributeError) as error:
+    except (OSError, ValueError, TypeError, AttributeError, KeyError) as error:
         report = {"schema_version": 1, "complete": False, "issues": [str(error)], "files": {}}
     write_json(trial / "agent/completeness.json", report)
     return report
@@ -351,24 +351,66 @@ class EvidencePlugin:
 
 
 def check_evidence(path):
-    is_trial = (path / "agent").is_dir()
-    trials = [path] if is_trial else sorted(p.parent for p in path.glob("*/agent"))
+    path = path.absolute()
+    try:
+        config = json.loads((path / "config.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        config = {}
+    # Jobs also have lock.json; a trial config has one agent, not an agents list.
+    is_trial = (path / "agent").exists() or (isinstance(config, dict) and "agent" in config)
+    trials = [path] if is_trial else sorted({p.parent for name in ("agent", "result.json", "config.json")
+                                           for p in path.glob(f"*/{name}")})
     if not trials:
         raise ValueError(f"No trial evidence in {path}")
+    failures = []
     if not is_trial:
-        job = json.loads((path / "result.json").read_text(encoding="utf-8"))
-        stats = job.get("stats", {})
-        if not job.get("finished_at") or stats.get("n_running_trials", 0) or stats.get("n_pending_trials", 0):
-            raise ValueError(f"Harbor job has not finished: {path}")
-        if len(trials) != job.get("n_total_trials"):
-            raise ValueError(f"Trial directories do not match Harbor's planned count in {path}")
+        try:
+            job = json.loads((path / "result.json").read_text(encoding="utf-8"))
+            stats = job.get("stats", {})
+            if not job.get("finished_at") or stats.get("n_running_trials", 0) or stats.get("n_pending_trials", 0):
+                failures.append(f"Harbor job has not finished: {path}")
+            if len(trials) != job.get("n_total_trials"):
+                failures.append(f"Trial directories do not match Harbor's planned count in {path}")
+        except (OSError, ValueError, TypeError, AttributeError) as error:
+            failures.append(f"Cannot read Harbor job result in {path}: {error}")
+    complete = 0
     for trial in trials:
-        report = json.loads((trial / "agent/completeness.json").read_text(encoding="utf-8"))
-        current = assess_trial(trial)
-        if not report.get("complete") or not current["complete"] or report.get("files") != current["files"]:
-            raise ValueError(f"Incomplete or changed evidence in {trial}: "
-                             f"{report.get('issues', []) + current['issues']}")
-        print(f"Complete evidence: {trial}")
+        issues = []
+        report = None
+        try:
+            report_path = trial / "agent/completeness.json"
+            if trial.is_symlink() or (trial / "agent").is_symlink() or report_path.is_symlink():
+                raise ValueError("Evidence directory or completeness report is a symlink")
+            saved = json.loads(report_path.read_text(encoding="utf-8"))
+            if (not isinstance(saved, dict) or type(saved.get("complete")) is not bool
+                    or not isinstance(saved.get("files"), dict) or not isinstance(saved.get("issues"), list)
+                    or any(not isinstance(issue, str) for issue in saved["issues"])):
+                raise ValueError("Malformed completeness report")
+            report = saved
+            issues.extend(report["issues"])
+            if not report["complete"] and not issues:
+                issues.append("Saved assessment is incomplete.")
+        except (OSError, ValueError, TypeError, AttributeError) as error:
+            issues.append(f"agent/completeness.json: {error}")
+        try:
+            if trial.is_symlink() or (trial / "agent").is_symlink():
+                raise ValueError("Cannot assess a symlinked evidence directory")
+            current = assess_trial(trial)
+            issues.extend(current["issues"])
+            if report is not None and report["files"] != current["files"]:
+                changed = sorted(name for name in report["files"].keys() | current["files"].keys()
+                                 if report["files"].get(name) != current["files"].get(name))
+                issues.append("Evidence files changed since saved assessment: " + ", ".join(changed))
+        except (OSError, ValueError, TypeError, AttributeError, KeyError) as error:
+            issues.append(f"Cannot assess retained evidence: {error}")
+        if issues:
+            failures.append(f"Incomplete or changed evidence in {trial}:\n  " + "\n  ".join(dict.fromkeys(issues)))
+        else:
+            complete += 1
+            print(f"Complete evidence: {trial}")
+    print(f"Evidence: {len(trials)} trials checked, {complete} complete, {len(trials) - complete} incomplete")
+    if failures:
+        raise ValueError("\n".join(failures))
 
 
 if __name__ == "__main__":

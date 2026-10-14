@@ -19,7 +19,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import uuid
 
-from script.harbor.bridge import SandboxBridge
+from script.harbor.bridge import MAX_BODY_BYTES, SandboxBridge
 from script.harbor.worker import Capture, dispatch
 
 
@@ -337,6 +337,58 @@ if {outcome != 'completion'!r}:
         self.assertIn("result", response)
         self.assertEqual((Path(self.temporary.name) / "large").read_bytes(), data)
         self.assertTrue(all(len(command) < 1024 for command in self.environment.calls))
+
+
+class BridgeDiagnosticTests(unittest.IsolatedAsyncioTestCase):
+    async def test_worker_failures_preserve_both_streams_and_operation(self):
+        for status, stdout, stderr, message in (
+            (127, "python3: command not found", None, "worker failed"),
+            (1, "worker stdout", "Traceback: import failed", "worker failed"),
+            (0, "", "unexpected shutdown", "worker failed"),
+            (0, "not JSON", "parser warning", "Invalid task RPC response"),
+            (0, '{"id": "wrong"}', "unexpected response", "ID mismatch"),
+        ):
+            with self.subTest(stdout=stdout):
+                environment = SimpleNamespace(upload_file=AsyncMock(), exec=AsyncMock(return_value=
+                    SimpleNamespace(return_code=status, stdout=stdout, stderr=stderr)))
+                bridge = SandboxBridge(environment)
+                response = await bridge.dispatch({"id": "request", "operation": "read", "path": "private"})
+                self.assertEqual(response["error"]["code"], "transportFailure")
+                detail = response["error"]["message"]
+                for expected in (message, "read", f"exit {status}", stdout or "<empty>", stderr or "<empty>"):
+                    self.assertIn(expected, detail)
+                self.assertNotIn("private", detail)
+                self.assertNotIn(bridge.token, detail)
+
+    async def test_oversized_diagnostics_keep_head_and_tail_with_a_bound(self):
+        output = "start" + "x" * (MAX_BODY_BYTES * 2) + "last error"
+        environment = SimpleNamespace(upload_file=AsyncMock(), exec=AsyncMock(return_value=
+            SimpleNamespace(return_code=0, stdout=output, stderr=output)))
+        bridge = SandboxBridge(environment)
+        response = await bridge.dispatch({"id": "request", "operation": "list"})
+        detail = response["error"]["message"]
+        self.assertIn("start", detail)
+        self.assertIn("last error", detail)
+        self.assertIn("[truncated]", detail)
+        self.assertLess(len(detail), 8500)
+
+    async def test_startup_errors_distinguish_transport_from_workspace(self):
+        for code, label in (("transportFailure", "Task RPC startup failed"),
+                            ("permissionDenied", "Invalid task workspace")):
+            with self.subTest(code=code):
+                environment = SimpleNamespace(upload_file=AsyncMock(), exec=AsyncMock(return_value=
+                    SimpleNamespace(return_code=0, stdout=None, stderr=None)))
+                bridge = SandboxBridge(environment)
+                with patch.object(bridge, "dispatch", AsyncMock(return_value={
+                        "error": {"code": code, "message": "retained failure"}})), \
+                        self.assertRaisesRegex(RuntimeError, f"{label}: retained failure"):
+                    await bridge.start()
+
+    async def test_control_directory_failure_keeps_merged_output(self):
+        bridge = SandboxBridge(SimpleNamespace(exec=AsyncMock(return_value=
+            SimpleNamespace(return_code=1, stdout="mkdir: permission denied", stderr=None))))
+        with self.assertRaisesRegex(RuntimeError, "mkdir: permission denied"):
+            await bridge.start()
 
 
 class BridgeDrainTests(unittest.IsolatedAsyncioTestCase):

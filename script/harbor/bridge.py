@@ -17,6 +17,18 @@ import uuid
 MAX_BODY_BYTES = 4 * 1024 * 1024
 
 
+def exec_diagnostics(result):
+    def excerpt(value):
+        text = value or "<empty>"
+        if len(text) > 4096:
+            text = text[:2048] + "\n... [truncated] ...\n" + text[-2048:]
+        return text
+
+    # Harbor's Docker executor merges stderr into stdout.
+    return (f"exit {result.return_code}\nstdout (may include stderr):\n{excerpt(result.stdout)}\n"
+            f"stderr:\n{excerpt(result.stderr)}")
+
+
 class SandboxBridge:
     def __init__(self, environment, workspace_root="/app"):
         self.environment = environment
@@ -32,11 +44,13 @@ class SandboxBridge:
         result = await self.environment.exec(
             f"mkdir -m 700 {shlex.quote(self.control)}", timeout_sec=10)
         if result.return_code:
-            raise RuntimeError("Could not create the task RPC directory.")
+            raise RuntimeError(f"Could not create the task RPC directory: {exec_diagnostics(result)}")
         await self.environment.upload_file(Path(__file__).with_name("worker.py"), self.worker)
         check = await self.dispatch({"id": uuid.uuid4().hex, "operation": "list", "path": "."})
         if "error" in check:
-            raise RuntimeError(f"Invalid task workspace: {check['error']['message']}")
+            label = ("Task RPC startup failed" if check["error"]["code"] == "transportFailure"
+                     else "Invalid task workspace")
+            raise RuntimeError(f"{label}: {check['error']['message']}")
         self.loop = asyncio.get_running_loop()
         bridge = self
 
@@ -99,14 +113,15 @@ class SandboxBridge:
         result = await self.environment.exec(command, cwd=self.workspace_root,
                                              timeout_sec=timeout + 20)
         if result.return_code or not result.stdout or len(result.stdout) > MAX_BODY_BYTES * 2:
-            details = (result.stderr or "no stderr")[:2048]
-            raise RuntimeError(f"Task RPC worker failed (exit {result.return_code}): {details}")
+            raise RuntimeError(f"Task RPC worker failed for {request.get('operation')}: {exec_diagnostics(result)}")
         try:
             response = json.loads(result.stdout)
         except (ValueError, TypeError) as error:
-            raise RuntimeError("Invalid task RPC response.") from error
+            raise RuntimeError(f"Invalid task RPC response for {request.get('operation')}: "
+                               f"{exec_diagnostics(result)}") from error
         if not isinstance(response, dict) or response.get("id") != request.get("id"):
-            raise RuntimeError("Task RPC response ID mismatch.")
+            raise RuntimeError(f"Task RPC response ID mismatch for {request.get('operation')}: "
+                               f"{exec_diagnostics(result)}")
         return response
 
     async def dispatch(self, request):

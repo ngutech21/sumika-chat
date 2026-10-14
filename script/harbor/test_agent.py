@@ -22,6 +22,58 @@ except ModuleNotFoundError as error:
 
 @unittest.skipIf(SumikaAgent is None, "Harbor is not installed in this Python interpreter")
 class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_setup_reuses_python_or_provisions_then_checks_as_task_user(self):
+        for installed in (True, False):
+            with self.subTest(installed=installed), tempfile.TemporaryDirectory() as directory:
+                logs = Path(directory)
+                agent = SumikaAgent(logs_dir=logs, model_name="fixture", binary=sys.executable)
+                ready = SimpleNamespace(return_code=0, stdout="/usr/bin/python3\n3.12.3\n", stderr=None)
+                missing = SimpleNamespace(return_code=127, stdout="python3: command not found", stderr=None)
+                results = [SimpleNamespace(return_code=0, stdout="/app\n", stderr=None)]
+                results += [ready] if installed else [missing, ready, ready]
+                environment = SimpleNamespace(type=lambda: "docker", exec=AsyncMock(side_effect=results))
+                with patch("script.harbor.agent.capture_environment", AsyncMock()) as capture:
+                    await agent.setup(environment)
+                capture.assert_awaited_once_with(environment, logs)
+                calls = environment.exec.await_args_list
+                self.assertNotIn("user", calls[1].kwargs)
+                if not installed:
+                    self.assertEqual(calls[2].kwargs, {"user": "root", "timeout_sec": 180})
+                    self.assertIn("--no-install-recommends python3", calls[2].args[0])
+                    self.assertNotIn("user", calls[3].kwargs)
+                    self.assertEqual(calls[1].args, calls[3].args)
+                self.assertEqual(len(calls), 2 if installed else 4)
+                log = (logs / "setup.log").read_text()
+                self.assertIn("3.12.3", log)
+                self.assertEqual("installation" in log, not installed)
+
+    async def test_setup_failure_retains_probe_and_install_diagnostics(self):
+        missing = SimpleNamespace(return_code=127, stdout="python3: command not found", stderr=None)
+        installed = SimpleNamespace(return_code=0, stdout="package installed", stderr=None)
+        failures = [
+            [SimpleNamespace(return_code=100, stdout="repository unavailable", stderr="permission denied")],
+            [SimpleNamespace(return_code=1, stdout=None, stderr="apt-get is unavailable")],
+            [TimeoutError("installation timed out")],
+            [installed, SimpleNamespace(return_code=1, stdout="", stderr="Python import failed")],
+        ]
+        for results in failures:
+            with self.subTest(results=results), tempfile.TemporaryDirectory() as directory:
+                agent = SumikaAgent(logs_dir=Path(directory), model_name="fixture", binary=sys.executable)
+                environment = SimpleNamespace(type=lambda: "docker", exec=AsyncMock(side_effect=[
+                    SimpleNamespace(return_code=0, stdout="/app", stderr=None), missing, *results]))
+                with patch("script.harbor.agent.capture_environment", AsyncMock()), \
+                        self.assertRaisesRegex(RuntimeError, "Worker Python.*setup.log"):
+                    await agent.setup(environment)
+                log = (Path(directory) / "setup.log").read_text()
+                self.assertIn("python3: command not found", log)
+                for result in results:
+                    if isinstance(result, Exception):
+                        self.assertIn(str(result), log)
+                    else:
+                        for stream in (result.stdout, result.stderr):
+                            if stream:
+                                self.assertIn(stream, log)
+
     async def run_status(self, status, outcome, trajectory=None, export_error=None):
         with tempfile.TemporaryDirectory(prefix="sumika-agent-test-") as directory:
             logs = Path(directory)

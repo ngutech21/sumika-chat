@@ -6,12 +6,13 @@ from importlib.metadata import version
 import json
 import os
 from pathlib import Path
+import shlex
 import signal
 
 from harbor.agents.base import BaseAgent
 from harbor.agents.capabilities import AgentCapabilities
 
-from script.harbor.bridge import SandboxBridge
+from script.harbor.bridge import SandboxBridge, exec_diagnostics
 from script.harbor.evidence import capture_environment, capture_legacy_artifacts, write_json
 from script.harbor.trajectory import export_trajectory
 
@@ -47,6 +48,45 @@ class SumikaAgent(BaseAgent):
         if location.return_code or (location.stdout or "").strip() != "/app":
             raise ValueError("The initial Sumika evaluation requires the task working directory /app.")
         await capture_environment(environment, self.logs_dir)
+        await self._ensure_worker_python(environment)
+
+    async def _ensure_worker_python(self, environment):
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        with (self.logs_dir / "setup.log").open("w", encoding="utf-8") as log:
+            async def execute(label, command, **options):
+                log.write(f"{label}\n$ {command}\n")
+                log.flush()
+                try:
+                    result = await environment.exec(command, **options)
+                except Exception as error:
+                    log.write(f"{type(error).__name__}: {error}\n")
+                    log.flush()
+                    raise RuntimeError(f"Worker Python {label} failed: {error}; inspect agent/setup.log.") from error
+                log.write(exec_diagnostics(result) + "\n\n")
+                log.flush()
+                return result
+
+            probe = shlex.join(["python3", "-c",
+                "import ctypes, fcntl, json, os, selectors, subprocess, sys\n"
+                "if sys.version_info < (3, 7):\n"
+                "    sys.exit('Worker requires Python 3.7 or newer')\n"
+                "print(sys.executable)\nprint(sys.version)"])
+            result = await execute("probe", probe, timeout_sec=10)
+            if result.return_code == 0:
+                return
+            # shortcut: provision apt-based images; add another installer when a task needs it.
+            install = (
+                "if ! command -v apt-get >/dev/null 2>&1; then "
+                "echo 'Cannot provision worker Python: apt-get is unavailable' >&2; exit 1; fi; "
+                "apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=30 "
+                "-o Acquire::https::Timeout=30 update && "
+                "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3")
+            result = await execute("installation", install, user="root", timeout_sec=180)
+            if result.return_code == 0:
+                result = await execute("verification", probe, timeout_sec=10)
+            if result.return_code:
+                raise RuntimeError("Worker Python prerequisite could not be prepared; inspect agent/setup.log.\n"
+                                   + exec_diagnostics(result))
 
     async def run(self, instruction, environment, context):
         self.logs_dir.mkdir(parents=True, exist_ok=True)

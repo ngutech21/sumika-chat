@@ -26,6 +26,16 @@ The fixture image is `python:3.13.7-slim-bookworm`, with an unprivileged task us
 Image pulls and builds may require network access. The fixture disables network
 access while running; no model download is performed by the runner.
 
+The container worker also needs Python. Adapter setup probes `python3` as the
+task user, including its required Unix standard-library modules. If that fails,
+setup installs `python3` with apt as root in the disposable container, then
+repeats the probe as the task user. Existing working interpreters are reused.
+Installation has a 180-second timeout and may require package-repository access;
+unsupported package managers, denied permissions, and unavailable repositories
+remain explicit setup failures before native execution. Task definitions and
+the agent loop are unchanged. `agent/setup.log` records the commands, interpreter
+path/version, exit codes, and bounded output, including failed setup attempts.
+
 ## Run the fixture
 
 Run these recipes from the repository root:
@@ -135,6 +145,8 @@ Each trial additionally retains:
   workspace, network, CPU, memory, and storage configuration. Environment variable
   values and the bridge token are not included. The Compose image lookup uses
   the pinned Harbor version's Docker implementation.
+- `agent/setup.log`: worker Python probes and any apt installation. Installed
+  packages are container setup changes, separate from the retained base image ID.
 - `agent/runtime.json`: effective model settings, Work/approval policy, budgets,
   native build configuration, host memory/OS, and SHA-256 fingerprints of every
   non-hidden regular file in the installed model directory. Weights are hashed
@@ -181,8 +193,13 @@ python3 -B script/harbor/evidence.py /absolute/path/to/job-or-trial
 ```
 
 The checker is read-only and also rejects changes since the plugin's final
-assessment. Harbor logs plugin errors without necessarily returning a nonzero
-exit status, so the explicit check is required for a complete-evidence gate.
+assessment. It checks every discovered trial before failing, even when another
+trial has a missing or malformed report, and still checks available trials when
+job metadata is invalid or unfinished. It reports changed file paths, removes
+duplicate saved/current issues, prints complete/incomplete totals, and exits
+nonzero if any trial or job-level check fails. Harbor logs plugin errors without
+necessarily returning a nonzero exit status, so the explicit check is required
+for a complete-evidence gate.
 Existing runs without these artifacts fail the check; they are not backfilled.
 Retain the entire job directory, including Harbor config, lock, results, trial
 logs, and verifier files. `.harbor/` and `tmp/` are ignored by Git; archive needed
@@ -242,6 +259,11 @@ These tests use an explicit local fake environment and temporary files; they do
 not prove Docker or MLX behavior. They cover authentication, token isolation,
 binary reads, concurrent compare-and-swap, traversal and symlink rejection,
 bounded output, command cancellation, and the fixture's failing/passing states.
+Setup regressions cover interpreter reuse, provisioning, timeout, and failure
+diagnostics. Reporting regressions cover stdout/stderr capture and checking all
+trials after missing, malformed, or changed evidence. Worker errors retain bounded
+head/tail excerpts from both returned streams; Harbor's Docker executor may merge
+stderr into stdout. Request payloads and bridge credentials are not added to errors.
 Loopback sockets must be permitted by the test runner's sandbox.
 Adapter lifecycle and ATIF tests need Harbor installed in that Python interpreter;
 they skip explicitly when it is unavailable.
