@@ -50,7 +50,7 @@ let package = Package(
       url: "https://github.com/ml-explore/mlx-swift-lm",
       revision: "4cc55045125335a245f74ab1d817e9d261a7e85a"),
     .package(url: "https://github.com/aleroot/swift-tokenizers", from: "1.0.0"),
-    .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.10.0"),
+    .package(url: "https://github.com/huggingface/swift-huggingface", from: "1.0.0"),
     .package(url: "https://github.com/FluidInference/FluidAudio", from: "0.15.7"),
     .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.19.0"),
     .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.8.0"),
