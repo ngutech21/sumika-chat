@@ -896,6 +896,11 @@ reasoning close marker until upstream exposes a structured reasoning field.
 - Tool records persist `modelFollowUpNotice` once it has been consumed by the
   model. It must not be deleted or folded into `ToolResultPayload`, because
   later MLX history rebuilds need the same `tool` message bytes for cache reuse.
+- Work verification reminders are derived afresh from the current turn's command
+  results and appended through `ChatRuntimePromptPlan.transientInstructions`.
+  They are bounded, use existing tool call IDs, and add no persisted state or
+  changes to historical tool observations. They remain available when an existing
+  follow-up notice is already frozen, including after approval or reload.
 - `ModelPromptProjection` is never persisted on `ChatSession`; generation,
   debug panels, and traces rebuild it from turns.
 - Clearing a chat transcript removes turns, derived tool-call projections, and

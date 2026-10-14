@@ -470,6 +470,133 @@ struct ToolFollowUpNoticePolicyTests {
 
     #expect(update == nil)
   }
+
+  @Test
+  func verificationHistorySurvivesUnrelatedResultsAndReloadWithoutChangingNotices() throws {
+    var failed = completedRunCommandRecord(id: UUID(), command: "python test.py", exitCode: 1)
+    failed.modelFollowUpNotice = "previously consumed notice"
+    let listing = completedRunCommandRecord(id: UUID(), command: "ls", exitCode: 0)
+    let value = session(with: [failed, listing])
+    let policy = ToolFollowUpNoticePolicy()
+    let reminder = try #require(
+      policy.verificationReminder(
+        session: value, turnID: defaultTurnID, promptMode: .afterToolResultCanContinue))
+    #expect(reminder.contains(RuntimeToolCallID.string(for: failed.id)))
+    #expect(!reminder.contains(RuntimeToolCallID.string(for: listing.id)))
+    #expect(reminder.contains("successful unrelated command does not verify"))
+    let encoded = try JSONEncoder().encode(value)
+    let reloaded = try JSONDecoder().decode(ChatSession.self, from: encoded)
+    #expect(
+      policy.verificationReminder(
+        session: reloaded, turnID: defaultTurnID, promptMode: .afterToolResultCanContinue)
+        == reminder)
+    #expect(reloaded.toolCalls.first?.modelFollowUpNotice == "previously consumed notice")
+    #expect(reloaded.toolCalls.last?.modelFollowUpNotice == nil)
+  }
+
+  @Test(arguments: ["python test.py", "python corrected_test.py", "python test.py "])
+  func onlyAnExactSuccessfulRerunResolvesItsOwnReminder(command: String) throws {
+    let failed = completedRunCommandRecord(id: UUID(), command: "python test.py", exitCode: 1)
+    let other = completedRunCommandRecord(id: UUID(), command: "just lint", exitCode: 1)
+    let rerun = completedRunCommandRecord(id: UUID(), command: command, exitCode: 0)
+    let reminder = try #require(
+      ToolFollowUpNoticePolicy().verificationReminder(
+        session: session(with: [failed, other, rerun]), turnID: defaultTurnID,
+        promptMode: .afterToolResultCanContinue))
+    #expect(
+      reminder.contains(RuntimeToolCallID.string(for: failed.id)) == (command != "python test.py"))
+    #expect(reminder.contains(RuntimeToolCallID.string(for: other.id)))
+    let remaining = ToolFollowUpNoticePolicy().verificationReminder(
+      session: session(with: [failed, rerun]), turnID: defaultTurnID,
+      promptMode: .afterToolResultCanContinue)
+    #expect((remaining == nil) == (command == "python test.py"))
+  }
+
+  @Test
+  func verificationRerunMatchingUsesShellBytesAndRequiresSuccessfulOutcome() throws {
+    let failed = completedRunCommandRecord(id: UUID(), command: "echo \u{e9}", exitCode: 1)
+    let different = completedRunCommandRecord(id: UUID(), command: "echo e\u{301}", exitCode: 0)
+    let policy = ToolFollowUpNoticePolicy()
+    #expect(
+      policy.verificationReminder(
+        session: session(with: [failed, different]), turnID: defaultTurnID,
+        promptMode: .afterToolResultCanContinue) != nil)
+    var interrupted = completedRunCommandRecord(id: UUID(), command: "echo \u{e9}", exitCode: 0)
+    guard case .runCommand(var result) = interrupted.resultPayload else {
+      Issue.record("Expected command result")
+      return
+    }
+    result.timedOut = true
+    interrupted.state = .failed(.runCommand(result))
+    let reminder = try #require(
+      policy.verificationReminder(
+        session: session(with: [failed, interrupted]), turnID: defaultTurnID,
+        promptMode: .afterToolResultCanContinue))
+    #expect(reminder.contains("timedOut=true"))
+    #expect(reminder.contains(RuntimeToolCallID.string(for: interrupted.id)))
+  }
+
+  @Test
+  func verificationHistorySkipsUnexecutedDuplicatesAndStaysWithinWorkTurn() throws {
+    let failed = completedRunCommandRecord(id: UUID(), command: "false", exitCode: 1)
+    let duplicate = toolRecord(
+      id: UUID(), toolName: .runCommand,
+      payload: .runCommand(RunCommandInput(command: "false", timeoutSeconds: 10)),
+      result: .runCommandDuplicate(.init(originalCallID: failed.id)))
+    let policy = ToolFollowUpNoticePolicy()
+    #expect(
+      policy.verificationReminder(
+        session: session(with: [duplicate]), turnID: defaultTurnID,
+        promptMode: .afterToolResultCanContinue) == nil)
+    let reminder = try #require(
+      policy.verificationReminder(
+        session: session(with: [failed, duplicate]), turnID: defaultTurnID,
+        promptMode: .afterToolResultCanContinue))
+    #expect(reminder.contains("1 unsuccessful command(s)"))
+    #expect(reminder.contains(RuntimeToolCallID.string(for: failed.id)))
+    #expect(
+      policy.verificationReminder(
+        session: session(with: [failed], interactionMode: .chat), turnID: defaultTurnID,
+        promptMode: .afterChatWebToolResultCanContinue) == nil)
+    var value = session(with: [failed])
+    let newTurn = ChatTurn(status: .running, items: [.tool(duplicate)])
+    value.turns.append(newTurn)
+    #expect(
+      policy.verificationReminder(
+        session: value, turnID: newTurn.id, promptMode: .agent) == nil)
+  }
+
+  @Test(arguments: [ToolPromptMode.afterToolResultFinal, .afterToolBudgetExhausted])
+  func finalVerificationRemindersRequireDisclosureWithoutAnotherCommand(mode: ToolPromptMode) throws
+  {
+    let failed = completedRunCommandRecord(id: UUID(), command: "false", exitCode: 1)
+    let reminder = try #require(
+      ToolFollowUpNoticePolicy().verificationReminder(
+        session: session(with: [failed]), turnID: defaultTurnID, promptMode: mode))
+    #expect(reminder.contains("Do not run more commands"))
+    #expect(reminder.contains("as unverified"))
+    #expect(reminder.contains("expected negative tests or incidental failures"))
+    #expect(!reminder.contains("Rerun relevant checks"))
+  }
+
+  @Test
+  func verificationReminderIsBoundedAndReferencesObservationsWithoutShellText() throws {
+    let records = (0..<20).map { index in
+      completedRunCommandRecord(
+        id: UUID(), command: String(repeating: "untrusted shell text", count: 1_000) + "\(index)",
+        exitCode: 1)
+    }
+    let reminder = try #require(
+      ToolFollowUpNoticePolicy().verificationReminder(
+        session: session(with: records), turnID: defaultTurnID,
+        promptMode: .afterToolResultCanContinue))
+    #expect(reminder.count < 1_000)
+    #expect(reminder.contains("20 unsuccessful command(s)"))
+    #expect(!reminder.contains("untrusted shell text"))
+    #expect(reminder.contains(RuntimeToolCallID.string(for: records[19].id)))
+    #expect(reminder.contains(RuntimeToolCallID.string(for: records[18].id)))
+    #expect(!reminder.contains(RuntimeToolCallID.string(for: records[17].id)))
+  }
 }
 
 private let defaultTurnID = UUID()

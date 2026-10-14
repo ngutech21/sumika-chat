@@ -581,7 +581,11 @@ struct ConversationEngineToolLoopTests {
     #expect(toolContexts.count == budget + 1)
     #expect(toolContexts[budget]?.registry.tools.map(\.name) == [.finishTask])
     let promptPlans = await runtime.capturedPromptPlans
-    #expect(promptPlans[budget].transientInstructions == [toolBudgetFinalizationInstruction])
+    #expect(promptPlans[budget].transientInstructions.first == toolBudgetFinalizationInstruction)
+    let reminder = try #require(promptPlans[budget].transientInstructions.last)
+    #expect(reminder.contains(RuntimeToolCallID.string(for: commandRecord.id)))
+    #expect(reminder.contains("Do not run more commands"))
+    #expect(reminder.contains("as unverified"))
   }
 
   @Test
@@ -909,6 +913,105 @@ struct ConversationEngineToolLoopTests {
   }
 
   @Test
+  func failedCheckReminderSurvivesEditApprovalAndReloadUntilSuccessfulRerun() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let check = "test -f verified.txt"
+    let initialRuntime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [runCommandToolCall(check, reason: "Check before creating the file.")],
+      [writeToolCall(path: "verified.txt", content: "created")],
+    ])
+    let initial = ConversationEngine(runtime: initialRuntime, modelPath: "/tmp/model")
+    try initial.conversation.activate(sessionID: sessionID, in: workspace)
+    initial.modelRuntime.modelState = .ready
+    initial.setInteractionMode(.agent)
+    try await initial.conversation.sendMessage(
+      MessageSubmission(text: "Create and check verified.txt"))
+    try await waitUntil { initial.hasPendingApproval && !initial.isGenerating }
+    let failedID = try #require(initial.chatSession.toolCalls.first?.id)
+    initial.approveToolCall(id: failedID, in: workspace)
+    try await waitUntil {
+      initial.chatSession.toolCalls.count == 2 && initial.hasPendingApproval
+        && !initial.isGenerating
+    }
+    let reloaded = try JSONDecoder().decode(
+      ChatSession.self, from: JSONEncoder().encode(initial.chatSession))
+    let originalNotice = try #require(reloaded.toolCalls.first?.modelFollowUpNotice)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [runCommandToolCall("ls", reason: "List the updated workspace.")],
+      [runCommandToolCall(check, reason: "Rerun the original check after creating the file.")],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "finish_task",
+            arguments: [
+              "status": .string("done"),
+              "summary": .string("Created the file and the rerun passed."),
+            ]))
+      ],
+    ])
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
+    engine.modelRuntime.modelState = .ready
+    engine.loadSession(reloaded)
+    engine.enableAutomaticToolApproval(in: workspace)
+    let writeID = try #require(engine.chatSession.toolCalls.last?.id)
+    engine.approveToolCall(id: writeID, in: workspace)
+    try await waitUntil { !engine.isGenerating }
+
+    let plans = await runtime.capturedPromptPlans
+    #expect(plans.count == 3)
+    for plan in plans.prefix(2) {
+      #expect(
+        plan.transientInstructions.contains { $0.contains(RuntimeToolCallID.string(for: failedID)) }
+      )
+    }
+    #expect(!plans[2].transientInstructions.contains { $0.contains("[Verification reminder]") })
+    #expect(engine.chatSession.toolCalls.first?.modelFollowUpNotice == originalNotice)
+    #expect(engine.chatSession.toolCalls.last?.request.toolName == .finishTask)
+    #expect(engine.chatSession.toolCalls.last?.status == .completed)
+    #expect(
+      engine.chatSession.testMessages.last?.content == "Created the file and the rerun passed.")
+  }
+
+  @Test
+  func expectedNegativeCheckDoesNotPreventFinishTaskAfterUnrelatedSuccess() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let summary = "The negative test rejected the missing file as expected."
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [runCommandToolCall("test -f missing.txt", reason: "Expect failure for a missing file.")],
+      [runCommandToolCall("ls", reason: "Inspect the workspace.")],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "finish_task",
+            arguments: [
+              "status": .string("done"), "summary": .string(summary),
+            ]))
+      ],
+    ])
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.conversation.activate(sessionID: sessionID, in: workspace)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.enableAutomaticToolApproval(in: workspace)
+    try await engine.conversation.sendMessage(
+      MessageSubmission(text: "Check missing-file rejection."))
+    try await waitUntil { !engine.isGenerating }
+
+    let failedID = try #require(engine.chatSession.toolCalls.first?.id)
+    let plans = await runtime.capturedPromptPlans
+    #expect(plans.count == 3)
+    #expect(
+      plans[2].transientInstructions.contains {
+        $0.contains(RuntimeToolCallID.string(for: failedID))
+      })
+    #expect(engine.chatSession.toolCalls.last?.status == .completed)
+    #expect(engine.chatSession.testMessages.last?.content == summary)
+  }
+
+  @Test
   func approvedFailedRunCommandAddsRecoveryRuntimeNotice() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -960,7 +1063,10 @@ struct ConversationEngineToolLoopTests {
       capturedPromptPlans.allSatisfy {
         $0.toolContext?.registry.definition(for: .todoWrite) != nil
       })
-    #expect(capturedPromptPlans[1].transientInstructions.isEmpty)
+    #expect(
+      capturedPromptPlans[1].transientInstructions.contains {
+        $0.contains("[Verification reminder]")
+      })
     let capturedMessages = await runtime.capturedMessages
     let notice = try #require(latestToolFollowUpNotice(in: capturedMessages, at: 1))
     #expect(toolFollowUpNotices(in: capturedMessages[1]).count == 1)
@@ -2636,7 +2742,11 @@ struct ConversationEngineToolLoopTests {
 
     let capturedPromptPlans = await runtime.capturedPromptPlans
     #expect(capturedPromptPlans.count == 4)
-    #expect(capturedPromptPlans.allSatisfy { $0.transientInstructions.isEmpty })
+    #expect(capturedPromptPlans[0].transientInstructions.isEmpty)
+    #expect(
+      capturedPromptPlans.dropFirst().allSatisfy {
+        $0.transientInstructions.contains { $0.contains("[Verification reminder]") }
+      })
     let capturedMessages = await runtime.capturedMessages
     #expect(
       latestToolFollowUpNotice(in: capturedMessages, at: 3)?
@@ -2672,7 +2782,11 @@ struct ConversationEngineToolLoopTests {
     #expect(engine.chatSession.toolCalls.count == 2)
     let capturedPromptPlans = await runtime.capturedPromptPlans
     #expect(capturedPromptPlans.count == 3)
-    #expect(capturedPromptPlans.allSatisfy { $0.transientInstructions.isEmpty })
+    #expect(capturedPromptPlans[0].transientInstructions.isEmpty)
+    #expect(
+      capturedPromptPlans.dropFirst().allSatisfy {
+        $0.transientInstructions.contains { $0.contains("[Verification reminder]") }
+      })
     let capturedMessages = await runtime.capturedMessages
     #expect(
       latestToolFollowUpNotice(in: capturedMessages, at: 2)?

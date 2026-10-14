@@ -303,6 +303,14 @@ flowchart TD
   no-tools guidance, failed `run_command`, repeated same-command `run_command`,
   listing/read-loop escalations, duplicate replays, and the generic same-turn
   follow-up are mutually exclusive within this slot.
+- Separately, Work verification reminders are transient generation instructions
+  derived from the current turn's executed `run_command` records. They reference
+  existing call IDs, never copy shell text into instructions, and leave consumed
+  `modelFollowUpNotice` values unchanged. Only a later successful command with
+  byte-identical shell input retires that command's reminder; unexecuted
+  duplicates, edits, and unrelated commands do not. Reminders describe outcomes,
+  not whether a command was a required check. Different verification commands and
+  expected nonzero outcomes must be interpreted using their recorded results.
 - Listing-loop detection counts list, glob, and search calls since the latest
   successful text or document read. A successful `read_document` resets this
   state; failed document reads do not. Recovery guidance routes text and source
@@ -1119,6 +1127,11 @@ declarations.
   failed observations and may use the remaining action-iteration budget for
   repair. The finish-only generation after action-budget exhaustion never gets
   a repair generation.
+  Its summary instructions require observed verification results and disclosure
+  of skipped or unverified checks. Correcting or explaining a failed assertion
+  does not establish that it passed; that claim requires a successful rerun.
+  This guidance does not add schema fields or reject completion for every nonzero
+  command exit.
 - Successful `write_file` and `edit_file` results are ordinary structured tool
   observations. They resume the normal tool loop with native tools available
   while the iteration budget remains, so the model can verify the change or

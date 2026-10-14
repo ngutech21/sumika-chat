@@ -55,6 +55,51 @@ struct ToolFollowUpNoticePolicy: Sendable {
     return latestFailedRunCommandResult(in: turn)
   }
 
+  func verificationReminder(
+    session: ChatSession,
+    turnID: ChatTurn.ID,
+    promptMode: ToolPromptMode
+  ) -> String? {
+    guard session.interactionMode == .agent,
+      let turn = session.turns.first(where: { $0.id == turnID })
+    else {
+      return nil
+    }
+
+    var seenCommands: Set<Data> = []
+    var failures: [(id: UUID, result: RunCommandResult)] = []
+    for item in turn.items.reversed() {
+      guard case .tool(let record) = item,
+        record.request.toolName == .runCommand,
+        case .runCommand(let result) = record.resultPayload,
+        seenCommands.insert(Data(result.command.utf8)).inserted,
+        result.outcomeStatus == .failed
+      else {
+        continue
+      }
+      failures.append((record.id, result))
+    }
+    guard !failures.isEmpty else { return nil }
+
+    // Reference observations instead of copying arbitrary shell text into instructions.
+    let references = failures.prefix(2).map { failure in
+      "Call \(RuntimeToolCallID.string(for: failure.id)): exit=\(failure.result.exitCode.map(String.init) ?? "none"), timedOut=\(failure.result.timedOut), cancelled=\(failure.result.cancelled)."
+    }.joined(separator: "\n")
+    let nextStep =
+      if promptMode == .agent || promptMode == .afterToolResultCanContinue {
+        "Rerun relevant checks after corrections before claiming they passed, or report them as unverified."
+      } else {
+        "Do not run more commands. Report required checks without supporting reruns as unverified."
+      }
+    return """
+      [Verification reminder]
+      \(failures.count) unsuccessful command(s) have no later successful exact-command rerun in this turn. Most recent observations:
+      \(references)
+      \(nextStep)
+      If a different command verified the same check, use its observed result. Explain expected negative tests or incidental failures; a nonzero exit alone does not block completion. A successful unrelated command does not verify an earlier failed check.
+      """
+  }
+
   private func notice(
     state: AgentTurnState,
     promptMode: ToolPromptMode

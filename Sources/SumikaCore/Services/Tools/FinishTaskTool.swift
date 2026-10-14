@@ -66,7 +66,8 @@ nonisolated extension ToolDefinition {
       ),
       ToolParameterDefinition(
         name: "summary",
-        description: "Complete, non-empty user-visible final response.",
+        description:
+          "Complete, non-empty user-visible final response. Report observed verification results and skipped or unverified checks. Corrected assertions require a successful rerun before claiming they passed; explain expected failures.",
         isRequired: true,
         valueType: .string
       ),

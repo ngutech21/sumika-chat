@@ -67,6 +67,15 @@ reasoning-only output are not successful stop conditions.
 - Failed `run_command` observations are generic command failures. The loop must
   not infer command-specific side effects, such as whether a repository changed,
   unless a later tool result verifies that state.
+- Work generations also receive a bounded verification reminder derived from
+  executed commands in the current turn. An unrelated successful command or edit
+  does not clear an earlier failure; a successful byte-identical command rerun
+  does. Different commands are not assumed equivalent. The reminder references
+  at most two recent tool observations and reports the total outstanding count.
+  It survives approval, reload, and finish-only finalization without rewriting
+  historical tool messages. At a final boundary it requests honest disclosure,
+  not another command. This is guidance, not a completion gate: expected negative
+  tests and incidental failures may be explained without blocking `finish_task`.
 - The first identical read/list/search replay becomes a compact duplicate
   observation and may continue. A second consecutive identical replay is
   blocked and selects the tools-free finalization path.

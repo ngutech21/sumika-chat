@@ -91,6 +91,9 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("Report only checks actually run and results observed"))
     #expect(prompt.contains("Distinguish verified behavior from assumptions"))
     #expect(prompt.contains("state skipped or blocked checks"))
+    #expect(prompt.contains("Require an observed successful rerun"))
+    #expect(prompt.contains("including in finish_task.summary"))
+    #expect(prompt.contains("without treating every nonzero exit as a blocker"))
     #expect(prompt.contains("Use run_command after approval"))
     #expect(!prompt.contains("Never use Python"))
   }

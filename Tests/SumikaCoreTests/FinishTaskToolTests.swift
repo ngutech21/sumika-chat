@@ -49,6 +49,8 @@ struct FinishTaskToolTests {
       schema.parameters.properties["status"]?.enumValues
         == ["done", "blocked", "needs_user"])
     #expect(schema.parameters.properties["summary"]?.type == .string)
+    #expect(
+      schema.parameters.properties["summary"]?.description.contains("successful rerun") == true)
   }
 
   @Test
