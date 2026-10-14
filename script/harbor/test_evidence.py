@@ -126,6 +126,14 @@ class EvidenceTests(unittest.TestCase):
         self.assertFalse(report["complete"])
         self.assertIn("Cannot inspect legacy /output path", " ".join(report["issues"]))
 
+    def test_trajectory_error_is_incomplete_without_requiring_export_for_old_trials(self):
+        self.assertFalse((self.trial / "agent/trajectory.json").exists())
+        self.assertTrue(assess_trial(self.trial)["complete"])
+        self.json("agent/trajectory-error.json", {"error": "Cannot correlate native tool results"})
+        report = assess_trial(self.trial)
+        self.assertFalse(report["complete"])
+        self.assertIn("Trajectory export error: Cannot correlate native tool results", report["issues"])
+
     def test_declared_empty_directory_is_complete(self):
         self.task_config('artifacts = ["/results"]\n')
         (self.trial / "artifacts/results").mkdir()

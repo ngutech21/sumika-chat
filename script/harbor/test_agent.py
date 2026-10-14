@@ -1,8 +1,10 @@
 """Adapter lifecycle tests; run with the pinned Harbor Python environment."""
 
 import asyncio
+import contextlib
 import json
 from pathlib import Path
+import signal
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -10,6 +12,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 try:
+    from harbor.models.agent.context import AgentContext
     from script.harbor.agent import SumikaAgent
 except ModuleNotFoundError as error:
     if not error.name.startswith("harbor"):
@@ -19,27 +22,43 @@ except ModuleNotFoundError as error:
 
 @unittest.skipIf(SumikaAgent is None, "Harbor is not installed in this Python interpreter")
 class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
-    async def run_status(self, status, outcome):
+    async def run_status(self, status, outcome, trajectory=None, export_error=None):
         with tempfile.TemporaryDirectory(prefix="sumika-agent-test-") as directory:
             logs = Path(directory)
             agent = SumikaAgent(logs_dir=logs, model_name="fixture", binary=sys.executable)
             bridge = SimpleNamespace(start=AsyncMock(), close=AsyncMock(),
                                      token="test-token", url="http://127.0.0.1:1")
             process = SimpleNamespace(wait=AsyncMock(return_value=status), returncode=status)
-            context = SimpleNamespace(metadata=None)
+            context = AgentContext()
             environment = object()
             if outcome is not None:
                 (logs / "result.json").write_text(json.dumps({"outcome": outcome}))
             with patch("script.harbor.agent.SandboxBridge", return_value=bridge), \
                     patch("script.harbor.agent.asyncio.create_subprocess_exec",
                           AsyncMock(return_value=process)), \
+                    patch("script.harbor.agent.export_trajectory", return_value=trajectory,
+                          side_effect=export_error) as export, \
                     patch("script.harbor.agent.capture_legacy_artifacts", AsyncMock(
-                        side_effect=lambda *_args: self.assertEqual(bridge.close.await_count, 1))) as capture:
+                        side_effect=lambda *_args: self.assertEqual(bridge.close.await_count, 1))) as capture, \
+                    self.assertLogs(agent.logger, level="ERROR") if export_error else contextlib.nullcontext():
                 try:
                     await agent.run("Repair the fixture", environment, context)
                 finally:
+                    export.assert_called_once_with(logs, "fixture", agent.version())
                     bridge.close.assert_awaited_once()
                     capture.assert_awaited_once_with(environment, logs, agent.logger)
+                    if export_error:
+                        self.assertEqual(json.loads((logs / "trajectory-error.json").read_text()),
+                                         {"error": str(export_error)})
+                    if trajectory is not None:
+                        metrics = trajectory.final_metrics
+                        self.assertEqual((context.n_input_tokens, context.n_cache_tokens, context.n_output_tokens),
+                                         (metrics.total_prompt_tokens, metrics.total_cached_tokens,
+                                          metrics.total_completion_tokens))
+                    else:
+                        self.assertIsNone(context.n_input_tokens)
+                        self.assertIsNone(context.n_cache_tokens)
+                        self.assertIsNone(context.n_output_tokens)
             return context.metadata
 
     async def test_needs_user_preserves_metadata_and_allows_verification(self):
@@ -47,10 +66,27 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
                          {"sumika": {"outcome": "needs_user"}})
 
     async def test_runner_failures_and_mismatched_exit_two_remain_errors(self):
+        trajectory = SimpleNamespace(final_metrics=SimpleNamespace(
+            total_prompt_tokens=25, total_cached_tokens=10, total_completion_tokens=7))
         for status, outcome in ((1, "failed"), (124, "timed_out"),
                                 (2, "completed"), (2, None)):
             with self.subTest(status=status, outcome=outcome), self.assertRaises(RuntimeError):
-                await self.run_status(status, outcome)
+                await self.run_status(status, outcome, trajectory=trajectory)
+
+    async def test_trajectory_metrics_populate_context_with_native_metadata(self):
+        for cached in (10, None):
+            with self.subTest(cached=cached):
+                trajectory = SimpleNamespace(final_metrics=SimpleNamespace(
+                    total_prompt_tokens=25, total_cached_tokens=cached, total_completion_tokens=7))
+                self.assertEqual(await self.run_status(0, "completed", trajectory=trajectory),
+                                 {"sumika": {"outcome": "completed"}})
+
+    async def test_export_error_preserves_native_outcome_and_cleanup(self):
+        error = ValueError("invalid session")
+        self.assertEqual(await self.run_status(0, "completed", export_error=error),
+                         {"sumika": {"outcome": "completed"}})
+        with self.assertRaisesRegex(RuntimeError, "SumikaEval exited with status 1"):
+            await self.run_status(1, "failed", export_error=error)
 
     async def test_capture_failure_preserves_completed_native_result(self):
         with tempfile.TemporaryDirectory(prefix="sumika-agent-test-") as directory:
@@ -71,19 +107,34 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(context.metadata, {"sumika": {"outcome": "completed"}})
             self.assertEqual(json.loads((logs / "artifact-error.json").read_text())["error"], "probe denied")
 
-    async def test_cancelled_runner_drains_before_artifact_capture(self):
+    async def test_cancelled_runner_drains_before_export_and_artifact_capture(self):
         with tempfile.TemporaryDirectory(prefix="sumika-agent-test-") as directory:
             agent = SumikaAgent(logs_dir=Path(directory), model_name="fixture", binary=sys.executable)
             bridge = SimpleNamespace(start=AsyncMock(), close=AsyncMock(),
                                      token="test-token", url="http://127.0.0.1:1")
-            process = SimpleNamespace(wait=AsyncMock(side_effect=asyncio.CancelledError), returncode=0)
+            process = SimpleNamespace(wait=AsyncMock(side_effect=[asyncio.CancelledError, 0]),
+                                      returncode=None, pid=123)
+            context = AgentContext()
+
+            def export_after_drain(*_args):
+                self.assertEqual(process.wait.await_count, 2)
+                return SimpleNamespace(final_metrics=SimpleNamespace(
+                    total_prompt_tokens=25, total_cached_tokens=None, total_completion_tokens=7))
+
             with patch("script.harbor.agent.SandboxBridge", return_value=bridge), \
                     patch("script.harbor.agent.asyncio.create_subprocess_exec", AsyncMock(return_value=process)), \
+                    patch("script.harbor.agent.os.killpg") as terminate, \
+                    patch("script.harbor.agent.export_trajectory", side_effect=export_after_drain) as export, \
                     patch("script.harbor.agent.capture_legacy_artifacts", AsyncMock(
                         side_effect=lambda *_args: self.assertEqual(bridge.close.await_count, 1))) as capture:
                 with self.assertRaises(asyncio.CancelledError):
-                    await agent.run("Repair", object(), SimpleNamespace(metadata=None))
+                    await agent.run("Repair", object(), context)
+            terminate.assert_called_once_with(123, signal.SIGTERM)
+            export.assert_called_once()
             capture.assert_awaited_once()
+            self.assertEqual(context.n_input_tokens, 25)
+            self.assertIsNone(context.n_cache_tokens)
+            self.assertEqual(context.n_output_tokens, 7)
 
 
 if __name__ == "__main__":

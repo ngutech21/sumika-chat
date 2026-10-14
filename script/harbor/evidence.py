@@ -221,10 +221,12 @@ def assess_trial(trial):
             if not any(entry.get("source") == source and entry.get("service") in (None, "main")
                        for entry in requirements):
                 requirements.append({"source": source})
-    artifact_error = trial / "agent/artifact-error.json"
-    if artifact_error.exists() or artifact_error.is_symlink():
-        error = read("agent/artifact-error.json")
-        issues.append(f"Artifact collection error: {error.get('error', 'Unknown failure')}")
+    for name, label in (("artifact-error.json", "Artifact collection"),
+                        ("trajectory-error.json", "Trajectory export")):
+        error_path = trial / "agent" / name
+        if error_path.exists() or error_path.is_symlink():
+            error = read(f"agent/{name}")
+            issues.append(f"{label} error: {error.get('error', 'Unknown failure')}")
     captures = {}
     if not isinstance(manifest, list):
         issues.append("Artifact manifest must be a list.")

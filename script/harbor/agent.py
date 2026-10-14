@@ -9,12 +9,16 @@ from pathlib import Path
 import signal
 
 from harbor.agents.base import BaseAgent
+from harbor.agents.capabilities import AgentCapabilities
 
 from script.harbor.bridge import SandboxBridge
-from script.harbor.evidence import capture_environment, capture_legacy_artifacts
+from script.harbor.evidence import capture_environment, capture_legacy_artifacts, write_json
+from script.harbor.trajectory import export_trajectory
 
 
 class SumikaAgent(BaseAgent):
+    capabilities = AgentCapabilities(atif=True)
+
     def __init__(self, *args, binary, timeout_seconds=600, **kwargs):
         super().__init__(*args, **kwargs)
         if version("harbor") != "0.24.0":
@@ -83,5 +87,18 @@ class SumikaAgent(BaseAgent):
                     with contextlib.suppress(ProcessLookupError):
                         os.killpg(process.pid, signal.SIGKILL)
                     await process.wait()
+            try:
+                trajectory = await asyncio.to_thread(
+                    export_trajectory, self.logs_dir, self.model_name, self.version())
+                if trajectory is not None and trajectory.final_metrics is not None:
+                    metrics = trajectory.final_metrics
+                    context.n_input_tokens = metrics.total_prompt_tokens
+                    context.n_cache_tokens = metrics.total_cached_tokens
+                    context.n_output_tokens = metrics.total_completion_tokens
+            except Exception as error:
+                self.logger.exception("Could not export Harbor trajectory")
+                with contextlib.suppress(OSError):
+                    await asyncio.to_thread(
+                        write_json, self.logs_dir / "trajectory-error.json", {"error": str(error)})
             await self.bridge.close()
             await capture_legacy_artifacts(environment, self.logs_dir, self.logger)

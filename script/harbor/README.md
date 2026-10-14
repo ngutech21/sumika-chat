@@ -124,6 +124,10 @@ Each trial additionally retains:
   native build configuration, host memory/OS, and SHA-256 fingerprints of every
   non-hidden regular file in the installed model directory. Weights are hashed
   before loading, not copied; this extra I/O counts toward the runner deadline.
+- `agent/trajectory.json`: an ATIF projection derived from `session.json` and
+  `mlx-trace.jsonl` for Harbor's trajectory viewer. Native messages, tool call IDs,
+  arguments, results, and failures come from the session; generation metrics come
+  from matching trace records. The native session remains the source of truth.
 - `agent/completeness.json`: missing/invalid evidence, clipped trace rows, model
   request/response/stream-boundary counts, and checksums of retained files.
   Workspace symlinks are recorded without following their targets.
@@ -136,6 +140,21 @@ Bounded/redacted tool argument previews remain diagnostic projections; canonical
 tool inputs and outputs stay in `session.json`. Tool output limits still apply.
 Harbor reward and trial exceptions are preserved independently. Failed runs keep
 their partial evidence; absent artifacts are never replaced with fabricated data.
+
+Trajectory export runs after native execution and retains available partial
+history on failed or interrupted runs. Assistant messages match trace generations
+in order within each turn, only when their counts agree. Direct `finish_task`
+summaries do not count as additional model calls. Prompt totals include cached
+tokens (`fullPromptTokens`); cache hits use `reusedPromptTokens`; completion totals
+use measured `generatedTokenCount`, including reasoning and tool-call tokens.
+Missing or estimated counts stay unknown, and incomplete sums are omitted.
+The same totals populate Harbor's agent usage fields for job summaries.
+Export failures are recorded in `agent/trajectory-error.json` and
+make evidence incomplete without replacing the native outcome or verifier reward.
+Older archives without a trajectory remain valid under the existing evidence
+requirements. The exporter changes no core agent, prompt, parser, or tool
+execution behavior. Protocol-looking text in assistant output stays text; export
+never interprets it as an executed tool or runs commands from the archive.
 
 The recipe fails if the job has missing or changed evidence, regardless of reward.
 For direct Sumika Harbor commands, include
@@ -209,7 +228,7 @@ not prove Docker or MLX behavior. They cover authentication, token isolation,
 binary reads, concurrent compare-and-swap, traversal and symlink rejection,
 bounded output, command cancellation, and the fixture's failing/passing states.
 Loopback sockets must be permitted by the test runner's sandbox.
-Adapter lifecycle tests also need Harbor installed in that Python interpreter;
+Adapter lifecycle and ATIF tests need Harbor installed in that Python interpreter;
 they skip explicitly when it is unavailable.
 
 Detached-descendant regressions require Linux and skip on macOS. Run the bridge,
@@ -240,4 +259,4 @@ There is no host executor fallback, workspace bind mount, or Docker socket expos
 by this integration. Docker still supplies the isolation boundary: do not add
 privileged mode or host mounts to these task definitions. Standard dataset
 compatibility and repeated runs are not validated. This proof does not implement
-ACP, ATIF export, MCP/skill injection, or native macOS task execution.
+ACP, MCP/skill injection, or native macOS task execution.
