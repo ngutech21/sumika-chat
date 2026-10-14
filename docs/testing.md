@@ -71,14 +71,21 @@ Run one trial at a time on the Mac. The CLI keeps settings and attachments in th
 trial directory and writes `session.json`, `result.json`, and the existing
 `mlx-trace.jsonl` format there.
 
-`just run-harbor` also enables run-level `/app` and `/output` artifact collection
-and a Harbor evidence plugin without changing task definitions. Each trial retains
+`just run-harbor` keeps the selected single task (`openthoughts/pandas-etl`) and
+enables a Harbor evidence plugin without changing task definitions. Artifact
+handling uses the resolved task's top-level `task.toml` declarations; output paths
+are not configured in the recipe. Each trial retains
 the task inputs/reference solution, source and binary provenance, resolved image
 IDs, model file fingerprints and effective settings, and a completeness/checksum
-report. For `openthoughts/python-api-rate-limit`, completeness requires captured
+report. Tasks without artifact declarations automatically capture `/app` and an
+existing `/output` after command workers drain; an absent `/output` is not requested.
+Declared captures honor their service, destination, and configured exclusions.
+For legacy `openthoughts/python-api-rate-limit`, completeness still requires captured
 regular files for `/output/report.json`, `/output/a.json`, and `/output/b.json`;
-missing files or symlinks fail the check. The merge-ranges smoke fixture only
-requires `/app`. The recipe checks the fresh job after Harbor finishes; incomplete
+missing files or symlinks fail the check until that task declares its artifacts.
+Probe and transfer failures remain evidence failures, separate from verifier reward.
+The legacy fallback covers `/app` and `/output`, not arbitrary undeclared paths.
+The recipe checks the fresh job after Harbor finishes; incomplete
 or changed evidence fails this gate independently of verifier reward. Failed
 trials retain partial evidence. See the runner instructions for artifact paths,
 capture limits, and the read-only checker for individual jobs or trials.

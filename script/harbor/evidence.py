@@ -11,6 +11,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tomllib
 
 
 def write_json(path, value):
@@ -127,6 +128,32 @@ async def capture_environment(environment, logs_dir):
     })
 
 
+async def capture_legacy_artifacts(environment, logs_dir, logger):
+    from harbor.models.task.config import TaskConfig
+    from harbor.models.trial.paths import EnvironmentPaths
+    from harbor.trial.artifact_handler import ArtifactHandler
+
+    try:
+        task = TaskConfig.model_validate_toml((logs_dir / "task/task.toml").read_text(encoding="utf-8"))
+        if task.artifacts:
+            return
+        # shortcut: legacy capture covers /app and /output; use task declarations for other paths.
+        artifacts = ["/app"]
+        output = await environment.exec(
+            "if [ -L /output ]; then exit 4; elif [ -e /output ]; then exit 0; else exit 3; fi",
+            timeout_sec=10, user="root")
+        if output.return_code == 0:
+            artifacts.append("/output")
+        elif output.return_code != 3:
+            raise RuntimeError(f"Cannot inspect legacy /output path (exit {output.return_code}).")
+        collector = ArtifactHandler(artifacts=artifacts, logger=logger)
+        await collector.download_artifacts(environment, logs_dir.parent / "artifacts",
+            source_artifacts_dir=EnvironmentPaths.artifacts_dir)
+    except Exception as error:
+        logger.exception("Could not collect legacy artifacts")
+        write_json(logs_dir / "artifact-error.json", {"error": str(error)})
+
+
 def assess_trial(trial):
     issues = []
 
@@ -172,32 +199,74 @@ def assess_trial(trial):
     task = trial / "agent/task"
     if not task.is_dir() or task.is_symlink() or inventory(task) != reproduction.get("task_files"):
         issues.append("Retained task files are missing or changed.")
-    required_captures = {"/app": ()}
-    if harbor.get("task_name") == "openthoughts/python-api-rate-limit":
-        required_captures["/output"] = ("report.json", "a.json", "b.json")
+    try:
+        definition = task / "task.toml"
+        if task.is_symlink() or definition.is_symlink() or not definition.is_file():
+            raise ValueError("Missing regular task.toml")
+        declared = tomllib.loads(definition.read_text(encoding="utf-8")).get("artifacts", [])
+        if not isinstance(declared, list):
+            raise ValueError("Task artifacts must be a list")
+    except (OSError, ValueError) as error:
+        issues.append(f"agent/task/task.toml: {error}")
+        declared = []
+    requirements = [entry if isinstance(entry, dict) else {"source": entry}
+                    for entry in [*declared, *config.get("artifacts", [])]]
+    legacy_files = {}
+    if not declared:
+        legacy_files["/app"] = ()
+        # Legacy rate-limit tasks omit declarations; retain this until they declare their outputs.
+        if harbor.get("task_name") == "openthoughts/python-api-rate-limit":
+            legacy_files["/output"] = ("report.json", "a.json", "b.json")
+        for source in legacy_files:
+            if not any(entry.get("source") == source and entry.get("service") in (None, "main")
+                       for entry in requirements):
+                requirements.append({"source": source})
+    artifact_error = trial / "agent/artifact-error.json"
+    if artifact_error.exists() or artifact_error.is_symlink():
+        error = read("agent/artifact-error.json")
+        issues.append(f"Artifact collection error: {error.get('error', 'Unknown failure')}")
     captures = {}
+    if not isinstance(manifest, list):
+        issues.append("Artifact manifest must be a list.")
     for entry in manifest if isinstance(manifest, list) else []:
-        if entry.get("status") in ("failed", "skipped"):
+        if entry.get("status") not in ("ok", "empty"):
             issues.append(f"Artifact collection {entry.get('status')}: {entry.get('source')}")
         source = entry.get("source")
-        if source in required_captures and entry.get("service") in (None, "main"):
-            destination = Path(entry.get("destination", ""))
-            if destination.is_absolute() or ".." in destination.parts or destination.parts[:1] != ("artifacts",):
-                issues.append(f"Invalid artifact destination for {source}.")
-                continue
-            capture = trial / destination
-            if any(parent.is_symlink() for parent in [capture, *capture.parents] if parent != trial and trial in parent.parents):
-                issues.append(f"Artifact capture has a symlink ancestor: {source}.")
-                continue
-            if entry.get("status") not in ("ok", "empty") or entry.get("exclude"):
-                issues.append(f"Artifact capture failed or excluded files: {source}.")
-            captures[source] = capture
-    for source, names in required_captures.items():
-        capture = captures.get(source)
-        if capture is None or capture.is_symlink() or not capture.is_dir():
-            issues.append(f"The final {source} directory was not captured.")
+        destination = Path(entry.get("destination", ""))
+        if destination.is_absolute() or ".." in destination.parts or destination.parts[:1] != ("artifacts",):
+            issues.append(f"Invalid artifact destination for {source}.")
             continue
-        for name in names:
+        capture = trial / destination
+        if any(parent.is_symlink() for parent in [capture, *capture.parents] if parent != trial and trial in parent.parents):
+            issues.append(f"Artifact capture has a symlink ancestor: {source}.")
+            continue
+        kind = entry.get("type")
+        if not ((kind == "directory" and capture.is_dir()) or (kind == "file" and capture.is_file())):
+            issues.append(f"Missing or invalid artifact capture: {source}.")
+            continue
+        captures.setdefault((source, entry.get("service") or "main"), []).append((entry, capture))
+    for requirement in requirements:
+        source = requirement["source"]
+        service = requirement.get("service") or "main"
+        names = legacy_files.get(source) if service == "main" else None
+        destination = requirement.get("destination")
+        if destination is not None or names is None:
+            destination = Path("artifacts") / (destination or source.lstrip("/"))
+        candidates = [(entry, path) for entry, path in captures.get((source, service), [])
+                      if destination is None or path == trial / destination]
+        if not candidates:
+            issues.append(f"Missing artifact capture: {source} ({service}).")
+            continue
+        entry, capture = candidates[0]
+        exclusions = requirement.get("exclude", []) if entry.get("type") == "directory" else []
+        if names is not None:
+            exclusions = []
+            if not capture.is_dir():
+                issues.append(f"The final {source} directory was not captured.")
+                continue
+        if (entry.get("exclude") or []) != exclusions:
+            issues.append(f"Artifact exclusions differ from the declaration: {source}.")
+        for name in names or ():
             path = capture / name
             if path.is_symlink() or not path.is_file():
                 issues.append(f"Missing regular output file: {source}/{name}")
@@ -261,8 +330,6 @@ class EvidencePlugin:
     async def on_job_start(self, job):
         if version("harbor") != "0.24.0":
             raise ValueError("Evidence collection requires harbor==0.24.0.")
-        if "/app" not in job.config.artifacts:
-            raise ValueError("Pass --artifact /app to retain the final workspace.")
         self.job_dir = job.job_dir
         job.on_trial_started(self.started)
         job.on_trial_ended(self.ended)

@@ -4,14 +4,16 @@ import contextlib
 import io
 import json
 from importlib.util import find_spec
+import logging
 from pathlib import Path
+import shutil
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 
 from script.harbor.evidence import (
-    EvidencePlugin, assess_trial, capture_environment, check_evidence, inventory,
+    EvidencePlugin, assess_trial, capture_environment, capture_legacy_artifacts, check_evidence, inventory,
     prepare_trial, save_assessment, write_json,
 )
 
@@ -24,6 +26,7 @@ class EvidenceTests(unittest.TestCase):
         self.trial.mkdir()
         write_json(self.trial.parent / "result.json", {"finished_at": "now", "n_total_trials": 1})
         self.write("agent/task/instruction.md", "Repair")
+        self.write("agent/task/task.toml", "")
         self.write("artifacts/app/result.py", "solution")
         self.write("agent/instruction.md", "Repair")
         self.write("agent/runner.log", "")
@@ -44,7 +47,7 @@ class EvidenceTests(unittest.TestCase):
         self.json("agent/result.json", {"modelID": "model", "turnID": "turn", "outcome": "completed"})
         self.json("agent/session.json", {"selectedModelID": "model", "turns": [{"id": "turn"}]})
         self.json("artifacts/manifest.json", [{"source": "/app", "destination": "artifacts/app",
-                                               "status": "ok", "exclude": []}])
+                                               "type": "directory", "status": "ok", "exclude": []}])
         self.write("verifier/reward.txt", "0")
         self.write("verifier/test-stdout.txt", "failed test")
         self.rows = [{"kind": "mlx_request", "id": "generation"},
@@ -64,13 +67,105 @@ class EvidenceTests(unittest.TestCase):
     def trace(self):
         self.write("agent/mlx-trace.jsonl", "".join(json.dumps(row) + "\n" for row in self.rows))
 
+    def task_config(self, contents):
+        self.write("agent/task/task.toml", contents)
+        reproduction = json.loads((self.trial / "agent/reproduction.json").read_text())
+        reproduction["task_files"] = inventory(self.trial / "agent/task")
+        self.json("agent/reproduction.json", reproduction)
+
+    def test_declared_file_replaces_workspace_requirement_and_is_checksummed(self):
+        self.task_config('artifacts = ["/output/report.json"]\n')
+        self.json("artifacts/output/report.json", {"answer": 1})
+        self.json("artifacts/manifest.json", [{"source": "/output/report.json",
+            "destination": "artifacts/output/report.json", "type": "file", "status": "ok"}])
+        report = save_assessment(self.trial)
+        self.assertTrue(report["complete"], report["issues"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            check_evidence(self.trial)
+        self.json("artifacts/output/report.json", {"answer": 2})
+        with self.assertRaisesRegex(ValueError, "changed evidence"):
+            check_evidence(self.trial)
+
+    def test_declared_sidecar_directory_honors_destination_and_exclusions(self):
+        self.task_config('artifacts = [{source = "/results", destination = "reports", '
+                         'service = "loadgen", exclude = ["*.tmp"]}]\n')
+        self.write("artifacts/reports/result.csv", "answer")
+        entry = {"source": "/results", "destination": "artifacts/reports",
+                 "service": "loadgen", "exclude": ["*.tmp"], "type": "directory", "status": "ok"}
+        self.json("artifacts/manifest.json", [entry])
+        self.assertTrue(assess_trial(self.trial)["complete"])
+        for change in ({"service": "main"}, {"destination": "artifacts/elsewhere"},
+                       {"exclude": []}, {"exclude": ["*.tmp", "result.csv"]},
+                       {"status": "failed"}, {"status": "skipped"}, {"type": "file"}):
+            with self.subTest(change=change):
+                self.json("artifacts/manifest.json", [{**entry, **change}])
+                self.assertFalse(assess_trial(self.trial)["complete"])
+
+    def test_declared_artifacts_cannot_be_replaced_by_unrelated_captures(self):
+        self.task_config('artifacts = ["/required/result.csv"]\n')
+        self.assertFalse(assess_trial(self.trial)["complete"])
+
+    def test_run_level_artifacts_are_also_required(self):
+        self.task_config('artifacts = ["/app/result.py"]\n')
+        config = json.loads((self.trial / "config.json").read_text())
+        config["artifacts"] = ["/output/extra.txt"]
+        self.json("config.json", config)
+        self.json("artifacts/manifest.json", [{"source": "/app/result.py",
+            "destination": "artifacts/app/result.py", "type": "file", "status": "ok"}])
+        self.assertFalse(assess_trial(self.trial)["complete"])
+        self.write("artifacts/output/extra.txt", "answer")
+        manifest = json.loads((self.trial / "artifacts/manifest.json").read_text())
+        manifest.append({"source": "/output/extra.txt", "destination": "artifacts/output/extra.txt",
+                         "type": "file", "status": "ok"})
+        self.json("artifacts/manifest.json", manifest)
+        self.assertTrue(assess_trial(self.trial)["complete"])
+
+    def test_collection_error_remains_incomplete_after_harbor_collects_logs(self):
+        self.json("agent/artifact-error.json", {"error": "Cannot inspect legacy /output path"})
+        report = assess_trial(self.trial)
+        self.assertFalse(report["complete"])
+        self.assertIn("Cannot inspect legacy /output path", " ".join(report["issues"]))
+
+    def test_declared_empty_directory_is_complete(self):
+        self.task_config('artifacts = ["/results"]\n')
+        (self.trial / "artifacts/results").mkdir()
+        self.json("artifacts/manifest.json", [{"source": "/results", "destination": "artifacts/results",
+                                               "type": "directory", "status": "empty", "exclude": []}])
+        self.assertTrue(assess_trial(self.trial)["complete"])
+
+    def test_declared_outputs_override_rate_limit_legacy_requirements(self):
+        result = json.loads((self.trial / "result.json").read_text())
+        result["task_name"] = "openthoughts/python-api-rate-limit"
+        self.json("result.json", result)
+        self.task_config('artifacts = ["/app/result.py"]\n')
+        self.json("artifacts/manifest.json", [{"source": "/app/result.py",
+            "destination": "artifacts/app/result.py", "type": "file", "status": "ok"}])
+        self.assertTrue(assess_trial(self.trial)["complete"])
+
+    def test_all_artifact_destinations_and_roots_are_checked(self):
+        self.task_config('artifacts = ["/app/result.py"]\n')
+        entry = {"source": "/app/result.py", "destination": "artifacts/app/result.py",
+                 "type": "file", "status": "ok"}
+        for destination in ("../outside", "/tmp/outside", "artifacts/link/result.py"):
+            with self.subTest(destination=destination):
+                (self.trial / "artifacts/link").symlink_to("app", target_is_directory=True)
+                self.json("artifacts/manifest.json", [entry, {"source": "/other",
+                    "destination": destination, "type": "file", "status": "ok"}])
+                self.assertFalse(assess_trial(self.trial)["complete"])
+                (self.trial / "artifacts/link").unlink()
+        path = self.trial / "artifacts/app/result.py"
+        path.unlink()
+        path.symlink_to("missing")
+        self.json("artifacts/manifest.json", [entry])
+        self.assertFalse(assess_trial(self.trial)["complete"])
+
     def rate_limit_outputs(self):
         result = json.loads((self.trial / "result.json").read_text())
         result["task_name"] = "openthoughts/python-api-rate-limit"
         self.json("result.json", result)
         manifest = json.loads((self.trial / "artifacts/manifest.json").read_text())
         manifest.append({"source": "/output", "destination": "artifacts/reports",
-                         "status": "ok", "exclude": []})
+                         "type": "directory", "status": "ok", "exclude": []})
         self.json("artifacts/manifest.json", manifest)
         for name in ("report.json", "a.json", "b.json"):
             self.json(f"artifacts/reports/{name}", {"total_requests": 1})
@@ -305,12 +400,10 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                                 self.assertEqual(reproduction["task_checksum"], checksum)
                         self.assertEqual(task_id.ref, "latest")
 
-    async def test_capture_must_be_enabled_and_hooks_run_after_trial_and_job(self):
+    async def test_capture_needs_no_recipe_paths_and_hooks_run_after_trial_and_job(self):
         with patch("script.harbor.evidence.version", return_value="0.24.0"):
             plugin = EvidencePlugin()
-            with self.assertRaisesRegex(ValueError, "--artifact /app"):
-                await plugin.on_job_start(SimpleNamespace(config=SimpleNamespace(artifacts=[])))
-            job = SimpleNamespace(config=SimpleNamespace(artifacts=["/app"]), job_dir=Path("job"),
+            job = SimpleNamespace(config=SimpleNamespace(artifacts=[]), job_dir=Path("job"),
                                   on_trial_started=lambda hook: None, on_trial_ended=lambda hook: None)
             await plugin.on_job_start(job)
             with patch("script.harbor.evidence.save_assessment", return_value={"complete": False}):
@@ -330,6 +423,98 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             contents = (Path(directory) / "environment.json").read_text()
             self.assertIn("sha256:actual", contents)
             self.assertNotIn("private", contents)
+
+
+@unittest.skipIf(find_spec("harbor") is None, "Requires the pinned Harbor environment")
+class LegacyCaptureTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="sumika-artifacts-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.logs = self.root / "trial/agent"
+        (self.logs / "task").mkdir(parents=True)
+        (self.logs / "task/task.toml").write_text("")
+        self.remote = self.root / "remote"
+        (self.remote / "app").mkdir(parents=True)
+        (self.remote / "app/result.csv").write_text("answer")
+        (self.remote / "logs/artifacts").mkdir(parents=True)
+        self.logger = logging.getLogger("sumika-artifacts-test")
+
+        async def download_directory(source_dir, target_dir, **_kwargs):
+            shutil.copytree(self.remote / source_dir.lstrip("/"), target_dir,
+                            dirs_exist_ok=True, symlinks=True)
+
+        self.environment = SimpleNamespace(
+            capabilities=SimpleNamespace(mounted=False),
+            exec=AsyncMock(side_effect=lambda *_args, **_kwargs: SimpleNamespace(return_code=(
+                4 if (self.remote / "output").is_symlink()
+                else 0 if (self.remote / "output").exists() else 3))),
+            service_is_dir=AsyncMock(side_effect=lambda path, **_kwargs:
+                                    (self.remote / path.lstrip("/")).is_dir()),
+            service_download_dir=AsyncMock(side_effect=download_directory))
+
+    async def test_legacy_capture_preserves_existing_output_and_omits_absent_output(self):
+        from harbor.models.trial.paths import EnvironmentPaths
+        from harbor.trial.artifact_handler import ArtifactHandler
+
+        for present in (False, True):
+            with self.subTest(output_present=present):
+                if present:
+                    (self.remote / "output").mkdir()
+                    for name in ("report.json", "a.json", "b.json"):
+                        (self.remote / "output" / name).write_text("{}")
+                artifacts = self.logs.parent / "artifacts"
+                if artifacts.exists():
+                    shutil.rmtree(artifacts)
+                await capture_legacy_artifacts(self.environment, self.logs, self.logger)
+                # Harbor's later collection must retain the legacy manifest entries.
+                await ArtifactHandler(artifacts=[], logger=self.logger).download_artifacts(
+                    self.environment, artifacts, source_artifacts_dir=EnvironmentPaths.artifacts_dir)
+                manifest = json.loads((artifacts / "manifest.json").read_text())
+                sources = {entry["source"] for entry in manifest}
+                self.assertIn("/app", sources)
+                self.assertEqual("/output" in sources, present)
+                self.assertTrue(all(entry["status"] in ("ok", "empty") for entry in manifest))
+                self.assertEqual((artifacts / "app/result.csv").read_text(), "answer")
+                if present:
+                    for name in ("report.json", "a.json", "b.json"):
+                        self.assertEqual((artifacts / "output" / name).read_text(), "{}")
+
+    async def test_declared_artifacts_leave_collection_to_harbor(self):
+        (self.logs / "task/task.toml").write_text('artifacts = ["/app/result.csv"]\n')
+        await capture_legacy_artifacts(self.environment, self.logs, self.logger)
+        self.environment.exec.assert_not_awaited()
+        self.environment.service_download_dir.assert_not_awaited()
+        self.assertFalse((self.logs.parent / "artifacts").exists())
+
+    async def test_probe_errors_and_output_symlinks_are_reported(self):
+        for kind in ("transport", "symlink"):
+            with self.subTest(kind=kind):
+                if kind == "transport":
+                    self.environment.exec.side_effect = PermissionError("probe denied")
+                else:
+                    self.environment.exec.side_effect = None
+                    self.environment.exec.return_value = SimpleNamespace(return_code=4)
+                    (self.remote / "output").symlink_to(self.remote / "app", target_is_directory=True)
+                with self.assertLogs(self.logger, level="ERROR"):
+                    await capture_legacy_artifacts(self.environment, self.logs, self.logger)
+                error = json.loads((self.logs / "artifact-error.json").read_text())
+                self.assertTrue(error["error"])
+                self.environment.service_download_dir.assert_not_awaited()
+
+    async def test_transfer_failure_is_preserved_in_the_manifest(self):
+        download = self.environment.service_download_dir.side_effect
+        (self.remote / "output").mkdir()
+
+        async def fail_output(source_dir, target_dir, **kwargs):
+            if source_dir == "/output":
+                raise PermissionError("copy denied")
+            await download(source_dir, target_dir, **kwargs)
+
+        self.environment.service_download_dir.side_effect = fail_output
+        await capture_legacy_artifacts(self.environment, self.logs, self.logger)
+        manifest = json.loads((self.logs.parent / "artifacts/manifest.json").read_text())
+        self.assertEqual(next(entry["status"] for entry in manifest if entry["source"] == "/output"), "failed")
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ import signal
 from harbor.agents.base import BaseAgent
 
 from script.harbor.bridge import SandboxBridge
-from script.harbor.evidence import capture_environment
+from script.harbor.evidence import capture_environment, capture_legacy_artifacts
 
 
 class SumikaAgent(BaseAgent):
@@ -84,3 +84,4 @@ class SumikaAgent(BaseAgent):
                         os.killpg(process.pid, signal.SIGKILL)
                     await process.wait()
             await self.bridge.close()
+            await capture_legacy_artifacts(environment, self.logs_dir, self.logger)

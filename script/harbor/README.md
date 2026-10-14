@@ -22,8 +22,8 @@ trial at a time and the included Python repair task.
   swift build --product SumikaEval
   ```
 
-The task image is `python:3.13.7-slim-bookworm`, with an unprivileged task user.
-Image pulls and builds may require network access. The task disables network
+The fixture image is `python:3.13.7-slim-bookworm`, with an unprivileged task user.
+Image pulls and builds may require network access. The fixture disables network
 access while running; no model download is performed by the runner.
 
 ## Run the fixture
@@ -50,7 +50,7 @@ sessions:
 harbor_job_name="$(uuidgen)"
 HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" harbor run -p script/harbor/tasks/merge-ranges \
   -a script.harbor.agent:SumikaAgent -m MODEL_ID -n 1 \
-  --artifact /app --plugin script.harbor.evidence:EvidencePlugin \
+  --plugin script.harbor.evidence:EvidencePlugin \
   --ak binary="$PWD/.build/debug/SumikaEval" \
   --ak timeout_seconds=600 --jobs-dir "$PWD/tmp/harbor/sumika" --job-name "$harbor_job_name"
 python3 -B script/harbor/evidence.py "$PWD/tmp/harbor/sumika/$harbor_job_name"
@@ -72,19 +72,37 @@ The adapter never assigns the task reward.
 
 ## Trial evidence
 
-`just run-harbor` runs `openthoughts/python-api-rate-limit` with the same model,
-captures `/app` and `/output`, and checks only the newly created job under
-`.harbor`. Task definitions are unchanged. Harbor collects these directories
-after Sumika and its command workers drain, before verification, under the
-existing `artifacts/` directory. Read `artifacts/manifest.json` for the actual
-destination and collection status; a passing reward does not prove capture
-succeeded. No captured task or workspace files are executed on the Mac.
+`just run-harbor` runs the selected single task, currently
+`openthoughts/pandas-etl`, with the same model and checks only the newly created
+job under `.harbor`. Task definitions are unchanged. Harbor collects the
+top-level `artifacts` declared in the resolved `task.toml`, plus its conventional
+`/logs/artifacts` directory, before verification. No recipe output paths are
+required. Read `artifacts/manifest.json` for actual destinations and statuses;
+a passing reward does not prove capture succeeded. No captured task or workspace
+files are executed on the Mac.
 
-For this task, completeness requires `/output/report.json`, `/output/a.json`, and
-`/output/b.json` to be retained as regular files. Missing captures, missing files,
-symlinks in required output paths, or excluded files fail the check regardless of
-verifier reward. Contents are checksummed; correctness remains the verifier's job.
-`run-harbor-smoke-test` and the merge-ranges command above only require `/app`.
+For legacy tasks without artifact declarations, the adapter uses Harbor's own
+collector to retain `/app` and `/output` when the latter exists. Collection runs
+after the native process and command workers drain. An absent `/output` is not
+requested, so tasks such as pandas-etl and merge-ranges only capture `/app`.
+Probe failures and symlinked `/output` paths are recorded in
+`agent/artifact-error.json`; copy failures remain failed manifest entries.
+These failures make evidence incomplete without replacing the native outcome
+or verifier reward. This legacy fallback covers `/app` and `/output`, not
+arbitrary undeclared paths elsewhere in the container.
+
+The checker reads the retained `agent/task/task.toml` with the standard-library
+TOML parser, so it still runs without Harbor installed in that Python interpreter.
+Declared files and directories must match the manifest's source, service,
+destination, type, and configured exclusions. Run-level artifact requests are
+also validated. Captures must stay under `artifacts/` without symlink ancestors.
+Their contents are checksummed; correctness remains the verifier's job.
+
+Legacy `openthoughts/python-api-rate-limit` tasks additionally require regular
+`/output/report.json`, `/output/a.json`, and `/output/b.json` files. Missing files,
+symlinks, or exclusions remain incomplete regardless of reward. This compatibility
+check applies only while the task has no artifact declarations; remove it once
+the task declares its outputs. Declared artifacts are the canonical contract.
 
 Each trial additionally retains:
 
@@ -120,9 +138,9 @@ Harbor reward and trial exceptions are preserved independently. Failed runs keep
 their partial evidence; absent artifacts are never replaced with fabricated data.
 
 The recipe fails if the job has missing or changed evidence, regardless of reward.
-For direct Harbor commands, include `--artifact /app` and
-`--plugin script.harbor.evidence:EvidencePlugin`; also include `--artifact /output`
-for `openthoughts/python-api-rate-limit`. Then run the checker:
+For direct Sumika Harbor commands, include
+`--plugin script.harbor.evidence:EvidencePlugin`. Task declarations and the
+adapter's legacy fallback handle capture automatically. Then run the checker:
 
 ```sh
 python3 -B script/harbor/evidence.py /absolute/path/to/job-or-trial
