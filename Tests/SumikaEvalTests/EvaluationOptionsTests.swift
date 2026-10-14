@@ -18,6 +18,32 @@ struct EvaluationOptionsTests {
     #expect(options.modelID == "Swift-1.5-4bit-MLX")
     #expect(options.workspaceRoot.path == "/app")
     #expect(options.timeoutSeconds == 42)
+    #expect(!options.networkPolicy.webEnabled)
+  }
+
+  @Test
+  func webAvailabilityFollowsEffectiveNetworkPolicy() throws {
+    for (policy, enabled) in [
+      (#"{"network_mode":"public","allowed_hosts":[]}"#, true),
+      (#"{"network_mode":"no-network","allowed_hosts":["example.com"]}"#, false),
+      (#"{"network_mode":"allowlist","allowed_hosts":["example.com"]}"#, true),
+      (#"{"network_mode":"allowlist","allowed_hosts":[]}"#, false),
+      (#"{"network_mode":"allowlist"}"#, false),
+    ] {
+      let options = try EvaluationOptions(
+        arguments: arguments + ["--network-policy", policy], environment: environment)
+      #expect(options.networkPolicy.webEnabled == enabled)
+      let roundTrip = try JSONDecoder().decode(
+        EvaluationNetworkPolicy.self, from: JSONEncoder().encode(options.networkPolicy))
+      #expect(roundTrip.networkMode == options.networkPolicy.networkMode)
+      #expect(roundTrip.allowedHosts == options.networkPolicy.allowedHosts)
+    }
+    for policy in ["{}", #"{"network_mode":"unknown"}"#, "invalid"] {
+      #expect(throws: (any Error).self) {
+        try EvaluationOptions(
+          arguments: arguments + ["--network-policy", policy], environment: environment)
+      }
+    }
   }
 
   @Test(arguments: ["https://127.0.0.1:8765", "http://example.com:8765", "http://127.0.0.1"])

@@ -21,6 +21,8 @@ struct EvaluationMetadata: Encodable, Sendable {
   let workspaceRoot: String
   let timeoutSeconds: Double
   let maxToolLoopIterations: Int
+  let networkPolicy: EvaluationNetworkPolicy
+  let webAccessSettings: WebAccessSettings
   // Serialized by the synthesized Encodable conformance.
   // swiftlint:disable unused_declaration
   let interactionMode = WorkspaceInteractionMode.agent
@@ -43,7 +45,9 @@ struct EvaluationMetadata: Encodable, Sendable {
       modelDirectory: model.localDirectoryURL.path(percentEncoded: false), modelFiles: files,
       buildConfiguration: buildConfiguration,
       settings: settings, workspaceRoot: options.workspaceRoot.path(percentEncoded: false),
-      timeoutSeconds: options.timeoutSeconds, maxToolLoopIterations: model.maxToolLoopIterations
+      timeoutSeconds: options.timeoutSeconds, maxToolLoopIterations: model.maxToolLoopIterations,
+      networkPolicy: options.networkPolicy,
+      webAccessSettings: WebAccessSettings(policy: options.networkPolicy.webEnabled ? .allow : .off)
     )
   }
 

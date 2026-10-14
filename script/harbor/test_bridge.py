@@ -14,17 +14,103 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import uuid
 
 from script.harbor.bridge import MAX_BODY_BYTES, SandboxBridge
-from script.harbor.worker import Capture, dispatch
+from script.harbor.worker import Capture, dispatch, public_addresses, RPCError, web_operation
 
 
 def encoded(value):
     return base64.b64encode(value).decode("ascii")
+
+
+class WorkerWebTests(unittest.TestCase):
+    def request(self, url="https://example.com/page", redirects=4):
+        return {"operation": "http", "url": url, "maxRedirects": redirects, "timeoutSeconds": 15}
+
+    def test_dns_rejects_private_local_and_mixed_addresses(self):
+        for addresses in (["127.0.0.1"], ["10.0.0.1"], ["::1"], ["224.0.0.1"], ["ff02::1"],
+                          ["93.184.216.34", "192.168.1.1"]):
+            with self.subTest(addresses=addresses), patch("script.harbor.worker.socket.getaddrinfo",
+                    return_value=[(0, 0, 0, "", (address, 0)) for address in addresses]):
+                with self.assertRaises(RPCError):
+                    public_addresses("example.com")
+        with patch("script.harbor.worker.socket.getaddrinfo") as resolve:
+            for host in ("localhost", "LOCALHOST.", "example.local", "example.localhost"):
+                with self.assertRaises(RPCError):
+                    public_addresses(host)
+            resolve.assert_not_called()
+
+    def test_http_pins_public_address_and_verifies_tls_hostname(self):
+        response = MagicMock(status=200)
+        response.read.return_value = b"page"
+        response.getheaders.return_value = [("Content-Type", "text/plain")]
+        connection = MagicMock()
+        connection.getresponse.return_value = response
+        tls = MagicMock()
+        with patch("script.harbor.worker.public_addresses", return_value=["93.184.216.34"]), \
+                patch("script.harbor.worker.http.client.HTTPConnection", return_value=connection), \
+                patch("script.harbor.worker.socket.create_connection") as connect, \
+                patch("script.harbor.worker.ssl.create_default_context", return_value=tls):
+            result = web_operation(self.request())
+        self.assertEqual(connect.call_args.args[0], ("93.184.216.34", 443))
+        tls.wrap_socket.assert_called_once_with(connect.return_value, server_hostname="example.com")
+        connection.request.assert_called_once_with("GET", "/page", headers={
+            "User-Agent": "Sumika/1.0", "Accept-Encoding": "identity"})
+        response.read.assert_called_once_with(512 * 1024 + 1)
+        connection.close.assert_called_once()
+        self.assertEqual(result["dataBase64"], encoded(b"page"))
+
+    def test_unreachable_public_address_tries_next_validated_address(self):
+        connection = MagicMock()
+        connection.getresponse.return_value = MagicMock(status=200)
+        connection.getresponse.return_value.read.return_value = b"page"
+        connection.getresponse.return_value.getheaders.return_value = []
+        with patch("script.harbor.worker.public_addresses",
+                   return_value=["2606:4700:4700::1111", "93.184.216.34"]), \
+                patch("script.harbor.worker.http.client.HTTPConnection", return_value=connection), \
+                patch("script.harbor.worker.socket.create_connection",
+                      side_effect=[OSError("IPv6 unavailable"), MagicMock()]) as connect:
+            web_operation(self.request("http://example.com"))
+        self.assertEqual([call.args[0] for call in connect.call_args_list],
+                         [("2606:4700:4700::1111", 80), ("93.184.216.34", 80)])
+
+    def test_redirect_revalidates_host_before_connecting(self):
+        for host in ("127.0.0.1", "224.0.0.1", "ff02::1"):
+            with self.subTest(host=host):
+                target = "[" + host + "]" if ":" in host else host
+                connection = MagicMock()
+                redirect = MagicMock(status=302)
+                redirect.getheader.return_value = "http://" + target + "/private"
+                final = MagicMock(status=200)
+                final.read.return_value = b"page"
+                final.getheaders.return_value = []
+                connection.getresponse.side_effect = [redirect, final]
+                with patch("script.harbor.worker.socket.getaddrinfo", side_effect=[
+                        [(0, 0, 0, "", ("93.184.216.34", 0))], [(0, 0, 0, "", (host, 0))]]) as resolve, \
+                        patch("script.harbor.worker.http.client.HTTPConnection", return_value=connection), \
+                        patch("script.harbor.worker.socket.create_connection") as connect:
+                    with self.assertRaises(RPCError):
+                        web_operation(self.request("http://example.com/page"))
+                self.assertEqual([call.args[0] for call in resolve.call_args_list], ["example.com", host])
+                connect.assert_called_once()
+
+    def test_unsafe_urls_and_exhausted_redirects_fail(self):
+        with patch("script.harbor.worker.socket.create_connection") as connect:
+            for url in ("file:///etc/passwd", "http://user:secret@example.com", "http://@example.com"):
+                with self.assertRaises(RPCError):
+                    web_operation(self.request(url))
+            connect.assert_not_called()
+        connection = MagicMock()
+        connection.getresponse.return_value = MagicMock(status=302)
+        with patch("script.harbor.worker.public_addresses", return_value=["93.184.216.34"]), \
+                patch("script.harbor.worker.http.client.HTTPConnection", return_value=connection), \
+                patch("script.harbor.worker.socket.create_connection"):
+            with self.assertRaisesRegex(RPCError, "Too many redirects"):
+                web_operation(self.request("http://example.com", redirects=0))
 
 
 class WorkerFileTests(unittest.TestCase):
@@ -52,6 +138,16 @@ class WorkerFileTests(unittest.TestCase):
         self.assertEqual((self.root / "nested/data").read_bytes(), original)
         self.assertIn("result", self.request("write", path="nested/data", dataBase64=encoded(b"new"),
                                               expectedContentsBase64=encoded(original)))
+
+    def test_web_cancelled_before_start_does_not_execute(self):
+        identifier = uuid.uuid4().hex
+        dispatch(str(self.root), self.control, {"id": uuid.uuid4().hex,
+                 "operation": "cancel", "targetRequestID": identifier})
+        response = dispatch(str(self.root), self.control, {"id": identifier,
+                            "operation": "http", "url": "http://example.com",
+                            "timeoutSeconds": 1, "maxRedirects": 0})
+        self.assertEqual(response["error"]["code"], "webFailure")
+        self.assertIn("cancelled", response["error"]["message"])
 
     def test_paths_and_symlinks_are_denied(self):
         (self.root / "link").symlink_to(self.control, target_is_directory=True)
@@ -340,6 +436,23 @@ if {outcome != 'completion'!r}:
 
 
 class BridgeDiagnosticTests(unittest.IsolatedAsyncioTestCase):
+    async def test_web_policy_denies_offline_and_obeys_current_phase(self):
+        for mode, hosts, enabled in (("no-network", [], False), ("allowlist", [], False),
+                                     ("allowlist", ["example.com"], True), ("public", [], True)):
+            with self.subTest(mode=mode, hosts=hosts):
+                environment = SimpleNamespace(network_policy=SimpleNamespace(
+                    network_mode=mode, allowed_hosts=hosts))
+                bridge = SandboxBridge(environment)
+                for operation in ("http", "resolveHost"):
+                    request = {"id": uuid.uuid4().hex, "operation": operation}
+                    with patch.object(bridge, "_execute", AsyncMock(return_value={
+                            "id": request["id"], "result": {}})) as execute:
+                        response = await bridge.dispatch(request)
+                        self.assertEqual(execute.await_count, int(enabled))
+                        if not enabled:
+                            self.assertEqual(response["error"]["code"], "permissionDenied")
+                self.assertEqual(bridge.active, {})
+
     async def test_worker_failures_preserve_both_streams_and_operation(self):
         for status, stdout, stderr, message in (
             (127, "python3: command not found", None, "worker failed"),

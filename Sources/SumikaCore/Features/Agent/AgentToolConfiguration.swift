@@ -88,8 +88,13 @@ extension ToolOrchestrator {
           todoWriteEnabled: todoWriteEnabled, documentMarkdownConverter: documentMarkdownConverter
         ),
       fileIO: workspaceExecution?.fileIO ?? LocalWorkspaceFileIO(),
+      webSearcher: workspaceExecution?.webSearcher ?? DefaultWebSearchService(),
+      webFetcher: workspaceExecution?.webFetcher ?? DefaultWebFetchService(),
       browserToolService: browserToolService,
-      webAccessSettingsProvider: webAccessSettingsProvider
+      webAccessSettingsProvider: {
+        if let workspaceExecution { return workspaceExecution.webAccessSettings }
+        return await webAccessSettingsProvider()
+      }
     )
   }
 }

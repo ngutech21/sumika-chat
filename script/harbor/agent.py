@@ -12,7 +12,7 @@ import signal
 from harbor.agents.base import BaseAgent
 from harbor.agents.capabilities import AgentCapabilities
 
-from script.harbor.bridge import SandboxBridge, exec_diagnostics
+from script.harbor.bridge import SandboxBridge, exec_diagnostics, web_access_enabled
 from script.harbor.evidence import capture_environment, capture_legacy_artifacts, write_json
 from script.harbor.trajectory import export_trajectory
 
@@ -50,9 +50,9 @@ class SumikaAgent(BaseAgent):
         await capture_environment(environment, self.logs_dir)
         await self._ensure_worker_python(environment)
 
-    async def _ensure_worker_python(self, environment):
+    async def _ensure_worker_python(self, environment, require_web_certificates=False):
         self.logs_dir.mkdir(parents=True, exist_ok=True)
-        with (self.logs_dir / "setup.log").open("w", encoding="utf-8") as log:
+        with (self.logs_dir / "setup.log").open("a", encoding="utf-8") as log:
             async def execute(label, command, **options):
                 log.write(f"{label}\n$ {command}\n")
                 log.flush()
@@ -66,11 +66,30 @@ class SumikaAgent(BaseAgent):
                 log.flush()
                 return result
 
+            certificate_check = (
+                "\ncontext = ssl.create_default_context()\n"
+                "paths = ssl.get_default_verify_paths()\n"
+                "directories = (os.environ.get(paths.openssl_capath_env, paths.openssl_capath) or '').split(os.pathsep)\n"
+                "if not context.cert_store_stats()['x509']:\n"
+                "    for directory in filter(None, directories):\n"
+                "        for certificate in Path(directory).glob('[0-9a-f]' * 8 + '.0'):\n"
+                "            try:\n"
+                "                context.load_verify_locations(cafile=str(certificate))\n"
+                "            except (OSError, ssl.SSLError):\n"
+                "                continue\n"
+                "            if context.cert_store_stats()['x509']:\n"
+                "                break\n"
+                "        if context.cert_store_stats()['x509']:\n"
+                "            break\n"
+                "if not context.cert_store_stats()['x509']:\n"
+                "    sys.exit('Web tools require trusted CA certificates')\n"
+                if require_web_certificates else "")
             probe = shlex.join(["python3", "-c",
-                "import ctypes, fcntl, json, os, selectors, subprocess, sys\n"
+                "import ctypes, fcntl, http.client, ipaddress, json, os, selectors, socket, ssl, subprocess, sys\n"
+                "from pathlib import Path\n"
                 "if sys.version_info < (3, 7):\n"
                 "    sys.exit('Worker requires Python 3.7 or newer')\n"
-                "print(sys.executable)\nprint(sys.version)"])
+                "print(sys.executable)\nprint(sys.version)" + certificate_check])
             result = await execute("probe", probe, timeout_sec=10)
             if result.return_code == 0:
                 return
@@ -80,7 +99,7 @@ class SumikaAgent(BaseAgent):
                 "echo 'Cannot provision worker Python: apt-get is unavailable' >&2; exit 1; fi; "
                 "apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=30 "
                 "-o Acquire::https::Timeout=30 update && "
-                "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3")
+                "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 ca-certificates")
             result = await execute("installation", install, user="root", timeout_sec=180)
             if result.return_code == 0:
                 result = await execute("verification", probe, timeout_sec=10)
@@ -92,6 +111,8 @@ class SumikaAgent(BaseAgent):
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         prompt = self.logs_dir / "instruction.md"
         prompt.write_text(instruction, encoding="utf-8")
+        if web_access_enabled(environment.network_policy):
+            await self._ensure_worker_python(environment, require_web_certificates=True)
         self.bridge = SandboxBridge(environment)
         process = None
         try:
@@ -105,6 +126,7 @@ class SumikaAgent(BaseAgent):
                     "--prompt-file", str(prompt.resolve()),
                     "--output-dir", str(self.logs_dir.resolve()),
                     "--timeout-seconds", str(self.timeout),
+                    "--network-policy", environment.network_policy.model_dump_json(),
                     env=host_environment, stdout=output, stderr=asyncio.subprocess.STDOUT,
                     start_new_session=True)
                 async with asyncio.timeout(self.timeout + 15):

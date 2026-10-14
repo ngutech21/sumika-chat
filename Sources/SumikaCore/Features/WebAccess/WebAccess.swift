@@ -461,7 +461,7 @@ struct WebURLValidator: Sendable {
   }
 }
 
-enum WebURLValidationProfile: Sendable {
+package enum WebURLValidationProfile: Sendable {
   case publicWebURL
   case configuredWebProviderURL
 }
@@ -500,7 +500,7 @@ private struct IPv4Address: Equatable {
   }
 }
 
-protocol WebHTTPClient: Sendable {
+package protocol WebHTTPClient: Sendable {
   func data(
     for request: URLRequest,
     maxRedirects: Int,
@@ -508,7 +508,7 @@ protocol WebHTTPClient: Sendable {
   ) async throws -> (Data, URLResponse)
 }
 
-protocol WebHostResolving: Sendable {
+package protocol WebHostResolving: Sendable {
   func addresses(for host: String) async throws -> [String]
 }
 
@@ -593,7 +593,7 @@ struct SystemWebHostResolver: WebHostResolving {
 }
 
 extension URLSession: WebHTTPClient {
-  func data(
+  package func data(
     for request: URLRequest,
     maxRedirects: Int,
     validationProfile: WebURLValidationProfile = .publicWebURL

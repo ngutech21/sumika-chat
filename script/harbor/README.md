@@ -30,6 +30,12 @@ The container worker also needs Python. Adapter setup probes `python3` as the
 task user, including its required Unix standard-library modules. If that fails,
 setup installs `python3` with apt as root in the disposable container, then
 repeats the probe as the task user. Existing working interpreters are reused.
+Provisioning includes `ca-certificates`. Before launching a network-enabled
+profile, the adapter also checks that Python's HTTPS trust store contains CA
+certificates and attempts the same provisioning if needed. Offline profiles do
+not require a trust store. Restricted task images must include their trusted
+certificates when the task policy prevents downloading the missing package;
+certificate verification and task network restrictions remain enforced.
 Installation has a 180-second timeout and may require package-repository access;
 unsupported package managers, denied permissions, and unavailable repositories
 remain explicit setup failures before native execution. Task definitions and
@@ -221,6 +227,8 @@ object containing a unique string `id` and an `operation`.
 | `list` | `path` | `names` (basenames) |
 | `write` | `path`, `dataBase64`, optional `expectedContentsBase64` | empty object |
 | `run` | `executable`, `arguments`, `cwd`, `timeoutSeconds`, optional `standardInputBase64`, `maxStdoutBytes`, `maxStderrBytes`, `stdoutRetention`, `stderrRetention` | raw command result below |
+| `resolveHost` | `host` | `addresses` (public addresses only) |
+| `http` | `url`, `timeoutSeconds`, `maxRedirects`, optional `userAgent` | `url`, `statusCode`, `headers`, `dataBase64` |
 | `cancel` | `targetRequestID` | `cancelled` |
 
 Responses are `{id, result}` or `{id, error: {code, message}}`. File error codes
@@ -228,6 +236,22 @@ include `notFound`, `permissionDenied`, `pathOutsideWorkspace`,
 `unsupportedURLScheme`, `contentChanged`, and `invalidArgument`; transport failures
 use `transportFailure`. A null/absent expected value means unconditional write;
 a supplied byte value must match the current file before atomic replacement.
+
+The adapter passes Harbor's current `environment.network_policy` to SumikaEval
+as `--network-policy` JSON. This includes agent-phase overrides and run-time host
+merges, rather than reparsing the task's baseline. Public policies and nonempty
+allowlists enable `web_search` and `web_fetch`; offline policies and empty
+allowlists disable both. Direct CLI invocation defaults to offline. `runtime.json`
+records this policy and the fixed DuckDuckGo/built-in web provider settings.
+
+Web requests and DNS resolution use supervised Python children inside the task
+container, with the same cancellation and descendant cleanup as commands.
+The bridge rejects web operations while the effective policy is offline.
+Public GET requests validate every redirect and resolved address, pin each
+connection to a validated public IP, verify HTTPS certificates against the
+original hostname, and cap response bytes. They do not use host HTTP clients,
+DNS, proxies, or configured external scraping/search services; Harbor's container
+firewall enforces the allowed destinations. Web errors never retry on the host.
 
 Each read returns an opaque `version` from the opened file's identity, size,
 and modification/change timestamps. The worker checks that version before and

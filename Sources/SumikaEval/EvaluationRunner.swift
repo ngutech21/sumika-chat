@@ -127,7 +127,9 @@ struct EvaluationRunner {
 
   private func makeWorkspaceExecution() -> WorkspaceExecution {
     let backend = HarborWorkspaceBackend(bridgeURL: options.bridgeURL, token: options.bridgeToken)
-    return WorkspaceExecution(fileIO: backend, commandRunner: backend)
+    return WorkspaceExecution(
+      fileIO: backend, commandRunner: backend,
+      webClient: options.networkPolicy.webEnabled ? backend : nil)
   }
 
   private func stopOutcome(since start: ContinuousClock.Instant) -> EvaluationOutcome? {

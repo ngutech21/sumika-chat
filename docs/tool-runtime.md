@@ -352,8 +352,11 @@ flowchart TD
   streaming without promising an immutable snapshot against arbitrary writers.
 - `Sumika.Dependencies.workspaceExecution` supplies an alternate file and command
   boundary for `SumikaEval`. Its registry contains only the implemented file and
-  command tools plus `ask_user` and `finish_task`; configuration updates retain
-  that profile. Workspace instruction discovery and mutation grouping use the
+  command tools plus `ask_user` and `finish_task`, adding `web_search` and
+  `web_fetch` only when a sandbox web client is supplied; configuration updates
+  retain that profile. The web client's DNS and HTTP requests execute inside
+  the task container, including redirects, with no host networking fallback.
+  Workspace instruction discovery and mutation grouping use the
   same file boundary. Skill discovery is disabled for this profile. The Harbor
   adapter executes all task file and command operations inside Docker; there is
   no host execution fallback. See [Harbor evaluation](testing.md#harbor-agent-evaluation)

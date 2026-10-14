@@ -8,17 +8,22 @@ import ctypes
 import errno
 import fcntl
 import hashlib
+import http.client
+import ipaddress
 import json
 import os
 from pathlib import Path
 import re
 import selectors
 import signal
+import socket
+import ssl
 import stat
 import subprocess
 import sys
 import tempfile
 import time
+from urllib.parse import urljoin, urlsplit
 
 
 MAX_BYTES = 1024 * 1024
@@ -332,6 +337,86 @@ def run_command(root, control, request):
             "stdoutOmittedBytes": stdout_omitted, "stderrOmittedBytes": stderr_omitted}
 
 
+def public_addresses(host):
+    if (not isinstance(host, str) or not host or "\0" in host
+            or host.lower().rstrip(".") == "localhost"
+            or host.lower().rstrip(".").endswith((".localhost", ".local"))):
+        raise RPCError("permissionDenied", "Expected a public web host.")
+    addresses = list(dict.fromkeys(
+        entry[4][0] for entry in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)))
+    if not addresses or any(not ip.is_global or ip.is_multicast
+                            for ip in map(ipaddress.ip_address, addresses)):
+        raise RPCError("permissionDenied", "Web host resolves to a non-public address.")
+    return addresses
+
+
+def web_operation(request):
+    if request["operation"] == "resolveHost":
+        return {"addresses": public_addresses(request["host"])}
+    url = request["url"]
+    redirects = integer(request["maxRedirects"], "maxRedirects", 0, 4)
+    timeout = integer(request["timeoutSeconds"], "timeoutSeconds", 1, 60)
+    user_agent = request.get("userAgent", "Sumika/1.0")
+    if not isinstance(user_agent, str) or any(c in user_agent for c in "\r\n\0"):
+        raise RPCError("invalidArgument", "Invalid User-Agent.")
+    deadline = time.monotonic() + timeout
+    while True:
+        parsed = urlsplit(url)
+        if (parsed.scheme not in ("http", "https") or not parsed.hostname
+                or parsed.username is not None or parsed.password is not None):
+            raise RPCError("permissionDenied", "Expected a public http or https URL.")
+        addresses = public_addresses(parsed.hostname)
+        port = parsed.port if parsed.port is not None else (443 if parsed.scheme == "https" else 80)
+        integer(port, "port", 1, 65535)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Web request timed out.")
+        connection = http.client.HTTPConnection(parsed.hostname, port, timeout=remaining)
+        try:
+            # Pin the validated address while keeping the original host for HTTP and TLS.
+            for address in addresses:
+                try:
+                    connection.sock = socket.create_connection((address, port),
+                                                               timeout=max(0.001, deadline - time.monotonic()))
+                    break
+                except OSError:
+                    if address == addresses[-1]:
+                        raise
+            if parsed.scheme == "https":
+                connection.sock = ssl.create_default_context().wrap_socket(
+                    connection.sock, server_hostname=parsed.hostname)
+            path = parsed.path or "/"
+            if parsed.query:
+                path += "?" + parsed.query
+            connection.request("GET", path, headers={"User-Agent": user_agent, "Accept-Encoding": "identity"})
+            response = connection.getresponse()
+            if 300 <= response.status < 400:
+                if redirects == 0:
+                    raise RPCError("invalidArgument", "Too many redirects.")
+                location = response.getheader("Location")
+                if not location:
+                    raise RPCError("invalidArgument", "Redirect response has no Location.")
+                url = urljoin(url, location)
+                redirects -= 1
+                continue
+            data = response.read(512 * 1024 + 1)
+            return {"url": url, "statusCode": response.status, "headers": dict(response.getheaders()),
+                    "dataBase64": base64.b64encode(data).decode("ascii")}
+        finally:
+            connection.close()
+
+
+def run_web(root, control, request):
+    result = run_command(root, control, {
+        "id": request["id"], "executable": sys.executable,
+        "arguments": [__file__, "--web"], "timeoutSeconds": request.get("timeoutSeconds", 15),
+        "maxStdoutBytes": MAX_BYTES, "maxStderrBytes": 4096,
+        "standardInputBase64": base64.b64encode(json.dumps(request).encode("utf-8")).decode("ascii")})
+    if result["cancelled"] or result["timedOut"] or result["exitCode"] != 0 or result["stdoutTruncated"]:
+        raise RPCError("webFailure", result["stderr"] or "Web request cancelled or timed out.")
+    return json.loads(result["stdout"])
+
+
 def dispatch(root, control, request):
     try:
         if not isinstance(request, dict):
@@ -340,6 +425,8 @@ def dispatch(root, control, request):
         operation = request.get("operation")
         if operation == "run":
             result = run_command(root, control, request)
+        elif operation in ("http", "resolveHost"):
+            result = run_web(root, control, request)
         elif operation == "cancel":
             identifier = request_id(request["targetRequestID"])
             (control / (identifier + ".cancel")).touch()
@@ -363,6 +450,13 @@ def dispatch(root, control, request):
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--web"]:
+        try:
+            print(json.dumps(web_operation(json.load(sys.stdin))))
+        except (RPCError, OSError, ValueError, KeyError, TypeError, http.client.HTTPException) as error:
+            print(str(error), file=sys.stderr)
+            sys.exit(1)
+        sys.exit(0)
     workspace_root, control_directory, request_path = sys.argv[1:]
     try:
         with open(request_path, encoding="utf-8") as payload:

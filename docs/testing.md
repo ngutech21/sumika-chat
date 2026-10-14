@@ -92,7 +92,14 @@ capture limits, and the read-only checker for individual jobs or trials.
 
 This initial profile enables `read_file`, `edit_file`, `write_file`, `run_command`,
 `ask_user`, and `finish_task`. Workspace instructions are read from the container.
-Skills, MCP, browser, web, and other tools are absent from the profile.
+`web_search` and `web_fetch` are also enabled when Harbor's effective agent-phase
+network policy is `public`, or `allowlist` with at least one allowed host.
+Offline tasks and empty allowlists exclude both tools. DNS and HTTP execute in
+the task container through the authenticated bridge, so redirects and all
+connections remain subject to Harbor's network restrictions. The existing
+DuckDuckGo search parser and built-in page extractor run on the Mac without
+making external network requests. Runtime metadata records the effective network
+policy and web settings. Skills, MCP, browser, and other tools remain absent.
 Unexpected user questions end the trial as `needs_user`; Harbor still determines
 correctness through its verifier. The example is an integration smoke test, not
 a measure of general coding ability.

@@ -8,11 +8,12 @@ struct EvaluationOptions: Sendable {
   let promptFile: URL
   let outputDirectory: URL
   let timeoutSeconds: Double
+  let networkPolicy: EvaluationNetworkPolicy
 
   static let usage = """
     Usage: SumikaEval --model-id ID --workspace-root /container/workspace \
     --bridge-url http://127.0.0.1:PORT --prompt-file /host/prompt.txt \
-    --output-dir /host/artifacts [--timeout-seconds 600]
+    --output-dir /host/artifacts [--timeout-seconds 600] [--network-policy JSON]
     Set SUMIKA_HARBOR_TOKEN to the bridge's per-trial authentication token.
     """
 
@@ -20,6 +21,7 @@ struct EvaluationOptions: Sendable {
     let accepted = Set([
       "--model-id", "--workspace-root", "--bridge-url", "--prompt-file",
       "--output-dir", "--timeout-seconds",
+      "--network-policy",
     ])
     var values: [String: String] = [:]
     var index = 0
@@ -71,6 +73,29 @@ struct EvaluationOptions: Sendable {
       throw EvaluationError("--timeout-seconds must be between 0 and 86400")
     }
     timeoutSeconds = timeout
+    networkPolicy = try JSONDecoder().decode(
+      EvaluationNetworkPolicy.self,
+      from: Data((values["--network-policy"] ?? "{\"network_mode\":\"no-network\"}").utf8))
+  }
+}
+
+struct EvaluationNetworkPolicy: Codable, Sendable {
+  enum Mode: String, Codable, Sendable {
+    case publicNetwork = "public"
+    case noNetwork = "no-network"
+    case allowlist
+  }
+
+  let networkMode: Mode
+  let allowedHosts: [String]?
+
+  var webEnabled: Bool {
+    networkMode == .publicNetwork || (networkMode == .allowlist && !(allowedHosts ?? []).isEmpty)
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case networkMode = "network_mode"
+    case allowedHosts = "allowed_hosts"
   }
 }
 

@@ -17,6 +17,10 @@ import uuid
 MAX_BODY_BYTES = 4 * 1024 * 1024
 
 
+def web_access_enabled(policy):
+    return policy.network_mode == "public" or (policy.network_mode == "allowlist" and bool(policy.allowed_hosts))
+
+
 def exec_diagnostics(result):
     def excerpt(value):
         text = value or "<empty>"
@@ -129,27 +133,32 @@ class SandboxBridge:
             return {"error": {"code": "invalidArgument", "message": "Invalid RPC request."}}
         identifier = request["id"]
         operation = request.get("operation")
+        supervised = operation in ("run", "http", "resolveHost")
         try:
             if self.closed:
                 raise RuntimeError("Task transport is closed.")
-            if operation == "run":
+            if operation in ("http", "resolveHost"):
+                if not web_access_enabled(self.environment.network_policy):
+                    return {"id": identifier, "error": {"code": "permissionDenied",
+                            "message": "The task network policy disables web access."}}
+            if supervised:
                 if identifier in self.active:
                     raise RuntimeError("Duplicate command request ID.")
                 self.active[identifier] = asyncio.current_task()
             try:
                 response = await self._execute(request)
-                if operation == "run" and response.get("error", {}).get("code") == "transportFailure":
+                if supervised and response.get("error", {}).get("code") == "transportFailure":
                     self.command_failure = response["error"]["message"]
                 return response
             finally:
-                if operation == "run":
+                if supervised:
                     self.active.pop(identifier, None)
         except asyncio.CancelledError:
-            if operation == "run":
+            if supervised:
                 self.command_failure = "Command transport was cancelled before the worker drained."
             raise
         except Exception as error:
-            if operation == "run":
+            if supervised:
                 self.command_failure = str(error)
             return {"id": identifier, "error": {"code": "transportFailure", "message": str(error)}}
 

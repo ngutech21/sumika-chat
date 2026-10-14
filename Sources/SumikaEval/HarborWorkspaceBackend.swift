@@ -2,7 +2,9 @@ import Foundation
 import SumikaCore
 
 /// The adapter owns the authenticated loopback endpoint and the task container.
-struct HarborWorkspaceBackend: WorkspaceFileIO, CommandProcessRunning {
+struct HarborWorkspaceBackend: WorkspaceFileIO, CommandProcessRunning, WebHTTPClient,
+  WebHostResolving
+{
   let bridgeURL: URL
   let token: String
   private let session: URLSession
@@ -83,6 +85,31 @@ struct HarborWorkspaceBackend: WorkspaceFileIO, CommandProcessRunning {
       stderrOmittedBytes: result.stderrOmittedBytes)
   }
 
+  func addresses(for host: String) async throws -> [String] {
+    let result: Addresses = try await call(Request(operation: "resolveHost", host: host))
+    return result.addresses
+  }
+
+  func data(
+    for request: URLRequest, maxRedirects: Int, validationProfile: WebURLValidationProfile
+  ) async throws -> (Data, URLResponse) {
+    guard validationProfile == .publicWebURL, request.httpMethod == "GET",
+      request.httpBody == nil, let url = request.url
+    else { throw EvaluationError("Harbor web access supports public GET requests only") }
+    let result: WebResponse = try await call(
+      Request(
+        operation: "http", timeoutSeconds: Int(request.timeoutInterval),
+        url: url.absoluteString, maxRedirects: maxRedirects,
+        userAgent: request.value(forHTTPHeaderField: "User-Agent")))
+    guard let data = Data(base64Encoded: result.dataBase64),
+      let finalURL = URL(string: result.url),
+      let response = HTTPURLResponse(
+        url: finalURL, statusCode: result.statusCode, httpVersion: nil, headerFields: result.headers
+      )
+    else { throw BridgeError.invalidResponse }
+    return (data, response)
+  }
+
   private func retention(_ value: ProcessOutputRetention) -> String {
     switch value {
     case .prefix: "prefix"
@@ -146,6 +173,10 @@ struct HarborWorkspaceBackend: WorkspaceFileIO, CommandProcessRunning {
     var stdoutRetention: String?
     var stderrRetention: String?
     var targetRequestID: String?
+    var host: String?
+    var url: String?
+    var maxRedirects: Int?
+    var userAgent: String?
   }
 
   private struct Response<Result: Decodable>: Decodable {
@@ -176,6 +207,13 @@ struct HarborWorkspaceBackend: WorkspaceFileIO, CommandProcessRunning {
     let version: String
   }
   private struct Names: Decodable, Sendable { let names: [String] }
+  private struct Addresses: Decodable, Sendable { let addresses: [String] }
+  private struct WebResponse: Decodable, Sendable {
+    let url: String
+    let statusCode: Int
+    let headers: [String: String]
+    let dataBase64: String
+  }
   private struct CommandResult: Decodable, Sendable {
     let exitCode: Int32?
     let durationMs: Int
