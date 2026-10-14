@@ -350,6 +350,9 @@ run-harbor-suite:
         -i openthoughts/build-merkle-tree-cli-sha512
         -i openthoughts/fix_async_worker_queue
         -i openthoughts/react-typescript-debugg
+        -i openthoughts/db-migration-local-storage
+        -i openthoughts/todos-api
+        -i openthoughts/malicious-package-forensics
     )
     swift build --product SumikaEval
     job_name="$(uuidgen)"
