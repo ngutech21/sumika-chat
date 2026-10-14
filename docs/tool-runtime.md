@@ -928,6 +928,12 @@ declarations.
   approval must append a denied result without creating a process.
 - Work prompts and tool descriptions prefer `edit_file` for targeted edits and
   `write_file` for ordinary new files or intentional full-file replacement.
+  Targeted edits replace the smallest necessary span, preserve surrounding
+  logic, and avoid unrelated cleanup. For non-trivial behavior changes, use
+  existing tests or explicit assertions for expected results; printed output
+  or a successful exit alone is not verification. Report only checks actually
+  run and results observed, distinguish verified behavior from assumptions,
+  and state skipped or blocked checks.
   Short, bounded Python, shell, `sed`, `awk`, or helper scripts through
   `run_command` may generate data or perform bulk transformations when they
   substantially reduce repetition. Choose a finite record count or explicit

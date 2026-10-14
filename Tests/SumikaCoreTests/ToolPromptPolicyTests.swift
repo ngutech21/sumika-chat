@@ -84,6 +84,13 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("when they substantially reduce repetition"))
     #expect(prompt.contains("Choose a finite record count or explicit target set before execution"))
     #expect(prompt.contains("verify the resulting files and changes"))
+    #expect(prompt.contains("Replace the smallest necessary span, preserve surrounding logic"))
+    #expect(prompt.contains("avoid unrelated cleanup"))
+    #expect(prompt.contains("use existing tests or explicit assertions for expected results"))
+    #expect(prompt.contains("printed output or a successful exit alone is not verification"))
+    #expect(prompt.contains("Report only checks actually run and results observed"))
+    #expect(prompt.contains("Distinguish verified behavior from assumptions"))
+    #expect(prompt.contains("state skipped or blocked checks"))
     #expect(prompt.contains("Use run_command after approval"))
     #expect(!prompt.contains("Never use Python"))
   }
@@ -128,11 +135,13 @@ struct ToolPromptPolicyTests {
     #expect(!prompt.contains("call finish_task"))
   }
 
-  @Test
-  func nativeChatWebPromptMentionsOnlyWebToolsAndPrivacyBoundary() {
+  @Test(arguments: [
+    ToolPromptMode.chatWeb, .afterChatWebToolResultCanContinue, .afterChatWebToolResultFinal,
+  ])
+  func nativeChatWebPromptMentionsOnlyWebToolsAndPrivacyBoundary(mode: ToolPromptMode) {
     let prompt = ToolPromptPolicy().systemPrompt(
       basePrompt: "Base",
-      mode: .chatWeb,
+      mode: mode,
       toolRegistry: ToolExecutorRegistry.chatWeb.toolRegistry
     )
 
@@ -147,6 +156,9 @@ struct ToolPromptPolicyTests {
     #expect(!prompt.contains("bulk transformations"))
     #expect(!prompt.contains("finish_task"))
     #expect(!prompt.contains("Inspect before editing"))
+    #expect(!prompt.contains("Replace the smallest necessary span"))
+    #expect(!prompt.contains("explicit assertions"))
+    #expect(!prompt.contains("Report only checks actually run"))
   }
 
   @Test
