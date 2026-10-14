@@ -7,7 +7,6 @@ struct NativeTranscriptMarkdownCache {
   private var blocksByText: [String: [NativeMarkdownBlock]] = [:]
 
   // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   var cachedEntryCount: Int {
     blocksByText.count
   }
@@ -30,7 +29,6 @@ struct NativeUserMessageRenderCache {
   private var blocksByKey: [Key: [NativeMarkdownBlock]] = [:]
 
   // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   var cachedEntryCount: Int {
     blocksByKey.count
   }

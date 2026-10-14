@@ -1,5 +1,3 @@
-import Foundation
-
 /// An alternate workspace execution boundary. SumikaEval supplies Harbor-backed I/O.
 package struct WorkspaceExecution: Sendable {
   let fileIO: any WorkspaceFileIO

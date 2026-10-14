@@ -1011,7 +1011,6 @@ extension MLXChatRuntime {
 
   #if DEBUG
     // Test-only; exercised through @testable import.
-    // swiftlint:disable:next unused_declaration
     func registerActiveGenerationForTesting(id: MLXGenerationID, task: Task<Void, Never>) {
       activeGenerationRegistry.register(id: id, task: task)
     }

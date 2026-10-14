@@ -62,7 +62,10 @@ jobs:
             .build/checkouts
             .build/artifacts
             .build/swiftlint
-          key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.apple-toolchain.outputs.cache-key }}-macos-nightly-swiftpm-${{ hashFiles('Package.resolved', 'Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'script/swiftlint/Package.resolved') }}
+            .build/lint-analyze/repositories
+            .build/lint-analyze/checkouts
+            .build/lint-analyze/artifacts
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.apple-toolchain.outputs.cache-key }}-macos-nightly-swiftpm-v2-${{ hashFiles('Package.resolved', 'Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'script/swiftlint/Package.resolved') }}
 
       - name: Verify Swift package lockfiles
         timeout-minutes: 10
@@ -77,7 +80,7 @@ jobs:
         run: just lint
 
       - name: Run SwiftLint analyzer rules
-        timeout-minutes: 30
+        timeout-minutes: 45
         run: just lint-analyze
 
       - name: Run Periphery

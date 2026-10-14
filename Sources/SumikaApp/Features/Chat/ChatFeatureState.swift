@@ -284,7 +284,6 @@ final class ChatFeatureState {
 
   #if DEBUG
     // Test-only; exercised through @testable import.
-    // swiftlint:disable:next unused_declaration
     var sessionSnapshotForTesting: ChatSession? {
       conversation.snapshot()
     }

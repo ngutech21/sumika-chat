@@ -1,3 +1,5 @@
+// AVFoundation is used directly; the analyzer compiler log does not attribute it reliably.
+// swiftlint:disable:next unused_import
 import AVFoundation
 import Testing
 

@@ -30,6 +30,13 @@ checks; a focused test does not replace the full suite. Repeat or broaden checks
 only when changes, failures, or unresolved concerns justify it. For documentation
 or comments only, run `just typos` and explain why builds and tests were skipped.
 
+`just lint-analyze` combines compiler logs from a clean Debug Xcode app build and
+a clean Debug SwiftPM build of all source and test targets. It analyzes the app
+launcher, package sources, and package tests together so cross-target callers are
+visible. SwiftPM uses `.build/lint-analyze` to preserve the normal test build and
+the pinned SwiftLint tool cache; this check builds tests without running them.
+The existing file exclusions cover SourceKit replay limitations.
+
 The dead-code check performs SwiftPM and Xcode builds. It explicitly passes
 Swift Build's `.build/out/Products/Debug/index/store` index to Periphery 3.8,
 whose automatic SwiftPM index lookup expects the older native build system's

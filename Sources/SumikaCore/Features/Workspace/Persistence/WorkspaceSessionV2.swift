@@ -4,7 +4,6 @@ import Foundation
 /// are shared; new tool variants must never become valid v2 migration input.
 struct WorkspaceSessionDocumentV2: Decodable {
   // Retain required-key decoding in this frozen schema; WorkspaceStore probes the version separately.
-  // swiftlint:disable:next unused_declaration
   let version: Int
   let session: WorkspaceSessionV2
 }

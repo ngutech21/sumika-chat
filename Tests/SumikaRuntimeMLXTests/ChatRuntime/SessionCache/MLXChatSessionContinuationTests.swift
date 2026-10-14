@@ -58,8 +58,6 @@ nonisolated final class MLXChatSessionContinuationTests: XCTestCase {
     var bosToken: String? { nil }
     var eosToken: String? { nil }
     var unknownToken: String? { nil }
-    var eosTokenId: Int? { 101 }
-    var unknownTokenId: Int? { 102 }
 
     func encode(text: String, addSpecialTokens _: Bool) -> [Int] {
       text.unicodeScalars.map { scalar in
@@ -132,8 +130,6 @@ nonisolated final class MLXChatSessionContinuationTests: XCTestCase {
     var bosToken: String? { nil }
     var eosToken: String? { nil }
     var unknownToken: String? { nil }
-    var eosTokenId: Int? { 101 }
-    var unknownTokenId: Int? { 102 }
 
     func encode(text: String, addSpecialTokens _: Bool) -> [Int] {
       text.unicodeScalars.map { Int($0.value) % 80 + 1 }

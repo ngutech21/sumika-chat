@@ -130,7 +130,6 @@ final class ModelManagementFeatureState {
 #if DEBUG
   extension ModelManagementFeatureState {
     // Test-only; exercised through @testable import.
-    // swiftlint:disable:next unused_declaration
     func setModelLoadStateForTesting(_ state: ModelLoadState) {
       models.setModelLoadStateForTesting(state)
     }

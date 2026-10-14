@@ -9,6 +9,8 @@ struct EvaluationMetadata: Encodable, Sendable {
     let sha256: String
   }
 
+  // Serialized by the synthesized Encodable conformance.
+  // swiftlint:disable:next unused_declaration
   let schemaVersion = 1
   let modelID: String
   let huggingFaceRepoID: String
@@ -19,10 +21,13 @@ struct EvaluationMetadata: Encodable, Sendable {
   let workspaceRoot: String
   let timeoutSeconds: Double
   let maxToolLoopIterations: Int
+  // Serialized by the synthesized Encodable conformance.
+  // swiftlint:disable unused_declaration
   let interactionMode = WorkspaceInteractionMode.agent
   let toolApprovalPolicy = ToolApprovalPolicy.automatic
   let operatingSystem = ProcessInfo.processInfo.operatingSystemVersionString
   let physicalMemoryBytes = ProcessInfo.processInfo.physicalMemory
+  // swiftlint:enable unused_declaration
 
   static func capture(
     model: ManagedModel, settings: StoredModelSettings, options: EvaluationOptions

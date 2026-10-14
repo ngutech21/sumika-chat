@@ -335,19 +335,16 @@ struct NativeTranscriptHeightCache {
   private var measuringCellsByKind: [NativeTranscriptCellKind: NativeChatMessageCellView] = [:]
 
   // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   var cachedEntryCount: Int {
     heightsByKey.count
   }
 
   // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   func measuringCellForTesting(kind: NativeTranscriptCellKind) -> NativeChatMessageCellView? {
     measuringCellsByKind[kind]
   }
 
   // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   var measuringCellCountForTesting: Int {
     measuringCellsByKind.count
   }

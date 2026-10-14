@@ -9,7 +9,6 @@ struct FocusedFilePromptReusePolicy: Equatable, Sendable {
     maxInterveningProviderBytes: 8_000
   )
   // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   static let disabled = FocusedFilePromptReusePolicy(
     maxCompactUsesPerAnchor: 0,
     maxInterveningProviderBytes: 0

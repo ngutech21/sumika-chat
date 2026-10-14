@@ -269,7 +269,6 @@ actor MCPClientManager: MCPToolCalling {
   // Test-only flattened projection, exercised through @testable import.
   // Dynamic executors for every tool on every connected server, in stable
   // configuration order.
-  // swiftlint:disable:next unused_declaration
   func agentToolExecutors() -> [AnyToolExecutor] {
     agentToolExecutorGroups().flatMap(\.executors)
   }
@@ -297,7 +296,6 @@ actor MCPClientManager: MCPToolCalling {
   }
 
   // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   func connectionToken(for serverID: UUID) -> UUID? {
     servers[serverID]?.connectionToken
   }

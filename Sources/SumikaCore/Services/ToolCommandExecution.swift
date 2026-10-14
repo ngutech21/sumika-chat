@@ -24,13 +24,11 @@ internal actor LatestCommandResultStore {
   }
 
   // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   package func result(workspaceID: Workspace.ID, sessionID: ChatSession.ID) -> RunCommandResult? {
     results[Key(workspaceID: workspaceID, sessionID: sessionID)]
   }
 
   // Test-only convenience overload; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   package func record(
     _ result: RunCommandResult,
     workspaceID: Workspace.ID,

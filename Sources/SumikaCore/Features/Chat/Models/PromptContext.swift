@@ -11,7 +11,6 @@ package struct ContextBudget: Codable, Equatable, Sendable {
   package static let workspaceInstructionsDefault = ContextBudget(maxCharacters: 8_000)
 
   // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   package static func checked(maxCharacters: Int) -> ContextBudget? {
     guard maxCharacters > 0 else {
       return nil

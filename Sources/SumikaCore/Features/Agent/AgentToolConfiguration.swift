@@ -60,7 +60,6 @@ extension ToolExecutorRegistry {
   }
 
   // Test-only canonical registry; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   static let codingAgent = codingAgentRegistry(todoWriteEnabled: true)
 
   static func codingAgentRegistry(

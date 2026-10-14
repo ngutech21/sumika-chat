@@ -15,6 +15,7 @@ swiftpm_index_store := ".build/out/Products/Debug/index/store"
 swiftlint_package := "script/swiftlint"
 swiftlint_scratch := ".build/swiftlint"
 swiftlint := swiftlint_scratch + "/artifacts/swiftlintplugins/SwiftLintBinary/SwiftLintBinary.artifactbundle/macos/swiftlint"
+lint_analyze_scratch := ".build/lint-analyze"
 
 
 default:
@@ -250,6 +251,10 @@ lint-analyze: prepare-swiftlint
     fi; \
     status=0; \
     xcodebuild -project {{project}} -scheme {{scheme}} -configuration Debug -destination "{{destination}}" -derivedDataPath {{derived_data}} "$@" CODE_SIGNING_ALLOWED=NO clean build >"$log" 2>&1 || status=$?; \
+    if [ "$status" -eq 0 ]; then \
+        {{swift}} package --scratch-path {{lint_analyze_scratch}} clean >>"$log" 2>&1 && \
+        {{swift}} build --scratch-path {{lint_analyze_scratch}} --configuration debug --disable-automatic-resolution --build-tests --verbose >>"$log" 2>&1 || status=$?; \
+    fi; \
     if [ "$status" -ne 0 ]; then \
         cat "$log"; \
         exit "$status"; \

@@ -2225,10 +2225,6 @@ struct MLXModelStreamProcessorTests {
     func firstEvent(for phase: TurnTracePhase) -> TurnTraceEvent? {
       events.first { $0.phase == phase }
     }
-
-    func events(for phase: TurnTracePhase) -> [TurnTraceEvent] {
-      events.filter { $0.phase == phase }
-    }
   }
 
   private actor CoreOnlyTurnTraceRecorder: TurnTracing {

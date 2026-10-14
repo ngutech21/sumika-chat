@@ -49,7 +49,6 @@ final class NativeTranscriptCodeHighlightStore {
   }
 
   // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   var cachedEntryCount: Int {
     highlightedCodeByKey.count
   }

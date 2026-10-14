@@ -1332,13 +1332,11 @@ nonisolated extension ToolResultPayload {
   }
 
   // Shared assertion surface for tests covering every concrete tool-result payload.
-  // swiftlint:disable:next unused_declaration
   package var text: String {
     preview.text
   }
 
   // Shared assertion surface for tests covering every concrete tool-result payload.
-  // swiftlint:disable:next unused_declaration
   package var truncated: Bool {
     preview.truncated
   }

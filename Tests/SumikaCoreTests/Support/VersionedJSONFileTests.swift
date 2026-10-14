@@ -384,6 +384,8 @@ private enum ZeroVersionFormat: VersionedJSONFormat {
 }
 
 private struct ZeroVersionDocument: Codable, Equatable, Sendable {
+  // Required schema key for the synthesized Codable conformance.
+  // swiftlint:disable:next unused_declaration
   let schemaVersion: Int
 }
 

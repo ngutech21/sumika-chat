@@ -1,10 +1,11 @@
-import Darwin
 import Dispatch
 import Foundation
 
 @main
 enum SumikaEvalCommand {
   @MainActor
+  // Invoked by Swift through @main.
+  // swiftlint:disable:next unused_declaration
   static func main() async {
     let arguments = Array(CommandLine.arguments.dropFirst())
     if arguments == ["--help"] {

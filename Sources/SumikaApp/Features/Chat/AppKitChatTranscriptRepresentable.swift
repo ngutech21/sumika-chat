@@ -1064,7 +1064,6 @@ extension NativeChatTranscriptCoordinator {
 
   // Test-only: the 100ms main-queue hop cannot be drained from inside a
   // main-actor test body.
-  // swiftlint:disable:next unused_declaration
   func flushPendingStreamingHeightUpdateForTesting() {
     guard let workItem = streamingHeightWorkItem else {
       return
@@ -1074,31 +1073,26 @@ extension NativeChatTranscriptCoordinator {
   }
 
   // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   var pendingMeasuredHeightByRowIDForTesting: [String: CGFloat] {
     pendingMeasuredHeightByRowID
   }
 
   // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   var lastNotedHeightByRowIDForTesting: [String: CGFloat] {
     lastNotedHeightByRowID
   }
 
   // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   var pendingStreamingRowIDsForTesting: Set<String> {
     pendingStreamingRowIDs
   }
 
   // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   var hasPendingStreamCommitForTesting: Bool {
     streamingHeightWorkItem != nil
   }
 
   // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   func stageMeasuredStreamingHeightForTesting(_ height: CGFloat, rowID: String) {
     pendingMeasuredHeightByRowID[rowID] = height
   }
@@ -1130,7 +1124,6 @@ extension NativeChatTranscriptCoordinator {
   // Runs a pending debounced flush synchronously. Test-only: the 60ms
   // asyncAfter hop cannot be drained from inside a main-queue test body.
   // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   func flushPendingHeightInvalidationForTesting() {
     flushPendingHeightInvalidation()
   }
@@ -1456,7 +1449,6 @@ final class NativeChatMessageCellView: NSTableCellView {
   var onMeasuredHeight: ((String, CGFloat) -> Void)?
 
   // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
   var hostedContentViewForTesting: NSView? {
     hostedContentView
   }
