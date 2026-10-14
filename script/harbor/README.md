@@ -92,14 +92,14 @@ The adapter never assigns the task reward.
 just run-harbor-suite
 ```
 
-This builds `SumikaEval` once and runs the eight selected OpenThoughts-TBLite
+This builds `SumikaEval` once and runs the selected OpenThoughts-TBLite
 tasks sequentially, with one attempt each. To extend the suite, add another
 `-i openthoughts/TASK_NAME` line to the `task_filters` array in `Justfile`.
 Each run gets a fresh job directory under `.harbor`, followed by the evidence check.
 
-The native runner has a 3,300-second deadline per task. Harbor's agent timeout
-multiplier is 6, so the selected tasks' 600- or 900-second limits allow that budget.
-Check the task's timeout when adding tasks with shorter limits.
+The native runner has a 3,300-second deadline per task. Harbor independently
+enforces each task's agent timeout multiplied by 6. A shorter Harbor deadline
+can end a task before the native runner's deadline.
 
 ## Trial evidence
 
