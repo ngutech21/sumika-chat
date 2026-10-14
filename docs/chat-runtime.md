@@ -450,10 +450,12 @@ smaller response; they do not report a derived conversation-context allowance.
   conservatively reset the reuse anchor. This policy does not revalidate files
   in the workspace; "same known snapshot" means the most recent complete
   `read_file` state known to Sumika, not a guarantee against external changes.
-- Tool follow-ups are rendered as provider-native role sequences, not synthetic
-  user continuations. A completed native tool call projects as assistant
+- Tool observations use provider-native role sequences. A completed native
+  tool call projects as assistant
   `tool_calls` metadata with a stable call ID followed by one or more `tool`
-  result messages with the matching `tool_call_id`. The tool message content is
+  result messages with the matching `tool_call_id`. Verification reminders
+  follow complete result batches as separate derived user entries, preserving
+  the native tool observations. The tool message content is
   a byte-stable hybrid body: one valid, single-line `TOOL_RESULT_JSON` object
   followed by one readable `CONTENT` section. The sparse JSON object always
   carries `tool`, `status`, and `kind`; default and empty metadata is omitted,
@@ -554,9 +556,11 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
   a transient assistant tool-call boundary and the MLX renderer sends it as
   structured assistant `tool_calls` with stable `call_<uuid>` IDs and matching
   `tool` result messages. No persisted user-role continuation message is
-  synthesized after a tool result. Tool follow-up guidance is stored on
-  `ToolCallRecord` and rendered inside the matching `tool` message; runtime-only
-  prompt-plan suffixes are limited to non-tool context such as todo state. The
+  synthesized after a tool result. Tool-specific follow-up notices are stored
+  in `ToolCallRecord.modelFollowUpNotice` and rendered inside the matching
+  `tool` message. Verification reminders are derived user entries reconstructed
+  at each complete batch boundary. Runtime-only prompt-plan suffixes carry
+  temporary context such as todo state and budget-exhaustion finalization. The
   JSON debug trace records the final provider-facing messages.
 - Image prompts stay cacheable. The content signatures of the images consumed
   with a user prompt are derived from the user message attachments and carried
@@ -896,11 +900,13 @@ reasoning close marker until upstream exposes a structured reasoning field.
 - Tool records persist `modelFollowUpNotice` once it has been consumed by the
   model. It must not be deleted or folded into `ToolResultPayload`, because
   later MLX history rebuilds need the same `tool` message bytes for cache reuse.
-- Work verification reminders are derived afresh from the current turn's command
-  results and appended through `ChatRuntimePromptPlan.transientInstructions`.
-  They are bounded, use existing tool call IDs, and add no persisted state or
-  changes to historical tool observations. They remain available when an existing
-  follow-up notice is already frozen, including after approval or reload.
+- Work verification reminders are derived user entries after each complete tool
+  batch. Each uses only that turn's command results up to its batch boundary, so
+  a consumed reminder renders identically in later history, including after
+  approval or reload. Later successful reruns clear the current reminder without
+  rewriting earlier reminders or frozen tool follow-up notices. Reminders are
+  bounded, use existing tool call IDs, and add no persisted state. They are not
+  transient instructions; ordinary continuations can reuse the MLX cache prefix.
 - `ModelPromptProjection` is never persisted on `ChatSession`; generation,
   debug panels, and traces rebuild it from turns.
 - Clearing a chat transcript removes turns, derived tool-call projections, and

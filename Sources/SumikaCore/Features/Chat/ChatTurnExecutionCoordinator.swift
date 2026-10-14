@@ -754,7 +754,6 @@ extension ChatTurnExecutionCoordinator {
     let systemPromptStartedAt = Date()
     let promptPlan = runtimePromptPlan(
       session: conversation.chatSession,
-      turnID: turnID,
       stableInstructions: stableInstructions,
       toolPromptMode: toolPromptMode,
       toolCallingPolicy: runtime.selectedModel.toolCallingPolicy,
@@ -995,7 +994,6 @@ extension ChatTurnExecutionCoordinator {
 
   private func runtimePromptPlan(
     session: ChatSession,
-    turnID: ChatTurn.ID,
     stableInstructions: String,
     toolPromptMode: ToolPromptMode,
     toolCallingPolicy: ToolCallingPolicy,
@@ -1009,7 +1007,6 @@ extension ChatTurnExecutionCoordinator {
       stableInstructions: stableInstructions,
       transientInstructions: transientInstructions(
         session: session,
-        turnID: turnID,
         toolPromptMode: toolPromptMode,
         turnToolRegistry: runtimeToolRegistry
       ),
@@ -1041,18 +1038,12 @@ extension ChatTurnExecutionCoordinator {
 
   private func transientInstructions(
     session: ChatSession,
-    turnID: ChatTurn.ID,
     toolPromptMode: ToolPromptMode,
     turnToolRegistry: ToolRegistry
   ) -> [String] {
     var instructions: [String] = []
     if toolPromptMode == .afterToolBudgetExhausted {
       instructions.append(ToolFollowUpNoticePolicy.toolBudgetExhaustedNotice)
-    }
-    if let reminder = toolFollowUpNoticePolicy.verificationReminder(
-      session: session, turnID: turnID, promptMode: toolPromptMode
-    ) {
-      instructions.append(reminder)
     }
     if session.interactionMode == .agent,
       turnToolRegistry.definition(for: .todoWrite) != nil,

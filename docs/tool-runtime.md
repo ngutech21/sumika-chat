@@ -303,14 +303,19 @@ flowchart TD
   no-tools guidance, failed `run_command`, repeated same-command `run_command`,
   listing/read-loop escalations, duplicate replays, and the generic same-turn
   follow-up are mutually exclusive within this slot.
-- Separately, Work verification reminders are transient generation instructions
-  derived from the current turn's executed `run_command` records. They reference
+- Separately, Work verification reminders are derived model-facing user entries
+  after complete tool batches, using only the current turn's executed
+  `run_command` records through that boundary. They reference
   existing call IDs, never copy shell text into instructions, and leave consumed
   `modelFollowUpNotice` values unchanged. Only a later successful command with
   byte-identical shell input retires that command's reminder; unexecuted
   duplicates, edits, and unrelated commands do not. Reminders describe outcomes,
   not whether a command was a required check. Different verification commands and
   expected nonzero outcomes must be interpreted using their recorded results.
+  Historical reminders retain their original text as later results arrive, so
+  the consumed prompt remains a valid cache prefix. Rerun guidance is conditional
+  on action-tool availability; finalization still requires disclosure without
+  another command. Partial batches receive no reminder until all results exist.
 - Listing-loop detection counts list, glob, and search calls since the latest
   successful text or document read. A successful `read_document` resets this
   state; failed document reads do not. Recovery guidance routes text and source

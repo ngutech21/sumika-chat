@@ -582,9 +582,11 @@ struct ConversationEngineToolLoopTests {
     #expect(toolContexts[budget]?.registry.tools.map(\.name) == [.finishTask])
     let promptPlans = await runtime.capturedPromptPlans
     #expect(promptPlans[budget].transientInstructions.first == toolBudgetFinalizationInstruction)
-    let reminder = try #require(promptPlans[budget].transientInstructions.last)
+    #expect(promptPlans[budget].transientInstructions.count == 1)
+    let messages = await runtime.capturedMessages
+    let reminder = try #require(currentVerificationReminder(in: messages[budget]))
     #expect(reminder.contains(RuntimeToolCallID.string(for: commandRecord.id)))
-    #expect(reminder.contains("Do not run more commands"))
+    #expect(reminder.contains("If action tools are unavailable: do not run more commands"))
     #expect(reminder.contains("as unverified"))
   }
 
@@ -961,12 +963,16 @@ struct ConversationEngineToolLoopTests {
 
     let plans = await runtime.capturedPromptPlans
     #expect(plans.count == 3)
-    for plan in plans.prefix(2) {
+    #expect(plans.allSatisfy { $0.transientInstructions.isEmpty })
+    let messages = await runtime.capturedMessages
+    for prompt in messages.prefix(2) {
       #expect(
-        plan.transientInstructions.contains { $0.contains(RuntimeToolCallID.string(for: failedID)) }
+        currentVerificationReminder(in: prompt)?.contains(RuntimeToolCallID.string(for: failedID))
+          == true
       )
     }
-    #expect(!plans[2].transientInstructions.contains { $0.contains("[Verification reminder]") })
+    #expect(currentVerificationReminder(in: messages[2]) == nil)
+    #expect(messages[2].contains { $0.content.contains("[Verification reminder]") })
     #expect(engine.chatSession.toolCalls.first?.modelFollowUpNotice == originalNotice)
     #expect(engine.chatSession.toolCalls.last?.request.toolName == .finishTask)
     #expect(engine.chatSession.toolCalls.last?.status == .completed)
@@ -1003,10 +1009,12 @@ struct ConversationEngineToolLoopTests {
     let failedID = try #require(engine.chatSession.toolCalls.first?.id)
     let plans = await runtime.capturedPromptPlans
     #expect(plans.count == 3)
+    #expect(plans.allSatisfy { $0.transientInstructions.isEmpty })
+    let messages = await runtime.capturedMessages
     #expect(
-      plans[2].transientInstructions.contains {
-        $0.contains(RuntimeToolCallID.string(for: failedID))
-      })
+      currentVerificationReminder(in: messages[2])?.contains(
+        RuntimeToolCallID.string(for: failedID))
+        == true)
     #expect(engine.chatSession.toolCalls.last?.status == .completed)
     #expect(engine.chatSession.testMessages.last?.content == summary)
   }
@@ -1063,11 +1071,9 @@ struct ConversationEngineToolLoopTests {
       capturedPromptPlans.allSatisfy {
         $0.toolContext?.registry.definition(for: .todoWrite) != nil
       })
-    #expect(
-      capturedPromptPlans[1].transientInstructions.contains {
-        $0.contains("[Verification reminder]")
-      })
+    #expect(capturedPromptPlans.allSatisfy { $0.transientInstructions.isEmpty })
     let capturedMessages = await runtime.capturedMessages
+    #expect(currentVerificationReminder(in: capturedMessages[1]) != nil)
     let notice = try #require(latestToolFollowUpNotice(in: capturedMessages, at: 1))
     #expect(toolFollowUpNotices(in: capturedMessages[1]).count == 1)
     #expect(notice.contains("The latest run_command failed."))
@@ -2742,12 +2748,9 @@ struct ConversationEngineToolLoopTests {
 
     let capturedPromptPlans = await runtime.capturedPromptPlans
     #expect(capturedPromptPlans.count == 4)
-    #expect(capturedPromptPlans[0].transientInstructions.isEmpty)
-    #expect(
-      capturedPromptPlans.dropFirst().allSatisfy {
-        $0.transientInstructions.contains { $0.contains("[Verification reminder]") }
-      })
+    #expect(capturedPromptPlans.allSatisfy { $0.transientInstructions.isEmpty })
     let capturedMessages = await runtime.capturedMessages
+    #expect(capturedMessages.dropFirst().allSatisfy { currentVerificationReminder(in: $0) != nil })
     #expect(
       latestToolFollowUpNotice(in: capturedMessages, at: 3)?
         .contains("The latest run_command failed.") == true)
@@ -2782,12 +2785,9 @@ struct ConversationEngineToolLoopTests {
     #expect(engine.chatSession.toolCalls.count == 2)
     let capturedPromptPlans = await runtime.capturedPromptPlans
     #expect(capturedPromptPlans.count == 3)
-    #expect(capturedPromptPlans[0].transientInstructions.isEmpty)
-    #expect(
-      capturedPromptPlans.dropFirst().allSatisfy {
-        $0.transientInstructions.contains { $0.contains("[Verification reminder]") }
-      })
+    #expect(capturedPromptPlans.allSatisfy { $0.transientInstructions.isEmpty })
     let capturedMessages = await runtime.capturedMessages
+    #expect(capturedMessages.dropFirst().allSatisfy { currentVerificationReminder(in: $0) != nil })
     #expect(
       latestToolFollowUpNotice(in: capturedMessages, at: 2)?
         .contains("The latest run_command failed.") == true
@@ -2950,6 +2950,15 @@ struct ConversationEngineToolLoopTests {
       }
       return toolFollowUpNotice(in: message.content)
     }.first
+  }
+
+  private func currentVerificationReminder(in messages: [ProjectedModelContextEntry]) -> String? {
+    guard let last = messages.last, last.role == .user,
+      last.content.hasPrefix("[Verification reminder]")
+    else {
+      return nil
+    }
+    return last.content
   }
 
   private func toolFollowUpNotices(

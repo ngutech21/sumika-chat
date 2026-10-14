@@ -537,6 +537,67 @@ struct ChatModelContextBuilderTests {
   }
 
   @Test
+  func verificationReminderWaitsForCompleteBatchAndUsesAllItsResults() throws {
+    let failed = makeCompletedRunCommandRecord(command: "check", exitCode: 1)
+    for rerun in [false, true] {
+      for mode in [WorkspaceInteractionMode.agent, .chat] {
+        var second = makeCompletedRunCommandRecord(command: rerun ? "check" : "ls")
+        let completedState = second.state
+        second.state = .awaitingApproval(preview: nil)
+        var session = ChatSession(
+          turns: [
+            ChatTurn(
+              status: .awaitingApproval,
+              items: [
+                .userMessage(UserTurnMessage(content: "Check the workspace.")),
+                .tool(failed),
+                .assistantThinking(AssistantThinkingMessage(content: "Same response.")),
+                .tool(second),
+              ])
+          ],
+          interactionMode: mode
+        )
+        let partial = ChatModelContextBuilder().transcript(from: session)
+        #expect(partial.entries.map(\.frozenContent.role) == [.user])
+
+        second.state = completedState
+        ChatTranscriptMutator().updateToolCallRecord(second, in: &session)
+        let resolved = ChatModelContextBuilder().transcript(from: session)
+        let needsReminder = mode == .agent && !rerun
+        #expect(
+          resolved.entries.map(\.frozenContent.role)
+            == [.user, .assistant, .tool, .tool] + (needsReminder ? [.user] : []))
+        #expect(
+          resolved.entries.last?.frozenContent.content.contains("[Verification reminder]")
+            == needsReminder)
+        let provider = ProviderPromptProjection.normalized(from: resolved).messages
+        #expect(provider[1].toolCalls.count == 2)
+        #expect(
+          Array(provider[2...3]).map(\.toolCallID) == [
+            RuntimeToolCallID.string(for: failed.id), RuntimeToolCallID.string(for: second.id),
+          ])
+
+        session.turns[0].appendItem(
+          .assistantMessage(AssistantTurnMessage(content: "Result noted.")))
+        session.turns.append(
+          ChatTurn(
+            status: .running,
+            items: [
+              .userMessage(UserTurnMessage(content: "List files in a new turn.")),
+              .tool(makeCompletedRunCommandRecord(command: "ls")),
+            ]))
+        let next = try #require(
+          ProviderPromptProjection.generationSegments(
+            from: ChatModelContextBuilder().transcript(from: session)))
+        #expect(!next.prompt.messages.contains { $0.content.contains("[Verification reminder]") })
+        #expect(
+          next.history.messages.contains { $0.content.contains("[Verification reminder]") }
+            == needsReminder)
+      }
+    }
+  }
+
+  @Test
   func completeReadFileSnapshotsAlternateFullAndCompactReuse() throws {
     let context = focusedFileContext(source: .readFile, fullContentAvailable: true)
     let state = ChatSession(
@@ -932,8 +993,9 @@ struct ChatModelContextBuilderTests {
     ) == true
   }
 
-  private func makeCompletedRunCommandRecord() -> ToolCallRecord {
-    let command = "touch generated.txt"
+  private func makeCompletedRunCommandRecord(
+    command: String = "touch generated.txt", exitCode: Int32 = 0
+  ) -> ToolCallRecord {
     let input = RunCommandInput(command: command, timeoutSeconds: 10)
     return ToolCallRecord(
       request: ToolCallRequest.validated(
@@ -955,7 +1017,7 @@ struct ChatModelContextBuilderTests {
           RunCommandResult(
             command: command,
             timeoutSeconds: 10,
-            exitCode: 0,
+            exitCode: exitCode,
             durationMs: 1,
             stdout: ToolTextOutput(text: ""),
             stderr: ToolTextOutput(text: "")

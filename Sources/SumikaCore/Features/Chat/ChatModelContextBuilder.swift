@@ -33,7 +33,7 @@ internal struct ChatModelContextBuilder: Sendable {
       appendEntries(
         for: turn,
         workspaceInstructionsProjection: workspaceInstructionsProjection,
-        includesActivatedSkills: state.interactionMode == .agent,
+        interactionMode: state.interactionMode,
         preservesHistoricalReasoning: supportsHistoricalReasoningPreservation,
         to: &entries
       )
@@ -53,11 +53,12 @@ internal struct ChatModelContextBuilder: Sendable {
   private func appendEntries(
     for turn: ChatTurn,
     workspaceInstructionsProjection: WorkspaceInstructionsProjection?,
-    includesActivatedSkills: Bool,
+    interactionMode: WorkspaceInteractionMode,
     preservesHistoricalReasoning: Bool,
     to entries: inout [ModelContextEntry]
   ) {
     let suppressedToolCallIDs = unresolvedToolCallIDs(in: turn)
+    let verificationBoundaryIDs = Set(turn.toolCallBatches.compactMap { $0.records.last?.id })
     var previousProjectedItemWasTool = false
     var previousProjectedItemWasAssistantOutput = false
 
@@ -68,7 +69,7 @@ internal struct ChatModelContextBuilder: Sendable {
           message,
           turnID: turn.id,
           workspaceInstructionsProjection: workspaceInstructionsProjection,
-          includesActivatedSkills: includesActivatedSkills,
+          includesActivatedSkills: interactionMode == .agent,
           to: &entries
         )
         previousProjectedItemWasTool = false
@@ -117,6 +118,16 @@ internal struct ChatModelContextBuilder: Sendable {
           )
         }
         appendToolEntry(record, turnID: turn.id, to: &entries)
+        // Rebuild each consumed reminder from its original prefix, never from later results.
+        if interactionMode == .agent,
+          verificationBoundaryIDs.contains(record.id),
+          let reminder = ToolFollowUpNoticePolicy().verificationReminder(
+            in: turn.items[...itemIndex]),
+          let entry = try? ModelFacingPromptRenderer.userPromptEntry(
+            turnID: turn.id, sourceMessageID: record.id, prompt: reminder)
+        {
+          entries.append(entry)
+        }
         previousProjectedItemWasTool = true
         previousProjectedItemWasAssistantOutput = false
       }

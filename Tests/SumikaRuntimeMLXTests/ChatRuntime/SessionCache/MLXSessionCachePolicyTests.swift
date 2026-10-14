@@ -721,6 +721,79 @@ struct MLXSessionCachePolicyTests {
   }
 
   @Test
+  func verificationRemindersPreserveConsumedPrefixThroughRerunAndReload() throws {
+    let check = "test -f verified.txt"
+    var failed = completedCommand(command: check, exitCode: 1)
+    failed.modelFollowUpNotice = "Previously consumed recovery notice."
+    var session = ChatSession(
+      turns: [
+        ChatTurn(
+          status: .running,
+          items: [
+            .userMessage(UserTurnMessage(content: "Create and verify the file.")),
+            .tool(failed),
+          ])
+      ],
+      interactionMode: .agent
+    )
+    var input = try MLXHistoryRenderer.generationInput(
+      from: ChatModelContextBuilder().transcript(from: session))
+    let reminder = try #require(input.promptSnapshot.last)
+    #expect(reminder.role == "user")
+    #expect(reminder.content.contains("[Verification reminder]"))
+    #expect(reminder.content.contains(RuntimeToolCallID.string(for: failed.id)))
+
+    for command in ["ls", check] {
+      let record = completedCommand(command: command, exitCode: 0)
+      let cachedPrefix =
+        input.historySnapshot + input.promptSnapshot + [
+          MLXChatRuntime.nativeToolCallBoundarySnapshot(
+            output: "", completedReasoningContent: "",
+            supportsHistoricalReasoningPreservation: false,
+            nativeToolCalls: [
+              ChatRuntimeToolCall(
+                id: RuntimeToolCallID.string(for: record.id), name: "run_command",
+                arguments: ["command": .string(command), "timeoutSeconds": .number(10)])
+            ])
+        ]
+      session.turns[0].appendItem(.assistantMessage(AssistantTurnMessage(content: "")))
+      session.turns[0].appendItem(.tool(record))
+      session = try JSONDecoder().decode(ChatSession.self, from: JSONEncoder().encode(session))
+      input = try MLXHistoryRenderer.generationInput(
+        from: ChatModelContextBuilder().transcript(from: session))
+
+      #expect(cachedPrefix == input.historySnapshot)
+      #expect(MLXSessionCachePolicy.isPrefix(cachedPrefix, of: input.historySnapshot))
+      #expect(
+        MLXSessionCachePolicy.firstMismatchIndex(
+          cachedPrefix: cachedPrefix, currentHistory: input.historySnapshot) == nil)
+      #expect(input.historySnapshot.contains(reminder))
+      #expect(
+        input.promptSnapshot.contains { $0.content.contains("[Verification reminder]") }
+          == (command != check))
+    }
+
+    let answer = "Created the file and the rerun passed."
+    let cachedPrefix =
+      input.historySnapshot + input.promptSnapshot + [
+        ProviderPromptMessage(role: "assistant", content: answer)
+      ]
+    session.turns[0].appendItem(.assistantMessage(AssistantTurnMessage(content: answer)))
+    session.turns[0].updateStatus(.completed)
+    session.turns.append(
+      ChatTurn(
+        status: .running,
+        items: [
+          .userMessage(UserTurnMessage(content: "What was verified?"))
+        ]))
+    let nextInput = try MLXHistoryRenderer.generationInput(
+      from: ChatModelContextBuilder().transcript(from: session))
+    #expect(cachedPrefix == nextInput.historySnapshot)
+    #expect(!nextInput.promptSnapshot.contains { $0.content.contains("[Verification reminder]") })
+    #expect(session.toolCalls.first?.modelFollowUpNotice == failed.modelFollowUpNotice)
+  }
+
+  @Test
   func transientFinalizationInstructionForcesHistoryChangedRebuildOnNextTurn() throws {
     let instruction = "Transient finish-only instruction"
     let turnID = UUID()
@@ -1289,6 +1362,23 @@ struct MLXSessionCachePolicyTests {
     from entries: [ModelContextEntry]
   ) throws -> MLXGenerationInput {
     try MLXHistoryRenderer.generationInput(from: ModelPromptProjection(entries: entries))
+  }
+
+  private func completedCommand(command: String, exitCode: Int32) -> ToolCallRecord {
+    ToolCallRecord(
+      request: .validated(
+        raw: RawToolCallRequest(
+          workspaceID: UUID(), sessionID: UUID(), toolName: .runCommand,
+          arguments: ["command": .string(command), "timeoutSeconds": .number(10)]),
+        payload: .runCommand(RunCommandInput(command: command, timeoutSeconds: 10))),
+      evaluation: ToolPermissionEvaluation(
+        decision: .allowed, reason: "Allowed in test.", riskLevel: .low),
+      state: .completed(
+        .runCommand(
+          RunCommandResult(
+            command: command, timeoutSeconds: 10, exitCode: exitCode, durationMs: 1,
+            stdout: ToolTextOutput(text: ""), stderr: ToolTextOutput(text: ""))))
+    )
   }
 
   private func toolCallContent(
