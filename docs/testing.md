@@ -71,6 +71,12 @@ Run one trial at a time on the Mac. The CLI keeps settings and attachments in th
 trial directory and writes `session.json`, `result.json`, and the existing
 `mlx-trace.jsonl` format there.
 
+`just check-harbor-suite` calibrates the same shared task list used by
+`just run-harbor-suite`, requiring `nop` reward `0` and `oracle` reward `1` for
+every task. Run it before the first suite evaluation and after task or environment
+changes. Missing, duplicate, failed, unfinished, or incorrectly rewarded trials
+fail the check. `just check-harbor-fixture` checks only the local `merge-ranges` task.
+
 `just run-harbor` keeps the selected single task (`openthoughts/pandas-etl`) and
 enables a Harbor evidence plugin without changing task definitions. Artifact
 handling uses the resolved task's top-level `task.toml` declarations; output paths

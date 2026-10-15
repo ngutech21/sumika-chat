@@ -89,13 +89,27 @@ The adapter never assigns the task reward.
 ## Run the development suite
 
 ```sh
+just check-harbor-suite
 just run-harbor-suite
 ```
 
-This builds `SumikaEval` once and runs the selected OpenThoughts-TBLite
-tasks sequentially, with one attempt each. To extend the suite, add another
-`-i openthoughts/TASK_NAME` line to the `task_filters` array in `Justfile`.
+Both recipes use `harbor_suite_dataset` and `harbor_suite_tasks` in `Justfile`.
+To extend the suite, add another `openthoughts/TASK_NAME` to that shared task list.
+
+`check-harbor-suite` runs `nop` followed by `oracle` on those tasks sequentially,
+with one attempt per task and agent. It fails unless every selected task has
+exactly one fresh, completed trial with no exception and reward `0` for `nop`
+or `1` for `oracle`. Missing, duplicate, unexpected, or malformed results fail
+the check. Results use fresh `suite-` job names under `tmp/harbor/baseline` and
+`tmp/harbor/oracle`. No model or native build is needed. Run this during initial
+suite setup and after task, verifier, image, or Harbor changes. The fixture check
+above validates only `merge-ranges`; it does not calibrate these suite tasks.
+
+`run-harbor-suite` builds `SumikaEval` once and runs those tasks sequentially,
+with one attempt each. Calibration remains a separate command.
 Each run gets a fresh job directory under `.harbor`, followed by the evidence check.
+Both recipes disable Harbor telemetry and use Docker. The dataset reference is
+unversioned; retain Harbor's resolved task digests when comparing runs.
 
 The native runner has a 3,300-second deadline per task. Harbor independently
 enforces each task's agent timeout multiplied by 6. A shorter Harbor deadline

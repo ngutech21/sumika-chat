@@ -301,8 +301,30 @@ update:
     swift package update
     just resolve-packages
 
+harbor_suite_dataset := "openthoughts/openthoughts-tblite"
+harbor_suite_tasks := '''
+    openthoughts/log-summary
+    openthoughts/pandas-etl
+    openthoughts/schedule-vacation
+    openthoughts/python-api-rate-limit
+    openthoughts/monorepo-changelog-cli
+    openthoughts/build-merkle-tree-cli-sha512
+    openthoughts/fix_async_worker_queue
+    openthoughts/react-typescript-debugg
+    openthoughts/db-migration-local-storage
+    openthoughts/todos-api
+    openthoughts/malicious-package-forensics
+'''
+
 check-harbor-fixture:
-    HARBOR_TELEMETRY=0 python3 -B script/harbor/check_fixture.py
+    HARBOR_TELEMETRY=0 python3 -B script/harbor/check_baselines.py script/harbor/tasks/merge-ranges
+
+check-harbor-suite:
+    #!/usr/bin/env bash
+    set -eu
+    task_names=( {{harbor_suite_tasks}} )
+    HARBOR_TELEMETRY=0 python3 -B script/harbor/check_baselines.py \
+        --dataset "{{harbor_suite_dataset}}" "${task_names[@]}"
 
 run-harbor-smoke-test:
     #!/usr/bin/env bash
@@ -342,24 +364,17 @@ run-harbor:
 run-harbor-suite:
     #!/usr/bin/env bash
     set -eu
-    task_filters=(
-        -i openthoughts/log-summary
-        -i openthoughts/pandas-etl
-        -i openthoughts/schedule-vacation
-        -i openthoughts/python-api-rate-limit
-        -i openthoughts/monorepo-changelog-cli
-        -i openthoughts/build-merkle-tree-cli-sha512
-        -i openthoughts/fix_async_worker_queue
-        -i openthoughts/react-typescript-debugg
-        -i openthoughts/db-migration-local-storage
-        -i openthoughts/todos-api
-        -i openthoughts/malicious-package-forensics
-    )
+    task_names=( {{harbor_suite_tasks}} )
+    test "${#task_names[@]}" -gt 0
+    task_filters=()
+    for task in "${task_names[@]}"; do
+        task_filters+=(-i "$task")
+    done
     swift build --product SumikaEval
     job_name="$(uuidgen)"
     status=0
     HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" harbor run \
-    -d openthoughts/openthoughts-tblite "${task_filters[@]}" \
+    -d "{{harbor_suite_dataset}}" "${task_filters[@]}" \
     -a script.harbor.agent:SumikaAgent \
     -m Swift-1.5-4bit-MLX \
     -e docker -n 1 -k 1 \
