@@ -216,6 +216,12 @@ test uses the same existing native-execution exclusion. With `mlx-swift` 0.32.3,
 the original tests trigger races in the native scheduler's active-task counter and
 Metal completion callbacks, reproduced locally and in
 [CI](https://github.com/ngutech21/sumika-chat/actions/runs/37857235029/job/113584266209).
+The four `MLXThinkingBudgetCloseTests` and
+`MLXQwenTemplateReasoningTests/testSwiftBudgetClosePreservesToolContinuationPrefix`
+are also excluded: their CPU evaluations reproduce native active-task counter,
+Metal allocator statistics, and array-result read races with `mlx-swift` 0.32.3.
+These five tests remain enabled under ASan and in ordinary tests. The other,
+template-only Qwen test remains enabled under TSan.
 Swift 1.5 manifest and configuration validation remain enabled under TSan.
 All excluded tests remain enabled in `just test`; all other tests remain enabled
 under TSan. These exclusions reduce coverage and do not fix the dependency.
@@ -226,7 +232,8 @@ passes:
 xcrun swift test --no-parallel --sanitize thread
 ```
 
-`just test-asan` temporarily excludes the same two suites for a separate native
+`just test-asan` temporarily excludes `MLXChatSessionContinuationTests` and
+`MLXGuardedGenerationTests` for a separate native
 MLX allocator bug observed with `mlx-swift` 0.31.6. In that version, on an Apple
 Paravirtual device, `MetalAllocator` returns from its constructor without
 initializing `heap_`.
