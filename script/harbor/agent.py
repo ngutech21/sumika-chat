@@ -9,7 +9,6 @@ import os
 from pathlib import Path
 import shlex
 import signal
-import tomllib
 
 from harbor.agents.base import BaseAgent
 from harbor.agents.capabilities import AgentCapabilities
@@ -40,6 +39,9 @@ class SumikaAgent(BaseAgent):
             raise ValueError("Pass an already-installed Sumika model ID with --model.")
         self.bridge = None
         self.workspace_root = None
+        self._task_config = None
+        self._trial_config = None
+        self._steps = None
 
     @staticmethod
     def name():
@@ -58,8 +60,8 @@ class SumikaAgent(BaseAgent):
             raise ValueError(f"Cannot resolve the task working directory: {exec_diagnostics(location)}")
         workspace_root = validate_workspace_root((location.stdout or "").removesuffix("\n"))
         if workspace_root == "/":
-            task = tomllib.loads((self.logs_dir / "task/task.toml").read_text(encoding="utf-8"))
-            if not task.get("artifacts"):
+            task = TaskConfig.model_validate_toml((self.logs_dir / "task/task.toml").read_text())
+            if not task.artifacts and not (task.steps and all(step.artifacts for step in task.steps)):
                 raise ValueError("Tasks working in / must declare artifacts; capturing the container root is unsupported.")
         await capture_environment(environment, self.logs_dir)
         await self._ensure_worker_python(environment)
@@ -125,9 +127,18 @@ class SumikaAgent(BaseAgent):
     async def run(self, instruction, environment, context):
         if self.workspace_root is None:
             raise ValueError("Task working directory has not been resolved by setup.")
-        config = TrialConfig.model_validate_json((self.logs_dir.parent / "config.json").read_text())
-        task = TaskConfig.model_validate_toml((self.logs_dir / "task/task.toml").read_text())
-        timeout = config.agent.override_timeout_sec or task.agent.timeout_sec
+        if self._task_config is None:
+            # Harbor archives agent/task with the first checkpoint's outputs.
+            self._task_config = TaskConfig.model_validate_toml((self.logs_dir / "task/task.toml").read_text())
+            self._trial_config = TrialConfig.model_validate_json((self.logs_dir.parent / "config.json").read_text())
+            self._steps = iter(self._task_config.steps or [])
+        task = self._task_config
+        config = self._trial_config
+        step = next(self._steps, None)
+        if task.steps and step is None:
+            raise ValueError("No remaining Harbor checkpoint.")
+        default_timeout = step.agent.timeout_sec if step and step.agent.timeout_sec is not None else task.agent.timeout_sec
+        timeout = config.agent.override_timeout_sec or default_timeout
         multiplier = config.agent_timeout_multiplier
         if multiplier is None:
             multiplier = config.timeout_multiplier
@@ -137,6 +148,8 @@ class SumikaAgent(BaseAgent):
         if timeout is None or not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("Sumika requires a finite positive Harbor agent timeout.")
         self.logs_dir.mkdir(parents=True, exist_ok=True)
+        if step is not None:
+            await capture_environment(environment, self.logs_dir)
         prompt = self.logs_dir / "instruction.md"
         prompt.write_text(instruction, encoding="utf-8")
         if web_access_enabled(environment.network_policy):
@@ -191,4 +204,8 @@ class SumikaAgent(BaseAgent):
                     await asyncio.to_thread(
                         write_json, self.logs_dir / "trajectory-error.json", {"error": str(error)})
             await self.bridge.close()
-            await capture_legacy_artifacts(environment, self.logs_dir, self.logger, self.workspace_root)
+            if step is None:
+                await capture_legacy_artifacts(environment, self.logs_dir, self.logger, self.workspace_root)
+            else:
+                await capture_legacy_artifacts(environment, self.logs_dir, self.logger, self.workspace_root,
+                                               task_config=task, step_name=step.name)

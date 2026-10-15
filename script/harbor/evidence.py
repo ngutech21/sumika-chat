@@ -13,6 +13,7 @@ import stat
 import subprocess
 import sys
 import tomllib
+import unicodedata
 
 
 def validate_workspace_root(path):
@@ -136,14 +137,19 @@ async def capture_environment(environment, logs_dir):
     })
 
 
-async def capture_legacy_artifacts(environment, logs_dir, logger, workspace_root):
+async def capture_legacy_artifacts(environment, logs_dir, logger, workspace_root, *,
+                                   task_config=None, step_name=None):
     from harbor.models.task.config import TaskConfig
     from harbor.models.trial.paths import EnvironmentPaths
     from harbor.trial.artifact_handler import ArtifactHandler
 
     try:
-        task = TaskConfig.model_validate_toml((logs_dir / "task/task.toml").read_text(encoding="utf-8"))
-        if task.artifacts:
+        task = task_config or TaskConfig.model_validate_toml(
+            (logs_dir / "task/task.toml").read_text(encoding="utf-8"))
+        step = next((step for step in task.steps or [] if step.name == step_name), None)
+        if step_name is not None and step is None:
+            raise ValueError(f"Unknown checkpoint: {step_name}")
+        if task.artifacts or (step is not None and step.artifacts):
             return
         workspace_root = validate_workspace_root(workspace_root)
         if workspace_root == "/":
@@ -166,32 +172,146 @@ async def capture_legacy_artifacts(environment, logs_dir, logger, workspace_root
         write_json(logs_dir / "artifact-error.json", {"error": str(error)})
 
 
+def _read_json(root, name, issues):
+    path = root / name
+    try:
+        if not _regular_file(path, root):
+            raise ValueError("Missing regular file or symlink ancestor")
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        issues.append(f"{name}: {error}")
+        return {}
+
+
+def _regular_file(path, root):
+    return path.is_file() and not any(parent.is_symlink() for parent in [path, *path.parents]
+                                     if parent == root or root in parent.parents)
+
+
+def _step_stop_reason(step, result, config):
+    if result.get("exception_info") is not None and result.get("verifier_result") is None:
+        return "Checkpoint exception"
+    threshold = step.get("min_reward")
+    if threshold is None or config.get("verifier", {}).get("disable", False):
+        return None
+    thresholds = {"reward": threshold} if isinstance(threshold, (int, float)) else threshold
+    rewards = (result.get("verifier_result") or {}).get("rewards") or {}
+    if any(rewards.get(key, float("-inf")) < value for key, value in thresholds.items()):
+        return "Checkpoint reward below min_reward"
+    return None
+
+
 def assess_trial(trial):
     issues = []
+    harbor = _read_json(trial, "result.json", issues)
+    config = _read_json(trial, "config.json", issues)
+    lock = _read_json(trial, "lock.json", issues)
+    if not harbor.get("finished_at"):
+        issues.append("Harbor trial has not finished.")
+    steps_dir = trial / "steps"
+    if trial.is_symlink() or steps_dir.is_symlink():
+        raise ValueError("Cannot assess a symlinked evidence directory")
+    archives = sorted(steps_dir.iterdir()) if steps_dir.is_dir() else []
+    candidates = [agent for agent in [trial / "agent", *(step / "agent" for step in archives)]
+                  if _regular_file(agent / "reproduction.json", trial)]
+    if len(candidates) != 1:
+        issues.append("Expected one canonical reproduction snapshot.")
+    provenance = candidates[0] if candidates else trial / "agent"
+    reproduction = _read_json(trial, str((provenance / "reproduction.json").relative_to(trial)), issues)
+    if reproduction.get("trial_id") != harbor.get("id"):
+        issues.append("Reproduction metadata belongs to another trial.")
+    if not reproduction.get("binary", {}).get("sha256") or not reproduction.get("source_at_run", {}).get("commit"):
+        issues.append("Binary fingerprint or source commit is missing.")
+    if reproduction.get("task_checksum") != harbor.get("task_checksum") or not lock.get("task"):
+        issues.append("Task identity is missing or inconsistent.")
+    task = provenance / "task"
+    if (task.is_symlink() or not task.is_dir() or not _regular_file(task / "task.toml", trial)
+            or inventory(task) != reproduction.get("task_files")):
+        issues.append("Retained task files are missing or changed.")
+    try:
+        definition = task / "task.toml"
+        if not _regular_file(definition, trial):
+            raise ValueError("Missing regular task.toml")
+        task_config = tomllib.loads(definition.read_text(encoding="utf-8"))
+        declared = task_config.get("artifacts", [])
+        steps = task_config.get("steps") or []
+        if not isinstance(declared, list) or not isinstance(steps, list):
+            raise ValueError("Task artifacts and steps must be lists")
+        names = [step["name"] for step in steps]
+        if (any(not isinstance(name, str) or not name or name in (".", "..")
+                or any(character in name for character in "/\\\0\r\n") for name in names)
+                or len({unicodedata.normalize("NFC", name).casefold() for name in names}) != len(names)):
+            raise ValueError("Checkpoint names must be unique, safe directory names")
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        issues.append(f"{definition.relative_to(trial)}: {error}")
+        declared, steps, names = [], [], []
+    for name in ("source.patch", "Package.resolved"):
+        if not _regular_file(provenance / name, trial):
+            issues.append(f"Missing regular file: {(provenance / name).relative_to(trial)}")
+    reports = []
+    if steps:
+        if provenance != trial / "steps" / names[0] / "agent":
+            issues.append("Checkpoint provenance is not in the first checkpoint archive.")
+        results = harbor.get("step_results") or []
+        if not isinstance(results, list):
+            raise ValueError("Harbor checkpoint results must be a list")
+        attempted = [result.get("step_name") for result in results]
+        if not results or attempted != names[:len(results)]:
+            issues.append("Harbor checkpoint results are missing, duplicated, or out of task order.")
+        if any(archive.name not in attempted for archive in archives):
+            issues.append("Checkpoint archive has no corresponding Harbor result.")
+        stop = None
+        for index, (step, result) in enumerate(zip(steps, results)):
+            name = names[index]
+            if result.get("step_name") != name:
+                continue
+            run = trial / "steps" / name
+            try:
+                report = _assess_run(run, result, config, [*declared, *step.get("artifacts", [])], checkpoint=True)
+            except (OSError, ValueError, TypeError, AttributeError, KeyError) as error:
+                report = {"complete": False, "issues": [str(error)],
+                          "trace_requests": 0, "trace_clipped_rows": 0}
+            issues.extend(f"steps/{name}: {issue}" for issue in report["issues"])
+            reports.append({"name": name, "attempted": True, **report})
+            stop = _step_stop_reason(step, result, config)
+            if stop and index + 1 < len(results):
+                issues.append(f"Checkpoint results continue after a stop condition: {name}.")
+        if len(results) < len(steps):
+            if not stop:
+                issues.append("Unattempted checkpoints have no preceding stop condition.")
+            reports.extend({"name": name, "attempted": False, "reason": stop or "Missing checkpoint result"}
+                           for name in names[len(results):])
+    else:
+        if harbor.get("step_results") is not None or archives:
+            issues.append("Checkpoint outputs exist without task checkpoint declarations.")
+        report = _assess_run(trial, harbor, config, declared)
+        issues.extend(report["issues"])
+        reports.append(report)
+    files = inventory(trial)
+    files.pop("agent/completeness.json", None)
+    report = {"schema_version": 1, "complete": not issues, "issues": issues,
+              "trace_requests": sum(report["trace_requests"] for report in reports if report.get("attempted", True)),
+              "trace_clipped_rows": sum(report["trace_clipped_rows"] for report in reports if report.get("attempted", True)),
+              "files": files}
+    if steps:
+        report["steps"] = reports
+    return report
+
+
+def _assess_run(trial, harbor, config, declared, checkpoint=False):
+    issues = []
+    if trial.is_symlink() or any((trial / name).is_symlink() for name in ("agent", "verifier", "artifacts")):
+        return {"complete": False, "issues": ["Output directory is a symlink."],
+                "trace_requests": 0, "trace_clipped_rows": 0}
 
     def read(name):
-        path = trial / name
-        try:
-            if path.is_symlink() or not path.is_file():
-                raise ValueError("Missing regular file")
-            return json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as error:
-            issues.append(f"{name}: {error}")
-            return {}
+        return _read_json(trial, name, issues)
 
-    harbor = read("result.json")
-    config = read("config.json")
-    lock = read("lock.json")
-    reproduction = read("agent/reproduction.json")
     runtime = read("agent/runtime.json")
     environment = read("agent/environment.json")
     native = read("agent/result.json")
     session = read("agent/session.json")
     manifest = read("artifacts/manifest.json")
-    if not harbor.get("finished_at"):
-        issues.append("Harbor trial has not finished.")
-    if reproduction.get("trial_id") != harbor.get("id"):
-        issues.append("Reproduction metadata belongs to another trial.")
     model_id = config.get("agent", {}).get("model_name")
     if not model_id or any(value.get("modelID") != model_id for value in (runtime, native)):
         issues.append("Model identity is missing or inconsistent.")
@@ -199,28 +319,13 @@ def assess_trial(trial):
         issues.append("Session model or model file fingerprints are missing.")
     if runtime.get("schemaVersion") != 1 or not runtime.get("settings") or not runtime.get("buildConfiguration"):
         issues.append("Runtime settings or build configuration are missing.")
-    if not reproduction.get("binary", {}).get("sha256") or not reproduction.get("source_at_run", {}).get("commit"):
-        issues.append("Binary fingerprint or source commit is missing.")
     if not environment.get("images") or any(not image.get("Id") for image in environment["images"]):
         issues.append("Resolved task images are missing.")
+    if checkpoint and ((harbor.get("agent_result") or {}).get("metadata") or {}).get("sumika") != native:
+        issues.append("Native result does not match Harbor checkpoint metadata.")
     turn_id = native.get("turnID")
     if not turn_id or not any(turn.get("id") == turn_id for turn in session.get("turns", [])):
         issues.append("The native result's turn is missing from the session.")
-    if reproduction.get("task_checksum") != harbor.get("task_checksum") or not lock.get("task"):
-        issues.append("Task identity is missing or inconsistent.")
-    task = trial / "agent/task"
-    if not task.is_dir() or task.is_symlink() or inventory(task) != reproduction.get("task_files"):
-        issues.append("Retained task files are missing or changed.")
-    try:
-        definition = task / "task.toml"
-        if task.is_symlink() or definition.is_symlink() or not definition.is_file():
-            raise ValueError("Missing regular task.toml")
-        declared = tomllib.loads(definition.read_text(encoding="utf-8")).get("artifacts", [])
-        if not isinstance(declared, list):
-            raise ValueError("Task artifacts must be a list")
-    except (OSError, ValueError) as error:
-        issues.append(f"agent/task/task.toml: {error}")
-        declared = []
     requirements = [entry if isinstance(entry, dict) else {"source": entry}
                     for entry in [*declared, *config.get("artifacts", [])]]
     legacy_files = {}
@@ -290,7 +395,7 @@ def assess_trial(trial):
             path = capture / name
             if path.is_symlink() or not path.is_file():
                 issues.append(f"Missing regular output file: {source}/{name}")
-    for name in ("agent/instruction.md", "agent/runner.log", "agent/source.patch", "agent/Package.resolved"):
+    for name in ("agent/instruction.md", "agent/runner.log"):
         if not (trial / name).is_file() or (trial / name).is_symlink():
             issues.append(f"Missing regular file: {name}")
     if harbor.get("verifier_result") is not None:
@@ -331,13 +436,14 @@ def assess_trial(trial):
             issues.append(f"Trace contains {clipped} rows with clipped model content.")
     except (OSError, ValueError, TypeError, AttributeError) as error:
         issues.append(f"agent/mlx-trace.jsonl: {error}")
-    files = inventory(trial)
-    files.pop("agent/completeness.json", None)
-    return {"schema_version": 1, "complete": not issues, "issues": issues,
-            "trace_requests": len(requests), "trace_clipped_rows": clipped, "files": files}
+    return {"complete": not issues, "issues": issues,
+            "trace_requests": len(requests), "trace_clipped_rows": clipped}
 
 
 def save_assessment(trial):
+    if trial.is_symlink() or (trial / "agent").is_symlink():
+        raise ValueError("Cannot save a report in a symlinked evidence directory")
+    (trial / "agent").mkdir(parents=True, exist_ok=True)
     try:
         report = assess_trial(trial)
     except (OSError, ValueError, TypeError, AttributeError, KeyError) as error:
@@ -362,10 +468,12 @@ class EvidencePlugin:
 
     async def on_job_end(self, _result):
         # Final logs and Harbor secret scrubbing finish after the trial END hook.
-        for trial in sorted(self.job_dir.glob("*/agent")):
-            report = await asyncio.to_thread(save_assessment, trial.parent)
+        trials = {path.parent for name in ("agent", "steps", "config.json", "result.json")
+                  for path in self.job_dir.glob(f"*/{name}")}
+        for trial in sorted(trials):
+            report = await asyncio.to_thread(save_assessment, trial)
             if not report["complete"]:
-                print(f"Incomplete evidence: {trial.parent}; {report['issues']}", file=sys.stderr)
+                print(f"Incomplete evidence: {trial}; {report['issues']}", file=sys.stderr)
 
 
 def check_evidence(path):
@@ -375,8 +483,9 @@ def check_evidence(path):
     except (OSError, ValueError):
         config = {}
     # Jobs also have lock.json; a trial config has one agent, not an agents list.
-    is_trial = (path / "agent").exists() or (isinstance(config, dict) and "agent" in config)
-    trials = [path] if is_trial else sorted({p.parent for name in ("agent", "result.json", "config.json")
+    is_trial = ((path / "agent").exists() or (path / "steps").exists()
+                or (isinstance(config, dict) and "agent" in config))
+    trials = [path] if is_trial else sorted({p.parent for name in ("agent", "steps", "result.json", "config.json")
                                            for p in path.glob(f"*/{name}")})
     if not trials:
         raise ValueError(f"No trial evidence in {path}")

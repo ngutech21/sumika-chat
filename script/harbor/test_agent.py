@@ -20,6 +20,9 @@ try:
     from harbor.models.agent.context import AgentContext
     from harbor.models.task.config import NetworkPolicy, TaskConfig
     from harbor.models.trial.config import TrialConfig
+    from harbor.models.trial.paths import EnvironmentPaths, TrialPaths
+    from harbor.trial.artifact_handler import ArtifactHandler
+    from harbor.trial.multi_step import MultiStepTrial
     from harbor.viewer.trial_utils import reasoning_effort_from_config
     from script.harbor.agent import SumikaAgent
 except ModuleNotFoundError as error:
@@ -101,6 +104,105 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
         for root in ("/workdir", "/work dir "):
             with self.subTest(root=root):
                 await self.run_status(0, "completed", workspace_root=root)
+
+    async def test_checkpoints_survive_harbor_archives_with_fresh_native_sessions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            logs = self.trial_logs(directory)
+            (logs / "task/task.toml").write_text('''
+[agent]
+timeout_sec = 600
+[[steps]]
+name = "checkpoint_1"
+artifacts = ["/app"]
+[[steps]]
+name = "checkpoint_2"
+artifacts = ["/app"]
+''')
+            task = TaskConfig.model_validate_toml((logs / "task/task.toml").read_text())
+            agent = SumikaAgent(logs_dir=logs, model_name="fixture", binary=sys.executable)
+            agent.workspace_root = "/app"
+            trial = object.__new__(MultiStepTrial)
+            trial.paths = TrialPaths(trial_dir=logs.parent)
+            trial.agent_env_paths = EnvironmentPaths()
+            trial._artifact_handler = ArtifactHandler(artifacts=[], logger=agent.logger)
+            trial.paths.mkdir()
+            environment = SimpleNamespace(network_policy=NetworkPolicy(network_mode="no-network"))
+            bridge = SimpleNamespace(start=AsyncMock(), close=AsyncMock(), token="token", url="http://127.0.0.1:1")
+
+            async def launch(*arguments, **_options):
+                self.assertFalse((logs / "state").exists())
+                self.assertFalse((logs / "result.json").exists())
+                prompt = (logs / "instruction.md").read_text()
+                (logs / "state").mkdir()
+                (logs / "session.json").write_text(prompt)
+                (logs / "result.json").write_text(json.dumps({"outcome": "completed", "turnID": prompt}))
+                return SimpleNamespace(wait=AsyncMock(return_value=0), returncode=0)
+
+            async def capture_environment(_environment, destination):
+                (destination / "environment.json").write_text("{}")
+
+            with patch("script.harbor.agent.SandboxBridge", return_value=bridge), \
+                    patch("script.harbor.agent.asyncio.create_subprocess_exec", AsyncMock(side_effect=launch)), \
+                    patch("script.harbor.agent.export_trajectory", return_value=None), \
+                    patch("script.harbor.agent.capture_environment", AsyncMock(side_effect=capture_environment)) as images, \
+                    patch("script.harbor.agent.capture_legacy_artifacts", AsyncMock()) as capture:
+                for step in task.steps:
+                    context = AgentContext()
+                    await agent.run(step.name, environment, context)
+                    self.assertEqual(context.metadata["sumika"]["turnID"], step.name)
+                    self.assertEqual(capture.call_args.kwargs["step_name"], step.name)
+                    self.assertEqual(capture.call_args.kwargs["task_config"], task)
+                    self.assertTrue((logs / "environment.json").is_file())
+                    trial._archive_step_outputs(step)
+                    archived = trial.paths.step_agent_dir(step.name)
+                    self.assertEqual((archived / "session.json").read_text(), step.name)
+                    self.assertFalse((logs / "task").exists())
+                self.assertEqual(images.await_count, 2)
+                with self.assertRaisesRegex(ValueError, "No remaining Harbor checkpoint"):
+                    await agent.run("Unexpected checkpoint", environment, AgentContext())
+
+    async def test_checkpoint_budget_uses_step_override_then_task_default(self):
+        for task_timeout, step_timeout, valid in ((None, 300, True), (600, None, True),
+                                                   (600, 0, False), (None, None, False)):
+            with self.subTest(task_timeout=task_timeout, step_timeout=step_timeout), \
+                    tempfile.TemporaryDirectory() as directory:
+                logs = self.trial_logs(directory, task_timeout)
+                with (logs / "task/task.toml").open("a") as definition:
+                    definition.write('\n[[steps]]\nname = "checkpoint_1"\n')
+                    if step_timeout is not None:
+                        definition.write(f"[steps.agent]\ntimeout_sec = {step_timeout}\n")
+                agent = SumikaAgent(logs_dir=logs, model_name="fixture", binary=sys.executable)
+                agent.workspace_root = "/app"
+                with patch("script.harbor.agent.capture_environment", AsyncMock()), \
+                        patch("script.harbor.agent.SandboxBridge", side_effect=RuntimeError("budget accepted")) as bridge:
+                    with self.assertRaisesRegex(RuntimeError if valid else ValueError,
+                                                "budget accepted" if valid else "finite positive Harbor agent timeout"):
+                        await agent.run("Repair", SimpleNamespace(network_policy=NetworkPolicy(network_mode="no-network")),
+                                        AgentContext())
+                    self.assertEqual(bridge.call_count, int(valid))
+
+    async def test_root_workspace_requires_artifacts_for_every_checkpoint(self):
+        for last_artifacts in ('["/output"]', '[]'):
+            with self.subTest(last_artifacts=last_artifacts), tempfile.TemporaryDirectory() as directory:
+                logs = self.trial_logs(directory)
+                (logs / "task/task.toml").write_text('''
+[[steps]]
+name = "checkpoint_1"
+artifacts = ["/output"]
+[[steps]]
+name = "checkpoint_2"
+artifacts = ''' + last_artifacts)
+                agent = SumikaAgent(logs_dir=logs, model_name="fixture", binary=sys.executable)
+                environment = SimpleNamespace(type=lambda: "docker", exec=AsyncMock(return_value=
+                    SimpleNamespace(return_code=0, stdout="/\n", stderr=None)))
+                with patch("script.harbor.agent.capture_environment", AsyncMock()), \
+                        patch.object(agent, "_ensure_worker_python", AsyncMock()):
+                    if last_artifacts == '[]':
+                        with self.assertRaisesRegex(ValueError, "must declare artifacts"):
+                            await agent.setup(environment)
+                    else:
+                        await agent.setup(environment)
+                        self.assertEqual(agent.workspace_root, "/")
 
     async def test_web_prerequisite_accepts_directory_only_trust_store(self):
         certificates = ssl.create_default_context().get_ca_certs(binary_form=True)

@@ -127,6 +127,17 @@ or changed evidence fails this gate independently of verifier reward. Failed
 trials retain partial evidence. See the runner instructions for artifact paths,
 capture limits, and the read-only checker for individual jobs or trials.
 
+`just run-harbor-file-backup` selects the pinned four-checkpoint SlopCodeBench
+`gabeorlanski/file_backup` task. Checkpoints retain the container workspace and
+start fresh native conversations; conversation resume is unsupported. The recipe
+uses one sequential trial and timeout multiplier 1, retaining the task's 7,200-second
+agent and 600-second verifier budgets per checkpoint. Calibrate the task separately
+before its first evaluation. Harbor archives each checkpoint under `steps/<name>/`;
+the first archive retains shared provenance, and `agent/completeness.json` checks
+all checkpoint outputs, declarations, identities, ordering, and explained early
+stops. The evidence checker runs even after Harbor fails. See the runner's
+[checkpoint instructions](../script/harbor/README.md#run-the-file_backup-checkpoints).
+
 This initial profile enables `read_file`, `edit_file`, `write_file`, `run_command`,
 `ask_user`, and `finish_task`. Workspace instructions are read from the container.
 `web_search` and `web_fetch` are also enabled when Harbor's effective agent-phase

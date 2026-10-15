@@ -143,7 +143,7 @@ Harbor's `uv.lock` does not update this dataset pin.
 Harbor owns the agent deadline, using the task's agent timeout and Harbor's
 overrides and multipliers. The development recipes use an agent multiplier of 6.
 The adapter requires a finite positive Harbor budget, validated from the retained
-task and trial configuration before native launch. It passes
+task, current checkpoint, and trial configuration before native launch. It passes
 `--timeout-seconds harbor` to `SumikaEval`, which remains cancellable without
 starting a second task timer. The old `--ak timeout_seconds` option is rejected;
 configure the deadline through Harbor instead.
@@ -155,6 +155,42 @@ limits are unchanged. Direct `SumikaEval` invocation retains its 600-second defa
 and accepts `--timeout-seconds` values greater than zero and at most 86,400.
 Native `runtime.json` omits `timeoutSeconds` when Harbor owns the deadline; Harbor's
 retained task and trial configurations describe that budget.
+
+## Run the file_backup checkpoints
+
+```sh
+just run-harbor-file-backup
+```
+
+This recipe builds `SumikaEval` in Release and runs one trial of
+`gabeorlanski/file_backup`, pinned to revision 6's SHA-256 digest in `Justfile`
+(resolved from Hub on 2026-10-15). It uses the installed `Swift-1.5-4bit-MLX`
+model, low reasoning, and a fresh job under `.harbor`, followed by the evidence
+check even if Harbor fails. Calibrate the pinned task with `nop` and `oracle`
+separately before its first evaluation and after task or environment changes.
+
+The four checkpoints share the container workspace and start fresh native
+conversations, with separate session state, tool-loop budgets, model loading,
+and traces. Native conversation resume is unsupported; do not pass
+`--resume-trajectory`. The recipe uses timeout multiplier 1: the pinned task
+already allows 7,200 seconds per checkpoint and 600 seconds for each verifier.
+Task definitions, continuation thresholds, and the mean reward strategy are
+unchanged. Inspect individual checkpoint rewards and regressions too.
+
+Harbor archives each checkpoint under `steps/<checkpoint>/{agent,verifier,artifacts}`.
+Provenance (`task/`, `reproduction.json`, source files, and package lock) stays
+with the first checkpoint's `agent/` archive; later checkpoints retain their own
+environment, instruction, native result, session, trace, and artifact manifest.
+The whole-trial `agent/completeness.json` checksums all archives and reports
+attempted/skipped checkpoints. Invalid order, missing or changed evidence, and
+unexplained skipped checkpoints fail completeness independently of reward.
+Configured early stops do not require unattempted checkpoint artifacts; attempted
+checkpoints with missing evidence remain incomplete.
+
+Task, checkpoint, and run artifact declarations are validated together. Legacy
+capture applies only when neither the task nor the current checkpoint declares
+artifacts. This pinned task declares `/app` with build/cache exclusions at every
+checkpoint. A root workspace requires declarations covering every checkpoint.
 
 ## Trial evidence
 

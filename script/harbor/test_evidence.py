@@ -442,6 +442,167 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotIn("Traceback", result.stderr)
 
 
+class CheckpointEvidenceTests(unittest.TestCase):
+    setUp = EvidenceTests.setUp
+    write = EvidenceTests.write
+    json = EvidenceTests.json
+    trace = EvidenceTests.trace
+    task_config = EvidenceTests.task_config
+
+    def checkpoints(self, task_artifacts='artifacts = ["/app"]', step_options=""):
+        names = [f"checkpoint_{index}" for index in range(1, 5)]
+        for name in names:
+            self.write(f"agent/task/steps/{name}/instruction.md", name)
+        self.task_config(task_artifacts + "\n" + "\n".join(
+            f'[[steps]]\nname = "{name}"\n{step_options}' for name in names))
+        first = self.trial / "steps" / names[0]
+        first.mkdir(parents=True)
+        for directory in ("agent", "artifacts", "verifier"):
+            (self.trial / directory).rename(first / directory)
+        results = []
+        for index, name in enumerate(names):
+            run = self.trial / "steps" / name
+            if index:
+                shutil.copytree(first, run, ignore=shutil.ignore_patterns(
+                    "task", "source.patch", "Package.resolved", "reproduction.json"))
+            native = {"modelID": "model", "turnID": name, "outcome": "completed"}
+            self.json(f"steps/{name}/agent/result.json", native)
+            self.json(f"steps/{name}/agent/session.json", {
+                "selectedModelID": "model", "turns": [{"id": name}]})
+            self.write(f"steps/{name}/agent/instruction.md", name)
+            rows = [{**row, "turnID": name} if "turnID" in row else row for row in self.rows]
+            self.write(f"steps/{name}/agent/mlx-trace.jsonl", "".join(json.dumps(row) + "\n" for row in rows))
+            results.append({"step_name": name, "agent_result": {"metadata": {"sumika": native}},
+                            "verifier_result": {"rewards": {"reward": 0}}})
+        harbor = json.loads((self.trial / "result.json").read_text())
+        harbor["step_results"] = results
+        self.json("result.json", harbor)
+        return names, harbor
+
+    def test_archived_checkpoints_share_provenance_and_each_remain_checksummed(self):
+        names, _ = self.checkpoints()
+        self.assertFalse((self.trial / "agent").exists())
+        report = save_assessment(self.trial)
+        self.assertTrue(report["complete"], report["issues"])
+        self.assertEqual(report["trace_requests"], 4)
+        self.assertEqual([step["name"] for step in report["steps"]], names)
+        with contextlib.redirect_stdout(io.StringIO()):
+            check_evidence(self.trial.parent)
+        self.write(f"steps/{names[-1]}/artifacts/app/result.py", "modified checkpoint")
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, "changed evidence"):
+            check_evidence(self.trial)
+
+    def test_every_attempted_checkpoint_requires_its_own_evidence(self):
+        names, harbor = self.checkpoints()
+        for name in ("agent/runtime.json", "agent/environment.json", "agent/session.json", "agent/runner.log",
+                     "agent/mlx-trace.jsonl", "verifier/reward.txt", "verifier/test-stdout.txt", "artifacts/manifest.json"):
+            path = self.trial / "steps" / names[1] / name
+            contents = path.read_bytes()
+            path.unlink()
+            with self.subTest(name=name):
+                report = assess_trial(self.trial)
+                self.assertFalse(report["complete"])
+                self.assertIn(names[1], " ".join(report["issues"]))
+            path.write_bytes(contents)
+        harbor["step_results"][1]["agent_result"] = harbor["step_results"][0]["agent_result"]
+        self.json("result.json", harbor)
+        self.assertIn("Native result does not match Harbor checkpoint metadata", " ".join(assess_trial(self.trial)["issues"]))
+
+    def test_task_step_and_run_artifacts_are_combined_per_checkpoint(self):
+        names, _ = self.checkpoints('artifacts = ["/app/result.py"]',
+            'artifacts = [{source = "/reports", destination = "reports", service = "sidecar", exclude = ["*.tmp"]}]')
+        self.json("config.json", {"agent": {"model_name": "model"}, "artifacts": ["/extra.txt"]})
+        entry = {"source": "/reports", "destination": "artifacts/reports", "service": "sidecar",
+                 "exclude": ["*.tmp"], "type": "directory", "status": "ok"}
+        for name in names:
+            self.write(f"steps/{name}/artifacts/reports/result.txt", "report")
+            self.write(f"steps/{name}/artifacts/extra.txt", "extra")
+            self.json(f"steps/{name}/artifacts/manifest.json", [entry,
+                {"source": "/app/result.py", "destination": "artifacts/app/result.py", "type": "file", "status": "ok"},
+                {"source": "/extra.txt", "destination": "artifacts/extra.txt", "type": "file", "status": "ok"}])
+        self.assertTrue(assess_trial(self.trial)["complete"])
+        manifest_path = f"steps/{names[2]}/artifacts/manifest.json"
+        manifest = json.loads((self.trial / manifest_path).read_text())
+        for change in ({"service": "main"}, {"destination": "artifacts/elsewhere"}, {"exclude": []},
+                       {"type": "file"}, {"status": "failed"}, {"destination": "../escape"}):
+            with self.subTest(change=change):
+                self.json(manifest_path, [{**entry, **change}, *manifest[1:]])
+                self.assertFalse(assess_trial(self.trial)["complete"])
+        self.json(manifest_path, manifest[:-1])
+        self.assertFalse(assess_trial(self.trial)["complete"])
+
+    def test_missing_reordered_duplicate_and_unexpected_results_are_incomplete(self):
+        names, harbor = self.checkpoints()
+        results = harbor["step_results"]
+        for changed in ([], results[:-1], [results[1], results[0], *results[2:]],
+                        [results[0], results[0], *results[2:]], [*results, results[-1]]):
+            with self.subTest(results=[result["step_name"] for result in changed]):
+                self.json("result.json", {**harbor, "step_results": changed})
+                self.assertFalse(assess_trial(self.trial)["complete"])
+        self.json("result.json", harbor)
+        shutil.rmtree(self.trial / "steps" / names[-1])
+        self.assertFalse(assess_trial(self.trial)["complete"])
+
+    def test_reward_gated_stop_is_explicit_and_does_not_require_unattempted_archives(self):
+        names, harbor = self.checkpoints(step_options="min_reward = 1")
+        for name in names[1:]:
+            shutil.rmtree(self.trial / "steps" / name)
+        harbor["step_results"] = harbor["step_results"][:1]
+        self.json("result.json", harbor)
+        report = save_assessment(self.trial)
+        self.assertTrue(report["complete"], report["issues"])
+        self.assertTrue(report["steps"][0]["attempted"])
+        self.assertEqual([step["attempted"] for step in report["steps"]], [True, False, False, False])
+        self.assertEqual(report["steps"][1]["reason"], "Checkpoint reward below min_reward")
+        with contextlib.redirect_stdout(io.StringIO()):
+            check_evidence(self.trial)
+        harbor["step_results"][0]["verifier_result"] = {"rewards": {"reward": 1}}
+        self.json("result.json", harbor)
+        self.assertFalse(assess_trial(self.trial)["complete"])
+
+    def test_checkpoint_exception_cannot_hide_missing_attempted_evidence(self):
+        names, harbor = self.checkpoints()
+        for name in names[1:]:
+            shutil.rmtree(self.trial / "steps" / name)
+        failed = harbor["step_results"][0]
+        failed["exception_info"] = {"exception_type": "TimeoutError", "exception_message": "deadline"}
+        failed["verifier_result"] = None
+        harbor["step_results"] = [failed]
+        self.json("result.json", harbor)
+        report = assess_trial(self.trial)
+        self.assertTrue(report["complete"], report["issues"])
+        self.assertEqual(report["steps"][1]["reason"], "Checkpoint exception")
+        (self.trial / f"steps/{names[0]}/agent/runtime.json").unlink()
+        self.assertFalse(assess_trial(self.trial)["complete"])
+
+    def test_provenance_tampering_and_checkpoint_symlinks_are_incomplete(self):
+        names, _ = self.checkpoints()
+        self.write(f"steps/{names[0]}/agent/task/steps/{names[1]}/instruction.md", "tampered")
+        self.assertIn("Retained task files are missing or changed", " ".join(assess_trial(self.trial)["issues"]))
+        for relative in (f"steps/{names[1]}", f"steps/{names[2]}/agent", f"steps/{names[2]}/artifacts",
+                         f"steps/{names[2]}/verifier"):
+            path = self.trial / relative
+            moved = self.trial.parent / "outside"
+            path.rename(moved)
+            path.symlink_to(moved, target_is_directory=True)
+            with self.subTest(path=relative):
+                self.assertIn("symlink", " ".join(assess_trial(self.trial)["issues"]))
+            path.unlink()
+            moved.rename(path)
+
+    def test_unsafe_and_colliding_checkpoint_names_never_select_other_directories(self):
+        names, _ = self.checkpoints()
+        task = self.trial / f"steps/{names[0]}/agent/task"
+        for name in ("../escape", "/tmp/outside", "..", "checkpoint_1", "CHECKPOINT_1", "bad\\name"):
+            (task / "task.toml").write_text('[[steps]]\nname = "checkpoint_1"\n[[steps]]\nname = ' + json.dumps(name))
+            reproduction_path = self.trial / f"steps/{names[0]}/agent/reproduction.json"
+            reproduction = json.loads(reproduction_path.read_text())
+            reproduction["task_files"] = inventory(task)
+            write_json(reproduction_path, reproduction)
+            with self.subTest(name=name):
+                self.assertFalse(assess_trial(self.trial)["complete"])
+
+
 class PluginTests(unittest.IsolatedAsyncioTestCase):
     @unittest.skipIf(find_spec("dirhash") is None, "Requires Harbor's task checksum dependency")
     async def test_task_and_source_snapshot_retain_changes_without_mutating_inputs(self):
@@ -534,6 +695,16 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             with patch("script.harbor.evidence.save_assessment", return_value={"complete": False}):
                 await plugin.ended(SimpleNamespace(config=SimpleNamespace(trials_dir=Path("job")), trial_name="trial"))
 
+    async def test_job_end_finds_checkpoints_after_root_agent_directory_is_archived(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "trial/steps/checkpoint_1/agent").mkdir(parents=True)
+            plugin = EvidencePlugin()
+            plugin.job_dir = root
+            with patch("script.harbor.evidence.save_assessment", return_value={"complete": True}) as save:
+                await plugin.on_job_end(None)
+            save.assert_called_once_with(root / "trial")
+
     async def test_environment_records_image_ids_without_environment_secrets(self):
         with tempfile.TemporaryDirectory() as directory:
             config = SimpleNamespace(workdir="/app", cpus=1, memory_mb=512,
@@ -611,6 +782,26 @@ class LegacyCaptureTests(unittest.IsolatedAsyncioTestCase):
         self.environment.exec.assert_not_awaited()
         self.environment.service_download_dir.assert_not_awaited()
         self.assertFalse((self.logs.parent / "artifacts").exists())
+
+    async def test_cached_checkpoint_declarations_survive_archived_task_files(self):
+        from harbor.models.task.config import TaskConfig
+
+        task = TaskConfig.model_validate_toml(
+            '[[steps]]\nname = "declared"\nartifacts = ["/app/result.csv"]\n'
+            '[[steps]]\nname = "legacy"\n')
+        shutil.rmtree(self.logs / "task")
+        await capture_legacy_artifacts(self.environment, self.logs, self.logger, "/",
+                                       task_config=task, step_name="declared")
+        self.environment.exec.assert_not_awaited()
+        self.environment.service_download_dir.assert_not_awaited()
+        await capture_legacy_artifacts(self.environment, self.logs, self.logger, "/app",
+                                       task_config=task, step_name="legacy")
+        manifest = json.loads((self.logs.parent / "artifacts/manifest.json").read_text())
+        self.assertIn("/app", {entry["source"] for entry in manifest})
+        with self.assertLogs(self.logger, level="ERROR"):
+            await capture_legacy_artifacts(self.environment, self.logs, self.logger, "/app",
+                                           task_config=task, step_name="unknown")
+        self.assertIn("Unknown checkpoint", (self.logs / "artifact-error.json").read_text())
 
     async def test_legacy_capture_uses_resolved_root_and_deduplicates_output(self):
         for root in ("/work dir", "/output"):

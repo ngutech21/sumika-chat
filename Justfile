@@ -364,6 +364,27 @@ run-harbor:
     exit "$status"
 
 
+run-harbor-file-backup:
+    #!/usr/bin/env bash
+    set -eu
+    swift build --configuration release --product SumikaEval
+    job_name="$(uuidgen)"
+    status=0
+    HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" uv run --project script/harbor --locked harbor run \
+    -t gabeorlanski/file_backup@sha256:fd2acb76c0afcfc1b9bba10a8500e5ef3f51a8178373dcaa6da808011c6b499c \
+    -a script.harbor.agent:SumikaAgent \
+    -m Swift-1.5-4bit-MLX \
+    -e docker -n 1 -k 1 \
+    --agent-timeout-multiplier 1 \
+    --ak binary="$PWD/.build/release/SumikaEval" \
+    --ak reasoning_effort=low \
+    --plugin script.harbor.evidence:EvidencePlugin \
+    --jobs-dir "$PWD/.harbor" --job-name "$job_name" || status=$?
+
+    uv run --project script/harbor --locked python -B script/harbor/evidence.py "$PWD/.harbor/$job_name" || status=1
+    exit "$status"
+
+
 run-harbor-suite:
     #!/usr/bin/env bash
     set -eu
