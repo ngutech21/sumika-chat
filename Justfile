@@ -318,13 +318,13 @@ harbor_suite_tasks := '''
 '''
 
 check-harbor-fixture:
-    HARBOR_TELEMETRY=0 python3 -B script/harbor/check_baselines.py script/harbor/tasks/merge-ranges
+    HARBOR_TELEMETRY=0 uv run --project script/harbor --locked python -B script/harbor/check_baselines.py script/harbor/tasks/merge-ranges
 
 check-harbor-suite:
     #!/usr/bin/env bash
     set -eu
     task_names=( {{harbor_suite_tasks}} )
-    HARBOR_TELEMETRY=0 python3 -B script/harbor/check_baselines.py \
+    HARBOR_TELEMETRY=0 uv run --project script/harbor --locked python -B script/harbor/check_baselines.py \
         --dataset "{{harbor_suite_dataset}}" "${task_names[@]}"
 
 run-harbor-smoke-test:
@@ -333,13 +333,13 @@ run-harbor-smoke-test:
     swift build --configuration release --product SumikaEval
     job_name="$(uuidgen)"
     status=0
-    HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" harbor run -p script/harbor/tasks/merge-ranges \
+    HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" uv run --project script/harbor --locked harbor run -p script/harbor/tasks/merge-ranges \
     -a script.harbor.agent:SumikaAgent -m Swift-1.5-4bit-MLX -n 1 \
     --plugin script.harbor.evidence:EvidencePlugin \
     --ak binary="$PWD/.build/release/SumikaEval" \
     --ak reasoning_effort=low \
     --jobs-dir "$PWD/.harbor/" --job-name "$job_name" || status=$?
-    python3 -B script/harbor/evidence.py "$PWD/.harbor/$job_name" || status=1
+    uv run --project script/harbor --locked python -B script/harbor/evidence.py "$PWD/.harbor/$job_name" || status=1
     exit "$status"
 
 run-harbor:
@@ -348,7 +348,7 @@ run-harbor:
     swift build --configuration release --product SumikaEval
     job_name="$(uuidgen)"
     status=0
-    HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" harbor run \
+    HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" uv run --project script/harbor --locked harbor run \
     -t openthoughts/auth_token_race_condition \
     -a script.harbor.agent:SumikaAgent \
     -m Swift-1.5-4bit-MLX \
@@ -359,7 +359,7 @@ run-harbor:
     --plugin script.harbor.evidence:EvidencePlugin \
     --jobs-dir "$PWD/.harbor" --job-name "$job_name" || status=$?
 
-    python3 -B script/harbor/evidence.py "$PWD/.harbor/$job_name" || status=1
+    uv run --project script/harbor --locked python -B script/harbor/evidence.py "$PWD/.harbor/$job_name" || status=1
     exit "$status"
 
 
@@ -375,7 +375,7 @@ run-harbor-suite:
     swift build --configuration release --product SumikaEval
     job_name="$(uuidgen)"
     status=0
-    HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" harbor run \
+    HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" uv run --project script/harbor --locked harbor run \
     -d "{{harbor_suite_dataset}}" "${task_filters[@]}" \
     -a script.harbor.agent:SumikaAgent \
     -m Swift-1.5-4bit-MLX \
@@ -386,5 +386,5 @@ run-harbor-suite:
     --plugin script.harbor.evidence:EvidencePlugin \
     --jobs-dir "$PWD/.harbor" --job-name "$job_name" || status=$?
 
-    python3 -B script/harbor/evidence.py "$PWD/.harbor/$job_name" || status=1
+    uv run --project script/harbor --locked python -B script/harbor/evidence.py "$PWD/.harbor/$job_name" || status=1
     exit "$status"

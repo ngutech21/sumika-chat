@@ -66,6 +66,14 @@ is not itself a passing evaluation.
 
 See [the Harbor runner instructions](../script/harbor/README.md) for installation,
 the single-trial command, baseline and oracle checks, and artifact locations.
+Install its local Python environment with `uv sync --project script/harbor --locked`.
+All Harbor recipes use that locked environment. Adapter unit tests run without
+Docker or MLX evaluation:
+
+```sh
+uv run --project script/harbor --locked python -B -m unittest discover -s script/harbor -v
+```
+
 Use an already installed Work-capable model; evaluation never downloads weights.
 The three Harbor run recipes build and launch `SumikaEval` in Release.
 Run one trial at a time on the Mac. The CLI keeps settings and attachments in the

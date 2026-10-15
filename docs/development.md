@@ -106,6 +106,16 @@ For typed tool registration and approval, see [the tool runtime](tool-runtime.md
 
 ## Dependencies and Generated Files
 
+Harbor evaluation uses a separate, non-package uv project in `script/harbor/`.
+Run `uv sync --project script/harbor --locked` from the repository root to install
+its locked dependencies into the ignored `script/harbor/.venv/`. Commit
+`pyproject.toml`, `uv.lock`, and `.python-version` together when changing that
+environment; `pyproject.toml` is the canonical dependency declaration. To update
+dependencies, edit it and run `uv lock --project script/harbor`, then sync and run
+the adapter tests in [the Harbor instructions](../script/harbor/README.md).
+Harbor recipes use `uv run --project script/harbor --locked`; no global Harbor
+installation or environment activation is required.
+
 Xcode builds embed pinned uv through `script/embed_uv.sh`. The first app build
 downloads its checksum-verified Apple Silicon archive into `.build/uv/`; subsequent
 builds can use that cache offline. Run `bash script/embed_uv.sh --prepare` to warm

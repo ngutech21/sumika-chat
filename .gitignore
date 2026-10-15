@@ -12,6 +12,8 @@ DerivedData/
 
 # harbor framework results
 .harbor
+script/harbor/.venv/
+script/harbor/**/__pycache__/
 
 # Local performance reports
 .perf/

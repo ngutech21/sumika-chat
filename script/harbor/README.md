@@ -8,13 +8,20 @@ trial at a time and the included Python repair task.
 ## Requirements
 
 - Apple Silicon Mac, Docker running, and an already-installed Sumika model.
-- Python 3.13 and Harbor **0.24.0**. This is the version checked by the adapter.
-  `requirements.txt` pins it; an existing installation can be checked with
-  `harbor --version`. To install that exact version:
+- [uv](https://docs.astral.sh/uv/getting-started/installation/). The local uv
+  project pins Harbor **0.24.0**, the version checked by the adapter, and locks
+  its transitive dependencies in `uv.lock`. `.python-version` selects Python
+  **3.13.16**. From the repository root, install and check the environment:
 
   ```sh
-  uv tool install --python 3.13 'harbor==0.24.0'
+  uv sync --project script/harbor --locked
+  uv run --project script/harbor --locked harbor --version
   ```
+
+  uv creates the ignored `script/harbor/.venv/` and downloads Python if the
+  selected version is unavailable. Initial setup may require network access.
+  All Harbor recipes use this environment without shell activation or a global
+  Harbor installation. `--locked` fails if project metadata and `uv.lock` disagree.
 
 - Build the native runner in Release from the repository root:
 
@@ -64,12 +71,14 @@ sessions:
 
 ```sh
 harbor_job_name="$(uuidgen)"
-HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" harbor run -p script/harbor/tasks/merge-ranges \
+HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" uv run --project script/harbor --locked harbor run \
+  -p script/harbor/tasks/merge-ranges \
   -a script.harbor.agent:SumikaAgent -m MODEL_ID -n 1 \
   --plugin script.harbor.evidence:EvidencePlugin \
   --ak binary="$PWD/.build/release/SumikaEval" \
   --jobs-dir "$PWD/tmp/harbor/sumika" --job-name "$harbor_job_name"
-python3 -B script/harbor/evidence.py "$PWD/tmp/harbor/sumika/$harbor_job_name"
+uv run --project script/harbor --locked python -B script/harbor/evidence.py \
+  "$PWD/tmp/harbor/sumika/$harbor_job_name"
 ```
 
 To override Work reasoning effort, add `--ak reasoning_effort=low` to the Harbor
@@ -238,7 +247,7 @@ For direct Sumika Harbor commands, include
 adapter's legacy fallback handle capture automatically. Then run the checker:
 
 ```sh
-python3 -B script/harbor/evidence.py /absolute/path/to/job-or-trial
+uv run --project script/harbor --locked python -B script/harbor/evidence.py /absolute/path/to/job-or-trial
 ```
 
 The checker is read-only and also rejects changes since the plugin's final
@@ -319,7 +328,7 @@ not be drained, preventing the adapter from proceeding to verification.
 ## Checks and current limits
 
 ```sh
-python3 -m unittest discover -s script/harbor -v
+uv run --project script/harbor --locked python -B -m unittest discover -s script/harbor -v
 ```
 
 These tests use an explicit local fake environment and temporary files; they do
@@ -332,8 +341,8 @@ trials after missing, malformed, or changed evidence. Worker errors retain bound
 head/tail excerpts from both returned streams; Harbor's Docker executor may merge
 stderr into stdout. Request payloads and bridge credentials are not added to errors.
 Loopback sockets must be permitted by the test runner's sandbox.
-Adapter lifecycle and ATIF tests need Harbor installed in that Python interpreter;
-they skip explicitly when it is unavailable.
+The locked environment includes Harbor for the adapter lifecycle and ATIF tests;
+running with another Python interpreter may skip those tests if Harbor is absent.
 
 Detached-descendant regressions require Linux and skip on macOS. Run the bridge,
 worker, and fixture tests in the pinned Linux image as the unprivileged task UID:
