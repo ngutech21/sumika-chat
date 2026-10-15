@@ -496,6 +496,7 @@ struct ModelManagementTests {
     let swift15 = try #require(ManagedModelCatalog.model(id: "Swift-1.5-4bit-MLX"))
     #expect(swift15.stability == .stable)
     #expect(swift15.supportsImageInput)
+    #expect(swift15.maxToolLoopIterations == 25)
   }
 
   @Test

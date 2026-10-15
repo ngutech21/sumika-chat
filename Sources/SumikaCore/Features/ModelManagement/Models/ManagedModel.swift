@@ -477,7 +477,7 @@ package enum ManagedModelCatalog {
       generationProfile: .qwen38,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
-      maxToolLoopIterations: 18
+      maxToolLoopIterations: 25
     ),
     ManagedModel(
       id: "qwen3.6-40B-8bit-heretic",
