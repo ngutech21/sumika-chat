@@ -1079,12 +1079,17 @@ struct ConversationEngineToolLoopTests {
     #expect(notice.contains("The latest run_command failed."))
     #expect(notice.contains("Command: false"))
     #expect(notice.contains("Exit code: 1"))
-    #expect(notice.contains("Do not repeat the same command unchanged."))
     #expect(
       notice.contains(
-        "Inspect stdout/stderr, run a corrected command, or call finish_task with status blocked and explain the blocker."
+        "Inspect stdout/stderr and fix the command or the underlying code/input."
       )
     )
+    #expect(notice.contains("After a relevant fix, rerun the same verification command."))
+    #expect(notice.contains("Avoid repeating it without addressing the failure."))
+    #expect(
+      notice.contains(
+        "If recovery is exhausted, call finish_task with status blocked and explain the blocker."
+      ))
     #expect(!notice.contains("Continue using the latest tool observation"))
   }
 
@@ -3005,8 +3010,9 @@ struct ConversationEngineToolLoopTests {
   private var repeatedRunCommandNotice: String {
     """
     The latest run_command result is already available for this exact command.
-    Do not call run_command again with the same command unchanged.
-    Use the output to decide the next action, run a different corrected command, or call finish_task with the appropriate status and final summary.
+    Use the observed result while relevant code and inputs remain unchanged.
+    After changing them, rerun the relevant verification command before claiming it still passes.
+    Call finish_task with the appropriate status and final summary when the requested work is complete.
     """
   }
 

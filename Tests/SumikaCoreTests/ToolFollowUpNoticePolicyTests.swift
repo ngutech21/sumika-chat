@@ -197,6 +197,12 @@ struct ToolFollowUpNoticePolicyTests {
     #expect(update.record.modelFollowUpNotice?.contains("The latest run_command failed.") == true)
     #expect(update.record.modelFollowUpNotice?.contains("Command: just test") == true)
     #expect(
+      update.record.modelFollowUpNotice?
+        .contains("After a relevant fix, rerun the same verification command.") == true)
+    #expect(
+      update.record.modelFollowUpNotice?
+        .contains("Avoid repeating it without addressing the failure.") == true)
+    #expect(
       update.record.modelFollowUpNotice?.contains("already available for this exact command")
         == false)
   }
@@ -216,6 +222,15 @@ struct ToolFollowUpNoticePolicyTests {
     #expect(
       update.record.modelFollowUpNotice?.contains("already available for this exact command")
         == true)
+    #expect(
+      update.record.modelFollowUpNotice?
+        .contains("Use the observed result while relevant code and inputs remain unchanged.")
+        == true)
+    #expect(
+      update.record.modelFollowUpNotice?
+        .contains(
+          "After changing them, rerun the relevant verification command before claiming it still passes."
+        ) == true)
   }
 
   @Test

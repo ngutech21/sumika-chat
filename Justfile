@@ -325,10 +325,11 @@ run-harbor:
     job_name="$(uuidgen)"
     status=0
     HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" harbor run \
-    -t openthoughts/monorepo-changelog-cli \
+    -t openthoughts/build-merkle-tree-cli-sha512 \
     -a script.harbor.agent:SumikaAgent \
     -m Swift-1.5-4bit-MLX \
     -e docker -n 1 -k 1 \
+    --agent-timeout-multiplier 6 \
     --ak binary="$PWD/.build/debug/SumikaEval" \
     --ak timeout_seconds=3300 \
     --plugin script.harbor.evidence:EvidencePlugin \

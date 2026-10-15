@@ -302,7 +302,10 @@ flowchart TD
   the target tool record before the follow-up generation is projected. Final
   no-tools guidance, failed `run_command`, repeated same-command `run_command`,
   listing/read-loop escalations, duplicate replays, and the generic same-turn
-  follow-up are mutually exclusive within this slot.
+  follow-up are mutually exclusive within this slot. Command notices encourage
+  correcting the command or underlying code/input and rerunning the same
+  verification command after a relevant fix. Successful results can be reused
+  while relevant code and inputs remain unchanged.
 - Separately, Work verification reminders are derived model-facing user entries
   after complete tool batches, using only the current turn's executed
   `run_command` records through that boundary. They reference
