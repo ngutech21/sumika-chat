@@ -43,6 +43,16 @@ struct MLXRuntimeConfigurationTests {
     }
   }
 
+  @Test(arguments: ["qwen3.8-27B-OptiQ-4bit", "Swift-1.5-4bit-MLX"])
+  func qwen38AndSwiftDefaultsKeepMediumReasoning(modelID: String) throws {
+    let model = try #require(ManagedModelCatalog.model(id: modelID))
+    let recommended = ModelSettingsResolver.recommendedSettings(for: model, generationConfig: nil)
+    for mode in [WorkspaceInteractionMode.chat, .agent] {
+      #expect(
+        recommended.modeSettings[mode].generationSettings.reasoningSelection == .effort(.medium))
+    }
+  }
+
   @Test(arguments: ["qwen3.6-35b-a3b-optiq-4bit", "gemma4-12b-qat-4bit"])
   func manualOutputAllowanceReachesMLXUnchanged(modelID: String) throws {
     let model = try #require(ManagedModelCatalog.model(id: modelID))
@@ -105,7 +115,7 @@ struct MLXRuntimeConfigurationTests {
       interactionMode: .agent
     )
 
-    #expect(chat.maximumTokenCount == 3_072)
+    #expect(chat.maximumTokenCount == 8_192)
     #expect(chat.minimumAnswerTokenCount == 1_024)
     #expect(chat.transitionMode == .immediate)
     #expect(chat == agent)
@@ -130,7 +140,7 @@ struct MLXRuntimeConfigurationTests {
       let first = try #require(traces.first)
 
       #expect(traces.allSatisfy { $0 == first })
-      #expect(first.maximumTokenCount == 3_072)
+      #expect(first.maximumTokenCount == 8_192)
       #expect(first.minimumAnswerTokenCount == 1_024)
     }
   }

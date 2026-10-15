@@ -826,10 +826,15 @@ families MLX can infer or explicitly configure.
 
 Every catalog model that uses the Qwen thinking-tag protocol applies the
 `hardLimitImmediate` policy when reasoning is enabled. Chat and Work modes both
-permit at most 3,072 reasoning tokens and reserve at least 1,024 answer tokens.
+permit at most 8,192 reasoning tokens and reserve at least 1,024 answer tokens.
 Reaching the reasoning limit closes the validated thinking block
 immediately and continues visible output in the same generation. Disabling
 reasoning leaves the budget unapplied.
+
+This per-generation safety ceiling is independent of reasoning effort. Qwen 3.8
+and Swift 1.5 still default to `medium` effort and 32,768 total output tokens,
+including reasoning, visible text, and tool calls. The ceiling limits reasoning
+length; it does not detect whether reasoning is repeating or making progress.
 
 The `qwen36_immediate_v2` runtime policy forces the template boundary
 `\n</think>\n\n`. The leading newline belongs to the tracked closing delimiter,

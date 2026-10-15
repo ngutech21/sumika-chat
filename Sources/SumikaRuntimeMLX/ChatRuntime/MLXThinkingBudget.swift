@@ -318,7 +318,7 @@ enum MLXThinkingBudgetPlanner {
       }
       switch interactionMode {
       case .chat, .agent:
-        return Specification(maximumTokenCount: 3_072, minimumAnswerTokenCount: 1_024)
+        return Specification(maximumTokenCount: 8_192, minimumAnswerTokenCount: 1_024)
       }
     }
   }
