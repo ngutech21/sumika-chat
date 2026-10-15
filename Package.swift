@@ -98,7 +98,6 @@ let package = Package(
         .product(name: "MLXNN", package: "mlx-swift"),
         .product(name: "MLXLLM", package: "mlx-swift-lm"),
         .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
-        .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
         .product(name: "MLXVLM", package: "mlx-swift-lm"),
         .product(name: "Tokenizers", package: "swift-tokenizers"),
         .product(name: "HuggingFace", package: "swift-huggingface"),
@@ -182,6 +181,7 @@ let package = Package(
         .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
         .product(name: "MLXNN", package: "mlx-swift"),
         .product(name: "MLXVLM", package: "mlx-swift-lm"),
+        .product(name: "Tokenizers", package: "swift-tokenizers"),
       ],
       swiftSettings: appCompilerChecking
     ),

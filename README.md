@@ -270,8 +270,6 @@ open "build/DerivedData/Build/Products/Debug/Sumika.app"
 ```
 
 You can also open `Sumika.xcodeproj` and run the `Sumika` scheme for macOS.
-The first Xcode build may ask you to approve the pinned `MLXHuggingFaceMacros`
-package macro. Review and approve it in Xcode.
 
 See [Development](docs/development.md) for setup and architecture,
 [Testing](docs/testing.md) for tests and verification, and the

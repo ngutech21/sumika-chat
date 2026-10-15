@@ -39,10 +39,6 @@ brew version-install typos-cli@1.50.0
 just deps
 ```
 
-The first Xcode build may ask you to approve the pinned
-`MLXHuggingFaceMacros` package macro. Review and approve it in Xcode. Do not
-disable package-plugin or macro validation for normal local development.
-
 ## Build the Project
 
 Clone the repository and build the app from its root directory:
@@ -125,9 +121,9 @@ Update `script/uv-release.sh` and the bundled upstream license together when
 upgrading uv, then verify embedding, managed MCP startup, and the exported app.
 
 All product Swift package dependencies are declared in the root `Package.swift`.
-MLX Swift LM is pinned to the Sumika maintainer's fork for the prefilled-reasoning
-tool-parser fix. The patch preserves generated text and history bytes while
-passing the prepared prompt's reasoning state into the streaming decoder.
+MLX Swift LM is pinned to an upstream revision in `Package.swift`. The runtime's
+explicit tokenizer bridge loads local assets through `Tokenizers.AutoTokenizer`
+and supplies a fresh incremental detokenizer for each generated sequence.
 The isolated SwiftLint tool package lives under `script/swiftlint`. After
 changing product dependencies, run:
 

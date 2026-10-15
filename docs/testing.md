@@ -111,6 +111,46 @@ Unexpected user questions end the trial as `needs_user`; Harbor still determines
 correctness through its verifier. The example is an integration smoke test, not
 a measure of general coding ability.
 
+## Incremental detokenizer benchmarks
+
+The production-loader tests use local ByteLevel, SentencePiece, and buffered
+tokenizer fixtures. They cover Unicode, whitespace, special tokens, unread final
+output, independent streams, typed Gemma/Qwen calls, and generation cancellation
+and length stops. Run them with:
+
+```sh
+swift test --no-parallel --filter 'MLXTokenizer(Loader|Generation)Tests'
+```
+
+The opt-in benchmark uses installed model assets only. It compares the production
+adapter against the pinned `NaiveStreamingDetokenizer`; the baseline selector
+exists only in the test target. No model is downloaded:
+
+```sh
+SUMIKA_DETOKENIZER_BENCHMARK=1 swift test -c release --no-parallel --filter MLXDetokenizerBenchmarkTests
+```
+
+The defaults are `gemma4-e4b-qat-4bit` and `qwen3.8-27B-OptiQ-4bit`.
+`SUMIKA_DETOKENIZER_MODELS` accepts a comma-separated list of installed catalog
+IDs. Missing assets skip the benchmark and provide no passing measurement.
+
+Decoder-only measurements replay identical 1,024/4,096/8,192-token sequences of
+newline-free text, JSON, and tool payloads. They time process CPU, include final
+flush and output accumulation, and verify byte-for-byte equality with ordinary
+decoding outside the timed region. Reported medians exclude one warmup and use
+three repetitions with alternating baseline/adapter order.
+
+The separate generation comparison uses `ChatSession` with greedy sampling,
+512 maximum output tokens, thinking disabled, the same single-line JSON prompt,
+and a fresh conversation cache for each request. It shares the loaded model,
+alternates decoder order, and checks paired output/token-count equality. The
+table reports median decode throughput and request wall time separately from
+decoder CPU cost. Run on an otherwise idle Mac; CPU-only gains do not establish
+an end-to-end generation speedup.
+
+The [M4 Max measurements](detokenizer-benchmark-m4.md) record decoder CPU cost,
+generation throughput, output parity, and the measurement limits.
+
 ## Known upstream parser regression
 
 `MLXThinkingBudgetCloseTests.testForcedCloseInsideReasoningCodeStillDeliversWriteFile`

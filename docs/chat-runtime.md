@@ -261,6 +261,21 @@ until that first use. Loading retains the runtime's cancellation, synchronizatio
 error, and trace boundaries. The catalog marks Swift 1.5 as stable; this path does
 not enable MTP/speculative decoding or establish video support.
 
+## Streaming token decoding
+
+All production model-loading paths use `makeHuggingFaceTokenizerLoader`. Its
+internal bridge preserves tokenizer encoding, decoding, metadata, and chat
+templates, mapping missing templates to the MLX tokenizer error. Each
+`makeStreamingDetokenizer()` call owns an independent `Tokenizers.TokenStreamDecoder`
+with `skipSpecialTokens: false`, preserving reasoning and tool protocol markers.
+`next()` drains stable unread text; `finish()` drains unread text and the final
+decoder tail once. Appending after finalization is a lifecycle programming error.
+
+The existing MLX `ChatSession` generation path owns token iteration and flushes
+the detokenizer before finishing stop-string and tool parsing. Unsupported global
+decoder transformations retain the tokenizer library's correct buffered fallback;
+supported ByteLevel and SentencePiece fixtures must emit before completion.
+
 ## Recoverable MLX failures
 
 `MLXGuardedGeneration` owns the upstream generation stream for Chat, Work,
