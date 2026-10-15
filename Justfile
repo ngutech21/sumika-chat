@@ -301,7 +301,7 @@ update:
     swift package update
     just resolve-packages
 
-harbor_suite_dataset := "openthoughts/openthoughts-tblite"
+harbor_suite_dataset := "openthoughts/openthoughts-tblite@sha256:4eb34ffc5540dff4f8a0ea00f12d46db88def7c99ec2b5ac79564625df7ecddb"
 harbor_suite_tasks := '''
     openthoughts/log-summary
     openthoughts/pandas-etl
@@ -349,7 +349,7 @@ run-harbor:
     job_name="$(uuidgen)"
     status=0
     HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" uv run --project script/harbor --locked harbor run \
-    -t openthoughts/auth_token_race_condition \
+    -t openthoughts/auth_token_race_condition@sha256:3f944adfbb5ef321ba179db84f82ee9500262971de02eea66d8ebd09b74b7984 \
     -a script.harbor.agent:SumikaAgent \
     -m Swift-1.5-4bit-MLX \
     -e docker -n 1 -k 1 \

@@ -96,9 +96,15 @@ The old adapter `--ak timeout_seconds` option is rejected.
 every task. Run it before the first suite evaluation and after task or environment
 changes. Missing, duplicate, failed, unfinished, or incorrectly rewarded trials
 fail the check. `just check-harbor-fixture` checks only the local `merge-ranges` task.
+The suite's shared `harbor_suite_dataset` reference in `Justfile` is pinned by
+SHA-256 digest, fixing dataset membership and task versions for both recipes.
+Adding a task requires it to exist in that pinned snapshot. Updating the dataset
+pin requires recalibration before evaluation; mutable image tags and external
+downloads are not frozen by the dataset digest.
 
 `just run-harbor` runs the selected single task (`openthoughts/auth_token_race_condition`,
-whose image uses `/workspace`) and enables a Harbor evidence plugin without
+whose image uses `/workspace`), pinned separately by SHA-256 digest in the recipe's
+`-t` argument, and enables a Harbor evidence plugin without
 changing task definitions. Artifact
 handling uses the resolved task's top-level `task.toml` declarations; output paths
 are not configured in the recipe. Each trial retains

@@ -114,7 +114,10 @@ just run-harbor-suite
 ```
 
 Both recipes use `harbor_suite_dataset` and `harbor_suite_tasks` in `Justfile`.
-To extend the suite, add another `openthoughts/TASK_NAME` to that shared task list.
+The dataset is pinned by its full SHA-256 content digest, resolved from Hub's
+`latest` on 2026-10-15 (dataset revision 1). Both calibration and evaluation use
+the same dataset snapshot, including its task versions. To extend the suite, add
+another `openthoughts/TASK_NAME` present in that snapshot to the shared task list.
 
 `check-harbor-suite` runs `nop` followed by `oracle` on those tasks sequentially,
 with one attempt per task and agent. It fails unless every selected task has
@@ -128,8 +131,14 @@ above validates only `merge-ranges`; it does not calibrate these suite tasks.
 `run-harbor-suite` builds `SumikaEval` once in Release and runs those tasks
 sequentially, with one attempt each. Calibration remains a separate command.
 Each run gets a fresh job directory under `.harbor`, followed by the evidence check.
-Both recipes disable Harbor telemetry and use Docker. The dataset reference is
-unversioned; retain Harbor's resolved task digests when comparing runs.
+Both recipes disable Harbor telemetry and use Docker. Retain Harbor's resolved
+task digests when comparing runs. The dataset pin freezes task content; mutable
+Docker image tags and external downloads still require separate pins.
+
+To update the dataset, resolve the desired Hub version to its full SHA-256 digest
+and replace `harbor_suite_dataset` in `Justfile`. Check that every selected task
+exists in the new snapshot, then recalibrate before evaluating it. Updating
+Harbor's `uv.lock` does not update this dataset pin.
 
 Harbor owns the agent deadline, using the task's agent timeout and Harbor's
 overrides and multipliers. The development recipes use an agent multiplier of 6.
@@ -150,10 +159,13 @@ retained task and trial configurations describe that budget.
 ## Trial evidence
 
 `just run-harbor` runs the selected single task, currently
-`openthoughts/auth_token_race_condition` (working directory `/workspace`), with the same
-model and checks only the newly created job under `.harbor`. Task definitions are
-unchanged. Harbor collects the top-level `artifacts` declared in the resolved
-`task.toml`, plus its conventional
+`openthoughts/auth_token_race_condition` (working directory `/workspace`), pinned
+by its full SHA-256 digest in the recipe's `-t` argument. This pin was resolved
+from Hub's `latest` on 2026-10-15 and matches the task in the pinned suite dataset.
+Update this standalone pin explicitly when selecting another task version.
+The recipe uses the same model and checks only the newly created job under
+`.harbor`. Task definitions are unchanged. Harbor collects the top-level
+`artifacts` declared in the resolved `task.toml`, plus its conventional
 `/logs/artifacts` directory, before verification. No recipe output paths are
 required. Read `artifacts/manifest.json` for actual destinations and statuses;
 a passing reward does not prove capture succeeded. No captured task or workspace
