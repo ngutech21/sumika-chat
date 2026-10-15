@@ -46,7 +46,7 @@ class EvidenceTests(unittest.TestCase):
             "task_files": inventory(self.trial / "agent/task")})
         self.json("agent/runtime.json", {"schemaVersion": 1, "modelID": "model",
             "modelFiles": [{"sha256": "weight"}], "settings": {"contextTokenLimit": 16384},
-            "buildConfiguration": "debug"})
+            "buildConfiguration": "debug", "workspaceRoot": "/app"})
         self.json("agent/environment.json", {"images": [{"Id": "image"}]})
         self.json("agent/result.json", {"modelID": "model", "turnID": "turn", "outcome": "completed"})
         self.json("agent/session.json", {"selectedModelID": "model", "turns": [{"id": "turn"}]})
@@ -76,6 +76,31 @@ class EvidenceTests(unittest.TestCase):
         reproduction = json.loads((self.trial / "agent/reproduction.json").read_text())
         reproduction["task_files"] = inventory(self.trial / "agent/task")
         self.json("agent/reproduction.json", reproduction)
+
+    def test_legacy_capture_must_match_the_runtime_workspace(self):
+        runtime = json.loads((self.trial / "agent/runtime.json").read_text())
+        runtime["workspaceRoot"] = "/work dir"
+        self.json("agent/runtime.json", runtime)
+        self.assertIn("Missing artifact capture: /work dir (main).", assess_trial(self.trial)["issues"])
+        (self.trial / "artifacts/app").rename(self.trial / "artifacts/work dir")
+        self.json("artifacts/manifest.json", [{"source": "/work dir", "destination": "artifacts/work dir",
+            "type": "directory", "status": "ok", "exclude": []}])
+        self.assertTrue(assess_trial(self.trial)["complete"])
+
+    def test_legacy_capture_requires_a_valid_nonroot_runtime_workspace(self):
+        runtime = json.loads((self.trial / "agent/runtime.json").read_text())
+        for root in (None, "", "relative", "/app/../workdir", "/"):
+            with self.subTest(root=root):
+                runtime["workspaceRoot"] = root
+                self.json("agent/runtime.json", runtime)
+                self.assertTrue(any("workspaceRoot" in issue for issue in assess_trial(self.trial)["issues"]))
+
+    def test_root_workspace_uses_declared_artifacts(self):
+        runtime = json.loads((self.trial / "agent/runtime.json").read_text())
+        runtime["workspaceRoot"] = "/"
+        self.json("agent/runtime.json", runtime)
+        self.task_config('artifacts = ["/app"]\n')
+        self.assertTrue(assess_trial(self.trial)["complete"])
 
     def test_declared_file_replaces_workspace_requirement_and_is_checksummed(self):
         self.task_config('artifacts = ["/output/report.json"]\n')
@@ -566,7 +591,7 @@ class LegacyCaptureTests(unittest.IsolatedAsyncioTestCase):
                 artifacts = self.logs.parent / "artifacts"
                 if artifacts.exists():
                     shutil.rmtree(artifacts)
-                await capture_legacy_artifacts(self.environment, self.logs, self.logger)
+                await capture_legacy_artifacts(self.environment, self.logs, self.logger, "/app")
                 # Harbor's later collection must retain the legacy manifest entries.
                 await ArtifactHandler(artifacts=[], logger=self.logger).download_artifacts(
                     self.environment, artifacts, source_artifacts_dir=EnvironmentPaths.artifacts_dir)
@@ -582,10 +607,31 @@ class LegacyCaptureTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_declared_artifacts_leave_collection_to_harbor(self):
         (self.logs / "task/task.toml").write_text('artifacts = ["/app/result.csv"]\n')
-        await capture_legacy_artifacts(self.environment, self.logs, self.logger)
+        await capture_legacy_artifacts(self.environment, self.logs, self.logger, "/")
         self.environment.exec.assert_not_awaited()
         self.environment.service_download_dir.assert_not_awaited()
         self.assertFalse((self.logs.parent / "artifacts").exists())
+
+    async def test_legacy_capture_uses_resolved_root_and_deduplicates_output(self):
+        for root in ("/work dir", "/output"):
+            with self.subTest(root=root):
+                remote = self.remote / root.lstrip("/")
+                remote.mkdir()
+                (remote / "result.csv").write_text("answer")
+                await capture_legacy_artifacts(self.environment, self.logs, self.logger, root)
+                artifacts = self.logs.parent / "artifacts"
+                manifest = json.loads((artifacts / "manifest.json").read_text())
+                self.assertEqual([entry["source"] for entry in manifest], ["/logs/artifacts", root])
+                self.assertEqual((artifacts / root.lstrip("/") / "result.csv").read_text(), "answer")
+                shutil.rmtree(artifacts)
+
+    async def test_legacy_capture_never_downloads_container_root(self):
+        with self.assertLogs(self.logger, level="ERROR"):
+            await capture_legacy_artifacts(self.environment, self.logs, self.logger, "/")
+        self.environment.exec.assert_not_awaited()
+        self.environment.service_download_dir.assert_not_awaited()
+        error = json.loads((self.logs / "artifact-error.json").read_text())
+        self.assertIn("must declare artifacts", error["error"])
 
     async def test_probe_errors_and_output_symlinks_are_reported(self):
         for kind in ("transport", "symlink"):
@@ -597,7 +643,7 @@ class LegacyCaptureTests(unittest.IsolatedAsyncioTestCase):
                     self.environment.exec.return_value = SimpleNamespace(return_code=4)
                     (self.remote / "output").symlink_to(self.remote / "app", target_is_directory=True)
                 with self.assertLogs(self.logger, level="ERROR"):
-                    await capture_legacy_artifacts(self.environment, self.logs, self.logger)
+                    await capture_legacy_artifacts(self.environment, self.logs, self.logger, "/app")
                 error = json.loads((self.logs / "artifact-error.json").read_text())
                 self.assertTrue(error["error"])
                 self.environment.service_download_dir.assert_not_awaited()
@@ -612,7 +658,7 @@ class LegacyCaptureTests(unittest.IsolatedAsyncioTestCase):
             await download(source_dir, target_dir, **kwargs)
 
         self.environment.service_download_dir.side_effect = fail_output
-        await capture_legacy_artifacts(self.environment, self.logs, self.logger)
+        await capture_legacy_artifacts(self.environment, self.logs, self.logger, "/app")
         manifest = json.loads((self.logs.parent / "artifacts/manifest.json").read_text())
         self.assertEqual(next(entry["status"] for entry in manifest if entry["source"] == "/output"), "failed")
 

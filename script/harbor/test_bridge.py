@@ -436,13 +436,24 @@ if {outcome != 'completion'!r}:
 
 
 class BridgeDiagnosticTests(unittest.IsolatedAsyncioTestCase):
+    async def test_worker_receives_quoted_workspace_and_matching_cwd(self):
+        root = "/work dir/project's files"
+        environment = SimpleNamespace(upload_file=AsyncMock(), exec=AsyncMock(return_value=
+            SimpleNamespace(return_code=0, stdout='{"id":"request","result":{"names":[]}}', stderr=None)))
+        bridge = SandboxBridge(environment, root)
+        response = await bridge.dispatch({"id": "request", "operation": "list", "path": "."})
+        self.assertEqual(response["result"], {"names": []})
+        command = environment.exec.call_args.args[0]
+        self.assertEqual(shlex.split(command)[2], root)
+        self.assertEqual(environment.exec.call_args.kwargs["cwd"], root)
+
     async def test_web_policy_denies_offline_and_obeys_current_phase(self):
         for mode, hosts, enabled in (("no-network", [], False), ("allowlist", [], False),
                                      ("allowlist", ["example.com"], True), ("public", [], True)):
             with self.subTest(mode=mode, hosts=hosts):
                 environment = SimpleNamespace(network_policy=SimpleNamespace(
                     network_mode=mode, allowed_hosts=hosts))
-                bridge = SandboxBridge(environment)
+                bridge = SandboxBridge(environment, "/app")
                 for operation in ("http", "resolveHost"):
                     request = {"id": uuid.uuid4().hex, "operation": operation}
                     with patch.object(bridge, "_execute", AsyncMock(return_value={
@@ -464,7 +475,7 @@ class BridgeDiagnosticTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(stdout=stdout):
                 environment = SimpleNamespace(upload_file=AsyncMock(), exec=AsyncMock(return_value=
                     SimpleNamespace(return_code=status, stdout=stdout, stderr=stderr)))
-                bridge = SandboxBridge(environment)
+                bridge = SandboxBridge(environment, "/app")
                 response = await bridge.dispatch({"id": "request", "operation": "read", "path": "private"})
                 self.assertEqual(response["error"]["code"], "transportFailure")
                 detail = response["error"]["message"]
@@ -477,7 +488,7 @@ class BridgeDiagnosticTests(unittest.IsolatedAsyncioTestCase):
         output = "start" + "x" * (MAX_BODY_BYTES * 2) + "last error"
         environment = SimpleNamespace(upload_file=AsyncMock(), exec=AsyncMock(return_value=
             SimpleNamespace(return_code=0, stdout=output, stderr=output)))
-        bridge = SandboxBridge(environment)
+        bridge = SandboxBridge(environment, "/app")
         response = await bridge.dispatch({"id": "request", "operation": "list"})
         detail = response["error"]["message"]
         self.assertIn("start", detail)
@@ -491,7 +502,7 @@ class BridgeDiagnosticTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(code=code):
                 environment = SimpleNamespace(upload_file=AsyncMock(), exec=AsyncMock(return_value=
                     SimpleNamespace(return_code=0, stdout=None, stderr=None)))
-                bridge = SandboxBridge(environment)
+                bridge = SandboxBridge(environment, "/app")
                 with patch.object(bridge, "dispatch", AsyncMock(return_value={
                         "error": {"code": code, "message": "retained failure"}})), \
                         self.assertRaisesRegex(RuntimeError, f"{label}: retained failure"):
@@ -499,7 +510,7 @@ class BridgeDiagnosticTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_control_directory_failure_keeps_merged_output(self):
         bridge = SandboxBridge(SimpleNamespace(exec=AsyncMock(return_value=
-            SimpleNamespace(return_code=1, stdout="mkdir: permission denied", stderr=None))))
+            SimpleNamespace(return_code=1, stdout="mkdir: permission denied", stderr=None))), "/app")
         with self.assertRaisesRegex(RuntimeError, "mkdir: permission denied"):
             await bridge.start()
 
@@ -511,7 +522,7 @@ class BridgeDrainTests(unittest.IsolatedAsyncioTestCase):
                                                 "message": "Cannot drain descendants"}}):
             with self.subTest(failure=failure):
                 environment = SimpleNamespace(exec=AsyncMock())
-                bridge = SandboxBridge(environment)
+                bridge = SandboxBridge(environment, "/app")
                 execute = (AsyncMock(side_effect=failure) if isinstance(failure, Exception)
                            else AsyncMock(return_value=failure))
                 with patch.object(bridge, "_execute", execute):
@@ -523,7 +534,7 @@ class BridgeDrainTests(unittest.IsolatedAsyncioTestCase):
                 environment.exec.assert_not_awaited()
 
     async def test_cancelled_transport_blocks_trial_shutdown(self):
-        bridge = SandboxBridge(SimpleNamespace(exec=AsyncMock()))
+        bridge = SandboxBridge(SimpleNamespace(exec=AsyncMock()), "/app")
         with patch.object(bridge, "_execute", AsyncMock(side_effect=asyncio.CancelledError)):
             with self.assertRaises(asyncio.CancelledError):
                 await bridge.dispatch({"id": "run", "operation": "run"})
@@ -532,7 +543,7 @@ class BridgeDrainTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_undrained_worker_blocks_trial_shutdown(self):
         environment = SimpleNamespace(exec=AsyncMock())
-        bridge = SandboxBridge(environment)
+        bridge = SandboxBridge(environment, "/app")
         started = asyncio.Event()
 
         async def execute(request):

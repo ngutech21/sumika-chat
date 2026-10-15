@@ -30,6 +30,69 @@ except ModuleNotFoundError as error:
 
 @unittest.skipIf(SumikaAgent is None, "Harbor is not installed in this Python interpreter")
 class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_setup_resolves_container_working_directory_without_overriding_it(self):
+        for root in ("/app", "/workdir", "/workspace/project", "/work dir "):
+            with self.subTest(root=root), tempfile.TemporaryDirectory() as directory:
+                agent = SumikaAgent(logs_dir=Path(directory), model_name="fixture", binary=sys.executable)
+                environment = SimpleNamespace(type=lambda: "docker", exec=AsyncMock(return_value=
+                    SimpleNamespace(return_code=0, stdout=root + "\n", stderr=None)))
+                with patch("script.harbor.agent.capture_environment", AsyncMock()), \
+                        patch.object(agent, "_ensure_worker_python", AsyncMock()):
+                    await agent.setup(environment)
+                environment.exec.assert_awaited_once_with("pwd -P", timeout_sec=10)
+                self.assertEqual(agent.workspace_root, root)
+
+    async def test_invalid_working_directory_prevents_setup(self):
+        for root in ("", "relative", "/app/../etc", "/app\n/other", "/app\x00", "//app", "/app/"):
+            with self.subTest(root=root), tempfile.TemporaryDirectory() as directory:
+                agent = SumikaAgent(logs_dir=Path(directory), model_name="fixture", binary=sys.executable)
+                environment = SimpleNamespace(type=lambda: "docker", exec=AsyncMock(return_value=
+                    SimpleNamespace(return_code=0, stdout=root + "\n", stderr=None)))
+                with patch("script.harbor.agent.capture_environment", AsyncMock()) as capture, \
+                        self.assertRaisesRegex(ValueError, "absolute container workspace"):
+                    await agent.setup(environment)
+                capture.assert_not_awaited()
+
+    async def test_root_working_directory_requires_declared_artifacts(self):
+        for declared in (False, True):
+            with self.subTest(declared=declared), tempfile.TemporaryDirectory() as directory:
+                logs = Path(directory)
+                (logs / "task").mkdir()
+                (logs / "task/task.toml").write_text('artifacts = ["/output/report.json"]' if declared else "")
+                agent = SumikaAgent(logs_dir=logs, model_name="fixture", binary=sys.executable)
+                environment = SimpleNamespace(type=lambda: "docker", exec=AsyncMock(return_value=
+                    SimpleNamespace(return_code=0, stdout="/\n", stderr=None)))
+                with patch("script.harbor.agent.capture_environment", AsyncMock()), \
+                        patch.object(agent, "_ensure_worker_python", AsyncMock()) as prepare:
+                    if declared:
+                        await agent.setup(environment)
+                        self.assertEqual(agent.workspace_root, "/")
+                        prepare.assert_awaited_once()
+                    else:
+                        with self.assertRaisesRegex(ValueError, "must declare artifacts"):
+                            await agent.setup(environment)
+                        prepare.assert_not_awaited()
+                        self.assertIsNone(agent.workspace_root)
+
+    async def test_failed_directory_probe_keeps_diagnostics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            agent = SumikaAgent(logs_dir=Path(directory), model_name="fixture", binary=sys.executable)
+            environment = SimpleNamespace(type=lambda: "docker", exec=AsyncMock(return_value=
+                SimpleNamespace(return_code=1, stdout="pwd: permission denied", stderr=None)))
+            with self.assertRaisesRegex(ValueError, "pwd: permission denied"):
+                await agent.setup(environment)
+
+    async def test_run_requires_successful_directory_resolution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            agent = SumikaAgent(logs_dir=Path(directory), model_name="fixture", binary=sys.executable)
+            with self.assertRaisesRegex(ValueError, "not been resolved"):
+                await agent.run("Repair", SimpleNamespace(), AgentContext())
+
+    async def test_resolved_root_reaches_bridge_native_runner_and_capture(self):
+        for root in ("/workdir", "/work dir "):
+            with self.subTest(root=root):
+                await self.run_status(0, "completed", workspace_root=root)
+
     async def test_web_prerequisite_accepts_directory_only_trust_store(self):
         certificates = ssl.create_default_context().get_ca_certs(binary_form=True)
         if not certificates or not shutil.which("openssl"):
@@ -89,6 +152,7 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_trust_roots_prevents_native_launch(self):
         with tempfile.TemporaryDirectory() as directory:
             agent = SumikaAgent(logs_dir=Path(directory), model_name="fixture", binary=sys.executable)
+            agent.workspace_root = "/app"
             environment = SimpleNamespace(network_policy=NetworkPolicy())
             with patch.object(agent, "_ensure_worker_python", AsyncMock(
                     side_effect=RuntimeError("Web tools require trusted CA certificates"))), \
@@ -151,11 +215,12 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
                                 self.assertIn(stream, log)
 
     async def run_status(self, status, outcome, trajectory=None, export_error=None, policy=None,
-                         reasoning_effort=None):
+                         reasoning_effort=None, workspace_root="/app"):
         with tempfile.TemporaryDirectory(prefix="sumika-agent-test-") as directory:
             logs = Path(directory)
             agent = SumikaAgent(logs_dir=logs, model_name="fixture", binary=sys.executable,
                                 **({"reasoning_effort": reasoning_effort} if reasoning_effort is not None else {}))
+            agent.workspace_root = workspace_root
             bridge = SimpleNamespace(start=AsyncMock(), close=AsyncMock(),
                                      token="test-token", url="http://127.0.0.1:1")
             process = SimpleNamespace(wait=AsyncMock(return_value=status), returncode=status)
@@ -164,7 +229,7 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
             if outcome is not None:
                 (logs / "result.json").write_text(json.dumps({"outcome": outcome}))
             with patch.object(agent, "_ensure_worker_python", AsyncMock()) as prepare, \
-                    patch("script.harbor.agent.SandboxBridge", return_value=bridge), \
+                    patch("script.harbor.agent.SandboxBridge", return_value=bridge) as make_bridge, \
                     patch("script.harbor.agent.asyncio.create_subprocess_exec",
                           AsyncMock(return_value=process)) as launch, \
                     patch("script.harbor.agent.export_trajectory", return_value=trajectory,
@@ -177,7 +242,7 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 finally:
                     export.assert_called_once_with(logs, "fixture", agent.version())
                     bridge.close.assert_awaited_once()
-                    capture.assert_awaited_once_with(environment, logs, agent.logger)
+                    capture.assert_awaited_once_with(environment, logs, agent.logger, workspace_root)
                     if export_error:
                         self.assertEqual(json.loads((logs / "trajectory-error.json").read_text()),
                                          {"error": str(export_error)})
@@ -190,7 +255,10 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
                         self.assertIsNone(context.n_input_tokens)
                         self.assertIsNone(context.n_cache_tokens)
                         self.assertIsNone(context.n_output_tokens)
+                    make_bridge.assert_called_once_with(environment, workspace_root)
                     launch_arguments = launch.call_args.args
+                    self.assertEqual(launch_arguments[launch_arguments.index("--workspace-root") + 1],
+                                     workspace_root)
                     if reasoning_effort is None:
                         self.assertNotIn("--reasoning-level", launch_arguments)
                     else:
@@ -274,6 +342,7 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
             (logs / "task/task.toml").write_text("")
             (logs / "result.json").write_text(json.dumps({"outcome": "completed"}))
             agent = SumikaAgent(logs_dir=logs, model_name="fixture", binary=sys.executable)
+            agent.workspace_root = "/app"
             bridge = SimpleNamespace(start=AsyncMock(), close=AsyncMock(),
                                      token="test-token", url="http://127.0.0.1:1")
             process = SimpleNamespace(wait=AsyncMock(return_value=0), returncode=0)
@@ -290,6 +359,7 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_cancelled_runner_drains_before_export_and_artifact_capture(self):
         with tempfile.TemporaryDirectory(prefix="sumika-agent-test-") as directory:
             agent = SumikaAgent(logs_dir=Path(directory), model_name="fixture", binary=sys.executable)
+            agent.workspace_root = "/app"
             bridge = SimpleNamespace(start=AsyncMock(), close=AsyncMock(),
                                      token="test-token", url="http://127.0.0.1:1")
             process = SimpleNamespace(wait=AsyncMock(side_effect=[asyncio.CancelledError, 0]),

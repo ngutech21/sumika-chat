@@ -314,6 +314,7 @@ harbor_suite_tasks := '''
     openthoughts/db-migration-local-storage
     openthoughts/todos-api
     openthoughts/malicious-package-forensics
+    openthoughts/auth_token_race_condition
 '''
 
 check-harbor-fixture:
@@ -348,7 +349,7 @@ run-harbor:
     job_name="$(uuidgen)"
     status=0
     HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" harbor run \
-    -t openthoughts/todos-api \
+    -t openthoughts/auth_token_race_condition \
     -a script.harbor.agent:SumikaAgent \
     -m Swift-1.5-4bit-MLX \
     -e docker -n 1 -k 1 \

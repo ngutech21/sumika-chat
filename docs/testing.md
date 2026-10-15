@@ -81,20 +81,25 @@ every task. Run it before the first suite evaluation and after task or environme
 changes. Missing, duplicate, failed, unfinished, or incorrectly rewarded trials
 fail the check. `just check-harbor-fixture` checks only the local `merge-ranges` task.
 
-`just run-harbor` keeps the selected single task (`openthoughts/pandas-etl`) and
-enables a Harbor evidence plugin without changing task definitions. Artifact
+`just run-harbor` runs the selected single task (`openthoughts/auth_token_race_condition`,
+whose image uses `/workspace`) and enables a Harbor evidence plugin without
+changing task definitions. Artifact
 handling uses the resolved task's top-level `task.toml` declarations; output paths
 are not configured in the recipe. Each trial retains
 the task inputs/reference solution, source and binary provenance, resolved image
 IDs, model file fingerprints and effective settings, and a completeness/checksum
-report. Tasks without artifact declarations automatically capture `/app` and an
+report. The adapter resolves the container's working directory with `pwd -P`
+through Harbor and uses it for the bridge and native workspace. Tasks without
+artifact declarations automatically capture that workspace and an
 existing `/output` after command workers drain; an absent `/output` is not requested.
 Declared captures honor their service, destination, and configured exclusions.
 For legacy `openthoughts/python-api-rate-limit`, completeness still requires captured
 regular files for `/output/report.json`, `/output/a.json`, and `/output/b.json`;
 missing files or symlinks fail the check until that task declares its artifacts.
 Probe and transfer failures remain evidence failures, separate from verifier reward.
-The legacy fallback covers `/app` and `/output`, not arbitrary undeclared paths.
+The checker matches legacy captures against `agent/runtime.json`'s `workspaceRoot`.
+Other paths require task declarations. A workspace of `/` requires declared
+artifacts; the fallback never archives the container root.
 The recipe checks the fresh job after Harbor finishes; incomplete
 or changed evidence fails this gate independently of verifier reward. Failed
 trials retain partial evidence. See the runner instructions for artifact paths,

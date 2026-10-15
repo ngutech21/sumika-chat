@@ -7,11 +7,19 @@ import json
 import os
 from pathlib import Path
 import platform
+import posixpath
 import shutil
 import stat
 import subprocess
 import sys
 import tomllib
+
+
+def validate_workspace_root(path):
+    if (not isinstance(path, str) or not path.startswith("/") or path.startswith("//")
+            or any(character in path for character in "\0\r\n") or posixpath.normpath(path) != path):
+        raise ValueError("Expected a normalized absolute container workspace path.")
+    return path
 
 
 def write_json(path, value):
@@ -128,7 +136,7 @@ async def capture_environment(environment, logs_dir):
     })
 
 
-async def capture_legacy_artifacts(environment, logs_dir, logger):
+async def capture_legacy_artifacts(environment, logs_dir, logger, workspace_root):
     from harbor.models.task.config import TaskConfig
     from harbor.models.trial.paths import EnvironmentPaths
     from harbor.trial.artifact_handler import ArtifactHandler
@@ -137,13 +145,17 @@ async def capture_legacy_artifacts(environment, logs_dir, logger):
         task = TaskConfig.model_validate_toml((logs_dir / "task/task.toml").read_text(encoding="utf-8"))
         if task.artifacts:
             return
-        # shortcut: legacy capture covers /app and /output; use task declarations for other paths.
-        artifacts = ["/app"]
+        workspace_root = validate_workspace_root(workspace_root)
+        if workspace_root == "/":
+            raise ValueError("Tasks working in / must declare artifacts; capturing the container root is unsupported.")
+        # shortcut: legacy capture covers the workspace and /output; declare other paths in the task.
+        artifacts = [workspace_root]
         output = await environment.exec(
             "if [ -L /output ]; then exit 4; elif [ -e /output ]; then exit 0; else exit 3; fi",
             timeout_sec=10, user="root")
         if output.return_code == 0:
-            artifacts.append("/output")
+            if workspace_root != "/output":
+                artifacts.append("/output")
         elif output.return_code != 3:
             raise RuntimeError(f"Cannot inspect legacy /output path (exit {output.return_code}).")
         collector = ArtifactHandler(artifacts=artifacts, logger=logger)
@@ -213,7 +225,13 @@ def assess_trial(trial):
                     for entry in [*declared, *config.get("artifacts", [])]]
     legacy_files = {}
     if not declared:
-        legacy_files["/app"] = ()
+        try:
+            workspace_root = validate_workspace_root(runtime.get("workspaceRoot"))
+            if workspace_root == "/":
+                raise ValueError("Tasks working in / must declare artifacts.")
+            legacy_files[workspace_root] = ()
+        except ValueError as error:
+            issues.append(f"agent/runtime.json workspaceRoot: {error}")
         # Legacy rate-limit tasks omit declarations; retain this until they declare their outputs.
         if harbor.get("task_name") == "openthoughts/python-api-rate-limit":
             legacy_files["/output"] = ("report.json", "a.json", "b.json")

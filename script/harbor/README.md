@@ -129,23 +129,29 @@ can end a task before the native runner's deadline.
 ## Trial evidence
 
 `just run-harbor` runs the selected single task, currently
-`openthoughts/pandas-etl`, with the same model and checks only the newly created
-job under `.harbor`. Task definitions are unchanged. Harbor collects the
-top-level `artifacts` declared in the resolved `task.toml`, plus its conventional
+`openthoughts/auth_token_race_condition` (working directory `/workspace`), with the same
+model and checks only the newly created job under `.harbor`. Task definitions are
+unchanged. Harbor collects the top-level `artifacts` declared in the resolved
+`task.toml`, plus its conventional
 `/logs/artifacts` directory, before verification. No recipe output paths are
 required. Read `artifacts/manifest.json` for actual destinations and statuses;
 a passing reward does not prove capture succeeded. No captured task or workspace
 files are executed on the Mac.
 
 For legacy tasks without artifact declarations, the adapter uses Harbor's own
-collector to retain `/app` and `/output` when the latter exists. Collection runs
-after the native process and command workers drain. An absent `/output` is not
-requested, so tasks such as pandas-etl and merge-ranges only capture `/app`.
+collector to retain the resolved workspace and `/output` when the latter exists.
+The workspace is probed with `pwd -P` through Harbor, honoring its configured
+working directory or the image's `WORKDIR`, and passed to the bridge and native
+runner. Collection runs after the native process and command workers drain.
+An absent `/output` is not requested, so tasks such as pandas-etl and merge-ranges
+only capture `/app`.
 Probe failures and symlinked `/output` paths are recorded in
 `agent/artifact-error.json`; copy failures remain failed manifest entries.
 These failures make evidence incomplete without replacing the native outcome
-or verifier reward. This legacy fallback covers `/app` and `/output`, not
-arbitrary undeclared paths elsewhere in the container.
+or verifier reward. The checker requires the workspace recorded in
+`agent/runtime.json` to appear in the capture manifest. Paths outside that
+workspace and `/output` require task artifact declarations. Tasks whose workspace
+is `/` must declare artifacts; legacy capture never archives the container root.
 
 The checker reads the retained `agent/task/task.toml` with the standard-library
 TOML parser, so it still runs without Harbor installed in that Python interpreter.
@@ -337,7 +343,8 @@ The first bridge rejects all symlink paths, including internal symlinks that the
 native filesystem adapter can accept. Full-file reads, writes, command input,
 and each captured output stream have a 1 MiB limit; reads can page larger files.
 Listings are capped at 10,000 entries and commands at 600 seconds. The workspace
-root is fixed to `/app`; file operations accept POSIX paths rather than file URLs.
+root is the resolved container working directory; file operations accept POSIX
+paths rather than file URLs.
 Missing-file suggestions may be less complete remotely.
 The Python image tag is versioned, not locked to an immutable image digest.
 

@@ -34,7 +34,7 @@ def exec_diagnostics(result):
 
 
 class SandboxBridge:
-    def __init__(self, environment, workspace_root="/app"):
+    def __init__(self, environment, workspace_root):
         self.environment = environment
         self.workspace_root = workspace_root
         self.control = "/tmp/sumika-harbor-" + uuid.uuid4().hex

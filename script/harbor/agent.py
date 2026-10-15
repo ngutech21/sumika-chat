@@ -8,12 +8,13 @@ import os
 from pathlib import Path
 import shlex
 import signal
+import tomllib
 
 from harbor.agents.base import BaseAgent
 from harbor.agents.capabilities import AgentCapabilities
 
 from script.harbor.bridge import SandboxBridge, exec_diagnostics, web_access_enabled
-from script.harbor.evidence import capture_environment, capture_legacy_artifacts, write_json
+from script.harbor.evidence import capture_environment, capture_legacy_artifacts, validate_workspace_root, write_json
 from script.harbor.trajectory import export_trajectory
 
 
@@ -36,6 +37,7 @@ class SumikaAgent(BaseAgent):
         if not self.model_name:
             raise ValueError("Pass an already-installed Sumika model ID with --model.")
         self.bridge = None
+        self.workspace_root = None
 
     @staticmethod
     def name():
@@ -49,11 +51,17 @@ class SumikaAgent(BaseAgent):
             raise ValueError("The initial Sumika evaluation supports Docker tasks only.")
         if self.mcp_servers or self.skills_dir:
             raise ValueError("The initial Sumika evaluation does not inject MCP servers or skills.")
-        location = await environment.exec("pwd", timeout_sec=10)
-        if location.return_code or (location.stdout or "").strip() != "/app":
-            raise ValueError("The initial Sumika evaluation requires the task working directory /app.")
+        location = await environment.exec("pwd -P", timeout_sec=10)
+        if location.return_code:
+            raise ValueError(f"Cannot resolve the task working directory: {exec_diagnostics(location)}")
+        workspace_root = validate_workspace_root((location.stdout or "").removesuffix("\n"))
+        if workspace_root == "/":
+            task = tomllib.loads((self.logs_dir / "task/task.toml").read_text(encoding="utf-8"))
+            if not task.get("artifacts"):
+                raise ValueError("Tasks working in / must declare artifacts; capturing the container root is unsupported.")
         await capture_environment(environment, self.logs_dir)
         await self._ensure_worker_python(environment)
+        self.workspace_root = workspace_root
 
     async def _ensure_worker_python(self, environment, require_web_certificates=False):
         self.logs_dir.mkdir(parents=True, exist_ok=True)
@@ -113,12 +121,14 @@ class SumikaAgent(BaseAgent):
                                    + exec_diagnostics(result))
 
     async def run(self, instruction, environment, context):
+        if self.workspace_root is None:
+            raise ValueError("Task working directory has not been resolved by setup.")
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         prompt = self.logs_dir / "instruction.md"
         prompt.write_text(instruction, encoding="utf-8")
         if web_access_enabled(environment.network_policy):
             await self._ensure_worker_python(environment, require_web_certificates=True)
-        self.bridge = SandboxBridge(environment)
+        self.bridge = SandboxBridge(environment, self.workspace_root)
         process = None
         try:
             await self.bridge.start()
@@ -127,7 +137,7 @@ class SumikaAgent(BaseAgent):
             with (self.logs_dir / "runner.log").open("wb") as output:
                 process = await asyncio.create_subprocess_exec(
                     str(self.binary), "--model-id", self.model_name,
-                    "--workspace-root", "/app", "--bridge-url", self.bridge.url,
+                    "--workspace-root", self.workspace_root, "--bridge-url", self.bridge.url,
                     "--prompt-file", str(prompt.resolve()),
                     "--output-dir", str(self.logs_dir.resolve()),
                     "--timeout-seconds", str(self.timeout),
@@ -169,4 +179,4 @@ class SumikaAgent(BaseAgent):
                     await asyncio.to_thread(
                         write_json, self.logs_dir / "trajectory-error.json", {"error": str(error)})
             await self.bridge.close()
-            await capture_legacy_artifacts(environment, self.logs_dir, self.logger)
+            await capture_legacy_artifacts(environment, self.logs_dir, self.logger, self.workspace_root)
