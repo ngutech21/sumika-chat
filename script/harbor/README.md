@@ -16,10 +16,10 @@ trial at a time and the included Python repair task.
   uv tool install --python 3.13 'harbor==0.24.0'
   ```
 
-- Build the native runner from the repository root:
+- Build the native runner in Release from the repository root:
 
   ```sh
-  swift build --product SumikaEval
+  swift build --configuration release --product SumikaEval
   ```
 
 The fixture image is `python:3.13.7-slim-bookworm`, with an unprivileged task user.
@@ -56,8 +56,8 @@ fresh, completed trials have rewards `0` and `1`, respectively, with no trial
 exceptions. Results are kept under `tmp/harbor/baseline` and `tmp/harbor/oracle`.
 Run it during initial setup and after fixture, verifier, or container changes.
 
-`run-harbor-smoke-test` builds `SumikaEval` and runs only Sumika with the installed
-`Swift-1.5-4bit-MLX` model. Its results are kept under `.harbor`.
+`run-harbor-smoke-test` builds `SumikaEval` in Release and runs only Sumika with
+the installed `Swift-1.5-4bit-MLX` model. Its results are kept under `.harbor`.
 Both recipes disable Harbor telemetry. To use another installed Sumika catalog
 ID, replace `MODEL_ID` in this command. Keep `-n 1` to avoid competing local MLX
 sessions:
@@ -67,7 +67,7 @@ harbor_job_name="$(uuidgen)"
 HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" harbor run -p script/harbor/tasks/merge-ranges \
   -a script.harbor.agent:SumikaAgent -m MODEL_ID -n 1 \
   --plugin script.harbor.evidence:EvidencePlugin \
-  --ak binary="$PWD/.build/debug/SumikaEval" \
+  --ak binary="$PWD/.build/release/SumikaEval" \
   --ak timeout_seconds=600 --jobs-dir "$PWD/tmp/harbor/sumika" --job-name "$harbor_job_name"
 python3 -B script/harbor/evidence.py "$PWD/tmp/harbor/sumika/$harbor_job_name"
 ```
@@ -105,8 +105,8 @@ the check. Results use fresh `suite-` job names under `tmp/harbor/baseline` and
 suite setup and after task, verifier, image, or Harbor changes. The fixture check
 above validates only `merge-ranges`; it does not calibrate these suite tasks.
 
-`run-harbor-suite` builds `SumikaEval` once and runs those tasks sequentially,
-with one attempt each. Calibration remains a separate command.
+`run-harbor-suite` builds `SumikaEval` once in Release and runs those tasks
+sequentially, with one attempt each. Calibration remains a separate command.
 Each run gets a fresh job directory under `.harbor`, followed by the evidence check.
 Both recipes disable Harbor telemetry and use Docker. The dataset reference is
 unversioned; retain Harbor's resolved task digests when comparing runs.

@@ -67,6 +67,7 @@ is not itself a passing evaluation.
 See [the Harbor runner instructions](../script/harbor/README.md) for installation,
 the single-trial command, baseline and oracle checks, and artifact locations.
 Use an already installed Work-capable model; evaluation never downloads weights.
+The three Harbor run recipes build and launch `SumikaEval` in Release.
 Run one trial at a time on the Mac. The CLI keeps settings and attachments in the
 trial directory and writes `session.json`, `result.json`, and the existing
 `mlx-trace.jsonl` format there.
