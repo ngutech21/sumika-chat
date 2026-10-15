@@ -149,9 +149,11 @@ struct EvaluationRunner {
       webClient: options.networkPolicy.webEnabled ? backend : nil)
   }
 
-  private func stopOutcome(since start: ContinuousClock.Instant) -> EvaluationOutcome? {
+  func stopOutcome(since start: ContinuousClock.Instant) -> EvaluationOutcome? {
     if cancellation.requested || Task.isCancelled { return .cancelled }
-    if start.duration(to: .now) >= .seconds(options.timeoutSeconds) { return .timedOut }
+    if let timeout = options.timeoutSeconds, start.duration(to: .now) >= .seconds(timeout) {
+      return .timedOut
+    }
     return nil
   }
 

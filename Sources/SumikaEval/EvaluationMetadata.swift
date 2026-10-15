@@ -19,7 +19,7 @@ struct EvaluationMetadata: Encodable, Sendable {
   let buildConfiguration: String
   let settings: StoredModelSettings
   let workspaceRoot: String
-  let timeoutSeconds: Double
+  let timeoutSeconds: Double?
   let maxToolLoopIterations: Int
   let networkPolicy: EvaluationNetworkPolicy
   let webAccessSettings: WebAccessSettings

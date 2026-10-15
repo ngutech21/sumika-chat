@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 from importlib.metadata import version
 import json
+import math
 import os
 from pathlib import Path
 import shlex
@@ -12,6 +13,8 @@ import tomllib
 
 from harbor.agents.base import BaseAgent
 from harbor.agents.capabilities import AgentCapabilities
+from harbor.models.task.config import TaskConfig
+from harbor.models.trial.config import TrialConfig
 
 from script.harbor.bridge import SandboxBridge, exec_diagnostics, web_access_enabled
 from script.harbor.evidence import capture_environment, capture_legacy_artifacts, validate_workspace_root, write_json
@@ -21,16 +24,15 @@ from script.harbor.trajectory import export_trajectory
 class SumikaAgent(BaseAgent):
     capabilities = AgentCapabilities(atif=True)
 
-    def __init__(self, *args, binary, timeout_seconds=600, reasoning_effort=None, **kwargs):
+    def __init__(self, *args, binary, reasoning_effort=None, **kwargs):
         if "reasoning_level" in kwargs:
             raise ValueError("Use reasoning_effort instead of reasoning_level.")
+        if "timeout_seconds" in kwargs:
+            raise ValueError("Use Harbor's agent timeout settings instead of timeout_seconds.")
         super().__init__(*args, **kwargs)
         if version("harbor") != "0.24.0":
             raise ValueError("This adapter requires harbor==0.24.0.")
         self.binary = Path(binary).expanduser().resolve(strict=True)
-        self.timeout = int(timeout_seconds)
-        if not 1 <= self.timeout <= 3600:
-            raise ValueError("timeout_seconds must be between 1 and 3600.")
         if reasoning_effort is not None and reasoning_effort not in ("low", "medium", "xhigh"):
             raise ValueError("reasoning_effort must be low, medium, or xhigh.")
         self.reasoning_effort = reasoning_effort
@@ -123,6 +125,17 @@ class SumikaAgent(BaseAgent):
     async def run(self, instruction, environment, context):
         if self.workspace_root is None:
             raise ValueError("Task working directory has not been resolved by setup.")
+        config = TrialConfig.model_validate_json((self.logs_dir.parent / "config.json").read_text())
+        task = TaskConfig.model_validate_toml((self.logs_dir / "task/task.toml").read_text())
+        timeout = config.agent.override_timeout_sec or task.agent.timeout_sec
+        multiplier = config.agent_timeout_multiplier
+        if multiplier is None:
+            multiplier = config.timeout_multiplier
+        # Validate Harbor 0.24.0's budget without starting a competing timer.
+        if timeout is not None:
+            timeout = min(timeout, config.agent.max_timeout_sec or math.inf) * multiplier
+        if timeout is None or not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("Sumika requires a finite positive Harbor agent timeout.")
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         prompt = self.logs_dir / "instruction.md"
         prompt.write_text(instruction, encoding="utf-8")
@@ -140,13 +153,12 @@ class SumikaAgent(BaseAgent):
                     "--workspace-root", self.workspace_root, "--bridge-url", self.bridge.url,
                     "--prompt-file", str(prompt.resolve()),
                     "--output-dir", str(self.logs_dir.resolve()),
-                    "--timeout-seconds", str(self.timeout),
+                    "--timeout-seconds", "harbor",
                     "--network-policy", environment.network_policy.model_dump_json(),
                     *(["--reasoning-level", self.reasoning_effort] if self.reasoning_effort is not None else []),
                     env=host_environment, stdout=output, stderr=asyncio.subprocess.STDOUT,
                     start_new_session=True)
-                async with asyncio.timeout(self.timeout + 15):
-                    status = await process.wait()
+                status = await process.wait()
             result_path = self.logs_dir / "result.json"
             result = None
             if result_path.exists():

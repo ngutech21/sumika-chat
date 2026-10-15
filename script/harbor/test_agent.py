@@ -14,7 +14,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 try:
     from harbor.models.agent.context import AgentContext
@@ -30,6 +30,15 @@ except ModuleNotFoundError as error:
 
 @unittest.skipIf(SumikaAgent is None, "Harbor is not installed in this Python interpreter")
 class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    def trial_logs(self, directory, task_timeout=600, **overrides):
+        logs = Path(directory) / "agent"
+        (logs / "task").mkdir(parents=True)
+        (logs / "task/task.toml").write_text(
+            "" if task_timeout is None else f"[agent]\ntimeout_sec = {task_timeout}\n")
+        (logs.parent / "config.json").write_text(json.dumps({
+            "task": {"path": "script/harbor/tasks/merge-ranges"}, **overrides}))
+        return logs
+
     async def test_setup_resolves_container_working_directory_without_overriding_it(self):
         for root in ("/app", "/workdir", "/workspace/project", "/work dir "):
             with self.subTest(root=root), tempfile.TemporaryDirectory() as directory:
@@ -151,7 +160,7 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_trust_roots_prevents_native_launch(self):
         with tempfile.TemporaryDirectory() as directory:
-            agent = SumikaAgent(logs_dir=Path(directory), model_name="fixture", binary=sys.executable)
+            agent = SumikaAgent(logs_dir=self.trial_logs(directory), model_name="fixture", binary=sys.executable)
             agent.workspace_root = "/app"
             environment = SimpleNamespace(network_policy=NetworkPolicy())
             with patch.object(agent, "_ensure_worker_python", AsyncMock(
@@ -160,7 +169,7 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaisesRegex(RuntimeError, "trusted CA certificates"):
                     await agent.run("Repair", environment, AgentContext())
                 launch.assert_not_called()
-                self.assertEqual((Path(directory) / "instruction.md").read_text(), "Repair")
+                self.assertEqual((agent.logs_dir / "instruction.md").read_text(), "Repair")
 
     async def test_setup_reuses_python_or_provisions_then_checks_as_task_user(self):
         for installed in (True, False):
@@ -217,7 +226,7 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def run_status(self, status, outcome, trajectory=None, export_error=None, policy=None,
                          reasoning_effort=None, workspace_root="/app"):
         with tempfile.TemporaryDirectory(prefix="sumika-agent-test-") as directory:
-            logs = Path(directory)
+            logs = self.trial_logs(directory)
             agent = SumikaAgent(logs_dir=logs, model_name="fixture", binary=sys.executable,
                                 **({"reasoning_effort": reasoning_effort} if reasoning_effort is not None else {}))
             agent.workspace_root = workspace_root
@@ -259,6 +268,7 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
                     launch_arguments = launch.call_args.args
                     self.assertEqual(launch_arguments[launch_arguments.index("--workspace-root") + 1],
                                      workspace_root)
+                    self.assertEqual(launch_arguments[launch_arguments.index("--timeout-seconds") + 1], "harbor")
                     if reasoning_effort is None:
                         self.assertNotIn("--reasoning-level", launch_arguments)
                     else:
@@ -291,6 +301,35 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
             for kwargs in ({"reasoning_level": "low"}, {"reasoning_level": "low", "reasoning_effort": "medium"}):
                 with self.subTest(kwargs=kwargs), self.assertRaisesRegex(ValueError, "Use reasoning_effort"):
                     SumikaAgent(logs_dir=Path(directory), model_name="fixture", binary=sys.executable, **kwargs)
+
+    def test_old_adapter_timeout_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory, self.assertRaisesRegex(ValueError, "Harbor's agent timeout"):
+            SumikaAgent(logs_dir=Path(directory), model_name="fixture", binary=sys.executable, timeout_seconds=3300)
+
+    async def test_harbor_budget_must_be_finite_before_native_launch(self):
+        for task_timeout, overrides, valid in (
+            (None, {}, False),
+            (0, {}, False),
+            (float("inf"), {}, False),
+            (float("nan"), {}, False),
+            (600, {"agent_timeout_multiplier": 0}, False),
+            (600, {"timeout_multiplier": -1}, False),
+            (600, {"agent_timeout_multiplier": float("inf")}, False),
+            (None, {"agent": {"max_timeout_sec": 600}}, False),
+            (None, {"agent": {"override_timeout_sec": 5400}}, True),
+            (900, {"agent_timeout_multiplier": 6}, True),
+            (float("inf"), {"agent": {"max_timeout_sec": 600}}, True),
+        ):
+            with self.subTest(task_timeout=task_timeout, overrides=overrides), tempfile.TemporaryDirectory() as directory:
+                logs = self.trial_logs(directory, task_timeout, **overrides)
+                agent = SumikaAgent(logs_dir=logs, model_name="fixture", binary=sys.executable)
+                agent.workspace_root = "/app"
+                with patch("script.harbor.agent.SandboxBridge", side_effect=RuntimeError("budget accepted")) as bridge:
+                    with self.assertRaisesRegex(RuntimeError if valid else ValueError,
+                                                "budget accepted" if valid else "finite positive Harbor agent timeout"):
+                        await agent.run("Repair", SimpleNamespace(network_policy=NetworkPolicy(network_mode="no-network")),
+                                        AgentContext())
+                    self.assertEqual(bridge.call_count, int(valid))
 
     def test_invalid_reasoning_efforts_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -337,9 +376,7 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_capture_failure_preserves_completed_native_result(self):
         with tempfile.TemporaryDirectory(prefix="sumika-agent-test-") as directory:
-            logs = Path(directory)
-            (logs / "task").mkdir()
-            (logs / "task/task.toml").write_text("")
+            logs = self.trial_logs(directory)
             (logs / "result.json").write_text(json.dumps({"outcome": "completed"}))
             agent = SumikaAgent(logs_dir=logs, model_name="fixture", binary=sys.executable)
             agent.workspace_root = "/app"
@@ -358,7 +395,7 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_cancelled_runner_drains_before_export_and_artifact_capture(self):
         with tempfile.TemporaryDirectory(prefix="sumika-agent-test-") as directory:
-            agent = SumikaAgent(logs_dir=Path(directory), model_name="fixture", binary=sys.executable)
+            agent = SumikaAgent(logs_dir=self.trial_logs(directory), model_name="fixture", binary=sys.executable)
             agent.workspace_root = "/app"
             bridge = SimpleNamespace(start=AsyncMock(), close=AsyncMock(),
                                      token="test-token", url="http://127.0.0.1:1")
@@ -386,6 +423,48 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(context.n_input_tokens, 25)
             self.assertIsNone(context.n_cache_tokens)
             self.assertEqual(context.n_output_tokens, 7)
+
+    async def test_harbor_timeout_keeps_graceful_and_forced_cleanup_bounded(self):
+        harbor_wait = asyncio.wait_for
+        for force_kill in (False, True):
+            with self.subTest(force_kill=force_kill), tempfile.TemporaryDirectory() as directory:
+                agent = SumikaAgent(logs_dir=self.trial_logs(directory), model_name="fixture", binary=sys.executable)
+                agent.workspace_root = "/app"
+                process = SimpleNamespace(returncode=None, pid=123)
+
+                async def wait():
+                    if process.wait.await_count == 1:
+                        await asyncio.Event().wait()
+                    if force_kill and process.wait.await_count == 2:
+                        raise TimeoutError
+                    process.returncode = -signal.SIGKILL if force_kill else 0
+                    return process.returncode
+
+                process.wait = AsyncMock(side_effect=wait)
+                bridge = SimpleNamespace(start=AsyncMock(), close=AsyncMock(),
+                                         token="test-token", url="http://127.0.0.1:1")
+
+                def export_after_exit(*_args):
+                    self.assertIsNotNone(process.returncode)
+
+                with patch("script.harbor.agent.SandboxBridge", return_value=bridge), \
+                        patch("script.harbor.agent.asyncio.create_subprocess_exec", AsyncMock(return_value=process)), \
+                        patch("script.harbor.agent.asyncio.wait_for", wraps=harbor_wait) as cleanup_wait, \
+                        patch("script.harbor.agent.os.killpg") as terminate, \
+                        patch("script.harbor.agent.export_trajectory", side_effect=export_after_exit) as export, \
+                        patch("script.harbor.agent.capture_legacy_artifacts", AsyncMock(
+                            side_effect=lambda *_args: self.assertEqual(bridge.close.await_count, 1))) as capture:
+                    with self.assertRaises(TimeoutError):
+                        environment = SimpleNamespace(network_policy=NetworkPolicy(network_mode="no-network"))
+                        await harbor_wait(agent.run("Repair", environment, AgentContext()), timeout=0.02)
+                cleanup_wait.assert_called_once()
+                self.assertEqual(cleanup_wait.call_args.kwargs["timeout"], 5)
+                self.assertEqual(terminate.call_args_list, [call(123, signal.SIGTERM)] +
+                                 ([call(123, signal.SIGKILL)] if force_kill else []))
+                self.assertEqual(process.wait.await_count, 3 if force_kill else 2)
+                export.assert_called_once()
+                bridge.close.assert_awaited_once()
+                capture.assert_awaited_once()
 
 
 if __name__ == "__main__":

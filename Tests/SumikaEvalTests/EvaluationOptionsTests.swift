@@ -23,6 +23,37 @@ struct EvaluationOptionsTests {
   }
 
   @MainActor
+  @Test
+  func standaloneDeadlineAndHarborCancellation() async throws {
+    for (value, seconds) in [(nil, 600.0), ("42", 42.0), ("86400", 86_400.0), ("harbor", nil)] {
+      let flags = Array(arguments.dropLast(2)) + (value.map { ["--timeout-seconds", $0] } ?? [])
+      let options = try EvaluationOptions(arguments: flags, environment: environment)
+      #expect(options.timeoutSeconds == seconds)
+      let cancellation = EvaluationCancellation()
+      let runner = EvaluationRunner(options: options, cancellation: cancellation)
+      let start = ContinuousClock.now
+      let expired = start.advanced(by: .seconds(-90_000))
+      #expect(runner.stopOutcome(since: start) == nil)
+      #expect(runner.stopOutcome(since: expired) == (seconds == nil ? nil : .timedOut))
+
+      let task = Task { runner.stopOutcome(since: start) }
+      task.cancel()
+      #expect(await task.value == .cancelled)
+      cancellation.requested = true
+      #expect(runner.stopOutcome(since: expired) == .cancelled)
+    }
+  }
+
+  @Test(arguments: ["0", "-1", "nan", "inf", "-inf", "86401", "none"])
+  func rejectsInvalidTimeout(_ value: String) {
+    var invalid = arguments
+    invalid[11] = value
+    #expect(throws: EvaluationError.self) {
+      try EvaluationOptions(arguments: invalid, environment: environment)
+    }
+  }
+
+  @MainActor
   @Test(arguments: [nil, "low", "medium", "xhigh"] as [String?])
   func reasoningLevelOverridesOnlyWorkSettingsAndSurvivesReload(_ level: String?) async throws {
     let model = try #require(ManagedModelCatalog.model(id: "Swift-1.5-4bit-MLX"))
@@ -110,18 +141,13 @@ struct EvaluationOptionsTests {
   }
 
   @Test
-  func rejectsMissingTokenDuplicateFlagsAndInvalidTimeout() {
+  func rejectsMissingTokenAndDuplicateFlags() {
     #expect(throws: EvaluationError.self) {
       try EvaluationOptions(arguments: arguments, environment: [:])
     }
     #expect(throws: EvaluationError.self) {
       try EvaluationOptions(
         arguments: arguments + ["--model-id", "other"], environment: environment)
-    }
-    var invalid = arguments
-    invalid[11] = "nan"
-    #expect(throws: EvaluationError.self) {
-      try EvaluationOptions(arguments: invalid, environment: environment)
     }
   }
 

@@ -75,6 +75,14 @@ Use `--ak reasoning_effort=low` (or `medium` / `xhigh`) to forward an explicit
 `--reasoning-level` to SumikaEval. Omission keeps the model default; unsupported
 levels fail. The override stays in the trial's settings and existing run metadata.
 
+Harbor owns the agent deadline. The adapter requires a finite positive Harbor
+timeout and launches `SumikaEval --timeout-seconds harbor`; it does not impose
+another task timer. Harbor cancellation terminates the native process, retaining
+the existing five-second shutdown grace and command-worker cleanup. Individual
+command, HTTP, setup, and verifier limits remain independent. Direct `SumikaEval`
+invocation keeps its 600-second default and numeric `--timeout-seconds` override.
+The old adapter `--ak timeout_seconds` option is rejected.
+
 `just check-harbor-suite` calibrates the same shared task list used by
 `just run-harbor-suite`, requiring `nop` reward `0` and `oracle` reward `1` for
 every task. Run it before the first suite evaluation and after task or environment

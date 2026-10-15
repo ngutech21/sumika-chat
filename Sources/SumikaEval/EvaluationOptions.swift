@@ -8,15 +8,16 @@ struct EvaluationOptions: Sendable {
   let bridgeToken: String
   let promptFile: URL
   let outputDirectory: URL
-  let timeoutSeconds: Double
+  let timeoutSeconds: Double?
   let networkPolicy: EvaluationNetworkPolicy
   let reasoningLevel: ReasoningEffort?
 
   static let usage = """
     Usage: SumikaEval --model-id ID --workspace-root /container/workspace \
     --bridge-url http://127.0.0.1:PORT --prompt-file /host/prompt.txt \
-    --output-dir /host/artifacts [--timeout-seconds 600] [--network-policy JSON]
+    --output-dir /host/artifacts [--timeout-seconds SECONDS|harbor] [--network-policy JSON]
     [--reasoning-level low|medium|xhigh]
+    Timeout defaults to 600 seconds; harbor delegates the deadline to Harbor cancellation.
     Omit --reasoning-level to use the selected model's default.
     Set SUMIKA_HARBOR_TOKEN to the bridge's per-trial authentication token.
     """
@@ -79,12 +80,17 @@ struct EvaluationOptions: Sendable {
       throw EvaluationError("SUMIKA_HARBOR_TOKEN must contain the per-trial bridge token")
     }
     bridgeToken = token
-    guard let timeout = Double(values["--timeout-seconds"] ?? "600"), timeout.isFinite,
-      timeout > 0, timeout <= 86_400
-    else {
-      throw EvaluationError("--timeout-seconds must be between 0 and 86400")
+    if values["--timeout-seconds"] == "harbor" {
+      timeoutSeconds = nil
+    } else {
+      guard let timeout = Double(values["--timeout-seconds"] ?? "600"), timeout.isFinite,
+        timeout > 0, timeout <= 86_400
+      else {
+        throw EvaluationError(
+          "--timeout-seconds must be greater than 0 and at most 86400, or harbor")
+      }
+      timeoutSeconds = timeout
     }
-    timeoutSeconds = timeout
     networkPolicy = try JSONDecoder().decode(
       EvaluationNetworkPolicy.self,
       from: Data((values["--network-policy"] ?? "{\"network_mode\":\"no-network\"}").utf8))

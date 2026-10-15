@@ -68,7 +68,7 @@ HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" harbor run -p script/harbor/tasks/merge-ran
   -a script.harbor.agent:SumikaAgent -m MODEL_ID -n 1 \
   --plugin script.harbor.evidence:EvidencePlugin \
   --ak binary="$PWD/.build/release/SumikaEval" \
-  --ak timeout_seconds=600 --jobs-dir "$PWD/tmp/harbor/sumika" --job-name "$harbor_job_name"
+  --jobs-dir "$PWD/tmp/harbor/sumika" --job-name "$harbor_job_name"
 python3 -B script/harbor/evidence.py "$PWD/tmp/harbor/sumika/$harbor_job_name"
 ```
 
@@ -122,9 +122,21 @@ Each run gets a fresh job directory under `.harbor`, followed by the evidence ch
 Both recipes disable Harbor telemetry and use Docker. The dataset reference is
 unversioned; retain Harbor's resolved task digests when comparing runs.
 
-The native runner has a 3,300-second deadline per task. Harbor independently
-enforces each task's agent timeout multiplied by 6. A shorter Harbor deadline
-can end a task before the native runner's deadline.
+Harbor owns the agent deadline, using the task's agent timeout and Harbor's
+overrides and multipliers. The development recipes use an agent multiplier of 6.
+The adapter requires a finite positive Harbor budget, validated from the retained
+task and trial configuration before native launch. It passes
+`--timeout-seconds harbor` to `SumikaEval`, which remains cancellable without
+starting a second task timer. The old `--ak timeout_seconds` option is rejected;
+configure the deadline through Harbor instead.
+
+On Harbor timeout or cancellation, the adapter sends SIGTERM to the native process
+group, allows five seconds for shutdown, then sends SIGKILL if necessary. Command
+workers still drain before workspace capture. Command, HTTP, setup, and cleanup
+limits are unchanged. Direct `SumikaEval` invocation retains its 600-second default
+and accepts `--timeout-seconds` values greater than zero and at most 86,400.
+Native `runtime.json` omits `timeoutSeconds` when Harbor owns the deadline; Harbor's
+retained task and trial configurations describe that budget.
 
 ## Trial evidence
 
@@ -187,7 +199,7 @@ Each trial additionally retains:
 - `agent/runtime.json`: effective model settings, Work/approval policy, budgets,
   native build configuration, host memory/OS, and SHA-256 fingerprints of every
   non-hidden regular file in the installed model directory. Weights are hashed
-  before loading, not copied; this extra I/O counts toward the runner deadline.
+  before loading, not copied; this extra I/O counts toward the agent deadline.
 - `agent/trajectory.json`: an ATIF projection derived from `session.json` and
   `mlx-trace.jsonl` for Harbor's trajectory viewer. Native messages, tool call IDs,
   arguments, results, and failures come from the session; generation metrics come
