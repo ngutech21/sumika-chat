@@ -35,8 +35,9 @@ except ModuleNotFoundError as error:
 class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
     def trial_logs(self, directory, task_timeout=600, **overrides):
         logs = Path(directory) / "agent"
-        (logs / "task").mkdir(parents=True)
-        (logs / "task/task.toml").write_text(
+        logs.mkdir(parents=True)
+        (logs.parent / "provenance/task").mkdir(parents=True)
+        (logs.parent / "provenance/task/task.toml").write_text(
             "" if task_timeout is None else f"[agent]\ntimeout_sec = {task_timeout}\n")
         (logs.parent / "config.json").write_text(json.dumps({
             "task": {"path": "script/harbor/tasks/merge-ranges"}, **overrides}))
@@ -68,9 +69,8 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_root_working_directory_requires_declared_artifacts(self):
         for declared in (False, True):
             with self.subTest(declared=declared), tempfile.TemporaryDirectory() as directory:
-                logs = Path(directory)
-                (logs / "task").mkdir()
-                (logs / "task/task.toml").write_text('artifacts = ["/output/report.json"]' if declared else "")
+                logs = self.trial_logs(directory)
+                (logs.parent / "provenance/task/task.toml").write_text('artifacts = ["/output/report.json"]' if declared else "")
                 agent = SumikaAgent(logs_dir=logs, model_name="fixture", binary=sys.executable)
                 environment = SimpleNamespace(type=lambda: "docker", exec=AsyncMock(return_value=
                     SimpleNamespace(return_code=0, stdout="/\n", stderr=None)))
@@ -108,7 +108,7 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_checkpoints_survive_harbor_archives_with_fresh_native_sessions(self):
         with tempfile.TemporaryDirectory() as directory:
             logs = self.trial_logs(directory)
-            (logs / "task/task.toml").write_text('''
+            (logs.parent / "provenance/task/task.toml").write_text('''
 [agent]
 timeout_sec = 600
 [[steps]]
@@ -118,7 +118,7 @@ artifacts = ["/app"]
 name = "checkpoint_2"
 artifacts = ["/app"]
 ''')
-            task = TaskConfig.model_validate_toml((logs / "task/task.toml").read_text())
+            task = TaskConfig.model_validate_toml((logs.parent / "provenance/task/task.toml").read_text())
             agent = SumikaAgent(logs_dir=logs, model_name="fixture", binary=sys.executable)
             agent.workspace_root = "/app"
             trial = object.__new__(MultiStepTrial)
@@ -157,6 +157,7 @@ artifacts = ["/app"]
                     archived = trial.paths.step_agent_dir(step.name)
                     self.assertEqual((archived / "session.json").read_text(), step.name)
                     self.assertFalse((logs / "task").exists())
+                    self.assertTrue((logs.parent / "provenance/task/task.toml").is_file())
                 self.assertEqual(images.await_count, 2)
                 with self.assertRaisesRegex(ValueError, "No remaining Harbor checkpoint"):
                     await agent.run("Unexpected checkpoint", environment, AgentContext())
@@ -167,7 +168,7 @@ artifacts = ["/app"]
             with self.subTest(task_timeout=task_timeout, step_timeout=step_timeout), \
                     tempfile.TemporaryDirectory() as directory:
                 logs = self.trial_logs(directory, task_timeout)
-                with (logs / "task/task.toml").open("a") as definition:
+                with (logs.parent / "provenance/task/task.toml").open("a") as definition:
                     definition.write('\n[[steps]]\nname = "checkpoint_1"\n')
                     if step_timeout is not None:
                         definition.write(f"[steps.agent]\ntimeout_sec = {step_timeout}\n")
@@ -185,7 +186,7 @@ artifacts = ["/app"]
         for last_artifacts in ('["/output"]', '[]'):
             with self.subTest(last_artifacts=last_artifacts), tempfile.TemporaryDirectory() as directory:
                 logs = self.trial_logs(directory)
-                (logs / "task/task.toml").write_text('''
+                (logs.parent / "provenance/task/task.toml").write_text('''
 [[steps]]
 name = "checkpoint_1"
 artifacts = ["/output"]

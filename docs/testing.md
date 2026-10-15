@@ -133,7 +133,8 @@ start fresh native conversations; conversation resume is unsupported. The recipe
 uses one sequential trial and timeout multiplier 1, retaining the task's 7,200-second
 agent and 600-second verifier budgets per checkpoint. Calibrate the task separately
 before its first evaluation. Harbor archives each checkpoint under `steps/<name>/`;
-the first archive retains shared provenance, and `agent/completeness.json` checks
+shared provenance stays in the unmounted `provenance/` directory. The
+`agent/completeness.json` report checks
 all checkpoint outputs, declarations, identities, ordering, and explained early
 stops. The evidence checker runs even after Harbor fails. See the runner's
 [checkpoint instructions](../script/harbor/README.md#run-the-file_backup-checkpoints).

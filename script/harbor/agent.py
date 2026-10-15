@@ -60,7 +60,7 @@ class SumikaAgent(BaseAgent):
             raise ValueError(f"Cannot resolve the task working directory: {exec_diagnostics(location)}")
         workspace_root = validate_workspace_root((location.stdout or "").removesuffix("\n"))
         if workspace_root == "/":
-            task = TaskConfig.model_validate_toml((self.logs_dir / "task/task.toml").read_text())
+            task = TaskConfig.model_validate_toml((self.logs_dir.parent / "provenance/task/task.toml").read_text())
             if not task.artifacts and not (task.steps and all(step.artifacts for step in task.steps)):
                 raise ValueError("Tasks working in / must declare artifacts; capturing the container root is unsupported.")
         await capture_environment(environment, self.logs_dir)
@@ -128,8 +128,8 @@ class SumikaAgent(BaseAgent):
         if self.workspace_root is None:
             raise ValueError("Task working directory has not been resolved by setup.")
         if self._task_config is None:
-            # Harbor archives agent/task with the first checkpoint's outputs.
-            self._task_config = TaskConfig.model_validate_toml((self.logs_dir / "task/task.toml").read_text())
+            self._task_config = TaskConfig.model_validate_toml(
+                (self.logs_dir.parent / "provenance/task/task.toml").read_text())
             self._trial_config = TrialConfig.model_validate_json((self.logs_dir.parent / "config.json").read_text())
             self._steps = iter(self._task_config.steps or [])
         task = self._task_config

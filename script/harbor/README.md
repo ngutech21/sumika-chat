@@ -168,6 +168,10 @@ This recipe builds `SumikaEval` in Release and runs one trial of
 model, low reasoning, and a fresh job under `.harbor`, followed by the evidence
 check even if Harbor fails. Calibrate the pinned task with `nop` and `oracle`
 separately before its first evaluation and after task or environment changes.
+This task reports core, isolated, and strict pass rates instead of a scalar
+`reward`. No-op core correctness must be zero and oracle correctness must be one
+at every checkpoint. No-op can earn partial strict credit from error cases that
+accept any failing process exit.
 
 The four checkpoints share the container workspace and start fresh native
 conversations, with separate session state, tool-loop budgets, model loading,
@@ -178,9 +182,12 @@ Task definitions, continuation thresholds, and the mean reward strategy are
 unchanged. Inspect individual checkpoint rewards and regressions too.
 
 Harbor archives each checkpoint under `steps/<checkpoint>/{agent,verifier,artifacts}`.
-Provenance (`task/`, `reproduction.json`, source files, and package lock) stays
-with the first checkpoint's `agent/` archive; later checkpoints retain their own
-environment, instruction, native result, session, trace, and artifact manifest.
+Shared task and source provenance stays in the host-only `provenance/` directory,
+outside Harbor's mounted logs. Each checkpoint retains its own environment,
+instruction, native result, session, trace, and artifact manifest.
+Harbor can omit the empty `/logs/artifacts` mount directory from a checkpoint
+archive. Its exact empty manifest entry remains valid; other missing captures
+still fail completeness.
 The whole-trial `agent/completeness.json` checksums all archives and reports
 attempted/skipped checkpoints. Invalid order, missing or changed evidence, and
 unexplained skipped checkpoints fail completeness independently of reward.
@@ -222,12 +229,15 @@ or verifier reward. The checker requires the workspace recorded in
 workspace and `/output` require task artifact declarations. Tasks whose workspace
 is `/` must declare artifacts; legacy capture never archives the container root.
 
-The checker reads the retained `agent/task/task.toml` with the standard-library
+The checker reads the retained `provenance/task/task.toml` with the standard-library
 TOML parser, so it still runs without Harbor installed in that Python interpreter.
 Declared files and directories must match the manifest's source, service,
 destination, type, and configured exclusions. Run-level artifact requests are
 also validated. Captures must stay under `artifacts/` without symlink ancestors.
 Their contents are checksummed; correctness remains the verifier's job.
+It also reads older root/first-checkpoint `agent/` provenance snapshots so existing
+saved trials remain verifiable. New runs write only host-only `provenance/`;
+the old layout exposed snapshots through Harbor's `/logs/agent` mount.
 
 Legacy `openthoughts/python-api-rate-limit` tasks additionally require regular
 `/output/report.json`, `/output/a.json`, and `/output/b.json` files. Missing files,
@@ -237,13 +247,13 @@ the task declares its outputs. Declared artifacts are the canonical contract.
 
 Each trial additionally retains:
 
-- `agent/task/`: a host-side copy of the exact task, including setup, initial
+- `provenance/task/`: a host-side copy of the exact task, including setup, initial
   files, verifier, and reference solution. Its checksum must match Harbor's
   planned task. These copies are never exposed to the agent's workspace.
   Hub tasks use the resolved digest from Harbor's trial lock and its configured
   download directory, so mutable references such as `latest` are not resolved again.
-- `agent/reproduction.json`, `agent/source.patch`, `agent/source-untracked/`,
-  and `agent/Package.resolved`: source commit and working changes at run time,
+- `provenance/reproduction.json`, `provenance/source.patch`, `provenance/source-untracked/`,
+  and `provenance/Package.resolved`: source commit and working changes at run time,
   executable SHA-256, Swift version, host architecture, and task fingerprints.
   Source metadata describes the checkout at run time; it does not claim that an
   arbitrary externally supplied binary was built from that checkout.

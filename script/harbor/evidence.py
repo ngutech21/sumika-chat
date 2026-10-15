@@ -74,7 +74,9 @@ def prepare_trial(event, repository):
     agent.mkdir(parents=True, exist_ok=True)
     write_json(agent / "completeness.json", {
         "schema_version": 1, "complete": False, "issues": ["Trial has not finished."]})
-    task = agent / "task"
+    provenance = trial / "provenance"
+    provenance.mkdir()
+    task = provenance / "task"
     task_id = event.result.task_id
     if event.lock.task.type == "package":
         # The result retains the requested ref; the lock records the downloaded version.
@@ -88,31 +90,33 @@ def prepare_trial(event, repository):
     shutil.copytree(source, task, symlinks=True)
     if dirhash(task, "sha256") != event.result.task_checksum:
         raise ValueError("Task changed after Harbor planned the trial.")
+    steps = tomllib.loads((task / "task.toml").read_text(encoding="utf-8")).get("steps") or []
+    retained_agent = Path("steps") / steps[0]["name"] / "agent" if steps else Path("agent")
     git = ["git", "--no-optional-locks", "-C", str(repository)]
     commit = command([*git, "rev-parse", "HEAD"]).decode().strip()
-    (agent / "source.patch").write_bytes(command([*git, "diff", "--binary", "HEAD"]))
+    (provenance / "source.patch").write_bytes(command([*git, "diff", "--binary", "HEAD"]))
     untracked = command([*git, "ls-files", "--others", "--exclude-standard", "-z"])
-    (agent / "source-untracked").mkdir()
+    (provenance / "source-untracked").mkdir()
     for raw in untracked.split(b"\0"):
         if not raw:
             continue
         relative = Path(os.fsdecode(raw))
-        target = agent / "source-untracked" / relative
+        target = provenance / "source-untracked" / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(repository / relative, target, follow_symlinks=False)
-    shutil.copy2(repository / "Package.resolved", agent / "Package.resolved")
+    shutil.copy2(repository / "Package.resolved", provenance / "Package.resolved")
     binary = Path(event.config.agent.kwargs["binary"]).expanduser().resolve(strict=True)
-    write_json(agent / "reproduction.json", {
+    write_json(provenance / "reproduction.json", {
         "schema_version": 1, "trial_id": str(event.trial_id),
         "task_checksum": event.result.task_checksum,
         "task_files": inventory(task), "harbor_version": version("harbor"),
         "binary": {"path": str(binary), **file_record(binary)},
-        "source_at_run": {"commit": commit, "patch": "agent/source.patch",
-                          "untracked": "agent/source-untracked"},
+        "source_at_run": {"commit": commit, "patch": "provenance/source.patch",
+                          "untracked": "provenance/source-untracked"},
         "swift_version": command(["xcrun", "swift", "--version"]).decode().strip(),
         "host": {"os": platform.platform(), "architecture": platform.machine()},
         "generation_activity": os.environ.get("SUMIKA_GENERATION_ACTIVITY", "default"),
-        "runtime_metadata": "agent/runtime.json",
+        "runtime_metadata": (retained_agent / "runtime.json").as_posix(),
     })
 
 
@@ -145,7 +149,7 @@ async def capture_legacy_artifacts(environment, logs_dir, logger, workspace_root
 
     try:
         task = task_config or TaskConfig.model_validate_toml(
-            (logs_dir / "task/task.toml").read_text(encoding="utf-8"))
+            (logs_dir.parent / "provenance/task/task.toml").read_text(encoding="utf-8"))
         step = next((step for step in task.steps or [] if step.name == step_name), None)
         if step_name is not None and step is None:
             raise ValueError(f"Unknown checkpoint: {step_name}")
@@ -212,11 +216,18 @@ def assess_trial(trial):
     if trial.is_symlink() or steps_dir.is_symlink():
         raise ValueError("Cannot assess a symlinked evidence directory")
     archives = sorted(steps_dir.iterdir()) if steps_dir.is_dir() else []
-    candidates = [agent for agent in [trial / "agent", *(step / "agent" for step in archives)]
-                  if _regular_file(agent / "reproduction.json", trial)]
+    # Read-only compatibility for existing .harbor runs captured in agent logs.
+    locations = [trial / "provenance", trial / "agent", *(step / "agent" for step in archives)]
+    candidates = [path for path in locations if (path / "reproduction.json").exists()
+                  or (path / "reproduction.json").is_symlink()]
     if len(candidates) != 1:
         issues.append("Expected one canonical reproduction snapshot.")
-    provenance = candidates[0] if candidates else trial / "agent"
+    provenance = candidates[0] if candidates else trial / "provenance"
+    if provenance == trial / "provenance":
+        for logs in locations[1:]:
+            if any((logs / name).exists() or (logs / name).is_symlink()
+                   for name in ("task", "source.patch", "source-untracked", "Package.resolved", "reproduction.json")):
+                issues.append(f"Provenance snapshot is exposed in agent logs: {logs.relative_to(trial)}.")
     reproduction = _read_json(trial, str((provenance / "reproduction.json").relative_to(trial)), issues)
     if reproduction.get("trial_id") != harbor.get("id"):
         issues.append("Reproduction metadata belongs to another trial.")
@@ -245,13 +256,22 @@ def assess_trial(trial):
     except (OSError, ValueError, TypeError, KeyError) as error:
         issues.append(f"{definition.relative_to(trial)}: {error}")
         declared, steps, names = [], [], []
+    runtime_agent = trial / "steps" / names[0] / "agent" if steps else trial / "agent"
+    pointers = ((reproduction.get("source_at_run", {}).get("patch"), provenance / "source.patch"),
+                (reproduction.get("source_at_run", {}).get("untracked"), provenance / "source-untracked"),
+                (reproduction.get("runtime_metadata"), runtime_agent / "runtime.json"))
+    for pointer, target in pointers:
+        retained = (target.is_dir() and not target.is_symlink() if target.name == "source-untracked"
+                    else _regular_file(target, trial))
+        if pointer != target.relative_to(trial).as_posix() or not retained:
+            issues.append(f"Reproduction pointer is missing, invalid, or dangling: {target.name}.")
     for name in ("source.patch", "Package.resolved"):
         if not _regular_file(provenance / name, trial):
             issues.append(f"Missing regular file: {(provenance / name).relative_to(trial)}")
     reports = []
     if steps:
-        if provenance != trial / "steps" / names[0] / "agent":
-            issues.append("Checkpoint provenance is not in the first checkpoint archive.")
+        if provenance not in (trial / "provenance", trial / "steps" / names[0] / "agent"):
+            issues.append("Legacy checkpoint provenance is not in the first checkpoint archive.")
         results = harbor.get("step_results") or []
         if not isinstance(results, list):
             raise ValueError("Harbor checkpoint results must be a list")
@@ -366,7 +386,14 @@ def _assess_run(trial, harbor, config, declared, checkpoint=False):
             issues.append(f"Artifact capture has a symlink ancestor: {source}.")
             continue
         kind = entry.get("type")
-        if not ((kind == "directory" and capture.is_dir()) or (kind == "file" and capture.is_file())):
+        # Harbor preserves the live publish mount and moves only its contents into checkpoint archives.
+        empty_publish_mount = (checkpoint and source == "/logs/artifacts" and kind == "directory"
+            and entry.get("status") == "empty" and entry.get("service") in (None, "main")
+            and entry.get("destination") == "artifacts/logs/artifacts"
+            and entry.get("exclude", []) == [] and not capture.exists()
+            and (not capture.parent.exists() or capture.parent.is_dir()))
+        if not (empty_publish_mount or (kind == "directory" and capture.is_dir())
+                or (kind == "file" and capture.is_file())):
             issues.append(f"Missing or invalid artifact capture: {source}.")
             continue
         captures.setdefault((source, entry.get("service") or "main"), []).append((entry, capture))
