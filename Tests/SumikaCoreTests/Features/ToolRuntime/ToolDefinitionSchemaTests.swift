@@ -138,6 +138,16 @@ struct ToolDefinitionSchemaTests {
   }
 
   @Test
+  func runCommandSchemaRequiresVerificationExitStatusPreservation() {
+    let description = ToolDefinition.runCommand.functionSchema.description
+
+    #expect(description.contains("Run tests, builds, and verification commands directly"))
+    #expect(description.contains("inspect captured output separately"))
+    #expect(description.contains("When combining commands, preserve the check's exit status"))
+    #expect(description.contains("trailing cat/echo or pipes to head/tail must not hide failures"))
+  }
+
+  @Test
   func workspaceDiagnosticsDefinitionRequiresExplicitOperationAndStream() {
     let definition = ToolDefinition.workspaceDiagnostics
     let schema = definition.functionSchema

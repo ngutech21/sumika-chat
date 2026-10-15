@@ -111,6 +111,23 @@ struct ToolPromptPolicyTests {
     #expect(!prompt.contains("You may emit multiple native tool calls"))
   }
 
+  @Test(arguments: [
+    ToolPromptMode.agent, .afterToolResultCanContinue, .afterToolResultFinal,
+    .afterToolBudgetExhausted,
+  ])
+  func workPromptsRequireVerificationExitStatusPreservation(mode: ToolPromptMode) {
+    let prompt = ToolPromptPolicy().systemPrompt(
+      basePrompt: "Base",
+      mode: mode,
+      toolRegistry: ToolExecutorRegistry.codingAgent.toolRegistry
+    )
+
+    #expect(prompt.contains("Run tests, builds, and verification commands directly"))
+    #expect(prompt.contains("inspect captured output separately"))
+    #expect(prompt.contains("When combining commands, preserve the check's exit status"))
+    #expect(prompt.contains("trailing cat/echo or pipes to head/tail must not hide failures"))
+  }
+
   @Test
   func nativeAgentPromptOmitsTodoInstructionsWhenTodoWriteUnavailable() {
     let prompt = ToolPromptPolicy().systemPrompt(
@@ -162,6 +179,7 @@ struct ToolPromptPolicyTests {
     #expect(!prompt.contains("Replace the smallest necessary span"))
     #expect(!prompt.contains("explicit assertions"))
     #expect(!prompt.contains("Report only checks actually run"))
+    #expect(!prompt.contains("preserve the check's exit status"))
   }
 
   @Test
