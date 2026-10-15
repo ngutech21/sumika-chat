@@ -1,4 +1,5 @@
 import Foundation
+import SumikaCore
 
 struct EvaluationOptions: Sendable {
   let modelID: String
@@ -9,11 +10,14 @@ struct EvaluationOptions: Sendable {
   let outputDirectory: URL
   let timeoutSeconds: Double
   let networkPolicy: EvaluationNetworkPolicy
+  let reasoningLevel: ReasoningEffort?
 
   static let usage = """
     Usage: SumikaEval --model-id ID --workspace-root /container/workspace \
     --bridge-url http://127.0.0.1:PORT --prompt-file /host/prompt.txt \
     --output-dir /host/artifacts [--timeout-seconds 600] [--network-policy JSON]
+    [--reasoning-level low|medium|xhigh]
+    Omit --reasoning-level to use the selected model's default.
     Set SUMIKA_HARBOR_TOKEN to the bridge's per-trial authentication token.
     """
 
@@ -21,7 +25,7 @@ struct EvaluationOptions: Sendable {
     let accepted = Set([
       "--model-id", "--workspace-root", "--bridge-url", "--prompt-file",
       "--output-dir", "--timeout-seconds",
-      "--network-policy",
+      "--network-policy", "--reasoning-level",
     ])
     var values: [String: String] = [:]
     var index = 0
@@ -49,6 +53,14 @@ struct EvaluationOptions: Sendable {
       return URL(filePath: path).standardizedFileURL
     }
     modelID = try required("--model-id")
+    if let value = values["--reasoning-level"] {
+      guard let level = ReasoningEffort(rawValue: value) else {
+        throw EvaluationError("--reasoning-level must be low, medium, or xhigh")
+      }
+      reasoningLevel = level
+    } else {
+      reasoningLevel = nil
+    }
     workspaceRoot = try absoluteFileURL("--workspace-root")
     promptFile = try absoluteFileURL("--prompt-file")
     outputDirectory = try absoluteFileURL("--output-dir")

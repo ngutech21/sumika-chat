@@ -19,6 +19,8 @@ from unittest.mock import AsyncMock, patch
 try:
     from harbor.models.agent.context import AgentContext
     from harbor.models.task.config import NetworkPolicy, TaskConfig
+    from harbor.models.trial.config import TrialConfig
+    from harbor.viewer.trial_utils import reasoning_effort_from_config
     from script.harbor.agent import SumikaAgent
 except ModuleNotFoundError as error:
     if not error.name.startswith("harbor"):
@@ -148,10 +150,12 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
                             if stream:
                                 self.assertIn(stream, log)
 
-    async def run_status(self, status, outcome, trajectory=None, export_error=None, policy=None):
+    async def run_status(self, status, outcome, trajectory=None, export_error=None, policy=None,
+                         reasoning_effort=None):
         with tempfile.TemporaryDirectory(prefix="sumika-agent-test-") as directory:
             logs = Path(directory)
-            agent = SumikaAgent(logs_dir=logs, model_name="fixture", binary=sys.executable)
+            agent = SumikaAgent(logs_dir=logs, model_name="fixture", binary=sys.executable,
+                                **({"reasoning_effort": reasoning_effort} if reasoning_effort is not None else {}))
             bridge = SimpleNamespace(start=AsyncMock(), close=AsyncMock(),
                                      token="test-token", url="http://127.0.0.1:1")
             process = SimpleNamespace(wait=AsyncMock(return_value=status), returncode=status)
@@ -187,6 +191,12 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
                         self.assertIsNone(context.n_cache_tokens)
                         self.assertIsNone(context.n_output_tokens)
                     launch_arguments = launch.call_args.args
+                    if reasoning_effort is None:
+                        self.assertNotIn("--reasoning-level", launch_arguments)
+                    else:
+                        self.assertEqual(launch_arguments.count("--reasoning-level"), 1)
+                        self.assertEqual(launch_arguments[launch_arguments.index("--reasoning-level") + 1],
+                                         reasoning_effort)
                     network_index = launch_arguments.index("--network-policy") + 1
                     self.assertEqual(json.loads(launch_arguments[network_index]),
                                      environment.network_policy.model_dump(mode="json"))
@@ -198,6 +208,28 @@ class AgentLifecycleTests(unittest.IsolatedAsyncioTestCase):
                     else:
                         prepare.assert_not_called()
             return context.metadata
+
+    async def test_runner_receives_reasoning_effort_only_when_requested(self):
+        for effort in (None, "low", "medium", "xhigh"):
+            with self.subTest(effort=effort):
+                kwargs = {"reasoning_effort": effort} if effort is not None else {}
+                config = TrialConfig.model_validate({
+                    "task": {"path": "script/harbor/tasks/merge-ranges"}, "agent": {"kwargs": kwargs}})
+                self.assertEqual(reasoning_effort_from_config(config), effort)
+                await self.run_status(0, "completed", **config.agent.kwargs)
+
+    def test_old_reasoning_option_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for kwargs in ({"reasoning_level": "low"}, {"reasoning_level": "low", "reasoning_effort": "medium"}):
+                with self.subTest(kwargs=kwargs), self.assertRaisesRegex(ValueError, "Use reasoning_effort"):
+                    SumikaAgent(logs_dir=Path(directory), model_name="fixture", binary=sys.executable, **kwargs)
+
+    def test_invalid_reasoning_efforts_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for level in ("", "high", "off", 1, True, ["low"]):
+                with self.subTest(level=level), self.assertRaisesRegex(ValueError, "reasoning_effort"):
+                    SumikaAgent(logs_dir=Path(directory), model_name="fixture", binary=sys.executable,
+                                reasoning_effort=level)
 
     async def test_runner_receives_resolved_agent_phase_policy(self):
         for definition in ('[environment]\nallow_internet = false',

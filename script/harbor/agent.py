@@ -20,7 +20,9 @@ from script.harbor.trajectory import export_trajectory
 class SumikaAgent(BaseAgent):
     capabilities = AgentCapabilities(atif=True)
 
-    def __init__(self, *args, binary, timeout_seconds=600, **kwargs):
+    def __init__(self, *args, binary, timeout_seconds=600, reasoning_effort=None, **kwargs):
+        if "reasoning_level" in kwargs:
+            raise ValueError("Use reasoning_effort instead of reasoning_level.")
         super().__init__(*args, **kwargs)
         if version("harbor") != "0.24.0":
             raise ValueError("This adapter requires harbor==0.24.0.")
@@ -28,6 +30,9 @@ class SumikaAgent(BaseAgent):
         self.timeout = int(timeout_seconds)
         if not 1 <= self.timeout <= 3600:
             raise ValueError("timeout_seconds must be between 1 and 3600.")
+        if reasoning_effort is not None and reasoning_effort not in ("low", "medium", "xhigh"):
+            raise ValueError("reasoning_effort must be low, medium, or xhigh.")
+        self.reasoning_effort = reasoning_effort
         if not self.model_name:
             raise ValueError("Pass an already-installed Sumika model ID with --model.")
         self.bridge = None
@@ -127,6 +132,7 @@ class SumikaAgent(BaseAgent):
                     "--output-dir", str(self.logs_dir.resolve()),
                     "--timeout-seconds", str(self.timeout),
                     "--network-policy", environment.network_policy.model_dump_json(),
+                    *(["--reasoning-level", self.reasoning_effort] if self.reasoning_effort is not None else []),
                     env=host_environment, stdout=output, stderr=asyncio.subprocess.STDOUT,
                     start_new_session=True)
                 async with asyncio.timeout(self.timeout + 15):

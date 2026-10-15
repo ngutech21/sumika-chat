@@ -336,6 +336,7 @@ run-harbor-smoke-test:
     -a script.harbor.agent:SumikaAgent -m Swift-1.5-4bit-MLX -n 1 \
     --plugin script.harbor.evidence:EvidencePlugin \
     --ak binary="$PWD/.build/release/SumikaEval" \
+    --ak reasoning_effort=low \
     --ak timeout_seconds=600 --jobs-dir "$PWD/.harbor/" --job-name "$job_name" || status=$?
     python3 -B script/harbor/evidence.py "$PWD/.harbor/$job_name" || status=1
     exit "$status"
@@ -347,13 +348,14 @@ run-harbor:
     job_name="$(uuidgen)"
     status=0
     HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" harbor run \
-    -t openthoughts/build-merkle-tree-cli-sha512 \
+    -t openthoughts/todos-api \
     -a script.harbor.agent:SumikaAgent \
     -m Swift-1.5-4bit-MLX \
     -e docker -n 1 -k 1 \
     --agent-timeout-multiplier 6 \
     --ak binary="$PWD/.build/release/SumikaEval" \
     --ak timeout_seconds=3300 \
+    --ak reasoning_effort=low \
     --plugin script.harbor.evidence:EvidencePlugin \
     --jobs-dir "$PWD/.harbor" --job-name "$job_name" || status=$?
 
@@ -381,6 +383,7 @@ run-harbor-suite:
     --agent-timeout-multiplier 6 \
     --ak binary="$PWD/.build/release/SumikaEval" \
     --ak timeout_seconds=3300 \
+    --ak reasoning_effort=low \
     --plugin script.harbor.evidence:EvidencePlugin \
     --jobs-dir "$PWD/.harbor" --job-name "$job_name" || status=$?
 

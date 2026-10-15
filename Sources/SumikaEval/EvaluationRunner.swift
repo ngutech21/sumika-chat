@@ -32,7 +32,7 @@ struct EvaluationRunner {
       let settingsStore = ModelSettingsStore(
         settingsURL: options.outputDirectory.appending(path: "state/model-settings.json")
       )
-      let settings = await settingsStore.settings(for: model)
+      let settings = try await modelSettings(for: model, store: settingsStore)
       result.contextTokenLimit = settings.contextTokenLimit
       try await save(
         EvaluationMetadata.capture(model: model, settings: settings, options: options),
@@ -123,6 +123,23 @@ struct EvaluationRunner {
       return result
     }
     return await finish(result, sumika: sumika)
+  }
+
+  func modelSettings(for model: ManagedModel, store: ModelSettingsStore) async throws
+    -> StoredModelSettings
+  {
+    let settings = await store.settings(for: model)
+    guard let level = options.reasoningLevel else { return settings }
+    guard case .selectableEffort(let supported, _) = model.reasoningCapability,
+      supported.contains(level)
+    else {
+      throw EvaluationError(
+        "Model \(model.id) does not support --reasoning-level \(level.rawValue)")
+    }
+    var modeSettings = settings.modeSettings
+    modeSettings.agent.generationSettings.reasoningSelection = .effort(level)
+    return try await store.apply(
+      .modeSettingsChanged(from: settings.modeSettings, updated: modeSettings), for: model)
   }
 
   private func makeWorkspaceExecution() -> WorkspaceExecution {

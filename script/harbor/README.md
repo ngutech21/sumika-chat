@@ -72,6 +72,17 @@ HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" harbor run -p script/harbor/tasks/merge-ran
 python3 -B script/harbor/evidence.py "$PWD/tmp/harbor/sumika/$harbor_job_name"
 ```
 
+To override Work reasoning effort, add `--ak reasoning_effort=low` to the Harbor
+command. The adapter forwards it as `SumikaEval --reasoning-level low`; accepted
+levels are `low`, `medium`, and `xhigh`. Omitting the option preserves the selected
+model's default. Invalid values and levels unsupported by the model fail explicitly.
+The provided run recipes explicitly select `low`. Harbor recognizes `reasoning_effort`
+in its viewer's reasoning-effort column and filters. The old `reasoning_level`
+option is rejected; use `reasoning_effort` instead.
+The override is stored only in the trial's settings and appears in `runtime.json`,
+`session.json`, and `mlx-trace.jsonl`; it does not change the app's settings or the
+model's hard thinking-token ceiling.
+
 The unchanged task must score `0`; the reference solution must score `1`. The
 verifier checks the container's actual `/app/ranges.py`, independently of the
 assistant's final answer. Reward `1` requires a fresh completion report after all

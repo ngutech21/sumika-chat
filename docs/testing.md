@@ -71,6 +71,9 @@ The three Harbor run recipes build and launch `SumikaEval` in Release.
 Run one trial at a time on the Mac. The CLI keeps settings and attachments in the
 trial directory and writes `session.json`, `result.json`, and the existing
 `mlx-trace.jsonl` format there.
+Use `--ak reasoning_effort=low` (or `medium` / `xhigh`) to forward an explicit
+`--reasoning-level` to SumikaEval. Omission keeps the model default; unsupported
+levels fail. The override stays in the trial's settings and existing run metadata.
 
 `just check-harbor-suite` calibrates the same shared task list used by
 `just run-harbor-suite`, requiring `nop` reward `0` and `oracle` reward `1` for
