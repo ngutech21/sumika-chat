@@ -295,11 +295,16 @@ def assess_trial(trial):
     if reproduction.get("task_checksum") != harbor.get("task_checksum") or not lock.get("task"):
         issues.append("Task identity is missing or inconsistent.")
     task = provenance / "task"
+    files = inventory(trial)
+    task_prefix = task.relative_to(trial).as_posix() + "/"
+    task_files = {
+        name.removeprefix(task_prefix): record for name, record in files.items() if name.startswith(task_prefix)
+    }
     if (
         task.is_symlink()
         or not task.is_dir()
         or not _regular_file(task / "task.toml", trial)
-        or inventory(task) != reproduction.get("task_files")
+        or task_files != reproduction.get("task_files")
     ):
         issues.append("Retained task files are missing or changed.")
     try:
@@ -375,7 +380,6 @@ def assess_trial(trial):
         report = _assess_run(trial, harbor, config, declared)
         issues.extend(report["issues"])
         reports.append(report)
-    files = inventory(trial)
     files.pop("agent/completeness.json", None)
     report = {
         "schema_version": 1,
@@ -610,7 +614,9 @@ class EvidencePlugin:
         return await asyncio.to_thread(save_assessment, trial)
 
     async def ended(self, event):
-        await self._finish_trial(event.config.trials_dir / event.trial_name)
+        from script.harbor.agent import SumikaAgent
+
+        await SumikaAgent.close_trial_worker(event.config.trials_dir / event.trial_name)
 
     async def on_job_end(self, _result):
         # Final logs and Harbor secret scrubbing finish after the trial END hook.

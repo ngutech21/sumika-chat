@@ -153,6 +153,19 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(inventory(self.trial), before)
         self.assertFalse((self.trial / "provenance").exists())
 
+    def test_assessment_hashes_each_file_once_in_current_and_legacy_layouts(self):
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy):
+                if legacy:
+                    self.legacy_provenance("agent")
+                with patch("script.harbor.evidence.hashlib.file_digest", wraps=hashlib.file_digest) as digest:
+                    report = assess_trial(self.trial)
+                self.assertTrue(report["complete"], report["issues"])
+                self.assertCountEqual(
+                    [Path(call.args[0].name) for call in digest.call_args_list],
+                    [self.trial / name for name, record in report["files"].items() if "sha256" in record],
+                )
+
     def test_new_provenance_rejects_duplicates_and_snapshots_exposed_in_agent_logs(self):
         shutil.copytree(self.trial / "provenance/task", self.trial / "agent/task")
         self.assertIn("exposed in agent logs", " ".join(assess_trial(self.trial)["issues"]))
@@ -765,6 +778,20 @@ class CheckpointEvidenceTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, "changed evidence"):
             check_evidence(self.trial)
 
+    def test_assessment_hashes_each_checkpoint_file_once_in_current_and_legacy_layouts(self):
+        names, _ = self.checkpoints()
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy):
+                if legacy:
+                    EvidenceTests.legacy_provenance(self, f"steps/{names[0]}/agent")
+                with patch("script.harbor.evidence.hashlib.file_digest", wraps=hashlib.file_digest) as digest:
+                    report = assess_trial(self.trial)
+                self.assertTrue(report["complete"], report["issues"])
+                self.assertCountEqual(
+                    [Path(call.args[0].name) for call in digest.call_args_list],
+                    [self.trial / name for name, record in report["files"].items() if "sha256" in record],
+                )
+
     @unittest.skipIf(find_spec("harbor") is None, "Requires the pinned Harbor archive implementation")
     def test_harbor_archive_omits_empty_publish_mount_but_preserves_declared_empty_directory(self):
         from harbor.trial.artifact_handler import ArtifactHandler
@@ -1244,16 +1271,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             close.assert_awaited_once_with(root / "trial")
             save.assert_called_once_with(root / "trial")
 
-    async def test_trial_end_closes_early_stopped_worker_before_assessing_evidence(self):
-        calls = []
-
-        async def close(trial):
-            calls.append(("close", trial))
-
-        def assess(trial):
-            calls.append(("assess", trial))
-            return {"complete": True}
-
+    async def test_trial_end_closes_early_stopped_worker_without_assessing_evidence(self):
         plugin = EvidencePlugin()
         event = SimpleNamespace(
             config=SimpleNamespace(trials_dir=Path("job")),
@@ -1261,11 +1279,57 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             result=SimpleNamespace(step_results=[{"step_name": "checkpoint_1"}]),
         )
         with (
-            patch("script.harbor.agent.SumikaAgent.close_trial_worker", AsyncMock(side_effect=close), create=True),
-            patch("script.harbor.evidence.save_assessment", side_effect=assess),
+            patch("script.harbor.agent.SumikaAgent.close_trial_worker", AsyncMock(), create=True) as close,
+            patch("script.harbor.evidence.save_assessment") as assess,
         ):
             await plugin.ended(event)
-        self.assertEqual(calls, [("close", Path("job/trial")), ("assess", Path("job/trial"))])
+        close.assert_awaited_once_with(Path("job/trial"))
+        assess.assert_not_called()
+
+    async def test_job_end_hashes_final_checkpoint_logs_and_cli_independently_rechecks_content(self):
+        fixture = CheckpointEvidenceTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        marker = {"schema_version": 1, "complete": False, "issues": ["Trial has not finished."]}
+        fixture.json("agent/completeness.json", marker)
+        names, _ = fixture.checkpoints()
+        marker_path = fixture.trial / "steps" / names[0] / "agent/completeness.json"
+        marker_contents = marker_path.read_bytes()
+        plugin = EvidencePlugin()
+        plugin.job_dir = fixture.trial.parent
+        event = SimpleNamespace(config=SimpleNamespace(trials_dir=plugin.job_dir), trial_name=fixture.trial.name)
+        targets = [fixture.trial / f"steps/{name}/artifacts/app/result.py" for name in names]
+        targets.append(fixture.trial / "provenance/task/task.toml")
+        with (
+            patch("script.harbor.agent.SumikaAgent.close_trial_worker", AsyncMock(), create=True),
+            patch("script.harbor.evidence.hashlib.file_digest", wraps=hashlib.file_digest) as digest,
+        ):
+            await plugin.ended(event)
+            digest.assert_not_called()
+            self.assertEqual(marker_path.read_bytes(), marker_contents)
+            self.assertFalse((fixture.trial / "agent").exists())
+            final_log = f"steps/{names[-1]}/agent/runner.log"
+            fixture.write(final_log, "final scrubbed logs\n")
+            await plugin.on_job_end(None)
+            report = json.loads((fixture.trial / "agent/completeness.json").read_text())
+            self.assertTrue(report["complete"], report["issues"])
+            self.assertEqual(report["files"][final_log]["sha256"], hashlib.sha256(b"final scrubbed logs\n").hexdigest())
+            hashed = [Path(call.args[0].name) for call in digest.call_args_list]
+            self.assertEqual([hashed.count(path) for path in targets], [1] * len(targets))
+            with contextlib.redirect_stdout(io.StringIO()):
+                check_evidence(fixture.trial.parent)
+            hashed = [Path(call.args[0].name) for call in digest.call_args_list]
+            self.assertEqual([hashed.count(path) for path in targets], [2] * len(targets))
+        artifact = fixture.trial / f"steps/{names[-1]}/artifacts/app/result.py"
+        before = artifact.stat()
+        artifact.write_bytes(b"changed!")
+        os.utime(artifact, ns=(before.st_atime_ns, before.st_mtime_ns))
+        after = artifact.stat()
+        self.assertEqual(
+            (before.st_ino, before.st_size, before.st_mtime_ns), (after.st_ino, after.st_size, after.st_mtime_ns)
+        )
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, "changed evidence"):
+            check_evidence(fixture.trial)
 
     async def test_environment_records_image_ids_without_environment_secrets(self):
         with tempfile.TemporaryDirectory() as directory:

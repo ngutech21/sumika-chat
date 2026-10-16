@@ -416,7 +416,7 @@ class PersistentAgentTests(unittest.IsolatedAsyncioTestCase):
         )
         with patch("script.harbor.evidence.save_assessment", return_value={"complete": True}) as assess:
             await EvidencePlugin().ended(event)
-            assess.assert_called_once_with(case.logs.parent)
+            assess.assert_not_called()
         self.assert_exited(self.events(case, "start")[0]["pid"])
         self.assertEqual(len(self.events(case, "eof")), 1)
         self.bridges[-1].close.assert_awaited_once_with(cleanup_environment=False)

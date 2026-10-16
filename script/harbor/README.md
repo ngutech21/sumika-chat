@@ -310,8 +310,12 @@ Each trial additionally retains:
   request/response/stream-boundary counts, and checksums of retained files.
   Workspace symlinks are recorded without following their targets.
 
-The plugin writes an incomplete marker before execution, assesses each ended
-trial, and finalizes checksums after Harbor finishes logs and secret scrubbing.
+The plugin writes an incomplete marker before execution and closes the native
+worker at trial-end without hashing evidence. It assesses each trial once at
+job-end, after Harbor finishes logs and secret scrubbing. Evidence stays marked
+incomplete until that final assessment. Each assessment hashes the trial once
+and reuses its inventory to validate the retained task files. The independent
+checker rehashes retained files on every run.
 Missing workspace/native/verifier artifacts, identity mismatches, malformed or
 unpaired model traces, and clipped model content make evidence incomplete.
 Bounded/redacted tool argument previews remain diagnostic projections; canonical
