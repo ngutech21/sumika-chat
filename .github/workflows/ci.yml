@@ -84,6 +84,9 @@ jobs:
         timeout-minutes: 10
         run: just format
 
+      - name: Test SwiftLint analyzer recipe
+        run: just test-lint-analyze
+
       - name: Run SwiftLint
         timeout-minutes: 10
         run: just lint

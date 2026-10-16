@@ -241,28 +241,46 @@ lint: prepare-swiftlint
     exit "$status"
 
 lint-analyze: prepare-swiftlint
-    @log=$(mktemp); \
-    trap 'rm -f "$log"' EXIT; \
-    set --; \
-    if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then \
-        set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; \
-    fi; \
-    if [ "${SKIP_PACKAGE_PLUGIN_VALIDATION:-0}" = "1" ]; then \
-        set -- "$@" -skipPackagePluginValidation -skipMacroValidation; \
-    fi; \
-    status=0; \
-    xcodebuild -project {{project}} -scheme {{scheme}} -configuration Debug -destination "{{destination}}" -derivedDataPath {{derived_data}} "$@" CODE_SIGNING_ALLOWED=NO clean build >"$log" 2>&1 || status=$?; \
-    if [ "$status" -eq 0 ]; then \
-        {{swift}} package --scratch-path {{lint_analyze_scratch}} clean >>"$log" 2>&1 && \
-        {{swift}} build --scratch-path {{lint_analyze_scratch}} --configuration debug --disable-automatic-resolution --build-tests --verbose >>"$log" 2>&1 || status=$?; \
-    fi; \
-    if [ "$status" -ne 0 ]; then \
-        cat "$log"; \
-        exit "$status"; \
-    fi; \
-    {{swiftlint}} analyze --quiet --strict --config .swiftlint-analyze.yml --compiler-log-path "$log"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p build/lint-analyze-logs
+    log_dir=$(mktemp -d "$PWD/build/lint-analyze-logs/run.XXXXXX")
+    compiler_log="$log_dir/compiler.log"
+    analyzer_log="$log_dir/analyzer.log"
+    printf 'SwiftLint analyzer logs: %s\n' "$log_dir"
 
-final-check: typos format lint periphery test lint-harbor test-harbor-python
+    run_phase() {
+        local name="$1" output="$2" start=$SECONDS status=0
+        shift 2
+        printf '%s: started\n' "$name" | tee -a "$log_dir/timings.log"
+        "$@" >>"$output" 2>&1 || status=$?
+        local elapsed=$((SECONDS - start))
+        printf '%s: finished in %dm %02ds (exit %d)\n' "$name" "$((elapsed / 60))" "$((elapsed % 60))" "$status" | tee -a "$log_dir/timings.log"
+        if [ "$status" -ne 0 ]; then
+            cat "$output"
+            printf 'Logs retained: %s\n' "$log_dir"
+        fi
+        return "$status"
+    }
+
+    set --
+    if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then
+        set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"
+    fi
+    if [ "${SKIP_PACKAGE_PLUGIN_VALIDATION:-0}" = "1" ]; then
+        set -- "$@" -skipPackagePluginValidation -skipMacroValidation
+    fi
+    run_phase 'Xcode clean build' "$compiler_log" xcodebuild -project {{project}} -scheme {{scheme}} -configuration Debug -destination "{{destination}}" -derivedDataPath {{derived_data}} "$@" CODE_SIGNING_ALLOWED=NO clean build
+    run_phase 'SwiftPM clean' "$compiler_log" {{swift}} package --scratch-path {{lint_analyze_scratch}} clean
+    run_phase 'SwiftPM build including tests' "$compiler_log" {{swift}} build --scratch-path {{lint_analyze_scratch}} --configuration debug --disable-automatic-resolution --build-tests --verbose
+    run_phase 'SwiftLint analysis' "$analyzer_log" {{swiftlint}} analyze --strict --config .swiftlint-analyze.yml --compiler-log-path "$compiler_log"
+    cat "$analyzer_log"
+    rm -r "$log_dir"
+
+test-lint-analyze:
+    python3 script/test_lint_analyze.py
+
+final-check: typos format lint periphery test test-lint-analyze lint-harbor test-harbor-python
 
 # Optional compiler diagnostics apply to Sumika targets, not package dependencies.
 audit-memory-safety target="SumikaCore":

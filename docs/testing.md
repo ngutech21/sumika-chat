@@ -36,6 +36,13 @@ launcher, package sources, and package tests together so cross-target callers ar
 visible. SwiftPM uses `.build/lint-analyze` to preserve the normal test build and
 the pinned SwiftLint tool cache; this check builds tests without running them.
 The existing file exclusions cover SourceKit replay limitations.
+Each build and analysis phase prints its start, elapsed time, and exit status.
+Compiler output, analyzer progress, and timings are retained under
+`build/lint-analyze-logs/run.*` on failure or interruption; successful runs remove
+their logs. The nightly analyzer step allows 60 minutes and uploads retained logs
+as the `swiftlint-analyze-logs` artifact on failure or cancellation.
+`just test-lint-analyze` checks phase ordering, failure propagation, and log retention
+with fake tools, without compiling the app or running analysis.
 
 The dead-code check performs SwiftPM and Xcode builds. It explicitly passes
 Swift Build's `.build/out/Products/Debug/index/store` index to Periphery 3.8,

@@ -80,8 +80,17 @@ jobs:
         run: just lint
 
       - name: Run SwiftLint analyzer rules
-        timeout-minutes: 45
+        id: lint-analyze
+        timeout-minutes: 60
         run: just lint-analyze
+
+      - name: Upload SwiftLint analyzer logs
+        if: ${{ always() && steps.lint-analyze.outcome != 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: swiftlint-analyze-logs
+          path: build/lint-analyze-logs/
+          if-no-files-found: ignore
 
       - name: Run Periphery
         timeout-minutes: 20
