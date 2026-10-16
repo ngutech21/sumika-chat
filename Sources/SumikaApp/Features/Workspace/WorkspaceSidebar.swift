@@ -10,6 +10,8 @@ struct WorkspaceSidebar: View {
   let onAddWorkspace: () -> Void
   let onCreateSession: (Workspace.ID) -> ChatSession.ID?
   let onRenameSession: (ChatSession.ID, String) -> Void
+  let onCopySessionAsMarkdown: (ChatSession.ID) -> Void
+  let onCopySessionWorkingDirectory: (ChatSession.ID) -> Void
   let onDeleteSession: (ChatSession.ID) -> Void
   let onRemoveWorkspace: (Workspace.ID) -> Void
   @State private var sessionBeingRenamed: WorkspaceSidebarSession?
@@ -203,14 +205,26 @@ struct WorkspaceSidebar: View {
     .accessibilityIdentifier("sidebar.sessionLink")
     .accessibilityValue(selection == route ? "Selected" : "")
     .contextMenu {
-      Button("Rename Chat") {
+      Menu("Copy", systemImage: "doc.on.doc") {
+        Button("Copy as Markdown") {
+          onCopySessionAsMarkdown(session.id)
+        }
+        .accessibilityIdentifier("sidebar.copySessionAsMarkdown")
+
+        Button("Copy Working Directory") {
+          onCopySessionWorkingDirectory(session.id)
+        }
+        .accessibilityIdentifier("sidebar.copySessionWorkingDirectory")
+      }
+
+      Button("Rename", systemImage: "pencil") {
         sessionBeingRenamed = session
         renameTitle = session.title
       }
 
       Divider()
 
-      Button("Remove Chat", role: .destructive) {
+      Button("Delete", systemImage: "trash", role: .destructive) {
         sessionPendingDeletion = session
       }
     }

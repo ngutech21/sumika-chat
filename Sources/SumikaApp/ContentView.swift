@@ -28,6 +28,8 @@ struct ContentView: View {
         onAddWorkspace: chooseWorkspace,
         onCreateSession: createSession,
         onRenameSession: appState.renameSession,
+        onCopySessionAsMarkdown: appState.copySessionAsMarkdown,
+        onCopySessionWorkingDirectory: { appState.workspaceState.copySessionWorkingDirectory($0) },
         onDeleteSession: deleteSession,
         onRemoveWorkspace: appState.removeWorkspace
       )

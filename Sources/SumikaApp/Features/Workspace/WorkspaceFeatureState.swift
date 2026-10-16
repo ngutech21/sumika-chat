@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import SumikaCore
@@ -181,6 +182,35 @@ final class WorkspaceFeatureState {
     syncWorkspaceProjections()
     saveLibrary()
     return .changed(activeSessionID)
+  }
+
+  func copySessionAsMarkdown(
+    _ sessionID: ChatSession.ID,
+    turns: [ChatTurn]? = nil,
+    to pasteboard: NSPasteboard = .general
+  ) {
+    guard
+      let session = library.workspaces.lazy.flatMap(\.sessions).first(where: { $0.id == sessionID })
+    else { return }
+    copy(session.markdownTranscript(turns: turns), to: pasteboard)
+  }
+
+  func copySessionWorkingDirectory(
+    _ sessionID: ChatSession.ID, to pasteboard: NSPasteboard = .general
+  ) {
+    guard
+      let workspace = library.workspaces.first(where: {
+        $0.sessions.contains { $0.id == sessionID }
+      })
+    else { return }
+    copy(workspace.rootURL.path(percentEncoded: false), to: pasteboard)
+  }
+
+  private func copy(_ text: String, to pasteboard: NSPasteboard) {
+    pasteboard.clearContents()
+    if !pasteboard.setString(text, forType: .string) {
+      errorMessage = "Could not copy to the clipboard. Please try again."
+    }
   }
 
   func renameSession(_ sessionID: ChatSession.ID, title: String) {

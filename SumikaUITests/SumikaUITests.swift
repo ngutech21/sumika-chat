@@ -96,6 +96,44 @@ final class SumikaUITests: XCTestCase {
   }
 
   @MainActor
+  func testChatSessionContextMenuOffersCopySubmenu() throws {
+    let fixture = try launchFixture()
+    let application = try launchApp(fixture: fixture)
+    defer { application.terminate() }
+
+    let workspaceList = application.descendants(matching: .any)["sidebar.workspaceList"]
+    if !workspaceList.exists {
+      application.buttons["Show Sidebar"].click()
+    }
+    let workspaceDisclosure = application.descendants(matching: .any).matching(
+      identifier: "sidebar.workspaceDisclosure"
+    ).firstMatch
+    XCTAssertTrue(workspaceDisclosure.waitForExistence(timeout: 5))
+    if (workspaceDisclosure.value as? String)?.contains("Collapsed") == true {
+      application.disclosureTriangles.firstMatch.click()
+    }
+    let chat = application.staticTexts["UI Performance"].firstMatch
+    XCTAssertTrue(chat.waitForExistence(timeout: 5))
+    chat.rightClick()
+    let copyMenu = application.menuItems["Copy"]
+    XCTAssertTrue(copyMenu.waitForExistence(timeout: 5))
+    XCTAssertTrue(application.menuItems["Rename"].exists)
+    XCTAssertTrue(application.menuItems["Delete"].exists)
+    copyMenu.hover()
+    let markdownItem = application.menuItems["Copy as Markdown"]
+    let directoryItem = application.menuItems["Copy Working Directory"]
+    XCTAssertTrue(markdownItem.waitForExistence(timeout: 5))
+    XCTAssertTrue(directoryItem.waitForExistence(timeout: 5))
+    XCTAssertTrue(markdownItem.isEnabled)
+    XCTAssertTrue(directoryItem.isEnabled)
+    let screenshot = XCTAttachment(screenshot: application.screenshot())
+    screenshot.name = "Chat session Copy submenu"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+    application.typeKey(.escape, modifierFlags: [])
+  }
+
+  @MainActor
   func testWorkspaceSidebarShowsFiveSessionsAtATime() throws {
     let fixture = try launchFixture()
     let application = try launchApp(fixture: fixture)

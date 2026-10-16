@@ -5,6 +5,13 @@ context, and the asynchronous work needed to answer a prompt. A visible transcri
 is not the same thing as model context: cancelled turns can remain visible for
 auditability while being excluded from future model prompts.
 
+The sidebar chat context menu offers Copy as Markdown and Copy Working Directory
+in a Copy submenu. Markdown includes the title, ordered user and assistant message
+content, and attachment names, including cancelled and model-excluded history. It omits
+reasoning, tool diagnostics, and model-only prompt context. Copying the live chat
+uses its current transcript, including partial output. Copy Working Directory
+copies the full absolute path of the workspace containing that chat.
+
 When workspace recovery restores only part of the library, the app keeps readable
 transcripts available for navigation without activating a conversation. The composer
 shows a read-only notice and is disabled; send and activation boundaries also reject

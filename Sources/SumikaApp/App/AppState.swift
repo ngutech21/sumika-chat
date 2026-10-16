@@ -221,6 +221,14 @@ final class AppState {
     reconcileMCPConnectionsIfNeeded()
   }
 
+  func copySessionAsMarkdown(_ sessionID: ChatSession.ID) {
+    let active = sumika.conversation.state.active
+    workspaceState.copySessionAsMarkdown(
+      sessionID,
+      turns: active?.sessionID == sessionID ? active?.turns : nil
+    )
+  }
+
   func renameSession(_ sessionID: ChatSession.ID, title: String) {
     guard !workspaceState.isPersistenceBlocked else {
       return

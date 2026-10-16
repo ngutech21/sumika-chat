@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SumikaCore
 import SumikaTestSupport
@@ -9,6 +10,51 @@ import Testing
 @Suite(.serialized, TemporaryDirectoryTrait(named: "sumika-workspace-feature-state-tests"))
 @MainActor
 struct WorkspaceFeatureStateTests {
+  @Test
+  func copyActionsUseTheRequestedSessionAndWorkingDirectory() async throws {
+    let root = try scopedTemporaryDirectory().appending(path: "Copy path #1")
+    let workingDirectory = root.appending(path: "Working directory #1")
+    try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+    let store = WorkspaceStore(baseURL: root)
+    let session = ChatSession(
+      title: "Copied chat",
+      turns: [ChatTurn(status: .completed, items: [.userMessage(.init(content: "Saved message"))])]
+    )
+    let other = ChatSession(title: "Selected chat")
+    let workspace = Workspace(name: "Project", rootURL: workingDirectory, sessions: [session])
+    let selectedWorkspace = Workspace(name: "Selected project", rootURL: root, sessions: [other])
+    try await store.saveLibrary(
+      WorkspaceLibrary(
+        workspaces: [workspace, selectedWorkspace], activeWorkspaceID: selectedWorkspace.id,
+        activeSessionID: other.id))
+    let state = WorkspaceFeatureState(
+      workspaceStore: store, workspaceOpener: WorkspaceFeatureRecordingOpener(),
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(), turnTracer: NoopTurnTracer()
+    )
+    await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
+    let pasteboard = NSPasteboard.withUniqueName()
+    defer { pasteboard.releaseGlobally() }
+
+    state.copySessionAsMarkdown(session.id, to: pasteboard)
+    #expect(pasteboard.string(forType: .string) == "# Copied chat\n\n## User\n\nSaved message\n")
+    state.copySessionWorkingDirectory(session.id, to: pasteboard)
+    let path = try #require(pasteboard.string(forType: .string))
+    #expect(path == workingDirectory.path(percentEncoded: false))
+    #expect(FileManager.default.fileExists(atPath: path))
+    #expect(state.activeSessionID == other.id)
+    #expect(state.activeWorkspace?.id == selectedWorkspace.id)
+
+    state.copySessionAsMarkdown(UUID(), to: pasteboard)
+    state.copySessionWorkingDirectory(UUID(), to: pasteboard)
+    #expect(pasteboard.string(forType: .string) == path)
+    let liveTurns = [
+      ChatTurn(status: .running, items: [.assistantMessage(.init(content: "Live output"))])
+    ]
+    state.copySessionAsMarkdown(session.id, turns: liveTurns, to: pasteboard)
+    #expect(pasteboard.string(forType: .string) == "# Copied chat\n\n## Assistant\n\nLive output\n")
+    await state.flushPendingSaves()
+  }
+
   @Test
   func cleanupFailureReportsACommittedDeletionAndClearsAfterRetry() async throws {
     let root = try scopedTemporaryDirectory()
