@@ -39,7 +39,7 @@ struct EvaluationWorkerTests {
       !FileManager.default.fileExists(
         atPath: fixture.options.outputDirectory.appending(path: "mlx-trace.jsonl").path))
     let histories = await fixture.runtime.histories
-    #expect(histories.count == 2)
+    try #require(histories.count == 2)
     #expect(histories[1].contains { $0.role == .user && $0.content.contains("first checkpoint") })
     #expect(histories[1].contains { $0.role == .user && $0.content.contains("second checkpoint") })
     #expect(await fixture.runtime.loadCount == 1)
@@ -226,7 +226,8 @@ private struct Fixture {
       let settings = StoredModelSettings(
         modeSettings: model.defaultModeSettings, contextTokenLimit: model.defaultContextTokenLimit)
       let sumika = Sumika(
-        configuration: .init(initialModel: model, initialModelSettings: settings),
+        configuration: .init(
+          initialModel: model, modelPath: directory.path, initialModelSettings: settings),
         dependencies: .init(
           runtime: runtime,
           modelSettingsStore: ModelSettingsStore(
