@@ -12,7 +12,6 @@ import http.client
 import ipaddress
 import json
 import os
-from pathlib import Path
 import re
 import selectors
 import signal
@@ -23,8 +22,8 @@ import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
 from urllib.parse import urljoin, urlsplit
-
 
 MAX_BYTES = 1024 * 1024
 MAX_ENTRIES = 10_000
@@ -76,8 +75,7 @@ def directory_fd(root, parts, create=False):
             if create:
                 with contextlib.suppress(FileExistsError):
                     os.mkdir(part, dir_fd=descriptor)
-            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                            dir_fd=descriptor)
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
             os.close(descriptor)
             descriptor = child
         yield descriptor
@@ -91,8 +89,7 @@ def file_version(info):
 
 
 def read_file(parent, name, offset=0, maximum=None, expected_version=None):
-    descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
-                         dir_fd=parent)
+    descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
     with os.fdopen(descriptor, "rb") as handle:
         info = os.fstat(handle.fileno())
         if not stat.S_ISREG(info.st_mode):
@@ -124,8 +121,11 @@ def files(root, control, request):
                 regular = index == len(parts) - 1 and stat.S_ISREG(info.st_mode)
             except FileNotFoundError:
                 break
-        return {"absolutePath": os.path.normpath(os.path.join(root, relative)),
-                "relativePath": relative, "isRegularFile": regular}
+        return {
+            "absolutePath": os.path.normpath(os.path.join(root, relative)),
+            "relativePath": relative,
+            "isRegularFile": regular,
+        }
     if operation == "list":
         with directory_fd(root, parts) as descriptor:
             names = []
@@ -144,7 +144,8 @@ def files(root, control, request):
                 maximum = integer(maximum, "maxBytes")
             expected_version = request.get("expectedVersion")
             if expected_version is not None and (
-                    not isinstance(expected_version, str) or not 0 < len(expected_version) <= 256):
+                not isinstance(expected_version, str) or not 0 < len(expected_version) <= 256
+            ):
                 raise RPCError("invalidArgument", "Invalid expected file version.")
             data, version = read_file(parent, name, offset, maximum, expected_version)
             return {"dataBase64": base64.b64encode(data).decode("ascii"), "version": version}
@@ -166,9 +167,12 @@ def files(root, control, request):
                 raise RPCError("contentChanged", "File changed since it was read.")
             temporary = ".sumika-" + os.urandom(12).hex()
             try:
-                descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-                                     stat.S_IMODE(info.st_mode) if info else 0o644,
-                                     dir_fd=parent)
+                descriptor = os.open(
+                    temporary,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    stat.S_IMODE(info.st_mode) if info else 0o644,
+                    dir_fd=parent,
+                )
                 with os.fdopen(descriptor, "wb") as handle:
                     handle.write(data)
                     handle.flush()
@@ -192,8 +196,13 @@ class Capture:
 
     def append(self, data):
         self.total += len(data)
-        head_limit = (self.limit if self.retention == "prefix" else
-                      self.limit - self.limit // 2 if self.retention == "headTail" else 0)
+        head_limit = (
+            self.limit
+            if self.retention == "prefix"
+            else self.limit - self.limit // 2
+            if self.retention == "headTail"
+            else 0
+        )
         added = min(max(0, head_limit - len(self.head)), len(data))
         self.head += data[:added]
         tail_limit = self.limit if self.retention == "tail" else self.limit // 2
@@ -208,14 +217,13 @@ class Capture:
             if len(marker) > self.limit // 2:
                 marker = "[...]" if self.limit >= 5 else "." * min(self.limit, 3)
             available = max(0, self.limit - len(marker))
-            head = self.head[:(available + 1) // 2]
-            tail = self.tail[-(available // 2):] if available // 2 else b""
+            head = self.head[: (available + 1) // 2]
+            tail = self.tail[-(available // 2) :] if available // 2 else b""
             data = head + tail
             omitted = self.total - len(data)
             if "bytes omitted" in marker:
                 marker = f"\n[... {omitted} bytes omitted during capture ...]\n"
-            text = (head.decode("utf-8", "sumika_bounded_utf8") + marker
-                    + tail.decode("utf-8", "sumika_bounded_utf8"))
+            text = head.decode("utf-8", "sumika_bounded_utf8") + marker + tail.decode("utf-8", "sumika_bounded_utf8")
         else:
             text = data.decode("utf-8", "sumika_bounded_utf8")
         return data, text, omitted
@@ -255,9 +263,13 @@ def run_command(root, control, request):
     relative = relative_path(root, request.get("cwd", root))
     executable = request["executable"]
     arguments = request["arguments"]
-    if (not isinstance(executable, str) or not executable or "\0" in executable
-            or not isinstance(arguments, list)
-            or any(not isinstance(value, str) or "\0" in value for value in arguments)):
+    if (
+        not isinstance(executable, str)
+        or not executable
+        or "\0" in executable
+        or not isinstance(arguments, list)
+        or any(not isinstance(value, str) or "\0" in value for value in arguments)
+    ):
         raise RPCError("invalidArgument", "Invalid command arguments.")
     timeout = integer(request["timeoutSeconds"], "timeoutSeconds", 1, 600)
     stdout = Capture(request["maxStdoutBytes"], request.get("stdoutRetention", "prefix"))
@@ -280,14 +292,26 @@ def run_command(root, control, request):
                     libc = ctypes.CDLL(None, use_errno=True)
                     libc.prctl.argtypes = [ctypes.c_int] + [ctypes.c_ulong] * 4
                     if libc.prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
-                        raise RPCError("transportFailure", "Cannot supervise command descendants: "
-                                       + os.strerror(ctypes.get_errno()))
+                        raise RPCError(
+                            "transportFailure",
+                            "Cannot supervise command descendants: " + os.strerror(ctypes.get_errno()),
+                        )
                 process = subprocess.Popen(
-                    [sys.executable, "-c", "import os,sys; os.fchdir(int(sys.argv[1])); "
-                     "os.close(int(sys.argv[1])); os.execvpe(sys.argv[2],sys.argv[2:],os.environ)",
-                     str(directory), executable, *arguments],
-                    pass_fds=(directory,), stdin=input_file,
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+                    [
+                        sys.executable,
+                        "-c",
+                        "import os,sys; os.fchdir(int(sys.argv[1])); "
+                        "os.close(int(sys.argv[1])); os.execvpe(sys.argv[2],sys.argv[2:],os.environ)",
+                        str(directory),
+                        executable,
+                        *arguments,
+                    ],
+                    pass_fds=(directory,),
+                    stdin=input_file,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    start_new_session=True,
+                )
                 with selectors.DefaultSelector() as selector:
                     selector.register(process.stdout, selectors.EVENT_READ, stdout)
                     selector.register(process.stderr, selectors.EVENT_READ, stderr)
@@ -328,24 +352,32 @@ def run_command(root, control, request):
                 marker.unlink()
     stdout_data, stdout_text, stdout_omitted = stdout.snapshot()
     _, stderr_text, stderr_omitted = stderr.snapshot()
-    return {"exitCode": None if timed_out or cancelled else process.returncode,
-            "durationMs": int((time.monotonic() - started) * 1000),
-            "stdout": stdout_text, "stderr": stderr_text,
-            "stdoutDataBase64": base64.b64encode(stdout_data).decode("ascii"),
-            "timedOut": timed_out, "cancelled": cancelled,
-            "stdoutTruncated": stdout_omitted > 0, "stderrTruncated": stderr_omitted > 0,
-            "stdoutOmittedBytes": stdout_omitted, "stderrOmittedBytes": stderr_omitted}
+    return {
+        "exitCode": None if timed_out or cancelled else process.returncode,
+        "durationMs": int((time.monotonic() - started) * 1000),
+        "stdout": stdout_text,
+        "stderr": stderr_text,
+        "stdoutDataBase64": base64.b64encode(stdout_data).decode("ascii"),
+        "timedOut": timed_out,
+        "cancelled": cancelled,
+        "stdoutTruncated": stdout_omitted > 0,
+        "stderrTruncated": stderr_omitted > 0,
+        "stdoutOmittedBytes": stdout_omitted,
+        "stderrOmittedBytes": stderr_omitted,
+    }
 
 
 def public_addresses(host):
-    if (not isinstance(host, str) or not host or "\0" in host
-            or host.lower().rstrip(".") == "localhost"
-            or host.lower().rstrip(".").endswith((".localhost", ".local"))):
+    if (
+        not isinstance(host, str)
+        or not host
+        or "\0" in host
+        or host.lower().rstrip(".") == "localhost"
+        or host.lower().rstrip(".").endswith((".localhost", ".local"))
+    ):
         raise RPCError("permissionDenied", "Expected a public web host.")
-    addresses = list(dict.fromkeys(
-        entry[4][0] for entry in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)))
-    if not addresses or any(not ip.is_global or ip.is_multicast
-                            for ip in map(ipaddress.ip_address, addresses)):
+    addresses = list(dict.fromkeys(entry[4][0] for entry in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)))
+    if not addresses or any(not ip.is_global or ip.is_multicast for ip in map(ipaddress.ip_address, addresses)):
         raise RPCError("permissionDenied", "Web host resolves to a non-public address.")
     return addresses
 
@@ -362,8 +394,12 @@ def web_operation(request):
     deadline = time.monotonic() + timeout
     while True:
         parsed = urlsplit(url)
-        if (parsed.scheme not in ("http", "https") or not parsed.hostname
-                or parsed.username is not None or parsed.password is not None):
+        if (
+            parsed.scheme not in ("http", "https")
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
             raise RPCError("permissionDenied", "Expected a public http or https URL.")
         addresses = public_addresses(parsed.hostname)
         port = parsed.port if parsed.port is not None else (443 if parsed.scheme == "https" else 80)
@@ -376,15 +412,17 @@ def web_operation(request):
             # Pin the validated address while keeping the original host for HTTP and TLS.
             for address in addresses:
                 try:
-                    connection.sock = socket.create_connection((address, port),
-                                                               timeout=max(0.001, deadline - time.monotonic()))
+                    connection.sock = socket.create_connection(
+                        (address, port), timeout=max(0.001, deadline - time.monotonic())
+                    )
                     break
                 except OSError:
                     if address == addresses[-1]:
                         raise
             if parsed.scheme == "https":
                 connection.sock = ssl.create_default_context().wrap_socket(
-                    connection.sock, server_hostname=parsed.hostname)
+                    connection.sock, server_hostname=parsed.hostname
+                )
             path = parsed.path or "/"
             if parsed.query:
                 path += "?" + parsed.query
@@ -400,18 +438,30 @@ def web_operation(request):
                 redirects -= 1
                 continue
             data = response.read(512 * 1024 + 1)
-            return {"url": url, "statusCode": response.status, "headers": dict(response.getheaders()),
-                    "dataBase64": base64.b64encode(data).decode("ascii")}
+            return {
+                "url": url,
+                "statusCode": response.status,
+                "headers": dict(response.getheaders()),
+                "dataBase64": base64.b64encode(data).decode("ascii"),
+            }
         finally:
             connection.close()
 
 
 def run_web(root, control, request):
-    result = run_command(root, control, {
-        "id": request["id"], "executable": sys.executable,
-        "arguments": [__file__, "--web"], "timeoutSeconds": request.get("timeoutSeconds", 15),
-        "maxStdoutBytes": MAX_BYTES, "maxStderrBytes": 4096,
-        "standardInputBase64": base64.b64encode(json.dumps(request).encode("utf-8")).decode("ascii")})
+    result = run_command(
+        root,
+        control,
+        {
+            "id": request["id"],
+            "executable": sys.executable,
+            "arguments": [__file__, "--web"],
+            "timeoutSeconds": request.get("timeoutSeconds", 15),
+            "maxStdoutBytes": MAX_BYTES,
+            "maxStderrBytes": 4096,
+            "standardInputBase64": base64.b64encode(json.dumps(request).encode("utf-8")).decode("ascii"),
+        },
+    )
     if result["cancelled"] or result["timedOut"] or result["exitCode"] != 0 or result["stdoutTruncated"]:
         raise RPCError("webFailure", result["stderr"] or "Web request cancelled or timed out.")
     return json.loads(result["stdout"])
@@ -445,8 +495,10 @@ def dispatch(root, control, request):
                 code = "notFound"
             elif error.errno in (errno.EACCES, errno.EPERM, errno.ELOOP, errno.ENOTDIR):
                 code = "permissionDenied"
-        return {"id": request.get("id") if isinstance(request, dict) else None,
-                "error": {"code": code, "message": str(error)}}
+        return {
+            "id": request.get("id") if isinstance(request, dict) else None,
+            "error": {"code": code, "message": str(error)},
+        }
 
 
 if __name__ == "__main__":

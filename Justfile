@@ -262,7 +262,7 @@ lint-analyze: prepare-swiftlint
     fi; \
     {{swiftlint}} analyze --quiet --strict --config .swiftlint-analyze.yml --compiler-log-path "$log"
 
-final-check: typos format lint periphery test
+final-check: typos format lint periphery test lint-harbor test-harbor-python
 
 # Optional compiler diagnostics apply to Sumika targets, not package dependencies.
 audit-memory-safety target="SumikaCore":
@@ -318,6 +318,25 @@ harbor_suite_tasks := '''
     openthoughts/auth_token_race_condition
 '''
 
+build-harbor:
+    swift build --configuration release --product SumikaEval
+
+test-harbor-python:
+    HARBOR_TELEMETRY=0 uv run --project script/harbor --locked python -B -m unittest discover -s script/harbor -v
+
+test-harbor: test-harbor-python
+    {{swift}} test --filter SumikaEvalTests
+
+lint-harbor:
+    uv run --project script/harbor --locked ruff check script/harbor
+    uv run --project script/harbor --locked ruff format --check script/harbor
+    uv run --project script/harbor --locked mypy --config-file script/harbor/pyproject.toml
+
+format-harbor:
+    uv run --project script/harbor --locked ruff format script/harbor
+
+check-harbor: lint-harbor build-harbor test-harbor
+
 check-harbor-fixture:
     HARBOR_TELEMETRY=0 uv run --project script/harbor --locked python -B script/harbor/check_baselines.py script/harbor/tasks/merge-ranges
 
@@ -328,10 +347,9 @@ check-harbor-suite:
     HARBOR_TELEMETRY=0 uv run --project script/harbor --locked python -B script/harbor/check_baselines.py \
         --dataset "{{harbor_suite_dataset}}" "${task_names[@]}"
 
-run-harbor-smoke-test:
+run-harbor-smoke-test: build-harbor
     #!/usr/bin/env bash
     set -eu
-    swift build --configuration release --product SumikaEval
     job_name="$(uuidgen)"
     status=0
     HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" uv run --project script/harbor --locked harbor run -p script/harbor/tasks/merge-ranges \
@@ -340,13 +358,12 @@ run-harbor-smoke-test:
     --ak binary="$PWD/.build/release/SumikaEval" \
     --ak reasoning_effort=low \
     --jobs-dir "$PWD/.harbor/" --job-name "$job_name" || status=$?
-    uv run --project script/harbor --locked python -B script/harbor/evidence.py "$PWD/.harbor/$job_name" || status=1
+    uv run --project script/harbor --locked python -B -m script.harbor.evidence "$PWD/.harbor/$job_name" || status=1
     exit "$status"
 
-run-harbor:
+run-harbor: build-harbor
     #!/usr/bin/env bash
     set -eu
-    swift build --configuration release --product SumikaEval
     job_name="$(uuidgen)"
     status=0
     HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" uv run --project script/harbor --locked harbor run \
@@ -360,14 +377,32 @@ run-harbor:
     --plugin script.harbor.evidence:EvidencePlugin \
     --jobs-dir "$PWD/.harbor" --job-name "$job_name" || status=$?
 
-    uv run --project script/harbor --locked python -B script/harbor/evidence.py "$PWD/.harbor/$job_name" || status=1
+    uv run --project script/harbor --locked python -B -m script.harbor.evidence "$PWD/.harbor/$job_name" || status=1
     exit "$status"
 
 
-run-harbor-file-backup-resume:
+run-harbor-file-backup: build-harbor
     #!/usr/bin/env bash
     set -eu
-    swift build --configuration release --product SumikaEval
+    job_name="$(uuidgen)"
+    status=0
+    HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" uv run --project script/harbor --locked harbor run \
+    -t gabeorlanski/file_backup@sha256:fd2acb76c0afcfc1b9bba10a8500e5ef3f51a8178373dcaa6da808011c6b499c \
+    -a script.harbor.agent:SumikaAgent \
+    -m Swift-1.5-4bit-MLX \
+    -e docker -n 1 -k 1 \
+    --agent-timeout-multiplier 1 \
+    --ak binary="$PWD/.build/release/SumikaEval" \
+    --ak reasoning_effort=low \
+    --plugin script.harbor.evidence:EvidencePlugin \
+    --jobs-dir "$PWD/.harbor" --job-name "$job_name" || status=$?
+
+    uv run --project script/harbor --locked python -B -m script.harbor.evidence "$PWD/.harbor/$job_name" || status=1
+    exit "$status"
+
+run-harbor-file-backup-resume: build-harbor
+    #!/usr/bin/env bash
+    set -eu
     job_name="$(uuidgen)"
     status=0
     HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" uv run --project script/harbor --locked harbor run \
@@ -382,11 +417,11 @@ run-harbor-file-backup-resume:
     --plugin script.harbor.evidence:EvidencePlugin \
     --jobs-dir "$PWD/.harbor" --job-name "$job_name" || status=$?
 
-    uv run --project script/harbor --locked python -B script/harbor/evidence.py "$PWD/.harbor/$job_name" || status=1
+    uv run --project script/harbor --locked python -B -m script.harbor.evidence "$PWD/.harbor/$job_name" || status=1
     exit "$status"
 
 
-run-harbor-suite:
+run-harbor-suite: build-harbor
     #!/usr/bin/env bash
     set -eu
     task_names=( {{harbor_suite_tasks}} )
@@ -395,7 +430,6 @@ run-harbor-suite:
     for task in "${task_names[@]}"; do
         task_filters+=(-i "$task")
     done
-    swift build --configuration release --product SumikaEval
     job_name="$(uuidgen)"
     status=0
     HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" uv run --project script/harbor --locked harbor run \
@@ -409,8 +443,8 @@ run-harbor-suite:
     --plugin script.harbor.evidence:EvidencePlugin \
     --jobs-dir "$PWD/.harbor" --job-name "$job_name" || status=$?
 
-    uv run --project script/harbor --locked python -B script/harbor/evidence.py "$PWD/.harbor/$job_name" || status=1
+    uv run --project script/harbor --locked python -B -m script.harbor.evidence "$PWD/.harbor/$job_name" || status=1
     exit "$status"
 
 harbor-view:
-    uv run --project script/harbor harbor view .harbor
+    uv run --project script/harbor --locked harbor view .harbor

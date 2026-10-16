@@ -58,7 +58,7 @@ on Ubuntu. A hosted macOS run must still verify the real installation and build.
 
 ## Harbor agent evaluation
 
-The first Harbor integration runs one Python repair task with the native
+The Harbor integration runs repair tasks and checkpoint evaluations with the native
 `SumikaEval` executable. It uses the production MLX runtime, Work loop, model
 defaults, typed tools, and automatic approval lifecycle. Harbor owns the Docker
 workspace and independently verifies its final contents. A completed Sumika turn
@@ -67,12 +67,22 @@ is not itself a passing evaluation.
 See [the Harbor runner instructions](../script/harbor/README.md) for installation,
 the single-trial command, baseline and oracle checks, and artifact locations.
 Install its local Python environment with `uv sync --project script/harbor --locked`.
-All Harbor recipes use that locked environment. Adapter unit tests run without
-Docker or MLX evaluation:
+All Harbor recipes use that locked Python 3.14 environment. Development checks run
+without Docker or MLX evaluation:
 
 ```sh
-uv run --project script/harbor --locked python -B -m unittest discover -s script/harbor -v
+just check-harbor
 ```
+
+This checks Ruff lint/formatting, builds the Release runner, and runs Python tests
+and the native `SumikaEvalTests`. Narrow commands are `lint-harbor`, `build-harbor`,
+`test-harbor`, and `test-harbor-python`; `format-harbor` applies Python formatting.
+Task fixtures are excluded from formatting. The dependency-free container worker
+retains Python 3.7 compatibility and has a syntax/import regression check.
+`lint-harbor` also type-checks the host boundary models with strict mypy settings.
+`just final-check` includes Python lint/format checks and tests alongside the full
+Swift suite. The Linux CI job runs the Python checks, including descendant cleanup
+tests that skip on macOS; recipe tests run with `just` installed.
 
 Use an already installed Work-capable model; evaluation never downloads weights.
 The Harbor run recipes build and launch `SumikaEval` in Release.

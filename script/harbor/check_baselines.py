@@ -2,9 +2,9 @@
 
 import argparse
 import json
-from pathlib import Path
 import subprocess
 import uuid
+from pathlib import Path
 
 
 def check_baselines(argv=None):
@@ -30,16 +30,29 @@ def check_baselines(argv=None):
     job_name = prefix + uuid.uuid4().hex
     for agent, expected, folder in (("nop", 0, "baseline"), ("oracle", 1, "oracle")):
         jobs_dir = Path("tmp/harbor") / folder
-        subprocess.run([
-            "harbor", "run", *task_args,
-            "-a", agent, "-n", "1", "-k", "1", "--job-name", job_name,
-            "--jobs-dir", str(jobs_dir),
-        ], check=True)
+        subprocess.run(
+            [
+                "harbor",
+                "run",
+                *task_args,
+                "-a",
+                agent,
+                "-n",
+                "1",
+                "-k",
+                "1",
+                "--job-name",
+                job_name,
+                "--jobs-dir",
+                str(jobs_dir),
+            ],
+            check=True,
+        )
         results = list((jobs_dir / job_name).glob("*/result.json"))
         if len(results) != len(task_names):
             raise RuntimeError(
-                f"{agent}: expected {len(task_names)} trial results in {jobs_dir / job_name}, "
-                f"got {len(results)}.")
+                f"{agent}: expected {len(task_names)} trial results in {jobs_dir / job_name}, got {len(results)}."
+            )
         remaining = set(task_names)
         for result_path in sorted(results):
             result = json.loads(result_path.read_text())
@@ -53,7 +66,8 @@ def check_baselines(argv=None):
             reward = rewards.get("reward")
             if type(reward) not in (int, float) or reward != expected:
                 raise RuntimeError(
-                    f"{agent}: {name} expected reward {expected}, got {reward!r}; inspect {result_path}.")
+                    f"{agent}: {name} expected reward {expected}, got {reward!r}; inspect {result_path}."
+                )
             print(f"{agent}: {name} reward {reward} matches expected {expected}.")
 
 

@@ -2,8 +2,9 @@
 
 This adapter runs the real Sumika Work loop and MLX model on the Mac. Its file
 operations and commands execute inside a fresh Harbor Docker task. Task files are
-never copied to the Mac for execution. The adapter currently supports one local
-trial at a time and the included Python repair task.
+never copied to the Mac for execution. Run one local trial at a time, using the
+included Python repair fixture, the pinned development suite, or checkpoint tasks.
+Checkpoint tasks can optionally retain the native conversation and loaded model.
 
 ## Requirements
 
@@ -11,7 +12,7 @@ trial at a time and the included Python repair task.
 - [uv](https://docs.astral.sh/uv/getting-started/installation/). The local uv
   project pins Harbor **0.24.0**, the version checked by the adapter, and locks
   its transitive dependencies in `uv.lock`. `.python-version` selects Python
-  **3.13.16**. From the repository root, install and check the environment:
+  **3.14.8**. From the repository root, install and check the environment:
 
   ```sh
   uv sync --project script/harbor --locked
@@ -26,14 +27,15 @@ trial at a time and the included Python repair task.
 - Build the native runner in Release from the repository root:
 
   ```sh
-  swift build --configuration release --product SumikaEval
+  just build-harbor
   ```
 
 The fixture image is `python:3.13.7-slim-bookworm`, with an unprivileged task user.
 Image pulls and builds may require network access. The fixture disables network
 access while running; no model download is performed by the runner.
 
-The container worker also needs Python. Adapter setup probes `python3` as the
+The container worker is dependency-free and supports Python 3.7 or newer,
+independently of the host's Python 3.14 environment. Adapter setup probes `python3` as the
 task user, including its required Unix standard-library modules. If that fails,
 setup installs `python3` with apt as root in the disposable container, then
 repeats the probe as the task user. Existing working interpreters are reused.
@@ -77,7 +79,7 @@ HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" uv run --project script/harbor --locked har
   --plugin script.harbor.evidence:EvidencePlugin \
   --ak binary="$PWD/.build/release/SumikaEval" \
   --jobs-dir "$PWD/tmp/harbor/sumika" --job-name "$harbor_job_name"
-uv run --project script/harbor --locked python -B script/harbor/evidence.py \
+uv run --project script/harbor --locked python -B -m script.harbor.evidence \
   "$PWD/tmp/harbor/sumika/$harbor_job_name"
 ```
 
@@ -252,7 +254,8 @@ workspace and `/output` require task artifact declarations. Tasks whose workspac
 is `/` must declare artifacts; legacy capture never archives the container root.
 
 The checker reads the retained `provenance/task/task.toml` with the standard-library
-TOML parser, so it still runs without Harbor installed in that Python interpreter.
+TOML parser and validates saved reports with Pydantic. Run it from the repository
+root in the locked host environment; it does not start Harbor or a model.
 Declared files and directories must match the manifest's source, service,
 destination, type, and configured exclusions. Run-level artifact requests are
 also validated. Captures must stay under `artifacts/` without symlink ancestors.
@@ -276,7 +279,8 @@ Each trial additionally retains:
   download directory, so mutable references such as `latest` are not resolved again.
 - `provenance/reproduction.json`, `provenance/source.patch`, `provenance/source-untracked/`,
   and `provenance/Package.resolved`: source commit and working changes at run time,
-  executable SHA-256, Swift version, host architecture, and task fingerprints.
+  executable SHA-256, Swift and Python versions, installed Python package versions,
+  the uv lockfile fingerprint, host architecture, and task fingerprints.
   Source metadata describes the checkout at run time; it does not claim that an
   arbitrary externally supplied binary was built from that checkout.
 - `agent/environment.json`: resolved task image IDs/digests and effective
@@ -327,7 +331,7 @@ For direct Sumika Harbor commands, include
 adapter's legacy fallback handle capture automatically. Then run the checker:
 
 ```sh
-uv run --project script/harbor --locked python -B script/harbor/evidence.py /absolute/path/to/job-or-trial
+uv run --project script/harbor --locked python -B -m script.harbor.evidence /absolute/path/to/job-or-trial
 ```
 
 The checker is read-only and also rejects changes since the plugin's final
@@ -408,8 +412,21 @@ not be drained, preventing the adapter from proceeding to verification.
 ## Checks and current limits
 
 ```sh
-uv run --project script/harbor --locked python -B -m unittest discover -s script/harbor -v
+just check-harbor
 ```
+
+`check-harbor` runs Ruff lint/format checks, builds the Release `SumikaEval`, and
+runs Python adapter tests plus the native `SumikaEvalTests`. Use `lint-harbor`,
+`build-harbor`, `test-harbor`, or `test-harbor-python` for narrower feedback.
+`format-harbor` applies formatting. Ruff excludes task fixtures so their inputs,
+reference solutions, and checksums stay stable. Its worker target stays Python 3.7.
+`lint-harbor` also runs strict mypy checks on the new host boundary models in
+`models.py`; the existing dynamic adapter modules are outside that initial scope.
+`just final-check` includes the Python checks; its full Swift suite already covers
+the native evaluation tests. CI runs Ruff and the Python suite on Linux, including
+the descendant-cleanup tests that skip on macOS. These gates require neither Docker
+nor an installed model. Fixture calibration and real-model smoke tests remain
+explicit commands.
 
 These tests use an explicit local fake environment and temporary files; they do
 not prove Docker or MLX behavior. They cover authentication, token isolation,
@@ -423,6 +440,9 @@ stderr into stdout. Request payloads and bridge credentials are not added to err
 Loopback sockets must be permitted by the test runner's sandbox.
 The locked environment includes Harbor for the adapter lifecycle and ATIF tests;
 running with another Python interpreter may skip those tests if Harbor is absent.
+Host result/checkpoint validation uses strict Pydantic types, preserving omitted
+optional fields and additional native metadata. Saved evidence reports also use
+strict validation. The container worker never imports these host models.
 Recipe tests use `just --show` and `just --dry-run`, then execute recipes in a
 temporary directory with fake `swift`, `uv`, and `uuidgen` commands. They check
 the pinned resume invocation and evidence/exit-status handling without building

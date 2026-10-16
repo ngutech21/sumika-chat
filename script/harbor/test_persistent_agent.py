@@ -4,18 +4,17 @@ import asyncio
 import contextlib
 import json
 import os
-from pathlib import Path
 import signal
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 from script.harbor import test_agent as lifecycle_tests
 
-
-NATIVE_STUB = '''
+NATIVE_STUB = """
 import argparse
 import json
 import os
@@ -56,7 +55,7 @@ def respond(checkpoint, policy=None):
     if mode == "eof":
         sys.exit(9)
     turns.append({"checkpointID": checkpoint, "instruction": instruction})
-    result = {"outcome": "failed" if mode == "failed" else "completed",
+    result = {"modelID": "fixture", "outcome": "failed" if mode == "failed" else "completed",
               "turnID": checkpoint, "sessionID": "same-session", "pid": os.getpid()}
     if mode == "duplicate_turn" and len(turns) > 1:
         result["turnID"] = turns[0]["checkpointID"]
@@ -83,7 +82,7 @@ if args.worker:
     record("eof")
 else:
     respond("one-shot")
-'''
+"""
 
 
 class StubBridge:
@@ -121,14 +120,17 @@ class PersistentAgentTests(unittest.IsolatedAsyncioTestCase):
         self.patches = contextlib.ExitStack()
         self.addCleanup(self.patches.close)
         launch = asyncio.create_subprocess_exec
-        self.launch = self.patches.enter_context(patch(
-            "script.harbor.agent.asyncio.create_subprocess_exec", AsyncMock(side_effect=launch)))
-        self.make_bridge = self.patches.enter_context(patch(
-            "script.harbor.agent.SandboxBridge", side_effect=self._bridge))
+        self.launch = self.patches.enter_context(
+            patch("script.harbor.agent.asyncio.create_subprocess_exec", AsyncMock(side_effect=launch))
+        )
+        self.make_bridge = self.patches.enter_context(
+            patch("script.harbor.agent.SandboxBridge", side_effect=self._bridge)
+        )
         self.patches.enter_context(patch("script.harbor.agent.capture_environment", AsyncMock()))
         self.export = self.patches.enter_context(patch("script.harbor.agent.export_trajectory", return_value=None))
-        self.capture = self.patches.enter_context(patch(
-            "script.harbor.agent.capture_legacy_artifacts", AsyncMock(side_effect=self._capture_while_idle)))
+        self.capture = self.patches.enter_context(
+            patch("script.harbor.agent.capture_legacy_artifacts", AsyncMock(side_effect=self._capture_while_idle))
+        )
 
     async def asyncTearDown(self):
         for case in self.cases:
@@ -144,8 +146,7 @@ class PersistentAgentTests(unittest.IsolatedAsyncioTestCase):
 
     def case(self, *, steps=2, resume=True, mode="normal"):
         root = self.directory / str(len(self.cases))
-        logs = lifecycle_tests.AgentLifecycleTests.trial_logs(
-            self, root, agent={"resume_trajectory": resume})
+        logs = lifecycle_tests.AgentLifecycleTests.trial_logs(self, root, agent={"resume_trajectory": resume})
         with (root / "provenance/task/task.toml").open("a") as task:
             for index in range(steps):
                 task.write(f'\n[[steps]]\nname = "checkpoint_{index + 1}"\nartifacts = ["/app"]\n')
@@ -153,12 +154,14 @@ class PersistentAgentTests(unittest.IsolatedAsyncioTestCase):
         native.write_text(f"#!{sys.executable}\n" + NATIVE_STUB)
         native.chmod(0o755)
         native.with_suffix(".mode").write_text(mode)
-        agent = lifecycle_tests.SumikaAgent(logs_dir=logs, model_name="fixture", binary=native,
-                                           reasoning_effort="low")
+        agent = lifecycle_tests.SumikaAgent(logs_dir=logs, model_name="fixture", binary=native, reasoning_effort="low")
         agent.workspace_root = "/app"
-        case = SimpleNamespace(agent=agent, logs=logs, native=native,
-                               environment=SimpleNamespace(network_policy=
-                                   lifecycle_tests.NetworkPolicy(network_mode="no-network")))
+        case = SimpleNamespace(
+            agent=agent,
+            logs=logs,
+            native=native,
+            environment=SimpleNamespace(network_policy=lifecycle_tests.NetworkPolicy(network_mode="no-network")),
+        )
         self.cases.append(case)
         return case
 
@@ -184,7 +187,8 @@ class PersistentAgentTests(unittest.IsolatedAsyncioTestCase):
         trial._artifact_handler = lifecycle_tests.ArtifactHandler(artifacts=[], logger=case.agent.logger)
         trial.paths.mkdir()
         task = lifecycle_tests.TaskConfig.model_validate_toml(
-            (case.logs.parent / "provenance/task/task.toml").read_text())
+            (case.logs.parent / "provenance/task/task.toml").read_text()
+        )
         trial._archive_step_outputs(task.steps[0], preserve_agent=preserve_agent)
         return trial.paths
 
@@ -204,8 +208,9 @@ class PersistentAgentTests(unittest.IsolatedAsyncioTestCase):
         second = lifecycle_tests.AgentContext()
         await case.agent.resume("Second instruction", case.environment, second)
         sessions = json.loads((case.logs / "session.json").read_text())
-        self.assertEqual([turn["instruction"] for turn in sessions["turns"]],
-                         ["First instruction", "Second instruction"])
+        self.assertEqual(
+            [turn["instruction"] for turn in sessions["turns"]], ["First instruction", "Second instruction"]
+        )
         self.assertEqual(first.metadata["sumika"]["pid"], second.metadata["sumika"]["pid"])
         self.assertEqual(self.launch.await_count, 1)
         self.assertEqual(self.make_bridge.call_count, 1)
@@ -218,8 +223,12 @@ class PersistentAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.export.call_count, 2)
         requests = self.events(case, "request")
         self.assertEqual([request["checkpointID"] for request in requests], ["checkpoint_1", "checkpoint_2"])
-        self.assertTrue(all(request["networkPolicy"] == case.environment.network_policy.model_dump(mode="json")
-                            for request in requests))
+        self.assertTrue(
+            all(
+                request["networkPolicy"] == case.environment.network_policy.model_dump(mode="json")
+                for request in requests
+            )
+        )
         self.assertEqual(len(self.events(case, "start")), 1)
         self.assertEqual(len(self.events(case, "eof")), 1)
         self.assert_exited(requests[0]["pid"])
@@ -229,28 +238,34 @@ class PersistentAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(arguments[arguments.index("--output-dir") + 1], str(case.logs))
         self.assertEqual(arguments[arguments.index("--timeout-seconds") + 1], "harbor")
         self.assertEqual(arguments[arguments.index("--reasoning-level") + 1], "low")
-        self.assertEqual(json.loads((paths.step_agent_dir("checkpoint_1") / "session.json").read_text()),
-                         first_session)
+        self.assertEqual(json.loads((paths.step_agent_dir("checkpoint_1") / "session.json").read_text()), first_session)
 
     async def test_early_checkpoint_failure_cannot_export_preserved_prior_usage(self):
         case = self.case(mode="fail_second")
 
         def export_first_checkpoint(*_args):
             (case.logs / "trajectory.json").write_text('{"checkpointID":"checkpoint_1"}')
-            return SimpleNamespace(final_metrics=SimpleNamespace(
-                total_prompt_tokens=251, total_cached_tokens=127, total_completion_tokens=19))
+            return SimpleNamespace(
+                final_metrics=SimpleNamespace(
+                    total_prompt_tokens=251, total_cached_tokens=127, total_completion_tokens=19
+                )
+            )
 
         self.export.side_effect = export_first_checkpoint
         first = lifecycle_tests.AgentContext()
         await case.agent.run("First instruction", case.environment, first)
         self.assertEqual((first.n_input_tokens, first.n_cache_tokens, first.n_output_tokens), (251, 127, 19))
         (case.logs / "mlx-trace.jsonl").write_text('{"kind":"turn_trace","turnID":"checkpoint_1"}\n')
-        preserved = {name: (case.logs / name).read_bytes() for name in
-                     ("result.json", "session.json", "mlx-trace.jsonl")}
+        preserved = {
+            name: (case.logs / name).read_bytes() for name in ("result.json", "session.json", "mlx-trace.jsonl")
+        }
         prior_trajectory = (case.logs / "trajectory.json").read_bytes()
         paths = self.archive_checkpoint(case, preserve_agent=True)
         second = lifecycle_tests.AgentContext()
-        with self.assertLogs(case.agent.logger, level="ERROR"), self.assertRaisesRegex(RuntimeError, "closed its output"):
+        with (
+            self.assertLogs(case.agent.logger, level="ERROR"),
+            self.assertRaisesRegex(RuntimeError, "closed its output"),
+        ):
             await case.agent.resume("Invalid second instruction", case.environment, second)
         self.assertEqual(self.export.call_count, 1)
         self.assertTrue(second.is_empty())
@@ -286,15 +301,17 @@ class PersistentAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads((case.logs / "trajectory.json").read_text()), {"turnID": "checkpoint_2"})
         self.assertFalse((case.logs / "trajectory-error.json").exists())
         self.assertFalse((case.logs / "artifact-error.json").exists())
-        self.assertEqual({path.relative_to(archived): path.read_bytes() for path in archived.rglob("*") if path.is_file()},
-                         snapshot)
+        self.assertEqual(
+            {path.relative_to(archived): path.read_bytes() for path in archived.rglob("*") if path.is_file()}, snapshot
+        )
         self.assertEqual(self.export.call_count, 2)
         self.assertEqual(self.launch.await_count, 1)
 
     async def test_repeated_prior_turn_id_is_not_a_current_checkpoint_acknowledgement(self):
         case = self.case(mode="duplicate_turn")
-        self.export.return_value = SimpleNamespace(final_metrics=SimpleNamespace(
-            total_prompt_tokens=251, total_cached_tokens=127, total_completion_tokens=19))
+        self.export.return_value = SimpleNamespace(
+            final_metrics=SimpleNamespace(total_prompt_tokens=251, total_cached_tokens=127, total_completion_tokens=19)
+        )
         await case.agent.run("First instruction", case.environment, lifecycle_tests.AgentContext())
         second = lifecycle_tests.AgentContext()
         with self.assertLogs(case.agent.logger, level="ERROR"), self.assertRaisesRegex(RuntimeError, "current turn"):
@@ -302,8 +319,9 @@ class PersistentAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads((case.logs / "result.json").read_text())["turnID"], "checkpoint_1")
         self.assertEqual(self.export.call_count, 1)
         self.assertTrue(second.is_empty())
-        self.assertEqual([event["checkpointID"] for event in self.events(case, "request")],
-                         ["checkpoint_1", "checkpoint_2"])
+        self.assertEqual(
+            [event["checkpointID"] for event in self.events(case, "request")], ["checkpoint_1", "checkpoint_2"]
+        )
         self.assertEqual(self.launch.await_count, 1)
         self.assert_exited(self.events(case, "start")[0]["pid"])
 
@@ -333,8 +351,9 @@ class PersistentAgentTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(mode=mode):
                 case = self.case(mode=mode)
                 before = self.launch.await_count
-                diagnostics = (self.assertLogs(case.agent.logger, level="ERROR")
-                               if mode != "failed" else contextlib.nullcontext())
+                diagnostics = (
+                    self.assertLogs(case.agent.logger, level="ERROR") if mode != "failed" else contextlib.nullcontext()
+                )
                 with diagnostics, self.assertRaises((RuntimeError, ValueError)):
                     await case.agent.run("Failing instruction", case.environment, lifecycle_tests.AgentContext())
                 self.assert_exited(self.events(case, "start")[0]["pid"])
@@ -392,8 +411,9 @@ class PersistentAgentTests(unittest.IsolatedAsyncioTestCase):
         case = self.case()
         await case.agent.run("Only attempted checkpoint", case.environment, lifecycle_tests.AgentContext())
         self.assertTrue(self.bridges[-1].suspended)
-        event = SimpleNamespace(config=SimpleNamespace(trials_dir=case.logs.parent.parent),
-                                trial_name=case.logs.parent.name)
+        event = SimpleNamespace(
+            config=SimpleNamespace(trials_dir=case.logs.parent.parent), trial_name=case.logs.parent.name
+        )
         with patch("script.harbor.evidence.save_assessment", return_value={"complete": True}) as assess:
             await EvidencePlugin().ended(event)
             assess.assert_called_once_with(case.logs.parent)

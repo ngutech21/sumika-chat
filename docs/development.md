@@ -108,11 +108,14 @@ For typed tool registration and approval, see [the tool runtime](tool-runtime.md
 
 Harbor evaluation uses a separate, non-package uv project in `script/harbor/`.
 Run `uv sync --project script/harbor --locked` from the repository root to install
-its locked dependencies into the ignored `script/harbor/.venv/`. Commit
+its locked dependencies, including Pydantic and the Ruff/mypy development tools, into the
+ignored `script/harbor/.venv/` using Python 3.14.8. Commit
 `pyproject.toml`, `uv.lock`, and `.python-version` together when changing that
 environment; `pyproject.toml` is the canonical dependency declaration. To update
 dependencies, edit it and run `uv lock --project script/harbor`, then sync and run
-the adapter tests in [the Harbor instructions](../script/harbor/README.md).
+`just check-harbor`. See [the Harbor instructions](../script/harbor/README.md) for
+narrower checks and explicit Docker/model evaluations. The uploaded container
+worker stays dependency-free and supports Python 3.7 or newer.
 Harbor recipes use `uv run --project script/harbor --locked`; no global Harbor
 installation or environment activation is required.
 

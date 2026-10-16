@@ -2,9 +2,9 @@
 
 import copy
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 try:
     from harbor.models.trajectories import Trajectory
@@ -24,36 +24,63 @@ def assistant(content="", identifier="assistant", **fields):
 
 
 def tool(identifier="call", name="run_command", state="completed", **arguments):
-    return {"kind": "tool", "payload": {
-        "request": {"raw": {"id": identifier, "toolName": name,
-                            "arguments": arguments, "createdAt": 1}},
-        "state": {"kind": state, "payload": {"kind": "runCommand", "payload": {
-            "exitCode": 1 if state == "failed" else 0,
-            "stdout": {"text": "output", "truncated": False},
-            "stderr": {"text": "AssertionError" if state == "failed" else ""},
-        }}},
-        "modelFollowUpNotice": "Use the result.",
-    }}
+    return {
+        "kind": "tool",
+        "payload": {
+            "request": {"raw": {"id": identifier, "toolName": name, "arguments": arguments, "createdAt": 1}},
+            "state": {
+                "kind": state,
+                "payload": {
+                    "kind": "runCommand",
+                    "payload": {
+                        "exitCode": 1 if state == "failed" else 0,
+                        "stdout": {"text": "output", "truncated": False},
+                        "stderr": {"text": "AssertionError" if state == "failed" else ""},
+                    },
+                },
+            },
+            "modelFollowUpNotice": "Use the result.",
+        },
+    }
 
 
 def session(*items):
-    return {"id": "session", "turns": [{"id": "turn", "createdAt": 0,
-            "status": "completed", "items": [message("userMessage", "Repair", "user"), *items]}]}
+    return {
+        "id": "session",
+        "turns": [
+            {
+                "id": "turn",
+                "createdAt": 0,
+                "status": "completed",
+                "items": [message("userMessage", "Repair", "user"), *items],
+            }
+        ],
+    }
 
 
 def generation(identifier="generation", prompt=100, cached=0, output=20, turn="turn"):
-    common = {"kind": "turn_trace", "generationID": identifier, "turnID": turn,
-              "timestamp": "2026-10-14T12:00:00Z"}
+    common = {"kind": "turn_trace", "generationID": identifier, "turnID": turn, "timestamp": "2026-10-14T12:00:00Z"}
     return [
         {**common, "phase": "runtime_stream_start"},
-        {"kind": "mlx_request", "id": identifier,
-         "settings": {"effectiveReasoningSelection": "medium"}},
-        {**common, "phase": "runtime_prefill", "fullPromptTokens": prompt,
-         "promptTokens": prompt - cached, "reusedPromptTokens": cached, "cacheMode": "append_delta"},
+        {"kind": "mlx_request", "id": identifier, "settings": {"effectiveReasoningSelection": "medium"}},
+        {
+            **common,
+            "phase": "runtime_prefill",
+            "fullPromptTokens": prompt,
+            "promptTokens": prompt - cached,
+            "reusedPromptTokens": cached,
+            "cacheMode": "append_delta",
+        },
         {"kind": "mlx_response", "id": identifier},
-        {**common, "phase": "runtime_stream_end", "generatedTokenCount": output,
-         "generatedTokenCountIsEstimate": False, "reasoningTokenCount": 5,
-         "answerTokenCount": output - 5, "runtimeStreamOutcome": "tool_call_boundary"},
+        {
+            **common,
+            "phase": "runtime_stream_end",
+            "generatedTokenCount": output,
+            "generatedTokenCountIsEstimate": False,
+            "reasoningTokenCount": 5,
+            "answerTokenCount": output - 5,
+            "runtimeStreamOutcome": "tool_call_boundary",
+        },
     ]
 
 
@@ -70,8 +97,14 @@ class TrajectoryTests(unittest.TestCase):
             tool("test", state="failed", command="python test.py"),
             assistant("", "assistant-2"),
             tool("finish", "finish_task", status="blocked", summary="Test still fails"),
-            assistant("Test still fails", "summary", modelProjectionPolicy={
-                "kind": "override", "content": "Delivered finish_task summary directly to the user."}),
+            assistant(
+                "Test still fails",
+                "summary",
+                modelProjectionPolicy={
+                    "kind": "override",
+                    "content": "Delivered finish_task summary directly to the user.",
+                },
+            ),
         )
         before = copy.deepcopy(value)
         result = self.build(value, generation("first") + generation("second", 150, 120, 30))
@@ -97,7 +130,7 @@ class TrajectoryTests(unittest.TestCase):
         self.assertEqual(result.extra["issues"], [])
 
     def test_leaked_tool_protocol_remains_text(self):
-        text = '<tool_call><function=run_command><parameter=command>echo hi</parameter></function></tool_call>'
+        text = "<tool_call><function=run_command><parameter=command>echo hi</parameter></function></tool_call>"
         result = self.build(session(assistant(text)), generation())
         self.assertEqual(result.steps[1].message, text)
         self.assertIsNone(result.steps[1].tool_calls)
@@ -157,8 +190,13 @@ class TrajectoryTests(unittest.TestCase):
         current["items"] = [message("userMessage", "Next checkpoint", "next-user"), assistant("New work", "new")]
         value["turns"].append(current)
         before = copy.deepcopy(value)
-        result = build_trajectory(value, generation("new-generation", 200, 150, 30, turn="current"),
-                                  "fixture-model", "eval-1", turn_id="current")
+        result = build_trajectory(
+            value,
+            generation("new-generation", 200, 150, 30, turn="current"),
+            "fixture-model",
+            "eval-1",
+            turn_id="current",
+        )
         self.assertEqual(value, before)
         self.assertEqual([step.message for step in result.steps], ["Next checkpoint", "New work"])
         self.assertEqual(result.extra["turn_id"], "current")
@@ -184,10 +222,16 @@ class TrajectoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not match"):
             build_trajectory(value, rows, "fixture-model", "eval-1", turn_id="current")
         value["turns"][-1]["items"].pop()
-        for changed in ([], rows[:-1], rows[:3] + rows[4:], rows[1:], rows + generation("old", turn="turn"),
-                        rows + [{"kind": "mlx_response", "id": "foreign"}],
-                        rows + [{"kind": "turn_trace", "phase": "runtime_memory", "turnID": "turn"}],
-                        [{**row, "turnID": "turn"} if row.get("kind") == "mlx_response" else row for row in rows]):
+        for changed in (
+            [],
+            rows[:-1],
+            rows[:3] + rows[4:],
+            rows[1:],
+            rows + generation("old", turn="turn"),
+            rows + [{"kind": "mlx_response", "id": "foreign"}],
+            rows + [{"kind": "turn_trace", "phase": "runtime_memory", "turnID": "turn"}],
+            [{**row, "turnID": "turn"} if row.get("kind") == "mlx_response" else row for row in rows],
+        ):
             with self.subTest(rows=len(changed)), self.assertRaises(ValueError):
                 build_trajectory(value, changed, "fixture-model", "eval-1", turn_id="current")
 
@@ -222,9 +266,11 @@ class TrajectoryTests(unittest.TestCase):
     def test_export_rejects_symlinked_current_turn_evidence(self):
         with tempfile.TemporaryDirectory(prefix="sumika-trajectory-links-") as directory:
             logs = Path(directory)
-            for name, contents in (("session.json", json.dumps(session(assistant()))),
-                                   ("result.json", json.dumps({"turnID": "turn"})),
-                                   ("mlx-trace.jsonl", "\n".join(json.dumps(row) for row in generation()))):
+            for name, contents in (
+                ("session.json", json.dumps(session(assistant()))),
+                ("result.json", json.dumps({"turnID": "turn"})),
+                ("mlx-trace.jsonl", "\n".join(json.dumps(row) for row in generation())),
+            ):
                 (logs / name).write_text(contents)
             for name in ("session.json", "result.json", "mlx-trace.jsonl"):
                 path = logs / name
@@ -242,8 +288,7 @@ class TrajectoryTests(unittest.TestCase):
             self.assertIsNone(export_trajectory(logs, "fixture-model", "eval-1"))
             self.assertFalse((logs / "trajectory.json").exists())
             (logs / "session.json").write_text(json.dumps(session(assistant())), encoding="utf-8")
-            (logs / "mlx-trace.jsonl").write_text(
-                "\n".join(json.dumps(r) for r in generation()), encoding="utf-8")
+            (logs / "mlx-trace.jsonl").write_text("\n".join(json.dumps(r) for r in generation()), encoding="utf-8")
             before = {p.name: p.read_bytes() for p in logs.iterdir()}
             result = export_trajectory(logs, "fixture-model", "eval-1")
             self.assertEqual(Trajectory.model_validate_json((logs / "trajectory.json").read_text()), result)

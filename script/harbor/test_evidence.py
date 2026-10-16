@@ -2,22 +2,31 @@
 
 import contextlib
 import copy
+import hashlib
 import io
 import json
-from importlib.util import find_spec
 import logging
-from pathlib import Path
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
+from importlib.util import find_spec
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from script.harbor.evidence import (
-    EvidencePlugin, assess_trial, capture_environment, capture_legacy_artifacts, check_evidence, inventory,
-    prepare_trial, save_assessment, write_json,
+    EvidencePlugin,
+    assess_trial,
+    capture_environment,
+    capture_legacy_artifacts,
+    check_evidence,
+    inventory,
+    prepare_trial,
+    save_assessment,
+    write_json,
 )
 
 
@@ -38,29 +47,58 @@ class EvidenceTests(unittest.TestCase):
         self.write("provenance/source.patch", "")
         self.write("provenance/Package.resolved", "{}")
         (self.trial / "provenance/source-untracked").mkdir()
-        self.json("result.json", {"id": "trial-1", "finished_at": "now", "task_checksum": "digest",
-                                  "verifier_result": {"rewards": {"reward": 0}}})
+        self.json(
+            "result.json",
+            {
+                "id": "trial-1",
+                "finished_at": "now",
+                "task_checksum": "digest",
+                "verifier_result": {"rewards": {"reward": 0}},
+            },
+        )
         self.json("config.json", {"agent": {"model_name": "model"}})
         self.json("lock.json", {"task": {"digest": "digest"}})
-        self.json("provenance/reproduction.json", {
-            "trial_id": "trial-1", "task_checksum": "digest",
-            "binary": {"sha256": "binary"}, "source_at_run": {"commit": "commit",
-                "patch": "provenance/source.patch", "untracked": "provenance/source-untracked"},
-            "runtime_metadata": "agent/runtime.json", "task_files": inventory(self.trial / "provenance/task")})
-        self.json("agent/runtime.json", {"schemaVersion": 1, "modelID": "model",
-            "modelFiles": [{"sha256": "weight"}], "settings": {"contextTokenLimit": 16384},
-            "buildConfiguration": "debug", "workspaceRoot": "/app"})
+        self.json(
+            "provenance/reproduction.json",
+            {
+                "trial_id": "trial-1",
+                "task_checksum": "digest",
+                "binary": {"sha256": "binary"},
+                "source_at_run": {
+                    "commit": "commit",
+                    "patch": "provenance/source.patch",
+                    "untracked": "provenance/source-untracked",
+                },
+                "runtime_metadata": "agent/runtime.json",
+                "task_files": inventory(self.trial / "provenance/task"),
+            },
+        )
+        self.json(
+            "agent/runtime.json",
+            {
+                "schemaVersion": 1,
+                "modelID": "model",
+                "modelFiles": [{"sha256": "weight"}],
+                "settings": {"contextTokenLimit": 16384},
+                "buildConfiguration": "debug",
+                "workspaceRoot": "/app",
+            },
+        )
         self.json("agent/environment.json", {"images": [{"Id": "image"}]})
         self.json("agent/result.json", {"modelID": "model", "turnID": "turn", "outcome": "completed"})
         self.json("agent/session.json", {"selectedModelID": "model", "turns": [{"id": "turn"}]})
-        self.json("artifacts/manifest.json", [{"source": "/app", "destination": "artifacts/app",
-                                               "type": "directory", "status": "ok", "exclude": []}])
+        self.json(
+            "artifacts/manifest.json",
+            [{"source": "/app", "destination": "artifacts/app", "type": "directory", "status": "ok", "exclude": []}],
+        )
         self.write("verifier/reward.txt", "0")
         self.write("verifier/test-stdout.txt", "failed test")
-        self.rows = [{"kind": "mlx_request", "id": "generation"},
-                     {"kind": "mlx_response", "id": "generation"},
-                     {"kind": "turn_trace", "phase": "runtime_stream_start", "generationID": "generation", "turnID": "turn"},
-                     {"kind": "turn_trace", "phase": "runtime_stream_end", "generationID": "generation", "turnID": "turn"}]
+        self.rows = [
+            {"kind": "mlx_request", "id": "generation"},
+            {"kind": "mlx_response", "id": "generation"},
+            {"kind": "turn_trace", "phase": "runtime_stream_start", "generationID": "generation", "turnID": "turn"},
+            {"kind": "turn_trace", "phase": "runtime_stream_end", "generationID": "generation", "turnID": "turn"},
+        ]
         self.trace()
 
     def write(self, name, contents):
@@ -88,14 +126,21 @@ class EvidenceTests(unittest.TestCase):
             path.rename(target / path.name)
         provenance.rmdir()
         reproduction = json.loads((target / "reproduction.json").read_text())
-        reproduction["source_at_run"].update(
-            patch=f"{relative}/source.patch", untracked=f"{relative}/source-untracked")
+        reproduction["source_at_run"].update(patch=f"{relative}/source.patch", untracked=f"{relative}/source-untracked")
         write_json(target / "reproduction.json", reproduction)
 
     def test_absent_empty_publish_directory_is_not_accepted_for_single_step_trials(self):
         manifest = json.loads((self.trial / "artifacts/manifest.json").read_text())
-        manifest.append({"source": "/logs/artifacts", "destination": "artifacts/logs/artifacts",
-                         "type": "directory", "status": "empty", "service": None, "exclude": []})
+        manifest.append(
+            {
+                "source": "/logs/artifacts",
+                "destination": "artifacts/logs/artifacts",
+                "type": "directory",
+                "status": "empty",
+                "service": None,
+                "exclude": [],
+            }
+        )
         self.json("artifacts/manifest.json", manifest)
         self.assertFalse(assess_trial(self.trial)["complete"])
 
@@ -120,7 +165,9 @@ class EvidenceTests(unittest.TestCase):
             else:
                 shutil.copy2(source, duplicate)
             with self.subTest(symlink=symlink):
-                self.assertIn("Expected one canonical reproduction snapshot", " ".join(assess_trial(self.trial)["issues"]))
+                self.assertIn(
+                    "Expected one canonical reproduction snapshot", " ".join(assess_trial(self.trial)["issues"])
+                )
             duplicate.unlink()
 
     def test_legacy_capture_must_match_the_runtime_workspace(self):
@@ -129,8 +176,18 @@ class EvidenceTests(unittest.TestCase):
         self.json("agent/runtime.json", runtime)
         self.assertIn("Missing artifact capture: /work dir (main).", assess_trial(self.trial)["issues"])
         (self.trial / "artifacts/app").rename(self.trial / "artifacts/work dir")
-        self.json("artifacts/manifest.json", [{"source": "/work dir", "destination": "artifacts/work dir",
-            "type": "directory", "status": "ok", "exclude": []}])
+        self.json(
+            "artifacts/manifest.json",
+            [
+                {
+                    "source": "/work dir",
+                    "destination": "artifacts/work dir",
+                    "type": "directory",
+                    "status": "ok",
+                    "exclude": [],
+                }
+            ],
+        )
         self.assertTrue(assess_trial(self.trial)["complete"])
 
     def test_legacy_capture_requires_a_valid_nonroot_runtime_workspace(self):
@@ -151,8 +208,17 @@ class EvidenceTests(unittest.TestCase):
     def test_declared_file_replaces_workspace_requirement_and_is_checksummed(self):
         self.task_config('artifacts = ["/output/report.json"]\n')
         self.json("artifacts/output/report.json", {"answer": 1})
-        self.json("artifacts/manifest.json", [{"source": "/output/report.json",
-            "destination": "artifacts/output/report.json", "type": "file", "status": "ok"}])
+        self.json(
+            "artifacts/manifest.json",
+            [
+                {
+                    "source": "/output/report.json",
+                    "destination": "artifacts/output/report.json",
+                    "type": "file",
+                    "status": "ok",
+                }
+            ],
+        )
         report = save_assessment(self.trial)
         self.assertTrue(report["complete"], report["issues"])
         with contextlib.redirect_stdout(io.StringIO()):
@@ -162,16 +228,29 @@ class EvidenceTests(unittest.TestCase):
             check_evidence(self.trial)
 
     def test_declared_sidecar_directory_honors_destination_and_exclusions(self):
-        self.task_config('artifacts = [{source = "/results", destination = "reports", '
-                         'service = "loadgen", exclude = ["*.tmp"]}]\n')
+        self.task_config(
+            'artifacts = [{source = "/results", destination = "reports", service = "loadgen", exclude = ["*.tmp"]}]\n'
+        )
         self.write("artifacts/reports/result.csv", "answer")
-        entry = {"source": "/results", "destination": "artifacts/reports",
-                 "service": "loadgen", "exclude": ["*.tmp"], "type": "directory", "status": "ok"}
+        entry = {
+            "source": "/results",
+            "destination": "artifacts/reports",
+            "service": "loadgen",
+            "exclude": ["*.tmp"],
+            "type": "directory",
+            "status": "ok",
+        }
         self.json("artifacts/manifest.json", [entry])
         self.assertTrue(assess_trial(self.trial)["complete"])
-        for change in ({"service": "main"}, {"destination": "artifacts/elsewhere"},
-                       {"exclude": []}, {"exclude": ["*.tmp", "result.csv"]},
-                       {"status": "failed"}, {"status": "skipped"}, {"type": "file"}):
+        for change in (
+            {"service": "main"},
+            {"destination": "artifacts/elsewhere"},
+            {"exclude": []},
+            {"exclude": ["*.tmp", "result.csv"]},
+            {"status": "failed"},
+            {"status": "skipped"},
+            {"type": "file"},
+        ):
             with self.subTest(change=change):
                 self.json("artifacts/manifest.json", [{**entry, **change}])
                 self.assertFalse(assess_trial(self.trial)["complete"])
@@ -185,13 +264,16 @@ class EvidenceTests(unittest.TestCase):
         config = json.loads((self.trial / "config.json").read_text())
         config["artifacts"] = ["/output/extra.txt"]
         self.json("config.json", config)
-        self.json("artifacts/manifest.json", [{"source": "/app/result.py",
-            "destination": "artifacts/app/result.py", "type": "file", "status": "ok"}])
+        self.json(
+            "artifacts/manifest.json",
+            [{"source": "/app/result.py", "destination": "artifacts/app/result.py", "type": "file", "status": "ok"}],
+        )
         self.assertFalse(assess_trial(self.trial)["complete"])
         self.write("artifacts/output/extra.txt", "answer")
         manifest = json.loads((self.trial / "artifacts/manifest.json").read_text())
-        manifest.append({"source": "/output/extra.txt", "destination": "artifacts/output/extra.txt",
-                         "type": "file", "status": "ok"})
+        manifest.append(
+            {"source": "/output/extra.txt", "destination": "artifacts/output/extra.txt", "type": "file", "status": "ok"}
+        )
         self.json("artifacts/manifest.json", manifest)
         self.assertTrue(assess_trial(self.trial)["complete"])
 
@@ -212,8 +294,18 @@ class EvidenceTests(unittest.TestCase):
     def test_declared_empty_directory_is_complete(self):
         self.task_config('artifacts = ["/results"]\n')
         (self.trial / "artifacts/results").mkdir()
-        self.json("artifacts/manifest.json", [{"source": "/results", "destination": "artifacts/results",
-                                               "type": "directory", "status": "empty", "exclude": []}])
+        self.json(
+            "artifacts/manifest.json",
+            [
+                {
+                    "source": "/results",
+                    "destination": "artifacts/results",
+                    "type": "directory",
+                    "status": "empty",
+                    "exclude": [],
+                }
+            ],
+        )
         self.assertTrue(assess_trial(self.trial)["complete"])
 
     def test_declared_outputs_override_rate_limit_legacy_requirements(self):
@@ -221,19 +313,22 @@ class EvidenceTests(unittest.TestCase):
         result["task_name"] = "openthoughts/python-api-rate-limit"
         self.json("result.json", result)
         self.task_config('artifacts = ["/app/result.py"]\n')
-        self.json("artifacts/manifest.json", [{"source": "/app/result.py",
-            "destination": "artifacts/app/result.py", "type": "file", "status": "ok"}])
+        self.json(
+            "artifacts/manifest.json",
+            [{"source": "/app/result.py", "destination": "artifacts/app/result.py", "type": "file", "status": "ok"}],
+        )
         self.assertTrue(assess_trial(self.trial)["complete"])
 
     def test_all_artifact_destinations_and_roots_are_checked(self):
         self.task_config('artifacts = ["/app/result.py"]\n')
-        entry = {"source": "/app/result.py", "destination": "artifacts/app/result.py",
-                 "type": "file", "status": "ok"}
+        entry = {"source": "/app/result.py", "destination": "artifacts/app/result.py", "type": "file", "status": "ok"}
         for destination in ("../outside", "/tmp/outside", "artifacts/link/result.py"):
             with self.subTest(destination=destination):
                 (self.trial / "artifacts/link").symlink_to("app", target_is_directory=True)
-                self.json("artifacts/manifest.json", [entry, {"source": "/other",
-                    "destination": destination, "type": "file", "status": "ok"}])
+                self.json(
+                    "artifacts/manifest.json",
+                    [entry, {"source": "/other", "destination": destination, "type": "file", "status": "ok"}],
+                )
                 self.assertFalse(assess_trial(self.trial)["complete"])
                 (self.trial / "artifacts/link").unlink()
         path = self.trial / "artifacts/app/result.py"
@@ -247,8 +342,15 @@ class EvidenceTests(unittest.TestCase):
         result["task_name"] = "openthoughts/python-api-rate-limit"
         self.json("result.json", result)
         manifest = json.loads((self.trial / "artifacts/manifest.json").read_text())
-        manifest.append({"source": "/output", "destination": "artifacts/reports",
-                         "type": "directory", "status": "ok", "exclude": []})
+        manifest.append(
+            {
+                "source": "/output",
+                "destination": "artifacts/reports",
+                "type": "directory",
+                "status": "ok",
+                "exclude": [],
+            }
+        )
         self.json("artifacts/manifest.json", manifest)
         for name in ("report.json", "a.json", "b.json"):
             self.json(f"artifacts/reports/{name}", {"total_requests": 1})
@@ -292,9 +394,14 @@ class EvidenceTests(unittest.TestCase):
 
     def test_failed_excluded_or_unsafe_output_capture_is_incomplete(self):
         manifest = self.rate_limit_outputs()
-        for change in ({"status": "failed"}, {"status": "skipped"},
-                       {"exclude": ["report.json"]}, {"destination": "../escape"},
-                       {"destination": "/tmp/reports"}, {"service": "sidecar"}):
+        for change in (
+            {"status": "failed"},
+            {"status": "skipped"},
+            {"exclude": ["report.json"]},
+            {"destination": "../escape"},
+            {"destination": "/tmp/reports"},
+            {"service": "sidecar"},
+        ):
             with self.subTest(change=change):
                 self.json("artifacts/manifest.json", [manifest[0], {**manifest[1], **change}])
                 report = assess_trial(self.trial)
@@ -329,15 +436,20 @@ class EvidenceTests(unittest.TestCase):
             check_evidence(self.trial)
 
     def test_missing_workspace_native_artifacts_and_verifier_logs_are_incomplete(self):
-        for name in ("agent/runtime.json", "agent/session.json", "agent/runner.log", "verifier/reward.txt", "verifier/test-stdout.txt"):
+        for name in (
+            "agent/runtime.json",
+            "agent/session.json",
+            "agent/runner.log",
+            "verifier/reward.txt",
+            "verifier/test-stdout.txt",
+        ):
             path = self.trial / name
             contents = path.read_bytes()
             path.unlink()
             with self.subTest(name=name):
                 self.assertFalse(assess_trial(self.trial)["complete"])
             path.write_bytes(contents)
-        self.json("artifacts/manifest.json", [{"source": "/app", "status": "failed",
-                                               "destination": "artifacts/app"}])
+        self.json("artifacts/manifest.json", [{"source": "/app", "status": "failed", "destination": "artifacts/app"}])
         self.assertFalse(assess_trial(self.trial)["complete"])
 
     def test_clipped_duplicate_unpaired_and_malformed_traces_are_incomplete(self):
@@ -392,9 +504,11 @@ class EvidenceTests(unittest.TestCase):
 
     def test_running_jobs_and_missing_trials_do_not_pass(self):
         save_assessment(self.trial)
-        for job, message in (({}, "not finished"),
-                             ({"finished_at": "now", "n_total_trials": 2}, "planned count"),
-                             ({"finished_at": "now"}, "planned count")):
+        for job, message in (
+            ({}, "not finished"),
+            ({"finished_at": "now", "n_total_trials": 2}, "planned count"),
+            ({"finished_at": "now"}, "planned count"),
+        ):
             write_json(self.trial.parent / "result.json", job)
             with self.subTest(job=job), self.assertRaisesRegex(ValueError, message):
                 check_evidence(self.trial.parent)
@@ -477,9 +591,14 @@ class EvidenceTests(unittest.TestCase):
         shutil.copytree(self.trial, self.trial.parent / "second")
         save_assessment(self.trial.parent / "second")
         write_json(self.trial.parent / "result.json", {"finished_at": "now", "n_total_trials": 2})
-        result = subprocess.run([sys.executable, "-B", str(Path(__file__).with_name("evidence.py").resolve()),
-                                 self.trial.parent.name], cwd=self.trial.parent.parent,
-                                capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            [sys.executable, "-B", "-m", "script.harbor.evidence", self.trial.parent.name],
+            cwd=self.trial.parent.parent,
+            env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2])},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
         self.assertEqual(result.returncode, 1)
         self.assertIn("2 trials checked, 0 complete, 2 incomplete", result.stdout)
         self.assertIn(f"Incomplete or changed evidence in {self.trial}:", result.stderr)
@@ -499,8 +618,9 @@ class CheckpointEvidenceTests(unittest.TestCase):
         names = [f"checkpoint_{index}" for index in range(1, 5)]
         for name in names:
             self.write(f"provenance/task/steps/{name}/instruction.md", name)
-        self.task_config(task_artifacts + "\n" + "\n".join(
-            f'[[steps]]\nname = "{name}"\n{step_options}' for name in names))
+        self.task_config(
+            task_artifacts + "\n" + "\n".join(f'[[steps]]\nname = "{name}"\n{step_options}' for name in names)
+        )
         first = self.trial / "steps" / names[0]
         first.mkdir(parents=True)
         for directory in ("agent", "artifacts", "verifier"):
@@ -516,13 +636,17 @@ class CheckpointEvidenceTests(unittest.TestCase):
                 shutil.copytree(first, run)
             native = {"modelID": "model", "turnID": name, "outcome": "completed"}
             self.json(f"steps/{name}/agent/result.json", native)
-            self.json(f"steps/{name}/agent/session.json", {
-                "selectedModelID": "model", "turns": [{"id": name}]})
+            self.json(f"steps/{name}/agent/session.json", {"selectedModelID": "model", "turns": [{"id": name}]})
             self.write(f"steps/{name}/agent/instruction.md", name)
             rows = [{**row, "turnID": name} if "turnID" in row else row for row in self.rows]
             self.write(f"steps/{name}/agent/mlx-trace.jsonl", "".join(json.dumps(row) + "\n" for row in rows))
-            results.append({"step_name": name, "agent_result": {"metadata": {"sumika": native}},
-                            "verifier_result": {"rewards": {"reward": 0}}})
+            results.append(
+                {
+                    "step_name": name,
+                    "agent_result": {"metadata": {"sumika": native}},
+                    "verifier_result": {"rewards": {"reward": 0}},
+                }
+            )
         harbor = json.loads((self.trial / "result.json").read_text())
         harbor["step_results"] = results
         self.json("result.json", harbor)
@@ -533,10 +657,13 @@ class CheckpointEvidenceTests(unittest.TestCase):
         self.json("config.json", {"agent": {"model_name": "model", "resume_trajectory": True}})
         turns = []
         for name in names:
-            turns.append({"id": name, "status": "completed", "items": [
-                {"kind": "userMessage", "payload": {"content": name}}]})
-            self.json(f"steps/{name}/agent/session.json", {
-                "id": "resumed-session", "selectedModelID": "model", "turns": turns})
+            turns.append(
+                {"id": name, "status": "completed", "items": [{"kind": "userMessage", "payload": {"content": name}}]}
+            )
+            self.json(
+                f"steps/{name}/agent/session.json",
+                {"id": "resumed-session", "selectedModelID": "model", "turns": turns},
+            )
         return names, harbor
 
     def test_resumed_checkpoints_preserve_canonical_history_and_count_only_current_traces(self):
@@ -546,7 +673,7 @@ class CheckpointEvidenceTests(unittest.TestCase):
         self.assertEqual(report["trace_requests"], len(names))
         for index, name in enumerate(names):
             session = json.loads((self.trial / f"steps/{name}/agent/session.json").read_text())
-            self.assertEqual([turn["id"] for turn in session["turns"]], names[:index + 1])
+            self.assertEqual([turn["id"] for turn in session["turns"]], names[: index + 1])
         before = inventory(self.trial)
         with contextlib.redirect_stdout(io.StringIO()):
             check_evidence(self.trial)
@@ -577,8 +704,7 @@ class CheckpointEvidenceTests(unittest.TestCase):
         names, _ = self.resumed_checkpoints()
         path = self.trial / f"steps/{names[1]}/agent/runtime.json"
         original = json.loads(path.read_text())
-        for change in ({"settings": {"contextTokenLimit": 32768}},
-                       {"modelFiles": [{"sha256": "other-model-weights"}]}):
+        for change in ({"settings": {"contextTokenLimit": 32768}}, {"modelFiles": [{"sha256": "other-model-weights"}]}):
             with self.subTest(change=change):
                 write_json(path, {**original, **change})
                 self.assertIn("fingerprints or settings changed", " ".join(assess_trial(self.trial)["issues"]))
@@ -590,9 +716,12 @@ class CheckpointEvidenceTests(unittest.TestCase):
         path = self.trial / f"steps/{names[1]}/agent/mlx-trace.jsonl"
         original = [json.loads(line) for line in path.read_text().splitlines()]
         prefill = {"kind": "turn_trace", "phase": "runtime_prefill", "generationID": "generation", "turnID": names[1]}
-        for rows in (original + [{"kind": "turn_trace", "phase": "runtime_memory", "turnID": names[0]}],
-                     original + [{**prefill, "generationID": "orphan"}], original + [prefill, prefill],
-                     original[:-1]):
+        for rows in (
+            original + [{"kind": "turn_trace", "phase": "runtime_memory", "turnID": names[0]}],
+            original + [{**prefill, "generationID": "orphan"}],
+            original + [prefill, prefill],
+            original[:-1],
+        ):
             with self.subTest(rows=rows):
                 path.write_text("".join(json.dumps(row) + "\n" for row in rows))
                 self.assertFalse(assess_trial(self.trial)["complete"])
@@ -623,10 +752,19 @@ class CheckpointEvidenceTests(unittest.TestCase):
             publish.mkdir(parents=True)
             (live / "empty").mkdir()
             manifest = json.loads((live / "manifest.json").read_text())
-            manifest.extend([
-                {"source": "/logs/artifacts", "destination": "artifacts/logs/artifacts", "type": "directory",
-                 "status": "empty", "service": None, "exclude": []},
-                {"source": "/empty", "destination": "artifacts/empty", "type": "directory", "status": "ok"}])
+            manifest.extend(
+                [
+                    {
+                        "source": "/logs/artifacts",
+                        "destination": "artifacts/logs/artifacts",
+                        "type": "directory",
+                        "status": "empty",
+                        "service": None,
+                        "exclude": [],
+                    },
+                    {"source": "/empty", "destination": "artifacts/empty", "type": "directory", "status": "ok"},
+                ]
+            )
             write_json(live / "manifest.json", manifest)
             ArtifactHandler.move_dir_contents_preserving(live, archived, preserve_dirs=[publish])
             self.assertTrue(publish.is_dir())
@@ -646,15 +784,30 @@ class CheckpointEvidenceTests(unittest.TestCase):
         run = self.trial / "steps" / names[0]
         path = run / "artifacts/manifest.json"
         manifest = json.loads(path.read_text())
-        entry = {"source": "/logs/artifacts", "destination": "artifacts/logs/artifacts",
-                 "type": "directory", "status": "empty", "service": None, "exclude": []}
+        entry = {
+            "source": "/logs/artifacts",
+            "destination": "artifacts/logs/artifacts",
+            "type": "directory",
+            "status": "empty",
+            "service": None,
+            "exclude": [],
+        }
         for service in (None, "main"):
             write_json(path, [*manifest, {**entry, "service": service}])
             self.assertTrue(assess_trial(self.trial)["complete"])
-        for change in ({"source": "/elsewhere"}, {"type": "file"}, {"status": "ok"}, {"status": "failed"},
-                       {"service": "sidecar"}, {"exclude": ["*.tmp"]}, {"exclude": None},
-                       {"destination": "artifacts/custom"}, {"destination": "artifacts/logs/./artifacts"},
-                       {"destination": "../escape"}, {"destination": "/tmp/outside"}):
+        for change in (
+            {"source": "/elsewhere"},
+            {"type": "file"},
+            {"status": "ok"},
+            {"status": "failed"},
+            {"service": "sidecar"},
+            {"exclude": ["*.tmp"]},
+            {"exclude": None},
+            {"destination": "artifacts/custom"},
+            {"destination": "artifacts/logs/./artifacts"},
+            {"destination": "../escape"},
+            {"destination": "/tmp/outside"},
+        ):
             with self.subTest(change=change):
                 write_json(path, [*manifest, {**entry, **change}])
                 self.assertFalse(assess_trial(self.trial)["complete"])
@@ -688,9 +841,11 @@ class CheckpointEvidenceTests(unittest.TestCase):
         names, _ = self.checkpoints()
         reproduction_path = self.trial / "provenance/reproduction.json"
         reproduction = json.loads(reproduction_path.read_text())
-        for owner, key, stale in ((reproduction["source_at_run"], "patch", "agent/source.patch"),
-                                  (reproduction["source_at_run"], "untracked", "agent/source-untracked"),
-                                  (reproduction, "runtime_metadata", f"steps/{names[1]}/agent/runtime.json")):
+        for owner, key, stale in (
+            (reproduction["source_at_run"], "patch", "agent/source.patch"),
+            (reproduction["source_at_run"], "untracked", "agent/source-untracked"),
+            (reproduction, "runtime_metadata", f"steps/{names[1]}/agent/runtime.json"),
+        ):
             original = owner[key]
             for pointer in (None, stale, "../outside"):
                 owner[key] = pointer
@@ -705,8 +860,16 @@ class CheckpointEvidenceTests(unittest.TestCase):
 
     def test_every_attempted_checkpoint_requires_its_own_evidence(self):
         names, harbor = self.checkpoints()
-        for name in ("agent/runtime.json", "agent/environment.json", "agent/session.json", "agent/runner.log",
-                     "agent/mlx-trace.jsonl", "verifier/reward.txt", "verifier/test-stdout.txt", "artifacts/manifest.json"):
+        for name in (
+            "agent/runtime.json",
+            "agent/environment.json",
+            "agent/session.json",
+            "agent/runner.log",
+            "agent/mlx-trace.jsonl",
+            "verifier/reward.txt",
+            "verifier/test-stdout.txt",
+            "artifacts/manifest.json",
+        ):
             path = self.trial / "steps" / names[1] / name
             contents = path.read_bytes()
             path.unlink()
@@ -717,25 +880,51 @@ class CheckpointEvidenceTests(unittest.TestCase):
             path.write_bytes(contents)
         harbor["step_results"][1]["agent_result"] = harbor["step_results"][0]["agent_result"]
         self.json("result.json", harbor)
-        self.assertIn("Native result does not match Harbor checkpoint metadata", " ".join(assess_trial(self.trial)["issues"]))
+        self.assertIn(
+            "Native result does not match Harbor checkpoint metadata", " ".join(assess_trial(self.trial)["issues"])
+        )
 
     def test_task_step_and_run_artifacts_are_combined_per_checkpoint(self):
-        names, _ = self.checkpoints('artifacts = ["/app/result.py"]',
-            'artifacts = [{source = "/reports", destination = "reports", service = "sidecar", exclude = ["*.tmp"]}]')
+        names, _ = self.checkpoints(
+            'artifacts = ["/app/result.py"]',
+            'artifacts = [{source = "/reports", destination = "reports", service = "sidecar", exclude = ["*.tmp"]}]',
+        )
         self.json("config.json", {"agent": {"model_name": "model"}, "artifacts": ["/extra.txt"]})
-        entry = {"source": "/reports", "destination": "artifacts/reports", "service": "sidecar",
-                 "exclude": ["*.tmp"], "type": "directory", "status": "ok"}
+        entry = {
+            "source": "/reports",
+            "destination": "artifacts/reports",
+            "service": "sidecar",
+            "exclude": ["*.tmp"],
+            "type": "directory",
+            "status": "ok",
+        }
         for name in names:
             self.write(f"steps/{name}/artifacts/reports/result.txt", "report")
             self.write(f"steps/{name}/artifacts/extra.txt", "extra")
-            self.json(f"steps/{name}/artifacts/manifest.json", [entry,
-                {"source": "/app/result.py", "destination": "artifacts/app/result.py", "type": "file", "status": "ok"},
-                {"source": "/extra.txt", "destination": "artifacts/extra.txt", "type": "file", "status": "ok"}])
+            self.json(
+                f"steps/{name}/artifacts/manifest.json",
+                [
+                    entry,
+                    {
+                        "source": "/app/result.py",
+                        "destination": "artifacts/app/result.py",
+                        "type": "file",
+                        "status": "ok",
+                    },
+                    {"source": "/extra.txt", "destination": "artifacts/extra.txt", "type": "file", "status": "ok"},
+                ],
+            )
         self.assertTrue(assess_trial(self.trial)["complete"])
         manifest_path = f"steps/{names[2]}/artifacts/manifest.json"
         manifest = json.loads((self.trial / manifest_path).read_text())
-        for change in ({"service": "main"}, {"destination": "artifacts/elsewhere"}, {"exclude": []},
-                       {"type": "file"}, {"status": "failed"}, {"destination": "../escape"}):
+        for change in (
+            {"service": "main"},
+            {"destination": "artifacts/elsewhere"},
+            {"exclude": []},
+            {"type": "file"},
+            {"status": "failed"},
+            {"destination": "../escape"},
+        ):
             with self.subTest(change=change):
                 self.json(manifest_path, [{**entry, **change}, *manifest[1:]])
                 self.assertFalse(assess_trial(self.trial)["complete"])
@@ -745,8 +934,13 @@ class CheckpointEvidenceTests(unittest.TestCase):
     def test_missing_reordered_duplicate_and_unexpected_results_are_incomplete(self):
         names, harbor = self.checkpoints()
         results = harbor["step_results"]
-        for changed in ([], results[:-1], [results[1], results[0], *results[2:]],
-                        [results[0], results[0], *results[2:]], [*results, results[-1]]):
+        for changed in (
+            [],
+            results[:-1],
+            [results[1], results[0], *results[2:]],
+            [results[0], results[0], *results[2:]],
+            [*results, results[-1]],
+        ):
             with self.subTest(results=[result["step_name"] for result in changed]):
                 self.json("result.json", {**harbor, "step_results": changed})
                 self.assertFalse(assess_trial(self.trial)["complete"])
@@ -790,8 +984,12 @@ class CheckpointEvidenceTests(unittest.TestCase):
         names, _ = self.checkpoints()
         self.write(f"provenance/task/steps/{names[1]}/instruction.md", "tampered")
         self.assertIn("Retained task files are missing or changed", " ".join(assess_trial(self.trial)["issues"]))
-        for relative in (f"steps/{names[1]}", f"steps/{names[2]}/agent", f"steps/{names[2]}/artifacts",
-                         f"steps/{names[2]}/verifier"):
+        for relative in (
+            f"steps/{names[1]}",
+            f"steps/{names[2]}/agent",
+            f"steps/{names[2]}/artifacts",
+            f"steps/{names[2]}/verifier",
+        ):
             path = self.trial / relative
             moved = self.trial.parent / "outside"
             path.rename(moved)
@@ -815,8 +1013,9 @@ class CheckpointEvidenceTests(unittest.TestCase):
 
 
 class PluginTests(unittest.IsolatedAsyncioTestCase):
-    @unittest.skipIf(find_spec("harbor") is None or find_spec("dirhash") is None,
-                     "Requires Harbor and its task checksum dependency")
+    @unittest.skipIf(
+        find_spec("harbor") is None or find_spec("dirhash") is None, "Requires Harbor and its task checksum dependency"
+    )
     async def test_task_and_source_snapshot_retain_changes_without_mutating_inputs(self):
         from dirhash import dirhash
         from harbor.models.task.config import TaskOS
@@ -838,6 +1037,8 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             (task / "steps/checkpoint_2").mkdir(parents=True)
             (task / "steps/checkpoint_2/instruction.md").write_text("future requirements")
             (repository / "Package.resolved").write_text("{}")
+            (repository / "script/harbor").mkdir(parents=True)
+            (repository / "script/harbor/uv.lock").write_text("locked dependencies")
             (repository / "new.py").write_text("untracked source")
             binary = repository / "runner"
             binary.write_text("binary")
@@ -845,31 +1046,64 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                 with self.subTest(name=name):
                     (task / "task.toml").write_text(definition)
                     checksum = dirhash(task, "sha256")
-                    event = SimpleNamespace(trial_name=name, trial_id="id", config=SimpleNamespace(
-                        trials_dir=root / "job", agent=SimpleNamespace(kwargs={"binary": str(binary)})),
+                    event = SimpleNamespace(
+                        trial_name=name,
+                        trial_id="id",
+                        config=SimpleNamespace(
+                            trials_dir=root / "job", agent=SimpleNamespace(kwargs={"binary": str(binary)})
+                        ),
                         lock=SimpleNamespace(task=SimpleNamespace(type="local")),
-                        result=SimpleNamespace(task_id=SimpleNamespace(get_local_path=lambda: task), task_checksum=checksum))
-                    with patch("script.harbor.evidence.command", side_effect=[
-                            b"commit\n", b"working patch", b"new.py\0", b"Swift version"]), \
-                            patch("script.harbor.evidence.version", return_value="0.24.0"):
+                        result=SimpleNamespace(
+                            task_id=SimpleNamespace(get_local_path=lambda: task), task_checksum=checksum
+                        ),
+                    )
+                    with (
+                        patch(
+                            "script.harbor.evidence.command",
+                            side_effect=[b"commit\n", b"working patch", b"new.py\0", b"Swift version"],
+                        ),
+                        patch("script.harbor.evidence.version", return_value="0.24.0"),
+                    ):
                         prepare_trial(event, repository)
                     trial = root / "job" / name
                     agent = trial / "agent"
                     write_json(agent / "runtime.json", {"schemaVersion": 1})
                     provenance = trial / "provenance"
-                    mounts = Trial._agent_env_mounts.fget(SimpleNamespace(
-                        task=SimpleNamespace(config=SimpleNamespace(environment=SimpleNamespace(os=TaskOS.LINUX))),
-                        paths=TrialPaths(trial_dir=trial), agent_env_paths=EnvironmentPaths(), user_agent=None,
-                        _main_artifacts_mount_dir=trial / "artifacts/logs/artifacts",
-                        config=SimpleNamespace(environment=SimpleNamespace(mounts=[]))))
+                    reproduction = json.loads((provenance / "reproduction.json").read_text())
+                    python = reproduction["python"]
+                    self.assertEqual(python["version"], sys.version)
+                    self.assertEqual(python["executable"], sys.executable)
+                    self.assertIn("pydantic", python["packages"])
+                    self.assertEqual(python["packages"]["harbor"], "0.24.0")
+                    self.assertEqual(python["uv_lock"]["sha256"], hashlib.sha256(b"locked dependencies").hexdigest())
+                    mounts = Trial._agent_env_mounts.fget(
+                        SimpleNamespace(
+                            task=SimpleNamespace(config=SimpleNamespace(environment=SimpleNamespace(os=TaskOS.LINUX))),
+                            paths=TrialPaths(trial_dir=trial),
+                            agent_env_paths=EnvironmentPaths(),
+                            user_agent=None,
+                            _main_artifacts_mount_dir=trial / "artifacts/logs/artifacts",
+                            config=SimpleNamespace(environment=SimpleNamespace(mounts=[])),
+                        )
+                    )
                     for mount in mounts:
                         source = Path(mount["source"])
                         self.assertFalse(source == provenance or source in provenance.parents)
                         source.mkdir(parents=True, exist_ok=True)
                         contents = inventory(source)
-                        self.assertFalse(any(name in contents for name in
-                            ("task", "task/tests/test.sh", "task/solution/solve.sh",
-                             "task/steps/checkpoint_2/instruction.md", "reproduction.json", "source.patch")))
+                        self.assertFalse(
+                            any(
+                                name in contents
+                                for name in (
+                                    "task",
+                                    "task/tests/test.sh",
+                                    "task/solution/solve.sh",
+                                    "task/steps/checkpoint_2/instruction.md",
+                                    "reproduction.json",
+                                    "source.patch",
+                                )
+                            )
+                        )
                     if name == "multi":
                         archived = trial / "steps/checkpoint_1/agent"
                         archived.parent.mkdir(parents=True)
@@ -882,14 +1116,17 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(dirhash(task, "sha256"), checksum)
                     self.assertFalse(json.loads((agent / "completeness.json").read_text())["complete"])
                     reproduction = json.loads((provenance / "reproduction.json").read_text())
-                    for pointer, target in ((reproduction["source_at_run"]["patch"], provenance / "source.patch"),
-                                            (reproduction["source_at_run"]["untracked"], provenance / "source-untracked"),
-                                            (reproduction["runtime_metadata"], agent / "runtime.json")):
+                    for pointer, target in (
+                        (reproduction["source_at_run"]["patch"], provenance / "source.patch"),
+                        (reproduction["source_at_run"]["untracked"], provenance / "source-untracked"),
+                        (reproduction["runtime_metadata"], agent / "runtime.json"),
+                    ):
                         self.assertEqual(trial / pointer, target)
                         self.assertTrue((trial / pointer).exists())
 
-    @unittest.skipIf(find_spec("harbor") is None or find_spec("dirhash") is None,
-                     "Requires Harbor and its task checksum dependency")
+    @unittest.skipIf(
+        find_spec("harbor") is None or find_spec("dirhash") is None, "Requires Harbor and its task checksum dependency"
+    )
     async def test_hub_snapshot_uses_locked_digest_and_checks_contents(self):
         from dirhash import dirhash
         from harbor.models.job.lock import TaskLock
@@ -900,6 +1137,8 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             repository = root / "repository"
             repository.mkdir()
             (repository / "Package.resolved").write_text("{}")
+            (repository / "script/harbor").mkdir(parents=True)
+            (repository / "script/harbor/uv.lock").write_text("locked dependencies")
             binary = repository / "runner"
             binary.write_text("binary")
             digest = "sha256:" + "a" * 64
@@ -916,16 +1155,25 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                     with self.subTest(download_dir=download_dir, changed=changed):
                         trial_name = f"{cache.name}-{changed}"
                         task_id = config.get_task_id()
-                        event = SimpleNamespace(trial_name=trial_name, trial_id="id",
-                            config=SimpleNamespace(trials_dir=root / "job", task=config,
-                                agent=SimpleNamespace(kwargs={"binary": str(binary)})),
+                        event = SimpleNamespace(
+                            trial_name=trial_name,
+                            trial_id="id",
+                            config=SimpleNamespace(
+                                trials_dir=root / "job",
+                                task=config,
+                                agent=SimpleNamespace(kwargs={"binary": str(binary)}),
+                            ),
                             lock=SimpleNamespace(task=lock),
-                            result=SimpleNamespace(task_id=task_id,
-                                task_checksum="changed" if changed else checksum))
-                        with patch("harbor.models.task.id.PACKAGE_CACHE_DIR", root / "cache"), \
-                                patch("script.harbor.evidence.command", side_effect=[
-                                    b"commit\n", b"working patch", b"", b"Swift version"]) as command, \
-                                patch("script.harbor.evidence.version", return_value="0.24.0"):
+                            result=SimpleNamespace(task_id=task_id, task_checksum="changed" if changed else checksum),
+                        )
+                        with (
+                            patch("harbor.models.task.id.PACKAGE_CACHE_DIR", root / "cache"),
+                            patch(
+                                "script.harbor.evidence.command",
+                                side_effect=[b"commit\n", b"working patch", b"", b"Swift version"],
+                            ) as command,
+                            patch("script.harbor.evidence.version", return_value="0.24.0"),
+                        ):
                             if changed:
                                 with self.assertRaisesRegex(ValueError, "Task changed after Harbor planned"):
                                     prepare_trial(event, repository)
@@ -941,11 +1189,17 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
     async def test_capture_needs_no_recipe_paths_and_hooks_run_after_trial_and_job(self):
         with patch("script.harbor.evidence.version", return_value="0.24.0"):
             plugin = EvidencePlugin()
-            job = SimpleNamespace(config=SimpleNamespace(artifacts=[]), job_dir=Path("job"),
-                                  on_trial_started=lambda hook: None, on_trial_ended=lambda hook: None)
+            job = SimpleNamespace(
+                config=SimpleNamespace(artifacts=[]),
+                job_dir=Path("job"),
+                on_trial_started=lambda hook: None,
+                on_trial_ended=lambda hook: None,
+            )
             await plugin.on_job_start(job)
-            with patch("script.harbor.evidence.save_assessment", return_value={"complete": False}), \
-                    patch("script.harbor.agent.SumikaAgent.close_trial_worker", AsyncMock(), create=True):
+            with (
+                patch("script.harbor.evidence.save_assessment", return_value={"complete": False}),
+                patch("script.harbor.agent.SumikaAgent.close_trial_worker", AsyncMock(), create=True),
+            ):
                 await plugin.ended(SimpleNamespace(config=SimpleNamespace(trials_dir=Path("job")), trial_name="trial"))
 
     async def test_job_end_finds_checkpoints_after_root_agent_directory_is_archived(self):
@@ -954,8 +1208,10 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             (root / "trial/steps/checkpoint_1/agent").mkdir(parents=True)
             plugin = EvidencePlugin()
             plugin.job_dir = root
-            with patch("script.harbor.evidence.save_assessment", return_value={"complete": True}) as save, \
-                    patch("script.harbor.agent.SumikaAgent.close_trial_worker", AsyncMock(), create=True) as close:
+            with (
+                patch("script.harbor.evidence.save_assessment", return_value={"complete": True}) as save,
+                patch("script.harbor.agent.SumikaAgent.close_trial_worker", AsyncMock(), create=True) as close,
+            ):
                 await plugin.on_job_end(None)
             close.assert_awaited_once_with(root / "trial")
             save.assert_called_once_with(root / "trial")
@@ -971,22 +1227,31 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             return {"complete": True}
 
         plugin = EvidencePlugin()
-        event = SimpleNamespace(config=SimpleNamespace(trials_dir=Path("job")), trial_name="trial",
-                                result=SimpleNamespace(step_results=[{"step_name": "checkpoint_1"}]))
-        with patch("script.harbor.agent.SumikaAgent.close_trial_worker", AsyncMock(side_effect=close), create=True), \
-                patch("script.harbor.evidence.save_assessment", side_effect=assess):
+        event = SimpleNamespace(
+            config=SimpleNamespace(trials_dir=Path("job")),
+            trial_name="trial",
+            result=SimpleNamespace(step_results=[{"step_name": "checkpoint_1"}]),
+        )
+        with (
+            patch("script.harbor.agent.SumikaAgent.close_trial_worker", AsyncMock(side_effect=close), create=True),
+            patch("script.harbor.evidence.save_assessment", side_effect=assess),
+        ):
             await plugin.ended(event)
         self.assertEqual(calls, [("close", Path("job/trial")), ("assess", Path("job/trial"))])
 
     async def test_environment_records_image_ids_without_environment_secrets(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = SimpleNamespace(workdir="/app", cpus=1, memory_mb=512,
-                                     storage_mb=1024, network_mode="no-network")
-            environment = SimpleNamespace(task_env_config=config,
+            config = SimpleNamespace(workdir="/app", cpus=1, memory_mb=512, storage_mb=1024, network_mode="no-network")
+            environment = SimpleNamespace(
+                task_env_config=config,
                 runtime=lambda: SimpleNamespace(engine=("docker",), engine_cmd=lambda *args: ["docker", *args]),
-                _run_docker_compose_command=AsyncMock(return_value=SimpleNamespace(stdout="image-id\n")))
-            image = {"Id": "sha256:actual", "RepoDigests": ["image@sha256:digest"],
-                     "Config": {"Env": ["TOKEN=private"]}}
+                _run_docker_compose_command=AsyncMock(return_value=SimpleNamespace(stdout="image-id\n")),
+            )
+            image = {
+                "Id": "sha256:actual",
+                "RepoDigests": ["image@sha256:digest"],
+                "Config": {"Env": ["TOKEN=private"]},
+            }
             with patch("script.harbor.evidence.command", return_value=json.dumps([image]).encode()):
                 await capture_environment(environment, Path(directory))
             contents = (Path(directory) / "environment.json").read_text()
@@ -1011,17 +1276,20 @@ class LegacyCaptureTests(unittest.IsolatedAsyncioTestCase):
         self.logger = logging.getLogger("sumika-artifacts-test")
 
         async def download_directory(source_dir, target_dir, **_kwargs):
-            shutil.copytree(self.remote / source_dir.lstrip("/"), target_dir,
-                            dirs_exist_ok=True, symlinks=True)
+            shutil.copytree(self.remote / source_dir.lstrip("/"), target_dir, dirs_exist_ok=True, symlinks=True)
 
         self.environment = SimpleNamespace(
             capabilities=SimpleNamespace(mounted=False),
-            exec=AsyncMock(side_effect=lambda *_args, **_kwargs: SimpleNamespace(return_code=(
-                4 if (self.remote / "output").is_symlink()
-                else 0 if (self.remote / "output").exists() else 3))),
-            service_is_dir=AsyncMock(side_effect=lambda path, **_kwargs:
-                                    (self.remote / path.lstrip("/")).is_dir()),
-            service_download_dir=AsyncMock(side_effect=download_directory))
+            exec=AsyncMock(
+                side_effect=lambda *_args, **_kwargs: SimpleNamespace(
+                    return_code=(
+                        4 if (self.remote / "output").is_symlink() else 0 if (self.remote / "output").exists() else 3
+                    )
+                )
+            ),
+            service_is_dir=AsyncMock(side_effect=lambda path, **_kwargs: (self.remote / path.lstrip("/")).is_dir()),
+            service_download_dir=AsyncMock(side_effect=download_directory),
+        )
 
     async def test_legacy_capture_preserves_existing_output_and_omits_absent_output(self):
         from harbor.models.trial.paths import EnvironmentPaths
@@ -1039,7 +1307,8 @@ class LegacyCaptureTests(unittest.IsolatedAsyncioTestCase):
                 await capture_legacy_artifacts(self.environment, self.logs, self.logger, "/app")
                 # Harbor's later collection must retain the legacy manifest entries.
                 await ArtifactHandler(artifacts=[], logger=self.logger).download_artifacts(
-                    self.environment, artifacts, source_artifacts_dir=EnvironmentPaths.artifacts_dir)
+                    self.environment, artifacts, source_artifacts_dir=EnvironmentPaths.artifacts_dir
+                )
                 manifest = json.loads((artifacts / "manifest.json").read_text())
                 sources = {entry["source"] for entry in manifest}
                 self.assertIn("/app", sources)
@@ -1061,20 +1330,23 @@ class LegacyCaptureTests(unittest.IsolatedAsyncioTestCase):
         from harbor.models.task.config import TaskConfig
 
         task = TaskConfig.model_validate_toml(
-            '[[steps]]\nname = "declared"\nartifacts = ["/app/result.csv"]\n'
-            '[[steps]]\nname = "legacy"\n')
+            '[[steps]]\nname = "declared"\nartifacts = ["/app/result.csv"]\n[[steps]]\nname = "legacy"\n'
+        )
         shutil.rmtree(self.task)
-        await capture_legacy_artifacts(self.environment, self.logs, self.logger, "/",
-                                       task_config=task, step_name="declared")
+        await capture_legacy_artifacts(
+            self.environment, self.logs, self.logger, "/", task_config=task, step_name="declared"
+        )
         self.environment.exec.assert_not_awaited()
         self.environment.service_download_dir.assert_not_awaited()
-        await capture_legacy_artifacts(self.environment, self.logs, self.logger, "/app",
-                                       task_config=task, step_name="legacy")
+        await capture_legacy_artifacts(
+            self.environment, self.logs, self.logger, "/app", task_config=task, step_name="legacy"
+        )
         manifest = json.loads((self.logs.parent / "artifacts/manifest.json").read_text())
         self.assertIn("/app", {entry["source"] for entry in manifest})
         with self.assertLogs(self.logger, level="ERROR"):
-            await capture_legacy_artifacts(self.environment, self.logs, self.logger, "/app",
-                                           task_config=task, step_name="unknown")
+            await capture_legacy_artifacts(
+                self.environment, self.logs, self.logger, "/app", task_config=task, step_name="unknown"
+            )
         self.assertIn("Unknown checkpoint", (self.logs / "artifact-error.json").read_text())
 
     async def test_legacy_capture_uses_resolved_root_and_deduplicates_output(self):

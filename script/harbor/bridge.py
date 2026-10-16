@@ -3,16 +3,15 @@
 import asyncio
 import concurrent.futures
 import contextlib
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
-from pathlib import Path
 import secrets
 import shlex
 import socketserver
-import threading
 import tempfile
+import threading
 import uuid
-
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 MAX_BODY_BYTES = 4 * 1024 * 1024
 
@@ -29,8 +28,10 @@ def exec_diagnostics(result):
         return text
 
     # Harbor's Docker executor merges stderr into stdout.
-    return (f"exit {result.return_code}\nstdout (may include stderr):\n{excerpt(result.stdout)}\n"
-            f"stderr:\n{excerpt(result.stderr)}")
+    return (
+        f"exit {result.return_code}\nstdout (may include stderr):\n{excerpt(result.stdout)}\n"
+        f"stderr:\n{excerpt(result.stderr)}"
+    )
 
 
 class SandboxBridge:
@@ -46,15 +47,15 @@ class SandboxBridge:
         self.suspended = False
 
     async def start(self):
-        result = await self.environment.exec(
-            f"mkdir -m 700 {shlex.quote(self.control)}", timeout_sec=10)
+        result = await self.environment.exec(f"mkdir -m 700 {shlex.quote(self.control)}", timeout_sec=10)
         if result.return_code:
             raise RuntimeError(f"Could not create the task RPC directory: {exec_diagnostics(result)}")
         await self.environment.upload_file(Path(__file__).with_name("worker.py"), self.worker)
         check = await self.dispatch({"id": uuid.uuid4().hex, "operation": "list", "path": "."})
         if "error" in check:
-            label = ("Task RPC startup failed" if check["error"]["code"] == "transportFailure"
-                     else "Invalid task workspace")
+            label = (
+                "Task RPC startup failed" if check["error"]["code"] == "transportFailure" else "Invalid task workspace"
+            )
             raise RuntimeError(f"{label}: {check['error']['message']}")
         self.loop = asyncio.get_running_loop()
         bridge = self
@@ -115,18 +116,19 @@ class SandboxBridge:
         command = shlex.join(["python3", self.worker, self.workspace_root, self.control, request_path])
         timeout = request.get("timeoutSeconds", 0)
         timeout = timeout if type(timeout) is int and 1 <= timeout <= 600 else 0
-        result = await self.environment.exec(command, cwd=self.workspace_root,
-                                             timeout_sec=timeout + 20)
+        result = await self.environment.exec(command, cwd=self.workspace_root, timeout_sec=timeout + 20)
         if result.return_code or not result.stdout or len(result.stdout) > MAX_BODY_BYTES * 2:
             raise RuntimeError(f"Task RPC worker failed for {request.get('operation')}: {exec_diagnostics(result)}")
         try:
             response = json.loads(result.stdout)
         except (ValueError, TypeError) as error:
-            raise RuntimeError(f"Invalid task RPC response for {request.get('operation')}: "
-                               f"{exec_diagnostics(result)}") from error
+            raise RuntimeError(
+                f"Invalid task RPC response for {request.get('operation')}: {exec_diagnostics(result)}"
+            ) from error
         if not isinstance(response, dict) or response.get("id") != request.get("id"):
-            raise RuntimeError(f"Task RPC response ID mismatch for {request.get('operation')}: "
-                               f"{exec_diagnostics(result)}")
+            raise RuntimeError(
+                f"Task RPC response ID mismatch for {request.get('operation')}: {exec_diagnostics(result)}"
+            )
         return response
 
     async def dispatch(self, request):
@@ -139,12 +141,19 @@ class SandboxBridge:
             if self.closed:
                 raise RuntimeError("Task transport is closed.")
             if self.suspended:
-                return {"id": identifier, "error": {"code": "permissionDenied",
-                        "message": "The agent is idle between checkpoints."}}
+                return {
+                    "id": identifier,
+                    "error": {"code": "permissionDenied", "message": "The agent is idle between checkpoints."},
+                }
             if operation in ("http", "resolveHost"):
                 if not web_access_enabled(self.environment.network_policy):
-                    return {"id": identifier, "error": {"code": "permissionDenied",
-                            "message": "The task network policy disables web access."}}
+                    return {
+                        "id": identifier,
+                        "error": {
+                            "code": "permissionDenied",
+                            "message": "The task network policy disables web access.",
+                        },
+                    }
             if supervised:
                 if identifier in self.active:
                     raise RuntimeError("Duplicate command request ID.")
@@ -187,9 +196,13 @@ class SandboxBridge:
 
     async def _drain(self):
         pending = list(self.active.items())
-        await asyncio.gather(*(self._execute({"id": uuid.uuid4().hex, "operation": "cancel",
-                                             "targetRequestID": identifier})
-                               for identifier, _ in pending), return_exceptions=True)
+        await asyncio.gather(
+            *(
+                self._execute({"id": uuid.uuid4().hex, "operation": "cancel", "targetRequestID": identifier})
+                for identifier, _ in pending
+            ),
+            return_exceptions=True,
+        )
         if pending:
             _, unfinished = await asyncio.wait([task for _, task in pending], timeout=8)
             if unfinished:

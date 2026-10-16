@@ -5,22 +5,22 @@ import base64
 import contextlib
 import json
 import os
-from pathlib import Path
 import shlex
 import shutil
 import signal
 import subprocess
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
+import uuid
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
-import uuid
 
 from script.harbor.bridge import MAX_BODY_BYTES, SandboxBridge
-from script.harbor.worker import Capture, dispatch, public_addresses, RPCError, web_operation
+from script.harbor.worker import Capture, RPCError, dispatch, public_addresses, web_operation
 
 
 def encoded(value):
@@ -32,12 +32,23 @@ class WorkerWebTests(unittest.TestCase):
         return {"operation": "http", "url": url, "maxRedirects": redirects, "timeoutSeconds": 15}
 
     def test_dns_rejects_private_local_and_mixed_addresses(self):
-        for addresses in (["127.0.0.1"], ["10.0.0.1"], ["::1"], ["224.0.0.1"], ["ff02::1"],
-                          ["93.184.216.34", "192.168.1.1"]):
-            with self.subTest(addresses=addresses), patch("script.harbor.worker.socket.getaddrinfo",
-                    return_value=[(0, 0, 0, "", (address, 0)) for address in addresses]):
-                with self.assertRaises(RPCError):
-                    public_addresses("example.com")
+        for addresses in (
+            ["127.0.0.1"],
+            ["10.0.0.1"],
+            ["::1"],
+            ["224.0.0.1"],
+            ["ff02::1"],
+            ["93.184.216.34", "192.168.1.1"],
+        ):
+            with (
+                self.subTest(addresses=addresses),
+                patch(
+                    "script.harbor.worker.socket.getaddrinfo",
+                    return_value=[(0, 0, 0, "", (address, 0)) for address in addresses],
+                ),
+                self.assertRaises(RPCError),
+            ):
+                public_addresses("example.com")
         with patch("script.harbor.worker.socket.getaddrinfo") as resolve:
             for host in ("localhost", "LOCALHOST.", "example.local", "example.localhost"):
                 with self.assertRaises(RPCError):
@@ -51,15 +62,18 @@ class WorkerWebTests(unittest.TestCase):
         connection = MagicMock()
         connection.getresponse.return_value = response
         tls = MagicMock()
-        with patch("script.harbor.worker.public_addresses", return_value=["93.184.216.34"]), \
-                patch("script.harbor.worker.http.client.HTTPConnection", return_value=connection), \
-                patch("script.harbor.worker.socket.create_connection") as connect, \
-                patch("script.harbor.worker.ssl.create_default_context", return_value=tls):
+        with (
+            patch("script.harbor.worker.public_addresses", return_value=["93.184.216.34"]),
+            patch("script.harbor.worker.http.client.HTTPConnection", return_value=connection),
+            patch("script.harbor.worker.socket.create_connection") as connect,
+            patch("script.harbor.worker.ssl.create_default_context", return_value=tls),
+        ):
             result = web_operation(self.request())
         self.assertEqual(connect.call_args.args[0], ("93.184.216.34", 443))
         tls.wrap_socket.assert_called_once_with(connect.return_value, server_hostname="example.com")
-        connection.request.assert_called_once_with("GET", "/page", headers={
-            "User-Agent": "Sumika/1.0", "Accept-Encoding": "identity"})
+        connection.request.assert_called_once_with(
+            "GET", "/page", headers={"User-Agent": "Sumika/1.0", "Accept-Encoding": "identity"}
+        )
         response.read.assert_called_once_with(512 * 1024 + 1)
         connection.close.assert_called_once()
         self.assertEqual(result["dataBase64"], encoded(b"page"))
@@ -69,14 +83,17 @@ class WorkerWebTests(unittest.TestCase):
         connection.getresponse.return_value = MagicMock(status=200)
         connection.getresponse.return_value.read.return_value = b"page"
         connection.getresponse.return_value.getheaders.return_value = []
-        with patch("script.harbor.worker.public_addresses",
-                   return_value=["2606:4700:4700::1111", "93.184.216.34"]), \
-                patch("script.harbor.worker.http.client.HTTPConnection", return_value=connection), \
-                patch("script.harbor.worker.socket.create_connection",
-                      side_effect=[OSError("IPv6 unavailable"), MagicMock()]) as connect:
+        with (
+            patch("script.harbor.worker.public_addresses", return_value=["2606:4700:4700::1111", "93.184.216.34"]),
+            patch("script.harbor.worker.http.client.HTTPConnection", return_value=connection),
+            patch(
+                "script.harbor.worker.socket.create_connection", side_effect=[OSError("IPv6 unavailable"), MagicMock()]
+            ) as connect,
+        ):
             web_operation(self.request("http://example.com"))
-        self.assertEqual([call.args[0] for call in connect.call_args_list],
-                         [("2606:4700:4700::1111", 80), ("93.184.216.34", 80)])
+        self.assertEqual(
+            [call.args[0] for call in connect.call_args_list], [("2606:4700:4700::1111", 80), ("93.184.216.34", 80)]
+        )
 
     def test_redirect_revalidates_host_before_connecting(self):
         for host in ("127.0.0.1", "224.0.0.1", "ff02::1"):
@@ -89,12 +106,16 @@ class WorkerWebTests(unittest.TestCase):
                 final.read.return_value = b"page"
                 final.getheaders.return_value = []
                 connection.getresponse.side_effect = [redirect, final]
-                with patch("script.harbor.worker.socket.getaddrinfo", side_effect=[
-                        [(0, 0, 0, "", ("93.184.216.34", 0))], [(0, 0, 0, "", (host, 0))]]) as resolve, \
-                        patch("script.harbor.worker.http.client.HTTPConnection", return_value=connection), \
-                        patch("script.harbor.worker.socket.create_connection") as connect:
-                    with self.assertRaises(RPCError):
-                        web_operation(self.request("http://example.com/page"))
+                with (
+                    patch(
+                        "script.harbor.worker.socket.getaddrinfo",
+                        side_effect=[[(0, 0, 0, "", ("93.184.216.34", 0))], [(0, 0, 0, "", (host, 0))]],
+                    ) as resolve,
+                    patch("script.harbor.worker.http.client.HTTPConnection", return_value=connection),
+                    patch("script.harbor.worker.socket.create_connection") as connect,
+                    self.assertRaises(RPCError),
+                ):
+                    web_operation(self.request("http://example.com/page"))
                 self.assertEqual([call.args[0] for call in resolve.call_args_list], ["example.com", host])
                 connect.assert_called_once()
 
@@ -106,9 +127,11 @@ class WorkerWebTests(unittest.TestCase):
             connect.assert_not_called()
         connection = MagicMock()
         connection.getresponse.return_value = MagicMock(status=302)
-        with patch("script.harbor.worker.public_addresses", return_value=["93.184.216.34"]), \
-                patch("script.harbor.worker.http.client.HTTPConnection", return_value=connection), \
-                patch("script.harbor.worker.socket.create_connection"):
+        with (
+            patch("script.harbor.worker.public_addresses", return_value=["93.184.216.34"]),
+            patch("script.harbor.worker.http.client.HTTPConnection", return_value=connection),
+            patch("script.harbor.worker.socket.create_connection"),
+        ):
             with self.assertRaisesRegex(RPCError, "Too many redirects"):
                 web_operation(self.request("http://example.com", redirects=0))
 
@@ -123,8 +146,7 @@ class WorkerFileTests(unittest.TestCase):
         self.control.mkdir()
 
     def request(self, operation, **arguments):
-        return dispatch(str(self.root), self.control,
-                        {"id": uuid.uuid4().hex, "operation": operation, **arguments})
+        return dispatch(str(self.root), self.control, {"id": uuid.uuid4().hex, "operation": operation, **arguments})
 
     def test_binary_read_ranges_and_compare_and_swap(self):
         original = b"hello\x00\xffworld"
@@ -132,20 +154,34 @@ class WorkerFileTests(unittest.TestCase):
         result = self.request("read", path="nested/data", offset=5, maxBytes=2)["result"]
         self.assertEqual(result["dataBase64"], encoded(b"\x00\xff"))
         self.assertIsInstance(result["version"], str)
-        mismatch = self.request("write", path="nested/data", dataBase64=encoded(b"new"),
-                                expectedContentsBase64=encoded(b"stale"))
+        mismatch = self.request(
+            "write", path="nested/data", dataBase64=encoded(b"new"), expectedContentsBase64=encoded(b"stale")
+        )
         self.assertEqual(mismatch["error"]["code"], "contentChanged")
         self.assertEqual((self.root / "nested/data").read_bytes(), original)
-        self.assertIn("result", self.request("write", path="nested/data", dataBase64=encoded(b"new"),
-                                              expectedContentsBase64=encoded(original)))
+        self.assertIn(
+            "result",
+            self.request(
+                "write", path="nested/data", dataBase64=encoded(b"new"), expectedContentsBase64=encoded(original)
+            ),
+        )
 
     def test_web_cancelled_before_start_does_not_execute(self):
         identifier = uuid.uuid4().hex
-        dispatch(str(self.root), self.control, {"id": uuid.uuid4().hex,
-                 "operation": "cancel", "targetRequestID": identifier})
-        response = dispatch(str(self.root), self.control, {"id": identifier,
-                            "operation": "http", "url": "http://example.com",
-                            "timeoutSeconds": 1, "maxRedirects": 0})
+        dispatch(
+            str(self.root), self.control, {"id": uuid.uuid4().hex, "operation": "cancel", "targetRequestID": identifier}
+        )
+        response = dispatch(
+            str(self.root),
+            self.control,
+            {
+                "id": identifier,
+                "operation": "http",
+                "url": "http://example.com",
+                "timeoutSeconds": 1,
+                "maxRedirects": 0,
+            },
+        )
         self.assertEqual(response["error"]["code"], "webFailure")
         self.assertIn("cancelled", response["error"]["message"])
 
@@ -157,8 +193,7 @@ class WorkerFileTests(unittest.TestCase):
             response = self.request(operation, path="link/secret", dataBase64=encoded(b"x"))
             self.assertEqual(response["error"]["code"], "permissionDenied")
         self.assertFalse((self.control / "secret").exists())
-        self.assertEqual(self.request("resolve", path="https://example.com")["error"]["code"],
-                         "unsupportedURLScheme")
+        self.assertEqual(self.request("resolve", path="https://example.com")["error"]["code"], "unsupportedURLScheme")
 
     def test_resolve_new_path_and_directory_file_type(self):
         result = self.request("resolve", path="new/nested/file")["result"]
@@ -181,16 +216,19 @@ class WorkerFileTests(unittest.TestCase):
                 replacement = b"b" * 8192 + suffix
                 self.request("write", path="notes", dataBase64=encoded(original))
                 initial = self.request("read", path="notes", maxBytes=0)["result"]
-                first = self.request("read", path="notes", offset=0, maxBytes=8192,
-                                     expectedVersion=initial["version"])["result"]
+                first = self.request("read", path="notes", offset=0, maxBytes=8192, expectedVersion=initial["version"])[
+                    "result"
+                ]
                 self.assertEqual(base64.b64decode(first["dataBase64"]), original[:8192])
                 self.assertEqual(first["version"], initial["version"])
-                unchanged = self.request("read", path="notes", offset=8192, maxBytes=8192,
-                                         expectedVersion=initial["version"])["result"]
+                unchanged = self.request(
+                    "read", path="notes", offset=8192, maxBytes=8192, expectedVersion=initial["version"]
+                )["result"]
                 self.assertEqual(base64.b64decode(unchanged["dataBase64"]), suffix)
                 self.request("write", path="notes", dataBase64=encoded(replacement))
-                changed = self.request("read", path="notes", offset=8192, maxBytes=8192,
-                                       expectedVersion=initial["version"])
+                changed = self.request(
+                    "read", path="notes", offset=8192, maxBytes=8192, expectedVersion=initial["version"]
+                )
                 self.assertEqual(changed["error"]["code"], "contentChanged")
 
     def test_version_check_rejects_in_place_change_during_chunk_read(self):
@@ -233,6 +271,7 @@ class WorkerFileTests(unittest.TestCase):
 
 class LocalTestEnvironment:
     """An explicit local fake for trusted transport tests, never an adapter fallback."""
+
     def __init__(self):
         self.calls = []
 
@@ -244,8 +283,12 @@ class LocalTestEnvironment:
         if args[0] == "python3":
             args[0] = sys.executable
         process = await asyncio.create_subprocess_exec(
-            *args, cwd=cwd, env={"PATH": "/usr/bin:/bin"},
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            *args,
+            cwd=cwd,
+            env={"PATH": "/usr/bin:/bin"},
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout_sec)
         return SimpleNamespace(return_code=process.returncode, stdout=stdout.decode(), stderr=stderr.decode())
 
@@ -263,17 +306,29 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         await self.bridge.start()
 
     def run_request(self, script, **arguments):
-        return {"id": uuid.uuid4().hex, "operation": "run", "executable": sys.executable,
-                "arguments": ["-c", script], "cwd": self.temporary.name,
-                "timeoutSeconds": 5, "maxStdoutBytes": 128, "maxStderrBytes": 128,
-                "stdoutRetention": "prefix", "stderrRetention": "prefix", **arguments}
+        return {
+            "id": uuid.uuid4().hex,
+            "operation": "run",
+            "executable": sys.executable,
+            "arguments": ["-c", script],
+            "cwd": self.temporary.name,
+            "timeoutSeconds": 5,
+            "maxStdoutBytes": 128,
+            "maxStderrBytes": 128,
+            "stdoutRetention": "prefix",
+            "stderrRetention": "prefix",
+            **arguments,
+        }
 
     async def test_http_authentication_and_no_token_in_container(self):
         payload = {"id": uuid.uuid4().hex, "operation": "list", "path": "."}
 
         def http(token):
-            request = Request(self.bridge.url + "/rpc", json.dumps(payload).encode(),
-                              {"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+            request = Request(
+                self.bridge.url + "/rpc",
+                json.dumps(payload).encode(),
+                {"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+            )
             with urlopen(request, timeout=10) as response:
                 return json.load(response)
 
@@ -282,15 +337,18 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(caught.exception.code, 403)
         caught.exception.close()
         self.assertEqual((await asyncio.to_thread(http, self.bridge.token))["result"], {"names": []})
-        response = await self.bridge.dispatch(self.run_request(
-            "import os; print(os.environ.get('SUMIKA_HARBOR_TOKEN', 'absent'))"))
+        response = await self.bridge.dispatch(
+            self.run_request("import os; print(os.environ.get('SUMIKA_HARBOR_TOKEN', 'absent'))")
+        )
         self.assertEqual(response["result"]["stdout"], "absent\n")
         self.assertTrue(all(self.bridge.token not in command for command in self.environment.calls))
 
     async def test_bounded_output_and_raw_bytes(self):
-        response = await self.bridge.dispatch(self.run_request(
-            "import os; os.write(1,b'a'*1000+b'END'); os.write(2,b'error')",
-            stdoutRetention="headTail"))
+        response = await self.bridge.dispatch(
+            self.run_request(
+                "import os; os.write(1,b'a'*1000+b'END'); os.write(2,b'error')", stdoutRetention="headTail"
+            )
+        )
         result = response["result"]
         self.assertEqual(result["exitCode"], 0)
         self.assertTrue(result["stdoutTruncated"])
@@ -306,8 +364,9 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         request = self.run_request(script)
         running = asyncio.create_task(self.bridge.dispatch(request))
         await asyncio.sleep(0.2)
-        cancellation = await self.bridge.dispatch({"id": uuid.uuid4().hex, "operation": "cancel",
-                                                   "targetRequestID": request["id"]})
+        cancellation = await self.bridge.dispatch(
+            {"id": uuid.uuid4().hex, "operation": "cancel", "targetRequestID": request["id"]}
+        )
         self.assertTrue(cancellation["result"]["cancelled"])
         self.assertTrue((await running)["result"]["cancelled"])
         await asyncio.sleep(2)
@@ -347,7 +406,7 @@ subprocess.Popen([sys.executable, '-c', {child!r}], start_new_session=True,
 deadline = time.monotonic() + 5
 while not Path({str(ready)!r}).exists() and time.monotonic() < deadline:
     time.sleep(0.01)
-if {outcome != 'completion'!r}:
+if {outcome != "completion"!r}:
     time.sleep(10)
 """
         request = self.run_request(script, timeoutSeconds=2 if outcome == "timeout" else 10)
@@ -359,8 +418,9 @@ if {outcome != 'completion'!r}:
                     await asyncio.sleep(0.01)
             pid = int(ready.read_text())
             if outcome == "cancellation":
-                await self.bridge.dispatch({"id": uuid.uuid4().hex, "operation": "cancel",
-                                            "targetRequestID": request["id"]})
+                await self.bridge.dispatch(
+                    {"id": uuid.uuid4().hex, "operation": "cancel", "targetRequestID": request["id"]}
+                )
             elif outcome == "shutdown":
                 await self.bridge.close()
             response = await asyncio.wait_for(asyncio.shield(running), timeout=15)
@@ -378,8 +438,9 @@ if {outcome != 'completion'!r}:
             pid = None
         finally:
             if not running.done():
-                await self.bridge.dispatch({"id": uuid.uuid4().hex, "operation": "cancel",
-                                            "targetRequestID": request["id"]})
+                await self.bridge.dispatch(
+                    {"id": uuid.uuid4().hex, "operation": "cancel", "targetRequestID": request["id"]}
+                )
                 await asyncio.wait_for(running, timeout=15)
             if pid is not None:
                 with contextlib.suppress(ProcessLookupError):
@@ -409,8 +470,7 @@ if {outcome != 'completion'!r}:
 
     async def test_cancellation_before_command_starts(self):
         request = self.run_request("open('must-not-run', 'w').write('bad')")
-        await self.bridge.dispatch({"id": uuid.uuid4().hex, "operation": "cancel",
-                                    "targetRequestID": request["id"]})
+        await self.bridge.dispatch({"id": uuid.uuid4().hex, "operation": "cancel", "targetRequestID": request["id"]})
         response = await self.bridge.dispatch(request)
         self.assertTrue(response["result"]["cancelled"])
         self.assertFalse((Path(self.temporary.name) / "must-not-run").exists())
@@ -418,18 +478,27 @@ if {outcome != 'completion'!r}:
     async def test_atomic_compare_and_swap_has_one_winner(self):
         target = Path(self.temporary.name) / "data"
         target.write_bytes(b"before")
-        requests = [{"id": uuid.uuid4().hex, "operation": "write", "path": "data",
-                     "dataBase64": encoded(value), "expectedContentsBase64": encoded(b"before")}
-                    for value in (b"first", b"second")]
+        requests = [
+            {
+                "id": uuid.uuid4().hex,
+                "operation": "write",
+                "path": "data",
+                "dataBase64": encoded(value),
+                "expectedContentsBase64": encoded(b"before"),
+            }
+            for value in (b"first", b"second")
+        ]
         responses = await asyncio.gather(*(self.bridge.dispatch(request) for request in requests))
         self.assertEqual(sum("result" in response for response in responses), 1)
-        self.assertEqual([response["error"]["code"] for response in responses if "error" in response],
-                         ["contentChanged"])
+        self.assertEqual(
+            [response["error"]["code"] for response in responses if "error" in response], ["contentChanged"]
+        )
 
     async def test_large_edit_uses_file_transfer_not_command_arguments(self):
         data = b"a" * (256 * 1024)
-        response = await self.bridge.dispatch({"id": uuid.uuid4().hex, "operation": "write",
-                                               "path": "large", "dataBase64": encoded(data)})
+        response = await self.bridge.dispatch(
+            {"id": uuid.uuid4().hex, "operation": "write", "path": "large", "dataBase64": encoded(data)}
+        )
         self.assertIn("result", response)
         self.assertEqual((Path(self.temporary.name) / "large").read_bytes(), data)
         self.assertTrue(all(len(command) < 1024 for command in self.environment.calls))
@@ -438,8 +507,14 @@ if {outcome != 'completion'!r}:
 class BridgeDiagnosticTests(unittest.IsolatedAsyncioTestCase):
     async def test_worker_receives_quoted_workspace_and_matching_cwd(self):
         root = "/work dir/project's files"
-        environment = SimpleNamespace(upload_file=AsyncMock(), exec=AsyncMock(return_value=
-            SimpleNamespace(return_code=0, stdout='{"id":"request","result":{"names":[]}}', stderr=None)))
+        environment = SimpleNamespace(
+            upload_file=AsyncMock(),
+            exec=AsyncMock(
+                return_value=SimpleNamespace(
+                    return_code=0, stdout='{"id":"request","result":{"names":[]}}', stderr=None
+                )
+            ),
+        )
         bridge = SandboxBridge(environment, root)
         response = await bridge.dispatch({"id": "request", "operation": "list", "path": "."})
         self.assertEqual(response["result"], {"names": []})
@@ -448,16 +523,20 @@ class BridgeDiagnosticTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(environment.exec.call_args.kwargs["cwd"], root)
 
     async def test_web_policy_denies_offline_and_obeys_current_phase(self):
-        for mode, hosts, enabled in (("no-network", [], False), ("allowlist", [], False),
-                                     ("allowlist", ["example.com"], True), ("public", [], True)):
+        for mode, hosts, enabled in (
+            ("no-network", [], False),
+            ("allowlist", [], False),
+            ("allowlist", ["example.com"], True),
+            ("public", [], True),
+        ):
             with self.subTest(mode=mode, hosts=hosts):
-                environment = SimpleNamespace(network_policy=SimpleNamespace(
-                    network_mode=mode, allowed_hosts=hosts))
+                environment = SimpleNamespace(network_policy=SimpleNamespace(network_mode=mode, allowed_hosts=hosts))
                 bridge = SandboxBridge(environment, "/app")
                 for operation in ("http", "resolveHost"):
                     request = {"id": uuid.uuid4().hex, "operation": operation}
-                    with patch.object(bridge, "_execute", AsyncMock(return_value={
-                            "id": request["id"], "result": {}})) as execute:
+                    with patch.object(
+                        bridge, "_execute", AsyncMock(return_value={"id": request["id"], "result": {}})
+                    ) as execute:
                         response = await bridge.dispatch(request)
                         self.assertEqual(execute.await_count, int(enabled))
                         if not enabled:
@@ -473,8 +552,10 @@ class BridgeDiagnosticTests(unittest.IsolatedAsyncioTestCase):
             (0, '{"id": "wrong"}', "unexpected response", "ID mismatch"),
         ):
             with self.subTest(stdout=stdout):
-                environment = SimpleNamespace(upload_file=AsyncMock(), exec=AsyncMock(return_value=
-                    SimpleNamespace(return_code=status, stdout=stdout, stderr=stderr)))
+                environment = SimpleNamespace(
+                    upload_file=AsyncMock(),
+                    exec=AsyncMock(return_value=SimpleNamespace(return_code=status, stdout=stdout, stderr=stderr)),
+                )
                 bridge = SandboxBridge(environment, "/app")
                 response = await bridge.dispatch({"id": "request", "operation": "read", "path": "private"})
                 self.assertEqual(response["error"]["code"], "transportFailure")
@@ -486,8 +567,10 @@ class BridgeDiagnosticTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_oversized_diagnostics_keep_head_and_tail_with_a_bound(self):
         output = "start" + "x" * (MAX_BODY_BYTES * 2) + "last error"
-        environment = SimpleNamespace(upload_file=AsyncMock(), exec=AsyncMock(return_value=
-            SimpleNamespace(return_code=0, stdout=output, stderr=output)))
+        environment = SimpleNamespace(
+            upload_file=AsyncMock(),
+            exec=AsyncMock(return_value=SimpleNamespace(return_code=0, stdout=output, stderr=output)),
+        )
         bridge = SandboxBridge(environment, "/app")
         response = await bridge.dispatch({"id": "request", "operation": "list"})
         detail = response["error"]["message"]
@@ -497,20 +580,35 @@ class BridgeDiagnosticTests(unittest.IsolatedAsyncioTestCase):
         self.assertLess(len(detail), 8500)
 
     async def test_startup_errors_distinguish_transport_from_workspace(self):
-        for code, label in (("transportFailure", "Task RPC startup failed"),
-                            ("permissionDenied", "Invalid task workspace")):
+        for code, label in (
+            ("transportFailure", "Task RPC startup failed"),
+            ("permissionDenied", "Invalid task workspace"),
+        ):
             with self.subTest(code=code):
-                environment = SimpleNamespace(upload_file=AsyncMock(), exec=AsyncMock(return_value=
-                    SimpleNamespace(return_code=0, stdout=None, stderr=None)))
+                environment = SimpleNamespace(
+                    upload_file=AsyncMock(),
+                    exec=AsyncMock(return_value=SimpleNamespace(return_code=0, stdout=None, stderr=None)),
+                )
                 bridge = SandboxBridge(environment, "/app")
-                with patch.object(bridge, "dispatch", AsyncMock(return_value={
-                        "error": {"code": code, "message": "retained failure"}})), \
-                        self.assertRaisesRegex(RuntimeError, f"{label}: retained failure"):
+                with (
+                    patch.object(
+                        bridge,
+                        "dispatch",
+                        AsyncMock(return_value={"error": {"code": code, "message": "retained failure"}}),
+                    ),
+                    self.assertRaisesRegex(RuntimeError, f"{label}: retained failure"),
+                ):
                     await bridge.start()
 
     async def test_control_directory_failure_keeps_merged_output(self):
-        bridge = SandboxBridge(SimpleNamespace(exec=AsyncMock(return_value=
-            SimpleNamespace(return_code=1, stdout="mkdir: permission denied", stderr=None))), "/app")
+        bridge = SandboxBridge(
+            SimpleNamespace(
+                exec=AsyncMock(
+                    return_value=SimpleNamespace(return_code=1, stdout="mkdir: permission denied", stderr=None)
+                )
+            ),
+            "/app",
+        )
         with self.assertRaisesRegex(RuntimeError, "mkdir: permission denied"):
             await bridge.start()
 
@@ -526,8 +624,7 @@ class BridgeDrainTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(response["error"]["code"], "permissionDenied")
             execute.assert_not_awaited()
             bridge.resume()
-            self.assertEqual(await bridge.dispatch({"id": "list", "operation": "list"}),
-                             {"result": {"names": []}})
+            self.assertEqual(await bridge.dispatch({"id": "list", "operation": "list"}), {"result": {"names": []}})
             execute.assert_awaited_once()
         await bridge.close(cleanup_environment=False)
         environment.exec.assert_not_awaited()
@@ -560,14 +657,18 @@ class BridgeDrainTests(unittest.IsolatedAsyncioTestCase):
         await bridge.close(cleanup_environment=False)
 
     async def test_completed_worker_failure_blocks_trial_shutdown(self):
-        for failure in (RuntimeError("Worker exited without a response"),
-                        {"id": "run", "error": {"code": "transportFailure",
-                                                "message": "Cannot drain descendants"}}):
+        for failure in (
+            RuntimeError("Worker exited without a response"),
+            {"id": "run", "error": {"code": "transportFailure", "message": "Cannot drain descendants"}},
+        ):
             with self.subTest(failure=failure):
                 environment = SimpleNamespace(exec=AsyncMock())
                 bridge = SandboxBridge(environment, "/app")
-                execute = (AsyncMock(side_effect=failure) if isinstance(failure, Exception)
-                           else AsyncMock(return_value=failure))
+                execute = (
+                    AsyncMock(side_effect=failure)
+                    if isinstance(failure, Exception)
+                    else AsyncMock(return_value=failure)
+                )
                 with patch.object(bridge, "_execute", execute):
                     response = await bridge.dispatch({"id": "run", "operation": "run"})
                     self.assertEqual(response["error"]["code"], "transportFailure")
@@ -598,8 +699,7 @@ class BridgeDrainTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(bridge, "_execute", execute):
             running = asyncio.create_task(bridge.dispatch({"id": "run", "operation": "run"}))
             await started.wait()
-            with patch("script.harbor.bridge.asyncio.wait",
-                       AsyncMock(return_value=(set(), {running}))):
+            with patch("script.harbor.bridge.asyncio.wait", AsyncMock(return_value=(set(), {running}))):
                 with self.assertRaisesRegex(RuntimeError, "Cannot drain task commands"):
                     await bridge.close()
             self.assertTrue(running.cancelled())
@@ -622,15 +722,18 @@ class FixtureTests(unittest.TestCase):
             (logs / "completion.txt").write_text("passed\n")
             # Redirect only container paths; execute the actual verifier's shell logic.
             script = (fixture / "tests/test.sh").read_text()
-            for original, replacement in (("/app", workspace), ("/tests", fixture / "tests"),
-                                          ("/logs/verifier", logs)):
+            for original, replacement in (("/app", workspace), ("/tests", fixture / "tests"), ("/logs/verifier", logs)):
                 script = script.replace(original, shlex.quote(str(replacement)))
             verifier = root / "test.sh"
             verifier.write_text(script)
-            result = subprocess.run(["/bin/sh", str(verifier)], cwd=workspace,
-                                    env={**os.environ, "PATH": f"{binaries}:{os.defpath}",
-                                         "PYTHONDONTWRITEBYTECODE": "1"},
-                                    capture_output=True, text=True, timeout=10)
+            result = subprocess.run(
+                ["/bin/sh", str(verifier)],
+                cwd=workspace,
+                env={**os.environ, "PATH": f"{binaries}:{os.defpath}", "PYTHONDONTWRITEBYTECODE": "1"},
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
             return (logs / "reward.txt").read_text().strip(), result
 
@@ -652,8 +755,7 @@ class FixtureTests(unittest.TestCase):
         cases = (
             ("\nimport unittest\nunittest.TestLoader.testMethodPrefix = 'missing_'\n", "Ran 0 tests"),
             ("\nimport unittest\nunittest.TestLoader.testNamePatterns = ['*.test_empty']\n", "Ran 1 test"),
-            ("\ndef merge_ranges(ranges):\n    import unittest\n    raise unittest.SkipTest('skip')\n",
-             "skipped=5"),
+            ("\ndef merge_ranges(ranges):\n    import unittest\n    raise unittest.SkipTest('skip')\n", "skipped=5"),
         )
         for suffix, output in cases:
             with self.subTest(output=output):

@@ -3,10 +3,10 @@
 import contextlib
 import io
 import json
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from script.harbor.check_baselines import check_baselines
@@ -15,12 +15,22 @@ from script.harbor.check_baselines import check_baselines
 class BaselineCheckTests(unittest.TestCase):
     suite_tasks = ["openthoughts/log-summary", "openthoughts/pandas-etl"]
 
-    def run_check(self, agent_to_change=None, changes=None, returned_tasks=None,
-                  command_failure=False, suite=False, malformed=False):
+    def run_check(
+        self,
+        agent_to_change=None,
+        changes=None,
+        returned_tasks=None,
+        command_failure=False,
+        suite=False,
+        malformed=False,
+    ):
         calls = []
         task_names = self.suite_tasks if suite else ["merge-ranges"]
-        argv = (["--dataset", "openthoughts/openthoughts-tblite", *task_names]
-                if suite else ["script/harbor/tasks/merge-ranges"])
+        argv = (
+            ["--dataset", "openthoughts/openthoughts-tblite", *task_names]
+            if suite
+            else ["script/harbor/tasks/merge-ranges"]
+        )
 
         def run(command, *, check):
             self.assertTrue(check)
@@ -30,8 +40,7 @@ class BaselineCheckTests(unittest.TestCase):
             self.assertEqual(command[command.index("-k") + 1], "1")
             if suite:
                 self.assertEqual(command[command.index("-d") + 1], "openthoughts/openthoughts-tblite")
-                self.assertEqual([command[i + 1] for i, arg in enumerate(command) if arg == "-i"],
-                                 task_names)
+                self.assertEqual([command[i + 1] for i, arg in enumerate(command) if arg == "-i"], task_names)
                 self.assertEqual(command[command.index("-e") + 1], "docker")
                 self.assertEqual(command[command.index("--agent-timeout-multiplier") + 1], "6")
             else:
@@ -42,8 +51,12 @@ class BaselineCheckTests(unittest.TestCase):
             job_name = command[command.index("--job-name") + 1]
             names = returned_tasks if agent == agent_to_change and returned_tasks is not None else task_names
             for trial, name in enumerate(names):
-                result = {"task_name": name, "finished_at": "2026-10-13T00:00:00Z", "exception_info": None,
-                          "verifier_result": {"rewards": {"reward": 0 if agent == "nop" else 1}}}
+                result = {
+                    "task_name": name,
+                    "finished_at": "2026-10-13T00:00:00Z",
+                    "exception_info": None,
+                    "verifier_result": {"rewards": {"reward": 0 if agent == "nop" else 1}},
+                }
                 if agent == agent_to_change and trial == len(names) - 1:
                     result.update(changes or {})
                 path = jobs_dir / job_name / f"trial-{trial}" / "result.json"
@@ -75,8 +88,12 @@ class BaselineCheckTests(unittest.TestCase):
 
     def test_failed_incomplete_and_unverified_trials_fail(self):
         for agent in ("nop", "oracle"):
-            for changes in ({"finished_at": None}, {"exception_info": {"exception_type": "Failure"}},
-                            {"verifier_result": None}, {"verifier_result": {"rewards": None}}):
+            for changes in (
+                {"finished_at": None},
+                {"exception_info": {"exception_type": "Failure"}},
+                {"verifier_result": None},
+                {"verifier_result": {"rewards": None}},
+            ):
                 with self.subTest(agent=agent, changes=changes), self.assertRaises(RuntimeError):
                     self.run_check(agent, changes, suite=True)
 
@@ -98,9 +115,11 @@ class BaselineCheckTests(unittest.TestCase):
                 self.run_check(agent, suite=True, malformed=True)
 
     def test_empty_or_duplicate_selection_fails_before_running_harbor(self):
-        for argv in (["--dataset", "example/suite"],
-                     ["--dataset", "example/suite", "example/task", "example/task"],
-                     ["first/path", "second/path"]):
+        for argv in (
+            ["--dataset", "example/suite"],
+            ["--dataset", "example/suite", "example/task", "example/task"],
+            ["first/path", "second/path"],
+        ):
             with self.subTest(argv=argv), patch("script.harbor.check_baselines.subprocess.run") as run:
                 with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                     check_baselines(argv)

@@ -1,11 +1,10 @@
 """Derive Harbor ATIF from Sumika's canonical session and existing MLX trace."""
 
+import json
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-import json
 
 from harbor.models.trajectories import Trajectory
-
 from script.harbor.evidence import _regular_file, write_json
 
 
@@ -48,7 +47,8 @@ def _timestamp(value):
 
 def _direct_summary(message):
     return message.get("modelProjectionPolicy") == {
-        "kind": "override", "content": "Delivered finish_task summary directly to the user."
+        "kind": "override",
+        "content": "Delivered finish_task summary directly to the user.",
     }
 
 
@@ -57,7 +57,10 @@ def _trace_generations(rows):
     starts = defaultdict(list)
     for row in rows:
         if row.get("kind") == "turn_trace" and row.get("phase") in (
-                "runtime_stream_start", "runtime_prefill", "runtime_stream_end"):
+            "runtime_stream_start",
+            "runtime_prefill",
+            "runtime_stream_end",
+        ):
             identifier = row["generationID"]
             generation = generations.setdefault(identifier, {})
             phase = row["phase"]
@@ -104,10 +107,17 @@ def _generation_fields(identifier, generation):
             "prompt_tokens": prompt,
             "cached_tokens": cached,
             "completion_tokens": completion,
-            "extra": {key: end[key] for key in (
-                "durationMs", "reasoningTokenCount", "answerTokenCount",
-                "tokensPerSecond", "generatedTokenCountIsEstimate"
-            ) if key in end},
+            "extra": {
+                key: end[key]
+                for key in (
+                    "durationMs",
+                    "reasoningTokenCount",
+                    "answerTokenCount",
+                    "tokensPerSecond",
+                    "generatedTokenCountIsEstimate",
+                )
+                if key in end
+            },
         },
         "extra": {
             "generation_id": identifier,
@@ -122,8 +132,12 @@ def build_trajectory(session, rows, model_name, agent_version, *, turn_id=None):
     scoped = turn_id is not None
     if scoped:
         turn_ids = [turn.get("id") for turn in turns]
-        if (not turn_ids or any(not isinstance(identifier, str) or not identifier for identifier in turn_ids)
-                or len(set(turn_ids)) != len(turn_ids) or turn_ids[-1] != turn_id):
+        if (
+            not turn_ids
+            or any(not isinstance(identifier, str) or not identifier for identifier in turn_ids)
+            or len(set(turn_ids)) != len(turn_ids)
+            or turn_ids[-1] != turn_id
+        ):
             raise ValueError("Current native turn is missing, duplicated, or not last in the session")
         turns = [turns[-1]]
         for row in rows:
@@ -132,8 +146,9 @@ def build_trajectory(session, rows, model_name, agent_version, *, turn_id=None):
     generations, starts = _trace_generations(rows)
     if scoped:
         for identifier, generation in generations.items():
-            if not identifier or not all(name in generation for name in (
-                    "request", "response", "runtime_stream_start", "runtime_stream_end")):
+            if not identifier or not all(
+                name in generation for name in ("request", "response", "runtime_stream_start", "runtime_stream_end")
+            ):
                 raise ValueError("Checkpoint trace contains an incomplete or unmatched generation")
             if generation["runtime_stream_start"].get("turnID") != turn_id:
                 raise ValueError("Checkpoint trace contains another turn")
@@ -155,8 +170,7 @@ def build_trajectory(session, rows, model_name, agent_version, *, turn_id=None):
                     "step_id": len(steps) + 1,
                     "source": "agent" if is_agent else "user",
                     "message": payload["content"],
-                    "extra": {"turn_id": turn_id, "item_id": payload["id"],
-                              "turn_status": turn["status"]},
+                    "extra": {"turn_id": turn_id, "item_id": payload["id"], "turn_status": turn["status"]},
                 }
                 if is_agent:
                     current["llm_call_count"] = 0 if direct else 1
@@ -176,19 +190,26 @@ def build_trajectory(session, rows, model_name, agent_version, *, turn_id=None):
                 if not current or current["source"] != "agent":
                     raise ValueError("Tool has no assistant message")
                 raw = payload["request"]["raw"]
-                current.setdefault("tool_calls", []).append({
-                    "tool_call_id": raw["id"], "function_name": raw["toolName"],
-                    "arguments": raw["arguments"],
-                    "extra": {"created_at": _timestamp(raw.get("createdAt"))},
-                })
+                current.setdefault("tool_calls", []).append(
+                    {
+                        "tool_call_id": raw["id"],
+                        "function_name": raw["toolName"],
+                        "arguments": raw["arguments"],
+                        "extra": {"created_at": _timestamp(raw.get("createdAt"))},
+                    }
+                )
                 # Only persisted tool records are actions; never parse assistant text here.
-                current.setdefault("observation", {"results": []})["results"].append({
-                    "source_call_id": raw["id"],
-                    "content": json.dumps(payload["state"], ensure_ascii=False, indent=2),
-                    "extra": {key: payload[key] for key in (
-                        "evaluation", "approvalSource", "modelFollowUpNotice"
-                    ) if key in payload},
-                })
+                current.setdefault("observation", {"results": []})["results"].append(
+                    {
+                        "source_call_id": raw["id"],
+                        "content": json.dumps(payload["state"], ensure_ascii=False, indent=2),
+                        "extra": {
+                            key: payload[key]
+                            for key in ("evaluation", "approvalSource", "modelFollowUpNotice")
+                            if key in payload
+                        },
+                    }
+                )
             else:
                 raise ValueError(f"Unsupported turn item: {kind}")
 
@@ -211,23 +232,24 @@ def build_trajectory(session, rows, model_name, agent_version, *, turn_id=None):
             raise ValueError("Checkpoint trace contains missing or unmatched generation boundaries")
         issues.append("Trace contains missing or unmatched generation boundaries; totals omitted.")
     totals = {}
-    for name, field in (("prompt", "prompt_tokens"), ("cached", "cached_tokens"),
-                        ("completion", "completion_tokens")):
+    for name, field in (("prompt", "prompt_tokens"), ("cached", "cached_tokens"), ("completion", "completion_tokens")):
         counts = [step.get("metrics", {}).get(field) for step in model_steps]
         totals[f"total_{name}_tokens"] = (
             sum(counts) if counts and not issues and all(c is not None for c in counts) else None
         )
     if any(value is None for value in totals.values()):
         issues.append("Unavailable or estimated token counts are omitted, not treated as zero.")
-    return Trajectory.model_validate({
-        "schema_version": "ATIF-v1.8",
-        "session_id": session["id"],
-        "agent": {"name": "sumika", "version": agent_version, "model_name": model_name},
-        "steps": steps,
-        "final_metrics": {**totals, "total_steps": len(steps)},
-        "notes": "Derived from session.json and mlx-trace.jsonl. Assistant steps are paired "
-                 "with trace generations in order within each turn; direct finish_task summaries "
-                 "are not model calls. Prompt tokens include cache hits; completion tokens include "
-                 "reasoning and tool calls. Raw files remain authoritative.",
-        "extra": {"issues": issues, **({"turn_id": turn_id} if scoped else {})},
-    })
+    return Trajectory.model_validate(
+        {
+            "schema_version": "ATIF-v1.8",
+            "session_id": session["id"],
+            "agent": {"name": "sumika", "version": agent_version, "model_name": model_name},
+            "steps": steps,
+            "final_metrics": {**totals, "total_steps": len(steps)},
+            "notes": "Derived from session.json and mlx-trace.jsonl. Assistant steps are paired "
+            "with trace generations in order within each turn; direct finish_task summaries "
+            "are not model calls. Prompt tokens include cache hits; completion tokens include "
+            "reasoning and tool calls. Raw files remain authoritative.",
+            "extra": {"issues": issues, **({"turn_id": turn_id} if scoped else {})},
+        }
+    )

@@ -1,11 +1,9 @@
 """Per-trial reproduction evidence and a read-only integrity check for Harbor 0.24.0."""
 
 import asyncio
-from importlib.metadata import version
 import hashlib
 import json
 import os
-from pathlib import Path
 import platform
 import posixpath
 import shutil
@@ -14,11 +12,20 @@ import subprocess
 import sys
 import tomllib
 import unicodedata
+from importlib.metadata import distributions, version
+from pathlib import Path
+
+from script.harbor.models import CompletenessReport
 
 
 def validate_workspace_root(path):
-    if (not isinstance(path, str) or not path.startswith("/") or path.startswith("//")
-            or any(character in path for character in "\0\r\n") or posixpath.normpath(path) != path):
+    if (
+        not isinstance(path, str)
+        or not path.startswith("/")
+        or path.startswith("//")
+        or any(character in path for character in "\0\r\n")
+        or posixpath.normpath(path) != path
+    ):
         raise ValueError("Expected a normalized absolute container workspace path.")
     return path
 
@@ -42,8 +49,7 @@ def file_record(path):
     with path.open("rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
     after = path.lstat()
-    if (before.st_ino, before.st_size, before.st_mtime_ns) != (
-            after.st_ino, after.st_size, after.st_mtime_ns):
+    if (before.st_ino, before.st_size, before.st_mtime_ns) != (after.st_ino, after.st_size, after.st_mtime_ns):
         raise ValueError(f"Evidence changed while hashing: {path}")
     return {**record, "bytes": after.st_size, "sha256": digest}
 
@@ -62,8 +68,7 @@ def inventory(root):
 
 
 def command(arguments, cwd=None):
-    return subprocess.run(arguments, cwd=cwd, check=True, capture_output=True,
-                          timeout=30).stdout
+    return subprocess.run(arguments, cwd=cwd, check=True, capture_output=True, timeout=30).stdout
 
 
 def prepare_trial(event, repository):
@@ -72,8 +77,9 @@ def prepare_trial(event, repository):
     trial = event.config.trials_dir / event.trial_name
     agent = trial / "agent"
     agent.mkdir(parents=True, exist_ok=True)
-    write_json(agent / "completeness.json", {
-        "schema_version": 1, "complete": False, "issues": ["Trial has not finished."]})
+    write_json(
+        agent / "completeness.json", {"schema_version": 1, "complete": False, "issues": ["Trial has not finished."]}
+    )
     provenance = trial / "provenance"
     provenance.mkdir()
     task = provenance / "task"
@@ -83,8 +89,7 @@ def prepare_trial(event, repository):
         digest = event.lock.task.digest
         source = task_id.model_copy(update={"ref": digest}).get_local_path()
         if event.config.task.download_dir is not None:
-            source = (event.config.task.download_dir / task_id.org / task_id.name
-                      / digest.removeprefix("sha256:"))
+            source = event.config.task.download_dir / task_id.org / task_id.name / digest.removeprefix("sha256:")
     else:
         source = task_id.get_local_path()
     shutil.copytree(source, task, symlinks=True)
@@ -106,50 +111,68 @@ def prepare_trial(event, repository):
         shutil.copy2(repository / relative, target, follow_symlinks=False)
     shutil.copy2(repository / "Package.resolved", provenance / "Package.resolved")
     binary = Path(event.config.agent.kwargs["binary"]).expanduser().resolve(strict=True)
-    write_json(provenance / "reproduction.json", {
-        "schema_version": 1, "trial_id": str(event.trial_id),
-        "task_checksum": event.result.task_checksum,
-        "task_files": inventory(task), "harbor_version": version("harbor"),
-        "binary": {"path": str(binary), **file_record(binary)},
-        "source_at_run": {"commit": commit, "patch": "provenance/source.patch",
-                          "untracked": "provenance/source-untracked"},
-        "swift_version": command(["xcrun", "swift", "--version"]).decode().strip(),
-        "host": {"os": platform.platform(), "architecture": platform.machine()},
-        "generation_activity": os.environ.get("SUMIKA_GENERATION_ACTIVITY", "default"),
-        "runtime_metadata": (retained_agent / "runtime.json").as_posix(),
-    })
+    write_json(
+        provenance / "reproduction.json",
+        {
+            "schema_version": 1,
+            "trial_id": str(event.trial_id),
+            "task_checksum": event.result.task_checksum,
+            "task_files": inventory(task),
+            "harbor_version": version("harbor"),
+            "binary": {"path": str(binary), **file_record(binary)},
+            "source_at_run": {
+                "commit": commit,
+                "patch": "provenance/source.patch",
+                "untracked": "provenance/source-untracked",
+            },
+            "swift_version": command(["xcrun", "swift", "--version"]).decode().strip(),
+            "python": {
+                "version": sys.version,
+                "executable": sys.executable,
+                "packages": {package.metadata["Name"]: package.version for package in distributions()},
+                "uv_lock": file_record(repository / "script/harbor/uv.lock"),
+            },
+            "host": {"os": platform.platform(), "architecture": platform.machine()},
+            "generation_activity": os.environ.get("SUMIKA_GENERATION_ACTIVITY", "default"),
+            "runtime_metadata": (retained_agent / "runtime.json").as_posix(),
+        },
+    )
 
 
 async def capture_environment(environment, logs_dir):
     # This Compose lookup is tied to the adapter's exact Harbor version pin.
-    images = await environment._run_docker_compose_command(
-        ["images", "-q"], timeout_sec=30)
+    images = await environment._run_docker_compose_command(["images", "-q"], timeout_sec=30)
     identifiers = sorted(set(images.stdout.split()))
     if not identifiers:
         raise ValueError("Cannot identify the running task image.")
     runtime = environment.runtime()
-    data = json.loads(await asyncio.to_thread(
-        command, runtime.engine_cmd("image", "inspect", *identifiers)))
+    data = json.loads(await asyncio.to_thread(command, runtime.engine_cmd("image", "inspect", *identifiers)))
     fields = ("Id", "RepoDigests", "Architecture", "Os")
     config = environment.task_env_config
-    write_json(logs_dir / "environment.json", {
-        "schema_version": 1,
-        "engine": list(runtime.engine),
-        "images": [{key: image.get(key) for key in fields} for image in data],
-        "workdir": config.workdir, "cpus": config.cpus, "memory_mb": config.memory_mb,
-        "storage_mb": config.storage_mb, "network_mode": config.network_mode,
-    })
+    write_json(
+        logs_dir / "environment.json",
+        {
+            "schema_version": 1,
+            "engine": list(runtime.engine),
+            "images": [{key: image.get(key) for key in fields} for image in data],
+            "workdir": config.workdir,
+            "cpus": config.cpus,
+            "memory_mb": config.memory_mb,
+            "storage_mb": config.storage_mb,
+            "network_mode": config.network_mode,
+        },
+    )
 
 
-async def capture_legacy_artifacts(environment, logs_dir, logger, workspace_root, *,
-                                   task_config=None, step_name=None):
+async def capture_legacy_artifacts(environment, logs_dir, logger, workspace_root, *, task_config=None, step_name=None):
     from harbor.models.task.config import TaskConfig
     from harbor.models.trial.paths import EnvironmentPaths
     from harbor.trial.artifact_handler import ArtifactHandler
 
     try:
         task = task_config or TaskConfig.model_validate_toml(
-            (logs_dir.parent / "provenance/task/task.toml").read_text(encoding="utf-8"))
+            (logs_dir.parent / "provenance/task/task.toml").read_text(encoding="utf-8")
+        )
         step = next((step for step in task.steps or [] if step.name == step_name), None)
         if step_name is not None and step is None:
             raise ValueError(f"Unknown checkpoint: {step_name}")
@@ -162,15 +185,18 @@ async def capture_legacy_artifacts(environment, logs_dir, logger, workspace_root
         artifacts = [workspace_root]
         output = await environment.exec(
             "if [ -L /output ]; then exit 4; elif [ -e /output ]; then exit 0; else exit 3; fi",
-            timeout_sec=10, user="root")
+            timeout_sec=10,
+            user="root",
+        )
         if output.return_code == 0:
             if workspace_root != "/output":
                 artifacts.append("/output")
         elif output.return_code != 3:
             raise RuntimeError(f"Cannot inspect legacy /output path (exit {output.return_code}).")
         collector = ArtifactHandler(artifacts=artifacts, logger=logger)
-        await collector.download_artifacts(environment, logs_dir.parent / "artifacts",
-            source_artifacts_dir=EnvironmentPaths.artifacts_dir)
+        await collector.download_artifacts(
+            environment, logs_dir.parent / "artifacts", source_artifacts_dir=EnvironmentPaths.artifacts_dir
+        )
     except Exception as error:
         logger.exception("Could not collect legacy artifacts")
         write_json(logs_dir / "artifact-error.json", {"error": str(error)})
@@ -188,8 +214,9 @@ def _read_json(root, name, issues):
 
 
 def _regular_file(path, root):
-    return path.is_file() and not any(parent.is_symlink() for parent in [path, *path.parents]
-                                     if parent == root or root in parent.parents)
+    return path.is_file() and not any(
+        parent.is_symlink() for parent in [path, *path.parents] if parent == root or root in parent.parents
+    )
 
 
 def _step_stop_reason(step, result, config):
@@ -211,9 +238,14 @@ def _assess_resumed_session(run, previous, issues):
     runtime = _read_json(run, "agent/runtime.json", issues)
     turns = session.get("turns", [])
     turn_ids = [turn.get("id") for turn in turns]
-    if (not isinstance(session.get("id"), str) or not session["id"] or not turn_ids
-            or any(not isinstance(identifier, str) or not identifier for identifier in turn_ids)
-            or len(set(turn_ids)) != len(turn_ids) or turn_ids[-1] != native.get("turnID")):
+    if (
+        not isinstance(session.get("id"), str)
+        or not session["id"]
+        or not turn_ids
+        or any(not isinstance(identifier, str) or not identifier for identifier in turn_ids)
+        or len(set(turn_ids)) != len(turn_ids)
+        or turn_ids[-1] != native.get("turnID")
+    ):
         issues.append("Resumed session identity or current turn ordering is invalid.")
     if previous is None:
         if len(turns) != 1:
@@ -240,15 +272,18 @@ def assess_trial(trial):
     archives = sorted(steps_dir.iterdir()) if steps_dir.is_dir() else []
     # Read-only compatibility for existing .harbor runs captured in agent logs.
     locations = [trial / "provenance", trial / "agent", *(step / "agent" for step in archives)]
-    candidates = [path for path in locations if (path / "reproduction.json").exists()
-                  or (path / "reproduction.json").is_symlink()]
+    candidates = [
+        path for path in locations if (path / "reproduction.json").exists() or (path / "reproduction.json").is_symlink()
+    ]
     if len(candidates) != 1:
         issues.append("Expected one canonical reproduction snapshot.")
     provenance = candidates[0] if candidates else trial / "provenance"
     if provenance == trial / "provenance":
         for logs in locations[1:]:
-            if any((logs / name).exists() or (logs / name).is_symlink()
-                   for name in ("task", "source.patch", "source-untracked", "Package.resolved", "reproduction.json")):
+            if any(
+                (logs / name).exists() or (logs / name).is_symlink()
+                for name in ("task", "source.patch", "source-untracked", "Package.resolved", "reproduction.json")
+            ):
                 issues.append(f"Provenance snapshot is exposed in agent logs: {logs.relative_to(trial)}.")
     reproduction = _read_json(trial, str((provenance / "reproduction.json").relative_to(trial)), issues)
     if reproduction.get("trial_id") != harbor.get("id"):
@@ -258,8 +293,12 @@ def assess_trial(trial):
     if reproduction.get("task_checksum") != harbor.get("task_checksum") or not lock.get("task"):
         issues.append("Task identity is missing or inconsistent.")
     task = provenance / "task"
-    if (task.is_symlink() or not task.is_dir() or not _regular_file(task / "task.toml", trial)
-            or inventory(task) != reproduction.get("task_files")):
+    if (
+        task.is_symlink()
+        or not task.is_dir()
+        or not _regular_file(task / "task.toml", trial)
+        or inventory(task) != reproduction.get("task_files")
+    ):
         issues.append("Retained task files are missing or changed.")
     try:
         definition = task / "task.toml"
@@ -271,20 +310,29 @@ def assess_trial(trial):
         if not isinstance(declared, list) or not isinstance(steps, list):
             raise ValueError("Task artifacts and steps must be lists")
         names = [step["name"] for step in steps]
-        if (any(not isinstance(name, str) or not name or name in (".", "..")
-                or any(character in name for character in "/\\\0\r\n") for name in names)
-                or len({unicodedata.normalize("NFC", name).casefold() for name in names}) != len(names)):
+        if any(
+            not isinstance(name, str)
+            or not name
+            or name in (".", "..")
+            or any(character in name for character in "/\\\0\r\n")
+            for name in names
+        ) or len({unicodedata.normalize("NFC", name).casefold() for name in names}) != len(names):
             raise ValueError("Checkpoint names must be unique, safe directory names")
     except (OSError, ValueError, TypeError, KeyError) as error:
         issues.append(f"{definition.relative_to(trial)}: {error}")
         declared, steps, names = [], [], []
     runtime_agent = trial / "steps" / names[0] / "agent" if steps else trial / "agent"
-    pointers = ((reproduction.get("source_at_run", {}).get("patch"), provenance / "source.patch"),
-                (reproduction.get("source_at_run", {}).get("untracked"), provenance / "source-untracked"),
-                (reproduction.get("runtime_metadata"), runtime_agent / "runtime.json"))
+    pointers = (
+        (reproduction.get("source_at_run", {}).get("patch"), provenance / "source.patch"),
+        (reproduction.get("source_at_run", {}).get("untracked"), provenance / "source-untracked"),
+        (reproduction.get("runtime_metadata"), runtime_agent / "runtime.json"),
+    )
     for pointer, target in pointers:
-        retained = (target.is_dir() and not target.is_symlink() if target.name == "source-untracked"
-                    else _regular_file(target, trial))
+        retained = (
+            target.is_dir() and not target.is_symlink()
+            if target.name == "source-untracked"
+            else _regular_file(target, trial)
+        )
         if pointer != target.relative_to(trial).as_posix() or not retained:
             issues.append(f"Reproduction pointer is missing, invalid, or dangling: {target.name}.")
     for name in ("source.patch", "Package.resolved"):
@@ -298,7 +346,7 @@ def assess_trial(trial):
         if not isinstance(results, list):
             raise ValueError("Harbor checkpoint results must be a list")
         attempted = [result.get("step_name") for result in results]
-        if not results or attempted != names[:len(results)]:
+        if not results or attempted != names[: len(results)]:
             issues.append("Harbor checkpoint results are missing, duplicated, or out of task order.")
         if any(archive.name not in attempted for archive in archives):
             issues.append("Checkpoint archive has no corresponding Harbor result.")
@@ -316,8 +364,7 @@ def assess_trial(trial):
                     previous_session = _assess_resumed_session(run, previous_session, report["issues"])
                     report["complete"] = not report["issues"]
             except (OSError, ValueError, TypeError, AttributeError, KeyError) as error:
-                report = {"complete": False, "issues": [str(error)],
-                          "trace_requests": 0, "trace_clipped_rows": 0}
+                report = {"complete": False, "issues": [str(error)], "trace_requests": 0, "trace_clipped_rows": 0}
             issues.extend(f"steps/{name}: {issue}" for issue in report["issues"])
             reports.append({"name": name, "attempted": True, **report})
             stop = _step_stop_reason(step, result, config)
@@ -326,8 +373,10 @@ def assess_trial(trial):
         if len(results) < len(steps):
             if not stop:
                 issues.append("Unattempted checkpoints have no preceding stop condition.")
-            reports.extend({"name": name, "attempted": False, "reason": stop or "Missing checkpoint result"}
-                           for name in names[len(results):])
+            reports.extend(
+                {"name": name, "attempted": False, "reason": stop or "Missing checkpoint result"}
+                for name in names[len(results) :]
+            )
     else:
         if harbor.get("step_results") is not None or archives:
             issues.append("Checkpoint outputs exist without task checkpoint declarations.")
@@ -336,10 +385,14 @@ def assess_trial(trial):
         reports.append(report)
     files = inventory(trial)
     files.pop("agent/completeness.json", None)
-    report = {"schema_version": 1, "complete": not issues, "issues": issues,
-              "trace_requests": sum(report["trace_requests"] for report in reports if report.get("attempted", True)),
-              "trace_clipped_rows": sum(report["trace_clipped_rows"] for report in reports if report.get("attempted", True)),
-              "files": files}
+    report = {
+        "schema_version": 1,
+        "complete": not issues,
+        "issues": issues,
+        "trace_requests": sum(report["trace_requests"] for report in reports if report.get("attempted", True)),
+        "trace_clipped_rows": sum(report["trace_clipped_rows"] for report in reports if report.get("attempted", True)),
+        "files": files,
+    }
     if steps:
         report["steps"] = reports
     return report
@@ -348,8 +401,12 @@ def assess_trial(trial):
 def _assess_run(trial, harbor, config, declared, checkpoint=False):
     issues = []
     if trial.is_symlink() or any((trial / name).is_symlink() for name in ("agent", "verifier", "artifacts")):
-        return {"complete": False, "issues": ["Output directory is a symlink."],
-                "trace_requests": 0, "trace_clipped_rows": 0}
+        return {
+            "complete": False,
+            "issues": ["Output directory is a symlink."],
+            "trace_requests": 0,
+            "trace_clipped_rows": 0,
+        }
 
     def read(name):
         return _read_json(trial, name, issues)
@@ -373,8 +430,9 @@ def _assess_run(trial, harbor, config, declared, checkpoint=False):
     turn_id = native.get("turnID")
     if not turn_id or not any(turn.get("id") == turn_id for turn in session.get("turns", [])):
         issues.append("The native result's turn is missing from the session.")
-    requirements = [entry if isinstance(entry, dict) else {"source": entry}
-                    for entry in [*declared, *config.get("artifacts", [])]]
+    requirements = [
+        entry if isinstance(entry, dict) else {"source": entry} for entry in [*declared, *config.get("artifacts", [])]
+    ]
     legacy_files = {}
     if not declared:
         try:
@@ -388,11 +446,11 @@ def _assess_run(trial, harbor, config, declared, checkpoint=False):
         if harbor.get("task_name") == "openthoughts/python-api-rate-limit":
             legacy_files["/output"] = ("report.json", "a.json", "b.json")
         for source in legacy_files:
-            if not any(entry.get("source") == source and entry.get("service") in (None, "main")
-                       for entry in requirements):
+            if not any(
+                entry.get("source") == source and entry.get("service") in (None, "main") for entry in requirements
+            ):
                 requirements.append({"source": source})
-    for name, label in (("artifact-error.json", "Artifact collection"),
-                        ("trajectory-error.json", "Trajectory export")):
+    for name, label in (("artifact-error.json", "Artifact collection"), ("trajectory-error.json", "Trajectory export")):
         error_path = trial / "agent" / name
         if error_path.exists() or error_path.is_symlink():
             error = read(f"agent/{name}")
@@ -409,18 +467,27 @@ def _assess_run(trial, harbor, config, declared, checkpoint=False):
             issues.append(f"Invalid artifact destination for {source}.")
             continue
         capture = trial / destination
-        if any(parent.is_symlink() for parent in [capture, *capture.parents] if parent != trial and trial in parent.parents):
+        if any(
+            parent.is_symlink() for parent in [capture, *capture.parents] if parent != trial and trial in parent.parents
+        ):
             issues.append(f"Artifact capture has a symlink ancestor: {source}.")
             continue
         kind = entry.get("type")
         # Harbor preserves the live publish mount and moves only its contents into checkpoint archives.
-        empty_publish_mount = (checkpoint and source == "/logs/artifacts" and kind == "directory"
-            and entry.get("status") == "empty" and entry.get("service") in (None, "main")
+        empty_publish_mount = (
+            checkpoint
+            and source == "/logs/artifacts"
+            and kind == "directory"
+            and entry.get("status") == "empty"
+            and entry.get("service") in (None, "main")
             and entry.get("destination") == "artifacts/logs/artifacts"
-            and entry.get("exclude", []) == [] and not capture.exists()
-            and (not capture.parent.exists() or capture.parent.is_dir()))
-        if not (empty_publish_mount or (kind == "directory" and capture.is_dir())
-                or (kind == "file" and capture.is_file())):
+            and entry.get("exclude", []) == []
+            and not capture.exists()
+            and (not capture.parent.exists() or capture.parent.is_dir())
+        )
+        if not (
+            empty_publish_mount or (kind == "directory" and capture.is_dir()) or (kind == "file" and capture.is_file())
+        ):
             issues.append(f"Missing or invalid artifact capture: {source}.")
             continue
         captures.setdefault((source, entry.get("service") or "main"), []).append((entry, capture))
@@ -431,8 +498,11 @@ def _assess_run(trial, harbor, config, declared, checkpoint=False):
         destination = requirement.get("destination")
         if destination is not None or names is None:
             destination = Path("artifacts") / (destination or source.lstrip("/"))
-        candidates = [(entry, path) for entry, path in captures.get((source, service), [])
-                      if destination is None or path == trial / destination]
+        candidates = [
+            (entry, path)
+            for entry, path in captures.get((source, service), [])
+            if destination is None or path == trial / destination
+        ]
         if not candidates:
             issues.append(f"Missing artifact capture: {source} ({service}).")
             continue
@@ -453,8 +523,10 @@ def _assess_run(trial, harbor, config, declared, checkpoint=False):
         if not (trial / name).is_file() or (trial / name).is_symlink():
             issues.append(f"Missing regular file: {name}")
     if harbor.get("verifier_result") is not None:
-        if not any((trial / "verifier" / name).is_file() and not (trial / "verifier" / name).is_symlink()
-                   for name in ("reward.txt", "reward.json")):
+        if not any(
+            (trial / "verifier" / name).is_file() and not (trial / "verifier" / name).is_symlink()
+            for name in ("reward.txt", "reward.json")
+        ):
             issues.append("Verifier reward artifact is missing.")
         if not (trial / "verifier/test-stdout.txt").is_file() or (trial / "verifier/test-stdout.txt").is_symlink():
             issues.append("Verifier stdout is missing.")
@@ -492,8 +564,11 @@ def _assess_run(trial, harbor, config, declared, checkpoint=False):
                     if not identifier or identifier in identifiers or row.get("turnID") != turn_id:
                         issues.append("Missing, duplicate, or foreign model stream boundary.")
                     identifiers.add(identifier)
-                clipped += bool(row.get("promptTruncated") or row.get("outputTruncated")
-                                or any(message.get("truncated") for message in row.get("history", [])))
+                clipped += bool(
+                    row.get("promptTruncated")
+                    or row.get("outputTruncated")
+                    or any(message.get("truncated") for message in row.get("history", []))
+                )
         if not generation_ids.issubset(requests):
             issues.append("Trace contains an unmatched model generation.")
         if not requests or requests != responses or requests != starts or requests != ends:
@@ -502,8 +577,7 @@ def _assess_run(trial, harbor, config, declared, checkpoint=False):
             issues.append(f"Trace contains {clipped} rows with clipped model content.")
     except (OSError, ValueError, TypeError, AttributeError) as error:
         issues.append(f"agent/mlx-trace.jsonl: {error}")
-    return {"complete": not issues, "issues": issues,
-            "trace_requests": len(requests), "trace_clipped_rows": clipped}
+    return {"complete": not issues, "issues": issues, "trace_requests": len(requests), "trace_clipped_rows": clipped}
 
 
 def save_assessment(trial):
@@ -540,8 +614,11 @@ class EvidencePlugin:
 
     async def on_job_end(self, _result):
         # Final logs and Harbor secret scrubbing finish after the trial END hook.
-        trials = {path.parent for name in ("agent", "steps", "config.json", "result.json")
-                  for path in self.job_dir.glob(f"*/{name}")}
+        trials = {
+            path.parent
+            for name in ("agent", "steps", "config.json", "result.json")
+            for path in self.job_dir.glob(f"*/{name}")
+        }
         for trial in sorted(trials):
             report = await self._finish_trial(trial)
             if not report["complete"]:
@@ -552,13 +629,19 @@ def check_evidence(path):
     path = path.absolute()
     try:
         config = json.loads((path / "config.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except OSError, ValueError:
         config = {}
     # Jobs also have lock.json; a trial config has one agent, not an agents list.
-    is_trial = ((path / "agent").exists() or (path / "steps").exists()
-                or (isinstance(config, dict) and "agent" in config))
-    trials = [path] if is_trial else sorted({p.parent for name in ("agent", "steps", "result.json", "config.json")
-                                           for p in path.glob(f"*/{name}")})
+    is_trial = (
+        (path / "agent").exists() or (path / "steps").exists() or (isinstance(config, dict) and "agent" in config)
+    )
+    trials = (
+        [path]
+        if is_trial
+        else sorted(
+            {p.parent for name in ("agent", "steps", "result.json", "config.json") for p in path.glob(f"*/{name}")}
+        )
+    )
     if not trials:
         raise ValueError(f"No trial evidence in {path}")
     failures = []
@@ -580,12 +663,9 @@ def check_evidence(path):
             report_path = trial / "agent/completeness.json"
             if trial.is_symlink() or (trial / "agent").is_symlink() or report_path.is_symlink():
                 raise ValueError("Evidence directory or completeness report is a symlink")
-            saved = json.loads(report_path.read_text(encoding="utf-8"))
-            if (not isinstance(saved, dict) or type(saved.get("complete")) is not bool
-                    or not isinstance(saved.get("files"), dict) or not isinstance(saved.get("issues"), list)
-                    or any(not isinstance(issue, str) for issue in saved["issues"])):
-                raise ValueError("Malformed completeness report")
-            report = saved
+            report = CompletenessReport.model_validate_json(report_path.read_text(encoding="utf-8")).model_dump(
+                exclude_unset=True
+            )
             issues.extend(report["issues"])
             if not report["complete"] and not issues:
                 issues.append("Saved assessment is incomplete.")
@@ -597,8 +677,11 @@ def check_evidence(path):
             current = assess_trial(trial)
             issues.extend(current["issues"])
             if report is not None and report["files"] != current["files"]:
-                changed = sorted(name for name in report["files"].keys() | current["files"].keys()
-                                 if report["files"].get(name) != current["files"].get(name))
+                changed = sorted(
+                    name
+                    for name in report["files"].keys() | current["files"].keys()
+                    if report["files"].get(name) != current["files"].get(name)
+                )
                 issues.append("Evidence files changed since saved assessment: " + ", ".join(changed))
         except (OSError, ValueError, TypeError, AttributeError, KeyError) as error:
             issues.append(f"Cannot assess retained evidence: {error}")
@@ -615,7 +698,7 @@ def check_evidence(path):
 if __name__ == "__main__":
     try:
         if len(sys.argv) != 2:
-            raise ValueError("Usage: python3 script/harbor/evidence.py TRIAL_OR_JOB_DIRECTORY")
+            raise ValueError("Usage: python -m script.harbor.evidence TRIAL_OR_JOB_DIRECTORY")
         check_evidence(Path(sys.argv[1]))
     except (OSError, ValueError, TypeError, AttributeError) as error:
         print(error, file=sys.stderr)
