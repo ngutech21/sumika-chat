@@ -11,12 +11,13 @@ struct EvaluationOptions: Sendable {
   let timeoutSeconds: Double?
   let networkPolicy: EvaluationNetworkPolicy
   let reasoningLevel: ReasoningEffort?
+  let worker: Bool
 
   static let usage = """
     Usage: SumikaEval --model-id ID --workspace-root /container/workspace \
     --bridge-url http://127.0.0.1:PORT --prompt-file /host/prompt.txt \
     --output-dir /host/artifacts [--timeout-seconds SECONDS|harbor] [--network-policy JSON]
-    [--reasoning-level low|medium|xhigh]
+    [--reasoning-level low|medium|xhigh] [--worker]
     Timeout defaults to 600 seconds; harbor delegates the deadline to Harbor cancellation.
     Omit --reasoning-level to use the selected model's default.
     Set SUMIKA_HARBOR_TOKEN to the bridge's per-trial authentication token.
@@ -29,9 +30,15 @@ struct EvaluationOptions: Sendable {
       "--network-policy", "--reasoning-level",
     ])
     var values: [String: String] = [:]
+    var worker = false
     var index = 0
     while index < arguments.count {
       let key = arguments[index]
+      if key == "--worker", !worker {
+        worker = true
+        index += 1
+        continue
+      }
       guard accepted.contains(key), values[key] == nil,
         index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--")
       else {
@@ -40,6 +47,7 @@ struct EvaluationOptions: Sendable {
       values[key] = arguments[index + 1]
       index += 2
     }
+    self.worker = worker
     func required(_ key: String) throws -> String {
       guard let value = values[key], !value.trimmingCharacters(in: .whitespaces).isEmpty else {
         throw EvaluationError("Missing \(key)")
@@ -97,7 +105,7 @@ struct EvaluationOptions: Sendable {
   }
 }
 
-struct EvaluationNetworkPolicy: Codable, Sendable {
+struct EvaluationNetworkPolicy: Codable, Equatable, Sendable {
   enum Mode: String, Codable, Sendable {
     case publicNetwork = "public"
     case noNetwork = "no-network"

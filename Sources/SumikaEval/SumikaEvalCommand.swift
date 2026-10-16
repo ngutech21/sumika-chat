@@ -33,9 +33,17 @@ enum SumikaEvalCommand {
         source.resume()
         return source
       }
-      let result = await EvaluationRunner(options: options, cancellation: cancellation).run()
+      let runner = EvaluationRunner(options: options, cancellation: cancellation)
+      let exitCode: Int32
+      if options.worker {
+        setenv("SUMIKA_DEBUG_TRACE", "0", 1)
+        let worker = EvaluationWorker(runner: runner)
+        exitCode = await worker.run()
+      } else {
+        exitCode = await runner.run().exitCode
+      }
       for source in signals { source.cancel() }
-      exit(result.exitCode)
+      exit(exitCode)
     } catch {
       FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
       exit(1)
@@ -45,5 +53,8 @@ enum SumikaEvalCommand {
 
 @MainActor
 final class EvaluationCancellation {
-  var requested = false
+  var requested = false {
+    didSet { if requested { onRequest?() } }
+  }
+  var onRequest: (() -> Void)?
 }

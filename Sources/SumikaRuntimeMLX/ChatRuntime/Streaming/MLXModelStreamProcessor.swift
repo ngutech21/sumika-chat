@@ -76,6 +76,7 @@ enum MLXModelStreamProcessor {
       var didRecordFirstOutputMemory = false
 
       let terminalOutcome: RuntimeStreamOutcome
+      var terminalError: (any Error)?
       do {
         var reasoningParser = try ReasoningTraceParser(
           format: reasoningTraceFormat,
@@ -273,14 +274,16 @@ enum MLXModelStreamProcessor {
           markCancelled: markCancelled,
           memoryCacheClearer: memoryCacheClearer
         )
+        terminalError =
+          terminalOutcome == .interrupted ? MLXChatRuntimeError.interruptedStream : nil
       } catch {
         await generation.cancelAndDrain()
         let failure = generation.capturedError ?? error
         if failure is CancellationError {
+          terminalError = CancellationError()
           terminalOutcome = await handleCancellation(
             output: output,
             completedMetrics: completedMetrics,
-            continuation: continuation,
             traceID: traceID,
             debugTraceStore: debugTraceStore,
             memoryTraceScope: memoryTraceScope,
@@ -290,11 +293,11 @@ enum MLXModelStreamProcessor {
             markCancelled: markCancelled
           )
         } else {
+          terminalError = failure
           terminalOutcome = await handleRuntimeFailure(
             failure,
             output: output,
             completedMetrics: completedMetrics,
-            continuation: continuation,
             traceID: traceID,
             traceMetadata: traceMetadata,
             cacheTrace: cacheTrace,
@@ -319,6 +322,7 @@ enum MLXModelStreamProcessor {
         applicationState: applicationStateSnapshotProvider(),
         generationActivityRequest: generationActivityLease?.request ?? .none
       )
+      continuation.finish(throwing: terminalError)
     }
 
     observeDownstreamCancellation(
@@ -347,7 +351,6 @@ extension MLXModelStreamProcessor {
   private static func handleCancellation(
     output: String,
     completedMetrics: ChatGenerationMetrics?,
-    continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
     traceID: UUID,
     debugTraceStore: MLXDebugTraceStore,
     memoryTraceScope: MLXMemoryTraceScope?,
@@ -373,7 +376,6 @@ extension MLXModelStreamProcessor {
       thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
         ? .notApplied : .cancelled
     )
-    continuation.finish(throwing: CancellationError())
     return outcome
   }
 
@@ -397,7 +399,6 @@ extension MLXModelStreamProcessor {
     _ error: Error,
     output: String,
     completedMetrics: ChatGenerationMetrics?,
-    continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
@@ -440,7 +441,6 @@ extension MLXModelStreamProcessor {
       thinkingBudget: thinkingBudgetTrace,
       thinkingBudgetOutcome: thinkingBudgetOutcome
     )
-    continuation.finish(throwing: error)
     return .failed
   }
 
@@ -770,7 +770,6 @@ extension MLXModelStreamProcessor {
         debugTraceStore: debugTraceStore
       )
       await markCancelled(.downstreamTerminated)
-      continuation.finish()
       return .downstreamTerminated
     }
 
@@ -804,7 +803,6 @@ extension MLXModelStreamProcessor {
           ChatGenerationOutputLimit(
             discardedToolProtocolTail: didDiscardToolProtocolTail
           )))
-      continuation.finish()
       return .outputLimit
     }
 
@@ -836,7 +834,6 @@ extension MLXModelStreamProcessor {
         thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
           ? .notApplied : .interrupted
       )
-      continuation.finish(throwing: error)
       return .interrupted
     }
 
@@ -848,7 +845,6 @@ extension MLXModelStreamProcessor {
           debugTraceStore: debugTraceStore
         )
         await markCancelled(.downstreamTerminated)
-        continuation.finish()
         return .downstreamTerminated
       }
       await recordGenerationTerminalMemory(
@@ -868,7 +864,6 @@ extension MLXModelStreamProcessor {
         thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
           ? .notApplied : .completedAuthoritative
       )
-      continuation.finish()
       return .toolCallBoundary
     }
 
@@ -879,7 +874,6 @@ extension MLXModelStreamProcessor {
         debugTraceStore: debugTraceStore
       )
       await markCancelled(.downstreamTerminated)
-      continuation.finish()
       return .downstreamTerminated
     }
 
@@ -897,7 +891,6 @@ extension MLXModelStreamProcessor {
       thinkingBudgetOutcome: thinkingBudgetEnforcementState == nil
         ? .notApplied : .completedAuthoritative
     )
-    continuation.finish()
     return .completed
   }
 

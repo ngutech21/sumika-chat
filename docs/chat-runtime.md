@@ -760,6 +760,9 @@ prefilled token count and `runtime_prefill.durationMs`, excluding reused tokens.
 The same `runtime_stream_end` row is the canonical trace for completion counters:
 `evictedTokenCount`, `reasoningTokenCount`, `answerTokenCount`,
 `proposedDraftTokens`, `acceptedDraftTokens`, and derived `mtpAcceptanceRate`.
+The stream processor awaits this terminal trace before completing or failing the
+consumer stream, so a completed turn can be archived without a pending producer
+trace write. This ordering preserves the live session and its cache.
 Counters are copied from MLX completion info before stop-reason handling. Missing
 completion info or optional counters remain unavailable and their JSON keys are
 omitted; genuine zero values are retained. Reasoning/answer counts depend on

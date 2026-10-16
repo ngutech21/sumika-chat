@@ -20,6 +20,19 @@ struct EvaluationOptionsTests {
     #expect(options.timeoutSeconds == 42)
     #expect(!options.networkPolicy.webEnabled)
     #expect(options.reasoningLevel == nil)
+    #expect(!options.worker)
+  }
+
+  @Test
+  func workerIsAnExplicitBooleanFlag() throws {
+    let options = try EvaluationOptions(
+      arguments: arguments + ["--worker"], environment: environment)
+    #expect(options.worker)
+    for flags in [["--worker", "true"], ["--worker", "--worker"]] {
+      #expect(throws: EvaluationError.self) {
+        try EvaluationOptions(arguments: arguments + flags, environment: environment)
+      }
+    }
   }
 
   @MainActor

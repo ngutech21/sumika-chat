@@ -603,14 +603,55 @@ struct ChatGenerationCoordinatorTests {
       appendChunk: { _ in },
       updateGenerationMetrics: { _ in })
 
-    try await waitUntilAsync {
-      await tracer.events.contains { $0.phase == .uiFlush }
-    }
     let event = try #require(await tracer.events.first { $0.phase == .uiFlush })
     #expect(event.turnID == turnID)
     #expect(event.generationID != nil)
     #expect(event.messageCount == 1)
     #expect(event.toolLoopIteration == 2)
+  }
+
+  @Test(arguments: [StreamEnding.completed, .interrupted, .failed])
+  fileprivate func finalUIFlushTraceIsWrittenBeforeReturningOrThrowing(ending: StreamEnding)
+    async throws
+  {
+    let tracer = RecordingTurnTracer(delay: .milliseconds(50))
+    let events: [ChatModelStreamEvent] = [.thinkingChunk("reasoning"), .chunk("partial")]
+    let runtime: any ChatModelRuntime =
+      if ending == .completed {
+        ChatSessionFakeChatModelRuntime(eventTurns: [events])
+      } else {
+        InterruptedEventRuntime(events: events, fails: ending == .failed)
+      }
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime, turnTracer: tracer,
+      streamingFlushInterval: 3600, streamingFlushCharacterLimit: 1_000)
+    var observations: [String] = []
+    do {
+      _ = try await coordinator.streamAssistantReplyResult(
+        transcript: ModelPromptProjection(),
+        promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
+        settings: .agentDefault,
+        appendChunk: { observations.append("visible:\($0)") },
+        appendThinkingChunk: { observations.append("thinking:\($0)") },
+        updateGenerationMetrics: { _ in })
+      #expect(ending == .completed)
+    } catch {
+      #expect(ending != .completed)
+    }
+    #expect(observations == ["thinking:reasoning", "visible:partial"])
+    #expect(await tracer.events.map(\.phase) == [.uiFlush])
+  }
+
+  @Test
+  func contextTracesAreWrittenBeforeTheRuntimeStarts() async throws {
+    let tracer = RecordingTurnTracer(delay: .milliseconds(50))
+    let runtime = ContextTraceCheckingRuntime(tracer: tracer)
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model", turnTracer: tracer)
+    engine.modelRuntime.modelState = .ready
+    try await engine.conversation.sendMessage(MessageSubmission(text: "hello"))
+    try await waitUntilAsync { !engine.isGenerating }
+    #expect(await runtime.phasesAtStreamStart == [.renderSystemPrompt, .contextBuild])
+    #expect(engine.chatSession.turns.last?.status == .completed)
   }
 
   @Test
@@ -667,9 +708,11 @@ struct ChatGenerationCoordinatorTests {
 
 private actor InterruptedEventRuntime: ChatModelRuntime {
   private let events: [ChatModelStreamEvent]
+  private let fails: Bool
 
-  init(events: [ChatModelStreamEvent]) {
+  init(events: [ChatModelStreamEvent], fails: Bool = false) {
     self.events = events
+    self.fails = fails
   }
 
   func load(configuration: ChatModelConfiguration) async throws {
@@ -696,7 +739,11 @@ private actor InterruptedEventRuntime: ChatModelRuntime {
       for event in events {
         continuation.yield(event)
       }
-      continuation.finish()
+      if fails {
+        continuation.finish(throwing: ChatSessionFakeChatModelRuntimeError.streamFailed)
+      } else {
+        continuation.finish()
+      }
     }
   }
 }
@@ -862,9 +909,42 @@ private actor OperationLaneControlledRuntime: ChatModelRuntime {
 }
 
 private actor RecordingTurnTracer: TurnTracing {
+  private let delay: Duration
   private(set) var events: [TurnTraceEvent] = []
 
+  init(delay: Duration = .zero) { self.delay = delay }
+
   func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
+    if delay > .zero { try? await Task.sleep(for: delay) }
     events.append(event)
+  }
+}
+
+private enum StreamEnding {
+  case completed
+  case interrupted
+  case failed
+}
+
+private actor ContextTraceCheckingRuntime: ChatModelRuntime {
+  let tracer: RecordingTurnTracer
+  private(set) var phasesAtStreamStart: [TurnTracePhase] = []
+
+  init(tracer: RecordingTurnTracer) { self.tracer = tracer }
+  func load(configuration: ChatModelConfiguration) async throws {}
+  func unload() async {}
+  func clearContext() async {}
+
+  func streamReply(
+    for transcript: ModelPromptProjection, attachments: [ChatAttachment],
+    promptPlan: ChatRuntimePromptPlan, settings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode?
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    phasesAtStreamStart = await tracer.events.map(\.phase)
+    return AsyncThrowingStream { continuation in
+      continuation.yield(.chunk("done"))
+      continuation.yield(.completed(nil))
+      continuation.finish()
+    }
   }
 }

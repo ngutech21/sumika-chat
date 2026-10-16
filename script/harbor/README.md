@@ -173,13 +173,35 @@ This task reports core, isolated, and strict pass rates instead of a scalar
 at every checkpoint. No-op can earn partial strict credit from error cases that
 accept any failing process exit.
 
-The four checkpoints share the container workspace and start fresh native
-conversations, with separate session state, tool-loop budgets, model loading,
-and traces. Native conversation resume is unsupported; do not pass
-`--resume-trajectory`. The recipe uses timeout multiplier 1: the pinned task
-already allows 7,200 seconds per checkpoint and 600 seconds for each verifier.
-Task definitions, continuation thresholds, and the mean reward strategy are
-unchanged. Inspect individual checkpoint rewards and regressions too.
+The four checkpoints share the container workspace. This default recipe starts
+a fresh native conversation and process at each checkpoint, with separate session
+state, tool-loop budgets, model loading, and traces. For an explicitly resumed run:
+
+```sh
+just run-harbor-file-backup-resume
+```
+
+The resume recipe adds `--resume-trajectory` and retains the same pinned task,
+model, low reasoning, Release build, Docker environment, sequential execution,
+and evidence checks. Only a multi-checkpoint task with that flag uses the
+persistent native worker. It keeps the loaded model, canonical conversation,
+and eligible prompt cache in RAM between checkpoints. Each checkpoint appends
+its instruction as a new user turn and gets a fresh tool-loop budget and its
+own result, session snapshot, trace, and artifact capture. The worker is shut
+down when the trial ends or fails; timeout and cancellation terminate it.
+Task access is suspended while Harbor verifies each checkpoint. Resumed
+checkpoints must keep the same network policy; a policy change stops the worker
+before executing the next turn.
+Nothing serializes the model's prompt cache to disk. Process reuse does not
+guarantee a cache hit: model cache rules and the exact rendered prefix still
+apply. No performance improvement has been verified.
+
+Both recipes use timeout multiplier 1: the pinned task already allows 7,200
+seconds per checkpoint and 600 seconds for each verifier. Task definitions,
+continuation thresholds, and the mean reward strategy are unchanged. Report
+fresh-conversation and resumed-conversation scores separately: retained history
+changes the SlopCodeBench protocol. Inspect individual checkpoint rewards and
+regressions too.
 
 Harbor archives each checkpoint under `steps/<checkpoint>/{agent,verifier,artifacts}`.
 Shared task and source provenance stays in the host-only `provenance/` directory,
@@ -401,6 +423,10 @@ stderr into stdout. Request payloads and bridge credentials are not added to err
 Loopback sockets must be permitted by the test runner's sandbox.
 The locked environment includes Harbor for the adapter lifecycle and ATIF tests;
 running with another Python interpreter may skip those tests if Harbor is absent.
+Recipe tests use `just --show` and `just --dry-run`, then execute recipes in a
+temporary directory with fake `swift`, `uv`, and `uuidgen` commands. They check
+the pinned resume invocation and evidence/exit-status handling without building
+Swift packages or running Harbor, Docker, or a model. They skip if `just` is absent.
 
 Detached-descendant regressions require Linux and skip on macOS. Run the bridge,
 worker, and fixture tests in the pinned Linux image as the unprivileged task UID:

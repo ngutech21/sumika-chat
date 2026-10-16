@@ -249,9 +249,7 @@ struct ChatGenerationCoordinator {
     var lastEventDate = streamingStartDate
     var didComplete = false
     var outputLimit: ChatGenerationOutputLimit?
-    var shouldFlushBufferedChunksOnExit = true
-
-    func flushBufferedChunks(at timestamp: Date, reason: StreamingFlushReason) {
+    func flushBufferedChunks(at timestamp: Date, reason: StreamingFlushReason) async {
       guard !visibleBuffer.isEmpty else {
         return
       }
@@ -278,19 +276,17 @@ struct ChatGenerationCoordinator {
         appendChunk(batch.content)
       #endif
       let durationMs = Date().timeIntervalSince(startedAt) * 1000
-      Task {
-        await turnTracer.recordTurnTraceEvent(
-          TurnTraceEvent(
-            turnID: turnID,
-            generationID: generationID,
-            phase: .uiFlush,
-            durationMs: durationMs,
-            messageCount: transcript.entries.count,
-            toolLoopIteration: TurnTraceContext.current?.toolLoopIteration,
-            interactionMode: interactionMode
-          )
+      await turnTracer.recordTurnTraceEvent(
+        TurnTraceEvent(
+          turnID: turnID,
+          generationID: generationID,
+          phase: .uiFlush,
+          durationMs: durationMs,
+          messageCount: transcript.entries.count,
+          toolLoopIteration: TurnTraceContext.current?.toolLoopIteration,
+          interactionMode: interactionMode
         )
-      }
+      )
     }
 
     func flushBufferedThinkingChunks(at timestamp: Date, reason: StreamingFlushReason) {
@@ -320,15 +316,6 @@ struct ChatGenerationCoordinator {
       #endif
     }
 
-    defer {
-      if shouldFlushBufferedChunksOnExit,
-        !thinkingBuffer.isEmpty || !visibleBuffer.isEmpty
-      {
-        flushBufferedThinkingChunks(at: lastEventDate, reason: .streamExit)
-        flushBufferedChunks(at: lastEventDate, reason: .streamExit)
-      }
-    }
-
     do {
       for try await event in stream {
         try Task.checkCancellation()
@@ -340,7 +327,7 @@ struct ChatGenerationCoordinator {
           generatedContent += chunk
           visibleBuffer.append(chunk)
           if let reason = visibleBuffer.automaticFlushReason(at: eventDate) {
-            flushBufferedChunks(at: eventDate, reason: reason)
+            await flushBufferedChunks(at: eventDate, reason: reason)
           }
         case .thinkingChunk(let chunk):
           thinkingBuffer.append(chunk)
@@ -350,15 +337,15 @@ struct ChatGenerationCoordinator {
           }
         case .thinkingCompleted:
           flushBufferedThinkingChunks(at: eventDate, reason: .thinkingCompleted)
-          flushBufferedChunks(at: eventDate, reason: .thinkingCompleted)
+          await flushBufferedChunks(at: eventDate, reason: .thinkingCompleted)
           completeThinking()
         case .toolCall(let toolCall):
           flushBufferedThinkingChunks(at: eventDate, reason: .toolCall)
-          flushBufferedChunks(at: eventDate, reason: .toolCall)
+          await flushBufferedChunks(at: eventDate, reason: .toolCall)
           nativeToolCalls.append(toolCall)
         case .completed(let metrics):
           flushBufferedThinkingChunks(at: eventDate, reason: .completed)
-          flushBufferedChunks(at: eventDate, reason: .completed)
+          await flushBufferedChunks(at: eventDate, reason: .completed)
           try await runtimeOperations.checkCurrentOperation(operationID)
           ChatDiagnostics.measure("Generation metrics update", category: .generation) {
             updateGenerationMetrics(metrics)
@@ -366,17 +353,22 @@ struct ChatGenerationCoordinator {
           didComplete = true
         case .outputLimitReached(let limit):
           flushBufferedThinkingChunks(at: eventDate, reason: .outputLimit)
-          flushBufferedChunks(at: eventDate, reason: .outputLimit)
+          await flushBufferedChunks(at: eventDate, reason: .outputLimit)
           outputLimit = limit
         }
       }
     } catch is CancellationError {
-      shouldFlushBufferedChunksOnExit = false
       visibleBuffer.discard()
       thinkingBuffer.discard()
       throw CancellationError()
+    } catch {
+      flushBufferedThinkingChunks(at: lastEventDate, reason: .streamExit)
+      await flushBufferedChunks(at: lastEventDate, reason: .streamExit)
+      throw error
     }
 
+    flushBufferedThinkingChunks(at: lastEventDate, reason: .streamExit)
+    await flushBufferedChunks(at: lastEventDate, reason: .streamExit)
     if !didComplete, outputLimit == nil, nativeToolCalls.isEmpty {
       throw ChatGenerationError.streamInterrupted
     }

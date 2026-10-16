@@ -516,6 +516,49 @@ class BridgeDiagnosticTests(unittest.IsolatedAsyncioTestCase):
 
 
 class BridgeDrainTests(unittest.IsolatedAsyncioTestCase):
+    async def test_suspended_bridge_denies_task_access_until_resumed(self):
+        environment = SimpleNamespace(exec=AsyncMock())
+        bridge = SandboxBridge(environment, "/app")
+        with patch.object(bridge, "_execute", AsyncMock(return_value={"result": {"names": []}})) as execute:
+            await bridge.suspend()
+            for operation in ("list", "write", "run", "http", "resolveHost"):
+                response = await bridge.dispatch({"id": operation, "operation": operation})
+                self.assertEqual(response["error"]["code"], "permissionDenied")
+            execute.assert_not_awaited()
+            bridge.resume()
+            self.assertEqual(await bridge.dispatch({"id": "list", "operation": "list"}),
+                             {"result": {"names": []}})
+            execute.assert_awaited_once()
+        await bridge.close(cleanup_environment=False)
+        environment.exec.assert_not_awaited()
+        with self.assertRaisesRegex(RuntimeError, "closed"):
+            bridge.resume()
+
+    async def test_suspending_drains_in_flight_commands_before_verification(self):
+        environment = SimpleNamespace(exec=AsyncMock())
+        bridge = SandboxBridge(environment, "/app")
+        started, cancelled = asyncio.Event(), asyncio.Event()
+
+        async def execute(request):
+            if request["operation"] == "run":
+                started.set()
+                await cancelled.wait()
+            else:
+                self.assertEqual(request["operation"], "cancel")
+                self.assertEqual(request["targetRequestID"], "run")
+                cancelled.set()
+            return {"result": {"cancelled": True}}
+
+        with patch.object(bridge, "_execute", execute):
+            running = asyncio.create_task(bridge.dispatch({"id": "run", "operation": "run"}))
+            await started.wait()
+            await bridge.suspend()
+            self.assertTrue(running.done())
+            self.assertTrue((await running)["result"]["cancelled"])
+            self.assertFalse(bridge.active)
+        environment.exec.assert_not_awaited()
+        await bridge.close(cleanup_environment=False)
+
     async def test_completed_worker_failure_blocks_trial_shutdown(self):
         for failure in (RuntimeError("Worker exited without a response"),
                         {"id": "run", "error": {"code": "transportFailure",

@@ -205,6 +205,28 @@ def _step_stop_reason(step, result, config):
     return None
 
 
+def _assess_resumed_session(run, previous, issues):
+    session = _read_json(run, "agent/session.json", issues)
+    native = _read_json(run, "agent/result.json", issues)
+    runtime = _read_json(run, "agent/runtime.json", issues)
+    turns = session.get("turns", [])
+    turn_ids = [turn.get("id") for turn in turns]
+    if (not isinstance(session.get("id"), str) or not session["id"] or not turn_ids
+            or any(not isinstance(identifier, str) or not identifier for identifier in turn_ids)
+            or len(set(turn_ids)) != len(turn_ids) or turn_ids[-1] != native.get("turnID")):
+        issues.append("Resumed session identity or current turn ordering is invalid.")
+    if previous is None:
+        if len(turns) != 1:
+            issues.append("The first resumed checkpoint must start with one user turn.")
+    else:
+        prior_session, prior_runtime = previous
+        if session.get("id") != prior_session.get("id") or turns[:-1] != prior_session.get("turns"):
+            issues.append("Resumed checkpoints must retain the same session and unchanged prior turns.")
+        if any(runtime.get(key) != prior_runtime.get(key) for key in ("settings", "modelFiles")):
+            issues.append("Resumed checkpoint model fingerprints or settings changed.")
+    return session, runtime
+
+
 def assess_trial(trial):
     issues = []
     harbor = _read_json(trial, "result.json", issues)
@@ -281,6 +303,8 @@ def assess_trial(trial):
         if any(archive.name not in attempted for archive in archives):
             issues.append("Checkpoint archive has no corresponding Harbor result.")
         stop = None
+        previous_session = None
+        resume = config.get("agent", {}).get("resume_trajectory", False)
         for index, (step, result) in enumerate(zip(steps, results)):
             name = names[index]
             if result.get("step_name") != name:
@@ -288,6 +312,9 @@ def assess_trial(trial):
             run = trial / "steps" / name
             try:
                 report = _assess_run(run, result, config, [*declared, *step.get("artifacts", [])], checkpoint=True)
+                if resume:
+                    previous_session = _assess_resumed_session(run, previous_session, report["issues"])
+                    report["complete"] = not report["issues"]
             except (OSError, ValueError, TypeError, AttributeError, KeyError) as error:
                 report = {"complete": False, "issues": [str(error)],
                           "trace_requests": 0, "trace_clipped_rows": 0}
@@ -434,6 +461,7 @@ def _assess_run(trial, harbor, config, declared, checkpoint=False):
     elif harbor.get("exception_info") is None:
         issues.append("Trial has neither verifier result nor exception evidence.")
     requests, responses, starts, ends = set(), set(), set(), set()
+    generation_ids, prefills = set(), set()
     clipped = 0
     try:
         path = trial / "agent/mlx-trace.jsonl"
@@ -443,6 +471,15 @@ def _assess_run(trial, harbor, config, declared, checkpoint=False):
             for line in stream:
                 row = json.loads(line)
                 kind = row.get("kind")
+                if row.get("turnID") not in (None, turn_id):
+                    issues.append("Trace contains a foreign turn.")
+                if kind == "turn_trace" and row.get("generationID"):
+                    generation_ids.add(row["generationID"])
+                if row.get("phase") == "runtime_prefill":
+                    identifier = row.get("generationID")
+                    if not identifier or identifier in prefills:
+                        issues.append("Missing or duplicate model prefill trace ID.")
+                    prefills.add(identifier)
                 if kind in ("mlx_request", "mlx_response"):
                     identifiers = requests if kind == "mlx_request" else responses
                     identifier = row.get("id")
@@ -457,6 +494,8 @@ def _assess_run(trial, harbor, config, declared, checkpoint=False):
                     identifiers.add(identifier)
                 clipped += bool(row.get("promptTruncated") or row.get("outputTruncated")
                                 or any(message.get("truncated") for message in row.get("history", [])))
+        if not generation_ids.issubset(requests):
+            issues.append("Trace contains an unmatched model generation.")
         if not requests or requests != responses or requests != starts or requests != ends:
             issues.append("Model requests, responses, and stream boundaries are incomplete.")
         if clipped:
@@ -490,15 +529,21 @@ class EvidencePlugin:
     async def started(self, event):
         await asyncio.to_thread(prepare_trial, event, Path(__file__).resolve().parents[2])
 
+    async def _finish_trial(self, trial):
+        from script.harbor.agent import SumikaAgent
+
+        await SumikaAgent.close_trial_worker(trial)
+        return await asyncio.to_thread(save_assessment, trial)
+
     async def ended(self, event):
-        await asyncio.to_thread(save_assessment, event.config.trials_dir / event.trial_name)
+        await self._finish_trial(event.config.trials_dir / event.trial_name)
 
     async def on_job_end(self, _result):
         # Final logs and Harbor secret scrubbing finish after the trial END hook.
         trials = {path.parent for name in ("agent", "steps", "config.json", "result.json")
                   for path in self.job_dir.glob(f"*/{name}")}
         for trial in sorted(trials):
-            report = await asyncio.to_thread(save_assessment, trial)
+            report = await self._finish_trial(trial)
             if not report["complete"]:
                 print(f"Incomplete evidence: {trial}; {report['issues']}", file=sys.stderr)
 

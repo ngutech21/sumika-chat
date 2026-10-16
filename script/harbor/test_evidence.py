@@ -1,6 +1,7 @@
 """Evidence integrity checks use fixtures, without Docker or an MLX model."""
 
 import contextlib
+import copy
 import io
 import json
 from importlib.util import find_spec
@@ -527,6 +528,75 @@ class CheckpointEvidenceTests(unittest.TestCase):
         self.json("result.json", harbor)
         return names, harbor
 
+    def resumed_checkpoints(self):
+        names, harbor = self.checkpoints()
+        self.json("config.json", {"agent": {"model_name": "model", "resume_trajectory": True}})
+        turns = []
+        for name in names:
+            turns.append({"id": name, "status": "completed", "items": [
+                {"kind": "userMessage", "payload": {"content": name}}]})
+            self.json(f"steps/{name}/agent/session.json", {
+                "id": "resumed-session", "selectedModelID": "model", "turns": turns})
+        return names, harbor
+
+    def test_resumed_checkpoints_preserve_canonical_history_and_count_only_current_traces(self):
+        names, _ = self.resumed_checkpoints()
+        report = save_assessment(self.trial)
+        self.assertTrue(report["complete"], report["issues"])
+        self.assertEqual(report["trace_requests"], len(names))
+        for index, name in enumerate(names):
+            session = json.loads((self.trial / f"steps/{name}/agent/session.json").read_text())
+            self.assertEqual([turn["id"] for turn in session["turns"]], names[:index + 1])
+        before = inventory(self.trial)
+        with contextlib.redirect_stdout(io.StringIO()):
+            check_evidence(self.trial)
+        self.assertEqual(inventory(self.trial), before)
+
+    def test_resumed_session_identity_order_and_unchanged_history_are_required(self):
+        names, _ = self.resumed_checkpoints()
+        path = self.trial / f"steps/{names[1]}/agent/session.json"
+        original = json.loads(path.read_text())
+        variants = [
+            {**original, "id": "foreign-session"},
+            {**original, "turns": original["turns"][1:]},
+            {**original, "turns": original["turns"][:1]},
+            {**original, "turns": list(reversed(original["turns"]))},
+            {**original, "turns": [*original["turns"], original["turns"][-1]]},
+        ]
+        changed = copy.deepcopy(original)
+        changed["turns"][0]["items"][0]["payload"]["content"] = "rewritten prior checkpoint"
+        variants.append(changed)
+        for session in variants:
+            with self.subTest(session=session):
+                write_json(path, session)
+                self.assertFalse(assess_trial(self.trial)["complete"])
+        write_json(path, original)
+        self.assertTrue(assess_trial(self.trial)["complete"])
+
+    def test_resumed_checkpoint_runtime_identity_is_stable(self):
+        names, _ = self.resumed_checkpoints()
+        path = self.trial / f"steps/{names[1]}/agent/runtime.json"
+        original = json.loads(path.read_text())
+        for change in ({"settings": {"contextTokenLimit": 32768}},
+                       {"modelFiles": [{"sha256": "other-model-weights"}]}):
+            with self.subTest(change=change):
+                write_json(path, {**original, **change})
+                self.assertIn("fingerprints or settings changed", " ".join(assess_trial(self.trial)["issues"]))
+        write_json(path, original)
+        self.assertTrue(assess_trial(self.trial)["complete"])
+
+    def test_resumed_traces_reject_foreign_turns_and_orphaned_or_duplicate_prefills(self):
+        names, _ = self.resumed_checkpoints()
+        path = self.trial / f"steps/{names[1]}/agent/mlx-trace.jsonl"
+        original = [json.loads(line) for line in path.read_text().splitlines()]
+        prefill = {"kind": "turn_trace", "phase": "runtime_prefill", "generationID": "generation", "turnID": names[1]}
+        for rows in (original + [{"kind": "turn_trace", "phase": "runtime_memory", "turnID": names[0]}],
+                     original + [{**prefill, "generationID": "orphan"}], original + [prefill, prefill],
+                     original[:-1]):
+            with self.subTest(rows=rows):
+                path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+                self.assertFalse(assess_trial(self.trial)["complete"])
+
     def test_archived_checkpoints_share_provenance_and_each_remain_checksummed(self):
         names, _ = self.checkpoints()
         self.assertFalse((self.trial / "agent").exists())
@@ -874,7 +944,8 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             job = SimpleNamespace(config=SimpleNamespace(artifacts=[]), job_dir=Path("job"),
                                   on_trial_started=lambda hook: None, on_trial_ended=lambda hook: None)
             await plugin.on_job_start(job)
-            with patch("script.harbor.evidence.save_assessment", return_value={"complete": False}):
+            with patch("script.harbor.evidence.save_assessment", return_value={"complete": False}), \
+                    patch("script.harbor.agent.SumikaAgent.close_trial_worker", AsyncMock(), create=True):
                 await plugin.ended(SimpleNamespace(config=SimpleNamespace(trials_dir=Path("job")), trial_name="trial"))
 
     async def test_job_end_finds_checkpoints_after_root_agent_directory_is_archived(self):
@@ -883,9 +954,29 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             (root / "trial/steps/checkpoint_1/agent").mkdir(parents=True)
             plugin = EvidencePlugin()
             plugin.job_dir = root
-            with patch("script.harbor.evidence.save_assessment", return_value={"complete": True}) as save:
+            with patch("script.harbor.evidence.save_assessment", return_value={"complete": True}) as save, \
+                    patch("script.harbor.agent.SumikaAgent.close_trial_worker", AsyncMock(), create=True) as close:
                 await plugin.on_job_end(None)
+            close.assert_awaited_once_with(root / "trial")
             save.assert_called_once_with(root / "trial")
+
+    async def test_trial_end_closes_early_stopped_worker_before_assessing_evidence(self):
+        calls = []
+
+        async def close(trial):
+            calls.append(("close", trial))
+
+        def assess(trial):
+            calls.append(("assess", trial))
+            return {"complete": True}
+
+        plugin = EvidencePlugin()
+        event = SimpleNamespace(config=SimpleNamespace(trials_dir=Path("job")), trial_name="trial",
+                                result=SimpleNamespace(step_results=[{"step_name": "checkpoint_1"}]))
+        with patch("script.harbor.agent.SumikaAgent.close_trial_worker", AsyncMock(side_effect=close), create=True), \
+                patch("script.harbor.evidence.save_assessment", side_effect=assess):
+            await plugin.ended(event)
+        self.assertEqual(calls, [("close", Path("job/trial")), ("assess", Path("job/trial"))])
 
     async def test_environment_records_image_ids_without_environment_secrets(self):
         with tempfile.TemporaryDirectory() as directory:

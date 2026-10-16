@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import shlex
 import signal
+import weakref
 
 from harbor.agents.base import BaseAgent
 from harbor.agents.capabilities import AgentCapabilities
@@ -21,7 +22,9 @@ from script.harbor.trajectory import export_trajectory
 
 
 class SumikaAgent(BaseAgent):
-    capabilities = AgentCapabilities(atif=True)
+    capabilities = AgentCapabilities(atif=True, resume=True)
+    # Harbor's END hook closes workers even when reward gating skips the next resume.
+    _live_workers = weakref.WeakValueDictionary()
 
     def __init__(self, *args, binary, reasoning_effort=None, **kwargs):
         if "reasoning_level" in kwargs:
@@ -41,7 +44,10 @@ class SumikaAgent(BaseAgent):
         self.workspace_root = None
         self._task_config = None
         self._trial_config = None
-        self._steps = None
+        self._step_index = 0
+        self._worker = None
+        self._worker_policy = None
+        self._worker_turn_id = None
 
     @staticmethod
     def name():
@@ -125,16 +131,27 @@ class SumikaAgent(BaseAgent):
                                    + exec_diagnostics(result))
 
     async def run(self, instruction, environment, context):
+        await self._run_checkpoint(instruction, environment, context, resume=False)
+
+    async def resume(self, instruction, environment, context):
+        await self._run_checkpoint(instruction, environment, context, resume=True)
+
+    async def _run_checkpoint(self, instruction, environment, context, *, resume):
         if self.workspace_root is None:
             raise ValueError("Task working directory has not been resolved by setup.")
         if self._task_config is None:
             self._task_config = TaskConfig.model_validate_toml(
                 (self.logs_dir.parent / "provenance/task/task.toml").read_text())
             self._trial_config = TrialConfig.model_validate_json((self.logs_dir.parent / "config.json").read_text())
-            self._steps = iter(self._task_config.steps or [])
         task = self._task_config
         config = self._trial_config
-        step = next(self._steps, None)
+        steps = task.steps or []
+        persistent = config.agent.resume_trajectory and len(steps) > 1
+        if resume and (not persistent or self._worker is None):
+            raise ValueError("Resume requires an active multi-checkpoint worker and --resume-trajectory.")
+        if persistent and bool(self._step_index) != resume:
+            raise ValueError("Use resume() to continue the active checkpoint worker.")
+        step = steps[self._step_index] if self._step_index < len(steps) else None
         if task.steps and step is None:
             raise ValueError("No remaining Harbor checkpoint.")
         default_timeout = step.agent.timeout_sec if step and step.agent.timeout_sec is not None else task.agent.timeout_sec
@@ -147,6 +164,14 @@ class SumikaAgent(BaseAgent):
             timeout = min(timeout, config.agent.max_timeout_sec or math.inf) * multiplier
         if timeout is None or not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("Sumika requires a finite positive Harbor agent timeout.")
+        policy = environment.network_policy.model_dump(mode="json")
+        if persistent and self._worker_policy is not None and policy != self._worker_policy:
+            await self._stop_worker()
+            raise ValueError("Resumed checkpoints must keep the same network policy.")
+        if resume:
+            for name in ("trajectory.json", "trajectory-error.json", "artifact-error.json"):
+                (self.logs_dir / name).unlink(missing_ok=True)
+        self._step_index += 1
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         if step is not None:
             await capture_environment(environment, self.logs_dir)
@@ -154,24 +179,45 @@ class SumikaAgent(BaseAgent):
         prompt.write_text(instruction, encoding="utf-8")
         if web_access_enabled(environment.network_policy):
             await self._ensure_worker_python(environment, require_web_certificates=True)
-        self.bridge = SandboxBridge(environment, self.workspace_root)
+        if not persistent or self.bridge is None:
+            self.bridge = SandboxBridge(environment, self.workspace_root)
         process = None
+        completed = False
+        acknowledged = False
         try:
-            await self.bridge.start()
+            if not persistent or self._worker is None:
+                await self.bridge.start()
+            arguments = [
+                str(self.binary), "--model-id", self.model_name,
+                "--workspace-root", self.workspace_root, "--bridge-url", self.bridge.url,
+                "--prompt-file", str(prompt.resolve()),
+                "--output-dir", str(self.logs_dir.resolve()),
+                "--timeout-seconds", "harbor",
+                "--network-policy", environment.network_policy.model_dump_json(),
+                *(["--reasoning-level", self.reasoning_effort] if self.reasoning_effort is not None else []),
+            ]
             host_environment = os.environ.copy()
             host_environment["SUMIKA_HARBOR_TOKEN"] = self.bridge.token
-            with (self.logs_dir / "runner.log").open("wb") as output:
-                process = await asyncio.create_subprocess_exec(
-                    str(self.binary), "--model-id", self.model_name,
-                    "--workspace-root", self.workspace_root, "--bridge-url", self.bridge.url,
-                    "--prompt-file", str(prompt.resolve()),
-                    "--output-dir", str(self.logs_dir.resolve()),
-                    "--timeout-seconds", "harbor",
-                    "--network-policy", environment.network_policy.model_dump_json(),
-                    *(["--reasoning-level", self.reasoning_effort] if self.reasoning_effort is not None else []),
-                    env=host_environment, stdout=output, stderr=asyncio.subprocess.STDOUT,
-                    start_new_session=True)
-                status = await process.wait()
+            if persistent:
+                if self._worker is None:
+                    self._worker = await asyncio.create_subprocess_exec(
+                        *arguments, "--worker", env=host_environment,
+                        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.STDOUT, start_new_session=True, limit=4 * 1024 * 1024)
+                    self._worker_policy = policy
+                    self._live_workers[self.logs_dir.parent.resolve()] = self
+                result = await self._worker_checkpoint(step.name, policy)
+                acknowledged = True
+                status = {"completed": 0, "needs_user": 2, "failed": 1,
+                          "cancelled": 130, "timed_out": 124}.get(result.get("outcome"))
+                if status is None:
+                    raise RuntimeError("SumikaEval worker returned an unknown outcome.")
+            else:
+                with (self.logs_dir / "runner.log").open("wb") as output:
+                    process = await asyncio.create_subprocess_exec(
+                        *arguments, env=host_environment, stdout=output, stderr=asyncio.subprocess.STDOUT,
+                        start_new_session=True)
+                    status = await process.wait()
             result_path = self.logs_dir / "result.json"
             result = None
             if result_path.exists():
@@ -180,7 +226,17 @@ class SumikaAgent(BaseAgent):
             needs_user = status == 2 and isinstance(result, dict) and result.get("outcome") == "needs_user"
             if status and not needs_user:
                 raise RuntimeError(f"SumikaEval exited with status {status}; inspect runner.log/result.json.")
+            completed = status == 0 and result is not None and result.get("finishTaskStatus") in (None, "done")
         finally:
+            if persistent:
+                if not completed or self._step_index == len(steps):
+                    await self._stop_worker()
+                else:
+                    try:
+                        await self.bridge.suspend()
+                    except BaseException:
+                        await self._stop_worker()
+                        raise
             if process is not None and process.returncode is None:
                 with contextlib.suppress(ProcessLookupError):
                     os.killpg(process.pid, signal.SIGTERM)
@@ -191,6 +247,8 @@ class SumikaAgent(BaseAgent):
                         os.killpg(process.pid, signal.SIGKILL)
                     await process.wait()
             try:
+                if persistent and not acknowledged:
+                    raise ValueError("No current checkpoint acknowledgement; prior usage cannot be exported.")
                 trajectory = await asyncio.to_thread(
                     export_trajectory, self.logs_dir, self.model_name, self.version())
                 if trajectory is not None and trajectory.final_metrics is not None:
@@ -203,9 +261,67 @@ class SumikaAgent(BaseAgent):
                 with contextlib.suppress(OSError):
                     await asyncio.to_thread(
                         write_json, self.logs_dir / "trajectory-error.json", {"error": str(error)})
-            await self.bridge.close()
+            if not persistent:
+                await self.bridge.close()
             if step is None:
                 await capture_legacy_artifacts(environment, self.logs_dir, self.logger, self.workspace_root)
             else:
                 await capture_legacy_artifacts(environment, self.logs_dir, self.logger, self.workspace_root,
                                                task_config=task, step_name=step.name)
+
+    async def _worker_checkpoint(self, checkpoint_id, policy):
+        process = self._worker
+        if process.returncode is not None:
+            raise RuntimeError("SumikaEval worker exited before the next checkpoint.")
+        self.bridge.resume()
+        request = {"checkpointID": checkpoint_id, "networkPolicy": policy}
+        process.stdin.write((json.dumps(request) + "\n").encode())
+        await process.stdin.drain()
+        with (self.logs_dir / "runner.log").open("wb") as output:
+            while line := await process.stdout.readline():
+                output.write(line)
+                output.flush()
+                if not line.startswith(b"SUMIKA_EVAL_WORKER "):
+                    continue
+                response = json.loads(line.removeprefix(b"SUMIKA_EVAL_WORKER "))
+                if not isinstance(response, dict) or response.get("checkpointID") != checkpoint_id:
+                    raise RuntimeError("SumikaEval worker checkpoint response ID mismatch.")
+                result = response.get("result")
+                if (not isinstance(result, dict) or not isinstance(result.get("turnID"), str)
+                        or not result["turnID"] or result["turnID"] == self._worker_turn_id):
+                    raise RuntimeError("SumikaEval worker response has no current turn result.")
+                retained = json.loads((self.logs_dir / "result.json").read_text())
+                if result != retained:
+                    raise RuntimeError("SumikaEval worker response differs from its retained result.")
+                self._worker_turn_id = result["turnID"]
+                return result
+        raise RuntimeError("SumikaEval worker closed its output before checkpoint completion.")
+
+    @classmethod
+    async def close_trial_worker(cls, trial):
+        agent = cls._live_workers.get(Path(trial).resolve())
+        if agent is not None:
+            await agent._stop_worker(cleanup_environment=False)
+
+    async def _stop_worker(self, *, cleanup_environment=True):
+        process, self._worker = self._worker, None
+        self._live_workers.pop(self.logs_dir.parent.resolve(), None)
+        try:
+            if process is not None:
+                if process.stdin is not None:
+                    process.stdin.close()
+                try:
+                    await asyncio.wait_for(process.communicate(), timeout=5)
+                except TimeoutError:
+                    with contextlib.suppress(ProcessLookupError):
+                        os.killpg(process.pid, signal.SIGTERM)
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=5)
+                    except TimeoutError:
+                        with contextlib.suppress(ProcessLookupError):
+                            os.killpg(process.pid, signal.SIGKILL)
+                        await process.wait()
+        finally:
+            if self.bridge is not None:
+                bridge, self.bridge = self.bridge, None
+                await bridge.close(cleanup_environment=cleanup_environment)

@@ -147,7 +147,7 @@ struct ChatTurnExecutionCoordinator {
     var assistantThinkingMessageID = UUID()
     var didAppendAssistantThinking = false
     var didCompleteAssistantThinking = false
-    let generationContext = prepareGenerationContext(
+    let generationContext = await prepareGenerationContext(
       runtime: runtime,
       conversation: conversation,
       interactionMode: interactionMode,
@@ -157,6 +157,8 @@ struct ChatTurnExecutionCoordinator {
       turnID: turnID,
       toolLoopIteration: toolLoopIteration
     )
+    try Task.checkCancellation()
+    guard conversation.isActive(turnID) else { throw CancellationError() }
     let promptPlan = generationContext.promptPlan
     let modelPromptProjection = generationContext.modelPromptProjection
     let failedCommandGuard = failedRunCommandGuardContext(
@@ -742,7 +744,7 @@ extension ChatTurnExecutionCoordinator {
     stableInstructions: String,
     turnID: ChatTurn.ID,
     toolLoopIteration: Int?
-  ) -> (promptPlan: ChatRuntimePromptPlan, modelPromptProjection: ModelPromptProjection) {
+  ) async -> (promptPlan: ChatRuntimePromptPlan, modelPromptProjection: ModelPromptProjection) {
     conversation.setActiveToolPromptMode(toolPromptMode)
     applyToolFollowUpNoticeIfNeeded(
       toolPromptMode: toolPromptMode,
@@ -751,24 +753,25 @@ extension ChatTurnExecutionCoordinator {
       conversation: conversation
     )
 
+    let session = conversation.chatSession
     let systemPromptStartedAt = Date()
     let promptPlan = runtimePromptPlan(
-      session: conversation.chatSession,
+      session: session,
       stableInstructions: stableInstructions,
       toolPromptMode: toolPromptMode,
       toolCallingPolicy: runtime.selectedModel.toolCallingPolicy,
       turnToolRegistry: turnToolRegistry
     )
-    traceTurnPhase(
+    await traceTurnPhase(
       .renderSystemPrompt,
       startedAt: systemPromptStartedAt,
       turnID: turnID,
       generationID: nil,
       promptBytes: promptPlan.stableInstructions.utf8.count,
-      messageCount: conversation.chatSession.turns.flatMap(\.items).count,
+      messageCount: session.turns.flatMap(\.items).count,
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode,
-      selectedMCPServerIDs: conversation.chatSession.selectedMCPServerIDs,
+      selectedMCPServerIDs: session.selectedMCPServerIDs,
       activeMCPToolCount: promptPlan.toolContext?.registry.tools.count {
         $0.capabilities.contains(.externalService)
       } ?? 0
@@ -776,13 +779,13 @@ extension ChatTurnExecutionCoordinator {
 
     let contextBuildStartedAt = Date()
     let modelPromptProjection = modelContextBuilder.transcript(
-      from: conversation.chatSession,
+      from: session,
       includingTurnID: turnID,
       supportsHistoricalReasoningPreservation:
         runtime.selectedModel.supportsHistoricalReasoningPreservation
     )
     let activatedSkills =
-      conversation.chatSession.turns
+      session.turns
       .first(where: { $0.id == turnID })?
       .items
       .compactMap { item -> UserTurnMessage? in
@@ -792,7 +795,7 @@ extension ChatTurnExecutionCoordinator {
       .first?
       .promptContext
       .activatedSkills ?? []
-    traceTurnPhase(
+    await traceTurnPhase(
       .contextBuild,
       startedAt: contextBuildStartedAt,
       turnID: turnID,
@@ -1085,32 +1088,30 @@ extension ChatTurnExecutionCoordinator {
     activatedSkillIDs: [String]? = nil,
     activatedSkillContentHashes: [String]? = nil,
     activatedSkillCharacterCount: Int? = nil
-  ) {
+  ) async {
     let durationMs = Date().timeIntervalSince(startedAt) * 1000
-    Task {
-      await turnTracer.recordTurnTraceEvent(
-        TurnTraceEvent(
-          turnID: turnID,
-          generationID: generationID,
-          phase: phase,
-          durationMs: durationMs,
-          promptBytes: promptBytes,
-          promptTokens: promptTokens,
-          messageCount: messageCount,
-          toolLoopIteration: toolLoopIteration,
-          toolName: toolName,
-          ttftMs: ttftMs,
-          tokensPerSecond: tokensPerSecond,
-          cacheMode: cacheMode,
-          interactionMode: interactionMode,
-          selectedMCPServerIDs: selectedMCPServerIDs,
-          activeMCPToolCount: activeMCPToolCount,
-          activatedSkillIDs: activatedSkillIDs,
-          activatedSkillContentHashes: activatedSkillContentHashes,
-          activatedSkillCharacterCount: activatedSkillCharacterCount
-        )
+    await turnTracer.recordTurnTraceEvent(
+      TurnTraceEvent(
+        turnID: turnID,
+        generationID: generationID,
+        phase: phase,
+        durationMs: durationMs,
+        promptBytes: promptBytes,
+        promptTokens: promptTokens,
+        messageCount: messageCount,
+        toolLoopIteration: toolLoopIteration,
+        toolName: toolName,
+        ttftMs: ttftMs,
+        tokensPerSecond: tokensPerSecond,
+        cacheMode: cacheMode,
+        interactionMode: interactionMode,
+        selectedMCPServerIDs: selectedMCPServerIDs,
+        activeMCPToolCount: activeMCPToolCount,
+        activatedSkillIDs: activatedSkillIDs,
+        activatedSkillContentHashes: activatedSkillContentHashes,
+        activatedSkillCharacterCount: activatedSkillCharacterCount
       )
-    }
+    )
   }
 }
 

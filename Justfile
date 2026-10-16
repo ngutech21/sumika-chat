@@ -364,7 +364,7 @@ run-harbor:
     exit "$status"
 
 
-run-harbor-file-backup:
+run-harbor-file-backup-resume:
     #!/usr/bin/env bash
     set -eu
     swift build --configuration release --product SumikaEval
@@ -376,6 +376,7 @@ run-harbor-file-backup:
     -m Swift-1.5-4bit-MLX \
     -e docker -n 1 -k 1 \
     --agent-timeout-multiplier 1 \
+    --resume-trajectory \
     --ak binary="$PWD/.build/release/SumikaEval" \
     --ak reasoning_effort=low \
     --plugin script.harbor.evidence:EvidencePlugin \
@@ -410,3 +411,6 @@ run-harbor-suite:
 
     uv run --project script/harbor --locked python -B script/harbor/evidence.py "$PWD/.harbor/$job_name" || status=1
     exit "$status"
+
+harbor-view:
+    uv run --project script/harbor harbor view .harbor

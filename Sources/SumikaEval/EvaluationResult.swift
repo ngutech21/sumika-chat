@@ -39,4 +39,8 @@ struct EvaluationResult: Codable, Sendable {
   var contextTokenLimit: Int?
 
   var exitCode: Int32 { outcome.exitCode }
+
+  var canResumeWorker: Bool {
+    outcome == .completed && (finishTaskStatus == nil || finishTaskStatus == .done)
+  }
 }

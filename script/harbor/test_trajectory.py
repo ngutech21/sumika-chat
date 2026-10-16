@@ -50,6 +50,7 @@ def generation(identifier="generation", prompt=100, cached=0, output=20, turn="t
          "settings": {"effectiveReasoningSelection": "medium"}},
         {**common, "phase": "runtime_prefill", "fullPromptTokens": prompt,
          "promptTokens": prompt - cached, "reusedPromptTokens": cached, "cacheMode": "append_delta"},
+        {"kind": "mlx_response", "id": identifier},
         {**common, "phase": "runtime_stream_end", "generatedTokenCount": output,
          "generatedTokenCountIsEstimate": False, "reasoningTokenCount": 5,
          "answerTokenCount": output - 5, "runtimeStreamOutcome": "tool_call_boundary"},
@@ -149,10 +150,91 @@ class TrajectoryTests(unittest.TestCase):
         self.assertEqual(result.steps[1].metrics.prompt_tokens, 100)
         self.assertEqual(result.steps[3].metrics.prompt_tokens, 200)
 
+    def test_current_turn_projection_counts_only_the_resumed_checkpoint(self):
+        value = session(assistant("Earlier work", "prior"), tool())
+        current = copy.deepcopy(value["turns"][0])
+        current["id"] = "current"
+        current["items"] = [message("userMessage", "Next checkpoint", "next-user"), assistant("New work", "new")]
+        value["turns"].append(current)
+        before = copy.deepcopy(value)
+        result = build_trajectory(value, generation("new-generation", 200, 150, 30, turn="current"),
+                                  "fixture-model", "eval-1", turn_id="current")
+        self.assertEqual(value, before)
+        self.assertEqual([step.message for step in result.steps], ["Next checkpoint", "New work"])
+        self.assertEqual(result.extra["turn_id"], "current")
+        self.assertEqual(result.extra["issues"], [])
+        self.assertEqual(result.final_metrics.total_prompt_tokens, 200)
+        self.assertEqual(result.final_metrics.total_cached_tokens, 150)
+        self.assertEqual(result.final_metrics.total_completion_tokens, 30)
+
+    def test_current_turn_projection_rejects_missing_reordered_duplicate_and_foreign_traces(self):
+        value = session(assistant())
+        current = copy.deepcopy(value["turns"][0])
+        current["id"] = "current"
+        value["turns"].append(current)
+        rows = generation(turn="current")
+        for turn_id in ("absent", "turn"):
+            with self.subTest(turn_id=turn_id), self.assertRaises(ValueError):
+                build_trajectory(value, rows, "fixture-model", "eval-1", turn_id=turn_id)
+        value["turns"].insert(0, copy.deepcopy(current))
+        with self.assertRaises(ValueError):
+            build_trajectory(value, rows, "fixture-model", "eval-1", turn_id="current")
+        value["turns"].pop(0)
+        value["turns"][-1]["items"].append(assistant("Untraced generation", "missing"))
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            build_trajectory(value, rows, "fixture-model", "eval-1", turn_id="current")
+        value["turns"][-1]["items"].pop()
+        for changed in ([], rows[:-1], rows[:3] + rows[4:], rows[1:], rows + generation("old", turn="turn"),
+                        rows + [{"kind": "mlx_response", "id": "foreign"}],
+                        rows + [{"kind": "turn_trace", "phase": "runtime_memory", "turnID": "turn"}],
+                        [{**row, "turnID": "turn"} if row.get("kind") == "mlx_response" else row for row in rows]):
+            with self.subTest(rows=len(changed)), self.assertRaises(ValueError):
+                build_trajectory(value, changed, "fixture-model", "eval-1", turn_id="current")
+
+    def test_export_uses_native_result_turn_and_never_mutates_cumulative_session(self):
+        value = session(assistant("Previous", "old"))
+        current = copy.deepcopy(value["turns"][0])
+        current["id"] = "current"
+        current["items"] = [message("userMessage", "Continue", "next"), assistant("Current", "new")]
+        value["turns"].append(current)
+        with tempfile.TemporaryDirectory(prefix="sumika-resume-trajectory-") as directory:
+            logs = Path(directory)
+            (logs / "session.json").write_text(json.dumps(value))
+            (logs / "mlx-trace.jsonl").write_text("\n".join(json.dumps(row) for row in generation(turn="current")))
+            with self.assertRaisesRegex(ValueError, "requires a native result"):
+                export_trajectory(logs, "fixture-model", "eval-1")
+            (logs / "result.json").write_text(json.dumps({"turnID": "current"}))
+            before = {path.name: path.read_bytes() for path in logs.iterdir()}
+            result = export_trajectory(logs, "fixture-model", "eval-1")
+            self.assertEqual([step.message for step in result.steps], ["Continue", "Current"])
+            self.assertEqual(result.final_metrics.total_completion_tokens, 20)
+            for name, data in before.items():
+                self.assertEqual((logs / name).read_bytes(), data)
+            (logs / "result.json").write_text("{}")
+            with self.assertRaisesRegex(ValueError, "no current turn"):
+                export_trajectory(logs, "fixture-model", "eval-1")
+
     def test_duplicate_or_invalid_metrics_are_rejected(self):
         for rows in (generation() + generation(), generation(prompt=-1), generation(cached=101)):
             with self.subTest(rows=rows), self.assertRaises(ValueError):
                 self.build(session(assistant()), rows)
+
+    def test_export_rejects_symlinked_current_turn_evidence(self):
+        with tempfile.TemporaryDirectory(prefix="sumika-trajectory-links-") as directory:
+            logs = Path(directory)
+            for name, contents in (("session.json", json.dumps(session(assistant()))),
+                                   ("result.json", json.dumps({"turnID": "turn"})),
+                                   ("mlx-trace.jsonl", "\n".join(json.dumps(row) for row in generation()))):
+                (logs / name).write_text(contents)
+            for name in ("session.json", "result.json", "mlx-trace.jsonl"):
+                path = logs / name
+                retained = logs / "retained"
+                path.rename(retained)
+                path.symlink_to(retained)
+                with self.subTest(name=name), self.assertRaisesRegex(ValueError, "regular file"):
+                    export_trajectory(logs, "fixture-model", "eval-1")
+                path.unlink()
+                retained.rename(path)
 
     def test_export_is_atomic_and_keeps_native_files_unchanged(self):
         with tempfile.TemporaryDirectory(prefix="sumika-trajectory-test-") as directory:

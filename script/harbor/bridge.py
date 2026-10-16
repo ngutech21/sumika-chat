@@ -43,6 +43,7 @@ class SandboxBridge:
         self.active = {}
         self.command_failure = None
         self.closed = False
+        self.suspended = False
 
     async def start(self):
         result = await self.environment.exec(
@@ -137,6 +138,9 @@ class SandboxBridge:
         try:
             if self.closed:
                 raise RuntimeError("Task transport is closed.")
+            if self.suspended:
+                return {"id": identifier, "error": {"code": "permissionDenied",
+                        "message": "The agent is idle between checkpoints."}}
             if operation in ("http", "resolveHost"):
                 if not web_access_enabled(self.environment.network_policy):
                     return {"id": identifier, "error": {"code": "permissionDenied",
@@ -162,12 +166,26 @@ class SandboxBridge:
                 self.command_failure = str(error)
             return {"id": identifier, "error": {"code": "transportFailure", "message": str(error)}}
 
-    async def close(self):
+    async def suspend(self):
+        self.suspended = True
+        await self._drain()
+
+    def resume(self):
+        if self.closed:
+            raise RuntimeError("Task transport is closed.")
+        self.suspended = False
+
+    async def close(self, *, cleanup_environment=True):
         self.closed = True
         if hasattr(self, "server"):
             await asyncio.to_thread(self.server.shutdown)
             self.server.server_close()
             self.thread.join(timeout=2)
+        await self._drain()
+        if cleanup_environment:
+            await self.environment.exec(f"rm -rf {shlex.quote(self.control)}", timeout_sec=10)
+
+    async def _drain(self):
         pending = list(self.active.items())
         await asyncio.gather(*(self._execute({"id": uuid.uuid4().hex, "operation": "cancel",
                                              "targetRequestID": identifier})
@@ -181,4 +199,3 @@ class SandboxBridge:
             await asyncio.gather(*unfinished, return_exceptions=True)
         if self.command_failure is not None:
             raise RuntimeError(f"Cannot drain task commands: {self.command_failure}")
-        await self.environment.exec(f"rm -rf {shlex.quote(self.control)}", timeout_sec=10)

@@ -11,6 +11,39 @@ import Testing
 #endif
 @Suite()
 struct MLXModelStreamProcessorTests {
+  @Test(arguments: MLXMemoryTraceStreamScenario.allCases)
+  func terminalTracePrecedesConsumerCompletion(scenario: MLXMemoryTraceStreamScenario) async throws
+  {
+    let tracer = SuspendedTerminalTraceRecorder()
+    let consumerFinished = Mutex(false)
+    let traceID = UUID()
+    let plan = MLXModelStreamProcessor.modelStreamPlan(
+      from: MLXGuardedGeneration(makeStream: { memoryTraceSource(for: scenario) }, synchronize: {}),
+      traceID: traceID,
+      traceMetadata: TurnTraceMetadata(turnID: nil, generationID: traceID, tracer: tracer),
+      cacheTrace: defaultCacheTrace(), debugTraceStore: temporaryDebugTraceStore(),
+      markCompleted: { _ in }, markCancelled: { _ in },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in })
+    let consumer = Task {
+      var failed = false
+      do { try await drainModelStream(plan.stream) } catch { failed = true }
+      consumerFinished.withLock { $0 = true }
+      return failed
+    }
+    defer {
+      consumer.cancel()
+      plan.task.cancel()
+      Task { await tracer.release() }
+    }
+    try await waitUntilAsync { await tracer.waiting }
+    for _ in 0..<20 { await Task.yield() }
+    #expect(!consumerFinished.withLock { $0 })
+    await tracer.release()
+    #expect(await consumer.value == scenario.expectsError)
+    #expect(await tracer.recorded)
+    await plan.task.value
+  }
+
   @Test(arguments: MLXMemoryTraceStreamScenario.allCases, [false, true])
   func cacheAllocationCaptureFollowsDrainAndPrecedesFinalization(
     scenario: MLXMemoryTraceStreamScenario, tracingEnabled: Bool
@@ -2224,6 +2257,26 @@ struct MLXModelStreamProcessorTests {
 
     func firstEvent(for phase: TurnTracePhase) -> TurnTraceEvent? {
       events.first { $0.phase == phase }
+    }
+  }
+
+  private actor SuspendedTerminalTraceRecorder: TurnTracing {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var released = false
+    private(set) var waiting = false
+    private(set) var recorded = false
+
+    func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
+      guard event.phase == .runtimeStreamEnd else { return }
+      waiting = true
+      if !released { await withCheckedContinuation { continuation = $0 } }
+      recorded = true
+    }
+
+    func release() {
+      released = true
+      continuation?.resume()
+      continuation = nil
     }
   }
 

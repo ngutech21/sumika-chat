@@ -75,7 +75,7 @@ uv run --project script/harbor --locked python -B -m unittest discover -s script
 ```
 
 Use an already installed Work-capable model; evaluation never downloads weights.
-The three Harbor run recipes build and launch `SumikaEval` in Release.
+The Harbor run recipes build and launch `SumikaEval` in Release.
 Run one trial at a time on the Mac. The CLI keeps settings and attachments in the
 trial directory and writes `session.json`, `result.json`, and the existing
 `mlx-trace.jsonl` format there.
@@ -129,15 +129,30 @@ capture limits, and the read-only checker for individual jobs or trials.
 
 `just run-harbor-file-backup` selects the pinned four-checkpoint SlopCodeBench
 `gabeorlanski/file_backup` task. Checkpoints retain the container workspace and
-start fresh native conversations; conversation resume is unsupported. The recipe
-uses one sequential trial and timeout multiplier 1, retaining the task's 7,200-second
-agent and 600-second verifier budgets per checkpoint. Calibrate the task separately
-before its first evaluation. Harbor archives each checkpoint under `steps/<name>/`;
-shared provenance stays in the unmounted `provenance/` directory. The
+start fresh native conversations and processes by default.
+`just run-harbor-file-backup-resume` adds `--resume-trajectory`; only
+multi-checkpoint tasks with that flag use a persistent native worker. It retains
+the loaded model, canonical conversation, and eligible prompt cache in RAM,
+appending each checkpoint instruction as a new user turn with a fresh tool-loop
+budget and separate evidence. The worker shuts down at trial completion or
+failure, and timeout/cancellation terminates it. No prompt cache is written to
+disk, and a warm cache hit or performance gain is not guaranteed or verified.
+The worker denies task access during verification and rejects network policy
+changes before executing another turn.
+Report fresh and resumed scores separately because conversation retention
+changes the SlopCodeBench protocol.
+Both recipes use one sequential trial and timeout multiplier 1, retaining the
+task's 7,200-second agent and 600-second verifier budgets per checkpoint.
+Calibrate the task separately before its first evaluation. Harbor archives each
+checkpoint under `steps/<name>/`; shared provenance stays in the unmounted
+`provenance/` directory. The
 `agent/completeness.json` report checks
 all checkpoint outputs, declarations, identities, ordering, and explained early
 stops. The evidence checker runs even after Harbor fails. See the runner's
 [checkpoint instructions](../script/harbor/README.md#run-the-file_backup-checkpoints).
+The adapter tests also validate the recipes through `just --show`, `--dry-run`,
+and fake launchers; they never build or execute a benchmark and skip when `just`
+is unavailable.
 
 This initial profile enables `read_file`, `edit_file`, `write_file`, `run_command`,
 `ask_user`, and `finish_task`. Workspace instructions are read from the container.

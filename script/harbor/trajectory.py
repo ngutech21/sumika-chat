@@ -6,20 +6,35 @@ import json
 
 from harbor.models.trajectories import Trajectory
 
-from script.harbor.evidence import write_json
+from script.harbor.evidence import _regular_file, write_json
 
 
 def export_trajectory(logs_dir, model_name, agent_version):
     session_path = logs_dir / "session.json"
-    if not session_path.exists():
+    if not session_path.exists() and not session_path.is_symlink():
         return None
+    if not _regular_file(session_path, logs_dir):
+        raise ValueError("Native session must be a regular file")
     session = json.loads(session_path.read_text(encoding="utf-8"))
     trace_path = logs_dir / "mlx-trace.jsonl"
     rows = []
-    if trace_path.exists():
+    if trace_path.exists() or trace_path.is_symlink():
+        if not _regular_file(trace_path, logs_dir):
+            raise ValueError("Model trace must be a regular file")
         with trace_path.open(encoding="utf-8") as trace:
             rows = [json.loads(line) for line in trace if line.strip()]
-    trajectory = build_trajectory(session, rows, model_name, agent_version)
+    result_path = logs_dir / "result.json"
+    turn_id = None
+    if result_path.exists() or result_path.is_symlink():
+        if not _regular_file(result_path, logs_dir):
+            raise ValueError("Native result must be a regular file")
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        turn_id = result.get("turnID")
+        if not isinstance(turn_id, str) or not turn_id:
+            raise ValueError("Native result has no current turn ID")
+    elif len(session["turns"]) > 1:
+        raise ValueError("A cumulative session requires a native result identifying the current turn")
+    trajectory = build_trajectory(session, rows, model_name, agent_version, turn_id=turn_id)
     write_json(logs_dir / "trajectory.json", trajectory.to_json_dict())
     return trajectory
 
@@ -51,11 +66,12 @@ def _trace_generations(rows):
             generation[phase] = row
             if phase == "runtime_stream_start":
                 starts[row["turnID"]].append(identifier)
-        elif row.get("kind") == "mlx_request":
+        elif row.get("kind") in ("mlx_request", "mlx_response"):
             generation = generations.setdefault(row["id"], {})
-            if "request" in generation:
-                raise ValueError(f"Duplicate model request {row['id']}")
-            generation["request"] = row
+            kind = "request" if row["kind"] == "mlx_request" else "response"
+            if kind in generation:
+                raise ValueError(f"Duplicate model {kind} {row['id']}")
+            generation[kind] = row
     return generations, starts
 
 
@@ -101,13 +117,31 @@ def _generation_fields(identifier, generation):
     }
 
 
-def build_trajectory(session, rows, model_name, agent_version):
+def build_trajectory(session, rows, model_name, agent_version, *, turn_id=None):
+    turns = session["turns"]
+    scoped = turn_id is not None
+    if scoped:
+        turn_ids = [turn.get("id") for turn in turns]
+        if (not turn_ids or any(not isinstance(identifier, str) or not identifier for identifier in turn_ids)
+                or len(set(turn_ids)) != len(turn_ids) or turn_ids[-1] != turn_id):
+            raise ValueError("Current native turn is missing, duplicated, or not last in the session")
+        turns = [turns[-1]]
+        for row in rows:
+            if row.get("turnID") not in (None, turn_id):
+                raise ValueError("Checkpoint trace contains another turn")
     generations, starts = _trace_generations(rows)
+    if scoped:
+        for identifier, generation in generations.items():
+            if not identifier or not all(name in generation for name in (
+                    "request", "response", "runtime_stream_start", "runtime_stream_end")):
+                raise ValueError("Checkpoint trace contains an incomplete or unmatched generation")
+            if generation["runtime_stream_start"].get("turnID") != turn_id:
+                raise ValueError("Checkpoint trace contains another turn")
     steps = []
     model_steps = []
     matched = set()
     issues = []
-    for turn in session["turns"]:
+    for turn in turns:
         turn_id = turn["id"]
         turn_model_steps = []
         current = None
@@ -161,6 +195,8 @@ def build_trajectory(session, rows, model_name, agent_version):
         identifiers = starts.get(turn_id, [])
         # Session items have no generation ID. Only align complete per-turn sequences.
         if len(identifiers) != len(turn_model_steps):
+            if scoped:
+                raise ValueError("Checkpoint trace does not match the current turn's model messages")
             issues.append(f"Unmatched model generations for turn {turn_id}; step metrics omitted.")
         else:
             for step, identifier in zip(turn_model_steps, identifiers):
@@ -171,6 +207,8 @@ def build_trajectory(session, rows, model_name, agent_version):
         model_steps.extend(turn_model_steps)
 
     if set(generations) != matched:
+        if scoped:
+            raise ValueError("Checkpoint trace contains missing or unmatched generation boundaries")
         issues.append("Trace contains missing or unmatched generation boundaries; totals omitted.")
     totals = {}
     for name, field in (("prompt", "prompt_tokens"), ("cached", "cached_tokens"),
@@ -191,5 +229,5 @@ def build_trajectory(session, rows, model_name, agent_version):
                  "with trace generations in order within each turn; direct finish_task summaries "
                  "are not model calls. Prompt tokens include cache hits; completion tokens include "
                  "reasoning and tool calls. Raw files remain authoritative.",
-        "extra": {"issues": issues},
+        "extra": {"issues": issues, **({"turn_id": turn_id} if scoped else {})},
     })
