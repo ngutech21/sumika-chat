@@ -1,0 +1,13 @@
+jobs_dir: .harbor
+n_concurrent_trials: 1
+n_attempts: 1
+
+environment:
+  type: docker
+
+agents:
+  - import_path: script.harbor.agent:SumikaAgent
+    model_name: Swift-1.5-4bit-MLX
+    kwargs:
+      binary: .build/release/SumikaEval
+      reasoning_effort: low

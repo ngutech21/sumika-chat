@@ -60,6 +60,13 @@ just check-harbor-fixture
 just run-harbor-smoke-test
 ```
 
+All five Sumika run recipes load [sumika.yaml](sumika.yaml) for the agent, model,
+Release binary, reasoning effort, Docker environment, concurrency, attempt count,
+and jobs directory. Its paths are relative to the repository root. Task selection,
+timeout multipliers, and the resume flag stay in `Justfile`, along with the Release
+build, fresh job name, evidence plugin, and final evidence check. The evidence
+check still runs after Harbor fails, and either failure makes the recipe fail.
+
 The fixture check runs `nop` and `oracle` sequentially and fails unless their
 fresh, completed trials have rewards `0` and `1`, respectively, with no trial
 exceptions. Results are kept under `tmp/harbor/baseline` and `tmp/harbor/oracle`.

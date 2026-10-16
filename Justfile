@@ -353,11 +353,9 @@ run-harbor-smoke-test: build-harbor
     job_name="$(uuidgen)"
     status=0
     HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" uv run --project script/harbor --locked harbor run -p script/harbor/tasks/merge-ranges \
-    -a script.harbor.agent:SumikaAgent -m Swift-1.5-4bit-MLX -n 1 \
+    --config script/harbor/sumika.yaml \
     --plugin script.harbor.evidence:EvidencePlugin \
-    --ak binary="$PWD/.build/release/SumikaEval" \
-    --ak reasoning_effort=low \
-    --jobs-dir "$PWD/.harbor/" --job-name "$job_name" || status=$?
+    --job-name "$job_name" || status=$?
     uv run --project script/harbor --locked python -B -m script.harbor.evidence "$PWD/.harbor/$job_name" || status=1
     exit "$status"
 
@@ -368,14 +366,10 @@ run-harbor: build-harbor
     status=0
     HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" uv run --project script/harbor --locked harbor run \
     -t openthoughts/auth_token_race_condition@sha256:3f944adfbb5ef321ba179db84f82ee9500262971de02eea66d8ebd09b74b7984 \
-    -a script.harbor.agent:SumikaAgent \
-    -m Swift-1.5-4bit-MLX \
-    -e docker -n 1 -k 1 \
+    --config script/harbor/sumika.yaml \
     --agent-timeout-multiplier 6 \
-    --ak binary="$PWD/.build/release/SumikaEval" \
-    --ak reasoning_effort=low \
     --plugin script.harbor.evidence:EvidencePlugin \
-    --jobs-dir "$PWD/.harbor" --job-name "$job_name" || status=$?
+    --job-name "$job_name" || status=$?
 
     uv run --project script/harbor --locked python -B -m script.harbor.evidence "$PWD/.harbor/$job_name" || status=1
     exit "$status"
@@ -388,14 +382,10 @@ run-harbor-file-backup: build-harbor
     status=0
     HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" uv run --project script/harbor --locked harbor run \
     -t gabeorlanski/file_backup@sha256:fd2acb76c0afcfc1b9bba10a8500e5ef3f51a8178373dcaa6da808011c6b499c \
-    -a script.harbor.agent:SumikaAgent \
-    -m Swift-1.5-4bit-MLX \
-    -e docker -n 1 -k 1 \
+    --config script/harbor/sumika.yaml \
     --agent-timeout-multiplier 1 \
-    --ak binary="$PWD/.build/release/SumikaEval" \
-    --ak reasoning_effort=low \
     --plugin script.harbor.evidence:EvidencePlugin \
-    --jobs-dir "$PWD/.harbor" --job-name "$job_name" || status=$?
+    --job-name "$job_name" || status=$?
 
     uv run --project script/harbor --locked python -B -m script.harbor.evidence "$PWD/.harbor/$job_name" || status=1
     exit "$status"
@@ -407,15 +397,11 @@ run-harbor-file-backup-resume: build-harbor
     status=0
     HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" uv run --project script/harbor --locked harbor run \
     -t gabeorlanski/file_backup@sha256:fd2acb76c0afcfc1b9bba10a8500e5ef3f51a8178373dcaa6da808011c6b499c \
-    -a script.harbor.agent:SumikaAgent \
-    -m Swift-1.5-4bit-MLX \
-    -e docker -n 1 -k 1 \
+    --config script/harbor/sumika.yaml \
     --agent-timeout-multiplier 1 \
     --resume-trajectory \
-    --ak binary="$PWD/.build/release/SumikaEval" \
-    --ak reasoning_effort=low \
     --plugin script.harbor.evidence:EvidencePlugin \
-    --jobs-dir "$PWD/.harbor" --job-name "$job_name" || status=$?
+    --job-name "$job_name" || status=$?
 
     uv run --project script/harbor --locked python -B -m script.harbor.evidence "$PWD/.harbor/$job_name" || status=1
     exit "$status"
@@ -434,14 +420,10 @@ run-harbor-suite: build-harbor
     status=0
     HARBOR_TELEMETRY=0 PYTHONPATH="$PWD" uv run --project script/harbor --locked harbor run \
     -d "{{harbor_suite_dataset}}" "${task_filters[@]}" \
-    -a script.harbor.agent:SumikaAgent \
-    -m Swift-1.5-4bit-MLX \
-    -e docker -n 1 -k 1 \
+    --config script/harbor/sumika.yaml \
     --agent-timeout-multiplier 6 \
-    --ak binary="$PWD/.build/release/SumikaEval" \
-    --ak reasoning_effort=low \
     --plugin script.harbor.evidence:EvidencePlugin \
-    --jobs-dir "$PWD/.harbor" --job-name "$job_name" || status=$?
+    --job-name "$job_name" || status=$?
 
     uv run --project script/harbor --locked python -B -m script.harbor.evidence "$PWD/.harbor/$job_name" || status=1
     exit "$status"
