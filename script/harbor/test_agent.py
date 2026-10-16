@@ -482,15 +482,25 @@ artifacts = """
                 self.assertEqual(reasoning_effort_from_config(config), effort)
                 await self.run_status(0, "completed", **config.agent.kwargs)
 
-    def test_old_reasoning_option_is_rejected(self):
+    def test_unknown_agent_options_are_rejected_in_preflight_and_construction(self):
         with tempfile.TemporaryDirectory() as directory:
-            for kwargs in ({"reasoning_level": "low"}, {"reasoning_level": "low", "reasoning_effort": "medium"}):
-                with self.subTest(kwargs=kwargs), self.assertRaisesRegex(ValueError, "Use reasoning_effort"):
-                    SumikaAgent(logs_dir=Path(directory), model_name="fixture", binary=sys.executable, **kwargs)
+            for name, value in (("reasoning_level", "low"), ("timeout_seconds", 3300), ("reasoning_effrot", "low")):
+                kwargs = {"binary": sys.executable, "reasoning_effort": "medium", name: value}
+                with self.subTest(name=name):
+                    with self.assertRaisesRegex(ValueError, f"Unknown option '{name}'"):
+                        SumikaAgent.preflight(kwargs)
+                    with self.assertRaisesRegex(ValueError, f"Unknown option '{name}'"):
+                        SumikaAgent(logs_dir=Path(directory), model_name="fixture", **kwargs)
 
-    def test_old_adapter_timeout_is_rejected(self):
-        with tempfile.TemporaryDirectory() as directory, self.assertRaisesRegex(ValueError, "Harbor's agent timeout"):
-            SumikaAgent(logs_dir=Path(directory), model_name="fixture", binary=sys.executable, timeout_seconds=3300)
+    def test_agent_options_require_binary_and_preserve_default_reasoning(self):
+        for kwargs in ({}, {"binary": None}, {"binary": 1}):
+            with self.subTest(kwargs=kwargs), self.assertRaisesRegex(ValueError, "binary"):
+                SumikaAgent.preflight(kwargs)
+        for kwargs in ({}, {"reasoning_effort": None}):
+            options = SumikaAgent.parse_options({"binary": sys.executable, **kwargs})
+            self.assertEqual(options.binary, Path(sys.executable))
+            self.assertIsNone(options.reasoning_effort)
+        self.assertEqual(SumikaAgent.options_schema()["required"], ["binary"])
 
     async def test_harbor_budget_must_be_finite_before_native_launch(self):
         for task_timeout, overrides, valid in (
@@ -528,10 +538,12 @@ artifacts = """
     def test_invalid_reasoning_efforts_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             for level in ("", "high", "off", 1, True, ["low"]):
-                with self.subTest(level=level), self.assertRaisesRegex(ValueError, "reasoning_effort"):
-                    SumikaAgent(
-                        logs_dir=Path(directory), model_name="fixture", binary=sys.executable, reasoning_effort=level
-                    )
+                kwargs = {"binary": sys.executable, "reasoning_effort": level}
+                with self.subTest(level=level):
+                    with self.assertRaisesRegex(ValueError, "reasoning_effort"):
+                        SumikaAgent.preflight(kwargs)
+                    with self.assertRaisesRegex(ValueError, "reasoning_effort"):
+                        SumikaAgent(logs_dir=Path(directory), model_name="fixture", **kwargs)
 
     async def test_runner_receives_resolved_agent_phase_policy(self):
         for definition in (

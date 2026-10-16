@@ -10,11 +10,14 @@ import shutil
 import stat
 import subprocess
 import sys
-import tomllib
-import unicodedata
 from importlib.metadata import distributions, version
 from pathlib import Path
 
+from harbor.models.task.artifacts import effective_artifact_service, normalize_artifact_entries
+from harbor.models.task.config import ArtifactConfig, TaskConfig
+from harbor.models.trial.artifact_manifest import ArtifactManifest
+from harbor.trial.artifact_handler import artifact_host_path
+from pydantic import TypeAdapter
 from script.harbor.models import CompletenessReport
 
 
@@ -95,8 +98,8 @@ def prepare_trial(event, repository):
     shutil.copytree(source, task, symlinks=True)
     if dirhash(task, "sha256") != event.result.task_checksum:
         raise ValueError("Task changed after Harbor planned the trial.")
-    steps = tomllib.loads((task / "task.toml").read_text(encoding="utf-8")).get("steps") or []
-    retained_agent = Path("steps") / steps[0]["name"] / "agent" if steps else Path("agent")
+    steps = TaskConfig.model_validate_toml((task / "task.toml").read_text(encoding="utf-8")).steps or []
+    retained_agent = Path("steps") / steps[0].name / "agent" if steps else Path("agent")
     git = ["git", "--no-optional-locks", "-C", str(repository)]
     commit = command([*git, "rev-parse", "HEAD"]).decode().strip()
     (provenance / "source.patch").write_bytes(command([*git, "diff", "--binary", "HEAD"]))
@@ -165,7 +168,6 @@ async def capture_environment(environment, logs_dir):
 
 
 async def capture_legacy_artifacts(environment, logs_dir, logger, workspace_root, *, task_config=None, step_name=None):
-    from harbor.models.task.config import TaskConfig
     from harbor.models.trial.paths import EnvironmentPaths
     from harbor.trial.artifact_handler import ArtifactHandler
 
@@ -222,7 +224,7 @@ def _regular_file(path, root):
 def _step_stop_reason(step, result, config):
     if result.get("exception_info") is not None and result.get("verifier_result") is None:
         return "Checkpoint exception"
-    threshold = step.get("min_reward")
+    threshold = step.min_reward
     if threshold is None or config.get("verifier", {}).get("disable", False):
         return None
     thresholds = {"reward": threshold} if isinstance(threshold, (int, float)) else threshold
@@ -304,20 +306,10 @@ def assess_trial(trial):
         definition = task / "task.toml"
         if not _regular_file(definition, trial):
             raise ValueError("Missing regular task.toml")
-        task_config = tomllib.loads(definition.read_text(encoding="utf-8"))
-        declared = task_config.get("artifacts", [])
-        steps = task_config.get("steps") or []
-        if not isinstance(declared, list) or not isinstance(steps, list):
-            raise ValueError("Task artifacts and steps must be lists")
-        names = [step["name"] for step in steps]
-        if any(
-            not isinstance(name, str)
-            or not name
-            or name in (".", "..")
-            or any(character in name for character in "/\\\0\r\n")
-            for name in names
-        ) or len({unicodedata.normalize("NFC", name).casefold() for name in names}) != len(names):
-            raise ValueError("Checkpoint names must be unique, safe directory names")
+        task_config = TaskConfig.model_validate_toml(definition.read_text(encoding="utf-8"))
+        declared = task_config.artifacts
+        steps = task_config.steps or []
+        names = [step.name for step in steps]
     except (OSError, ValueError, TypeError, KeyError) as error:
         issues.append(f"{definition.relative_to(trial)}: {error}")
         declared, steps, names = [], [], []
@@ -359,7 +351,7 @@ def assess_trial(trial):
                 continue
             run = trial / "steps" / name
             try:
-                report = _assess_run(run, result, config, [*declared, *step.get("artifacts", [])], checkpoint=True)
+                report = _assess_run(run, result, config, [*declared, *step.artifacts], checkpoint=True)
                 if resume:
                     previous_session = _assess_resumed_session(run, previous_session, report["issues"])
                     report["complete"] = not report["issues"]
@@ -430,9 +422,12 @@ def _assess_run(trial, harbor, config, declared, checkpoint=False):
     turn_id = native.get("turnID")
     if not turn_id or not any(turn.get("id") == turn_id for turn in session.get("turns", [])):
         issues.append("The native result's turn is missing from the session.")
-    requirements = [
-        entry if isinstance(entry, dict) else {"source": entry} for entry in [*declared, *config.get("artifacts", [])]
-    ]
+    try:
+        run_artifacts = TypeAdapter(list[str | ArtifactConfig]).validate_python(config.get("artifacts", []))
+        requirements = normalize_artifact_entries([*declared, *run_artifacts])
+    except ValueError as error:
+        issues.append(f"Artifact declarations: {error}")
+        requirements = []
     legacy_files = {}
     if not declared:
         try:
@@ -447,22 +442,25 @@ def _assess_run(trial, harbor, config, declared, checkpoint=False):
             legacy_files["/output"] = ("report.json", "a.json", "b.json")
         for source in legacy_files:
             if not any(
-                entry.get("source") == source and entry.get("service") in (None, "main") for entry in requirements
+                entry.source == source and effective_artifact_service(entry) == "main" for entry in requirements
             ):
-                requirements.append({"source": source})
+                requirements.append(ArtifactConfig(source=source))
     for name, label in (("artifact-error.json", "Artifact collection"), ("trajectory-error.json", "Trajectory export")):
         error_path = trial / "agent" / name
         if error_path.exists() or error_path.is_symlink():
             error = read(f"agent/{name}")
             issues.append(f"{label} error: {error.get('error', 'Unknown failure')}")
     captures = {}
-    if not isinstance(manifest, list):
-        issues.append("Artifact manifest must be a list.")
-    for entry in manifest if isinstance(manifest, list) else []:
-        if entry.get("status") not in ("ok", "empty"):
-            issues.append(f"Artifact collection {entry.get('status')}: {entry.get('source')}")
-        source = entry.get("source")
-        destination = Path(entry.get("destination", ""))
+    try:
+        entries = ArtifactManifest(entries=manifest).entries
+    except ValueError as error:
+        issues.append(f"artifacts/manifest.json: {error}")
+        entries = []
+    for entry in entries:
+        if entry.status not in ("ok", "empty"):
+            issues.append(f"Artifact collection {entry.status}: {entry.source}")
+        source = entry.source
+        destination = Path(entry.destination)
         if destination.is_absolute() or ".." in destination.parts or destination.parts[:1] != ("artifacts",):
             issues.append(f"Invalid artifact destination for {source}.")
             continue
@@ -472,16 +470,16 @@ def _assess_run(trial, harbor, config, declared, checkpoint=False):
         ):
             issues.append(f"Artifact capture has a symlink ancestor: {source}.")
             continue
-        kind = entry.get("type")
+        kind = entry.type
         # Harbor preserves the live publish mount and moves only its contents into checkpoint archives.
         empty_publish_mount = (
             checkpoint
             and source == "/logs/artifacts"
             and kind == "directory"
-            and entry.get("status") == "empty"
-            and entry.get("service") in (None, "main")
-            and entry.get("destination") == "artifacts/logs/artifacts"
-            and entry.get("exclude", []) == []
+            and entry.status == "empty"
+            and entry.service in (None, "main")
+            and entry.destination == "artifacts/logs/artifacts"
+            and (entry.exclude == [] or "exclude" not in entry.model_fields_set)
             and not capture.exists()
             and (not capture.parent.exists() or capture.parent.is_dir())
         )
@@ -490,30 +488,32 @@ def _assess_run(trial, harbor, config, declared, checkpoint=False):
         ):
             issues.append(f"Missing or invalid artifact capture: {source}.")
             continue
-        captures.setdefault((source, entry.get("service") or "main"), []).append((entry, capture))
+        captures.setdefault((source, entry.service or "main"), []).append((entry, capture))
     for requirement in requirements:
-        source = requirement["source"]
-        service = requirement.get("service") or "main"
+        source = requirement.source
+        service = effective_artifact_service(requirement)
         names = legacy_files.get(source) if service == "main" else None
-        destination = requirement.get("destination")
-        if destination is not None or names is None:
-            destination = Path("artifacts") / (destination or source.lstrip("/"))
+        destination = (
+            artifact_host_path(trial / "artifacts", requirement)
+            if requirement.destination is not None or names is None
+            else None
+        )
         candidates = [
             (entry, path)
             for entry, path in captures.get((source, service), [])
-            if destination is None or path == trial / destination
+            if destination is None or path == destination
         ]
         if not candidates:
             issues.append(f"Missing artifact capture: {source} ({service}).")
             continue
         entry, capture = candidates[0]
-        exclusions = requirement.get("exclude", []) if entry.get("type") == "directory" else []
+        exclusions = requirement.exclude if entry.type == "directory" else []
         if names is not None:
             exclusions = []
             if not capture.is_dir():
                 issues.append(f"The final {source} directory was not captured.")
                 continue
-        if (entry.get("exclude") or []) != exclusions:
+        if (entry.exclude or []) != exclusions:
             issues.append(f"Artifact exclusions differ from the declaration: {source}.")
         for name in names or ():
             path = capture / name

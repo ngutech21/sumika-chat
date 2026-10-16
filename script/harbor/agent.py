@@ -10,9 +10,11 @@ import signal
 import weakref
 from importlib.metadata import version
 from pathlib import Path
+from typing import Literal
 
 from harbor.agents.base import BaseAgent
 from harbor.agents.capabilities import AgentCapabilities
+from harbor.agents.options import AgentOptions
 from harbor.models.task.config import TaskConfig
 from harbor.models.trial.config import TrialConfig
 from script.harbor.bridge import SandboxBridge, exec_diagnostics, web_access_enabled
@@ -21,23 +23,23 @@ from script.harbor.models import CheckpointResponse, NativeResult
 from script.harbor.trajectory import export_trajectory
 
 
+class SumikaOptions(AgentOptions):
+    binary: Path
+    reasoning_effort: Literal["low", "medium", "xhigh"] | None = None
+
+
 class SumikaAgent(BaseAgent):
+    options_model = SumikaOptions
     capabilities = AgentCapabilities(atif=True, resume=True)
     # Harbor's END hook closes workers even when reward gating skips the next resume.
     _live_workers = weakref.WeakValueDictionary()
 
-    def __init__(self, *args, binary, reasoning_effort=None, **kwargs):
-        if "reasoning_level" in kwargs:
-            raise ValueError("Use reasoning_effort instead of reasoning_level.")
-        if "timeout_seconds" in kwargs:
-            raise ValueError("Use Harbor's agent timeout settings instead of timeout_seconds.")
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if version("harbor") != "0.24.0":
             raise ValueError("This adapter requires harbor==0.24.0.")
-        self.binary = Path(binary).expanduser().resolve(strict=True)
-        if reasoning_effort is not None and reasoning_effort not in ("low", "medium", "xhigh"):
-            raise ValueError("reasoning_effort must be low, medium, or xhigh.")
-        self.reasoning_effort = reasoning_effort
+        self.binary = self.options.binary.expanduser().resolve(strict=True)
+        self.reasoning_effort = self.options.reasoning_effort
         if not self.model_name:
             raise ValueError("Pass an already-installed Sumika model ID with --model.")
         self.bridge = None

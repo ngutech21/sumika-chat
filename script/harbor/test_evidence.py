@@ -259,6 +259,32 @@ class EvidenceTests(unittest.TestCase):
         self.task_config('artifacts = ["/required/result.csv"]\n')
         self.assertFalse(assess_trial(self.trial)["complete"])
 
+    def test_malformed_task_artifact_declarations_are_incomplete(self):
+        for declaration in ('"/app"', "[1]", '[{source = "/app", destination = "../escape"}]'):
+            with self.subTest(declaration=declaration):
+                self.task_config(f"artifacts = {declaration}\n")
+                report = assess_trial(self.trial)
+                self.assertFalse(report["complete"])
+                self.assertIn("provenance/task/task.toml:", " ".join(report["issues"]))
+
+    def test_malformed_run_artifact_declarations_are_incomplete(self):
+        config = json.loads((self.trial / "config.json").read_text())
+        for declaration in ("/app", [1], [{"source": "/app", "destination": "../escape"}]):
+            with self.subTest(declaration=declaration):
+                self.json("config.json", {**config, "artifacts": declaration})
+                report = assess_trial(self.trial)
+                self.assertFalse(report["complete"])
+                self.assertIn("Artifact declarations:", " ".join(report["issues"]))
+
+    def test_malformed_artifact_manifests_are_incomplete(self):
+        entry = json.loads((self.trial / "artifacts/manifest.json").read_text())[0]
+        for manifest in ({}, [{}], [{**entry, "type": "symlink"}], [{**entry, "exclude": "*.tmp"}]):
+            with self.subTest(manifest=manifest):
+                self.json("artifacts/manifest.json", manifest)
+                report = assess_trial(self.trial)
+                self.assertFalse(report["complete"])
+                self.assertIn("artifacts/manifest.json:", " ".join(report["issues"]))
+
     def test_run_level_artifacts_are_also_required(self):
         self.task_config('artifacts = ["/app/result.py"]\n')
         config = json.loads((self.trial / "config.json").read_text())
@@ -1002,14 +1028,16 @@ class CheckpointEvidenceTests(unittest.TestCase):
     def test_unsafe_and_colliding_checkpoint_names_never_select_other_directories(self):
         names, _ = self.checkpoints()
         task = self.trial / "provenance/task"
-        for name in ("../escape", "/tmp/outside", "..", "checkpoint_1", "CHECKPOINT_1", "bad\\name"):
+        for name in ("../escape", "/tmp/outside", "..", "checkpoint_1", "CHECKPOINT_1", "bad\\name", "CON", "bad:name"):
             (task / "task.toml").write_text('[[steps]]\nname = "checkpoint_1"\n[[steps]]\nname = ' + json.dumps(name))
             reproduction_path = self.trial / "provenance/reproduction.json"
             reproduction = json.loads(reproduction_path.read_text())
             reproduction["task_files"] = inventory(task)
             write_json(reproduction_path, reproduction)
             with self.subTest(name=name):
-                self.assertFalse(assess_trial(self.trial)["complete"])
+                report = assess_trial(self.trial)
+                self.assertFalse(report["complete"])
+                self.assertIn("provenance/task/task.toml:", " ".join(report["issues"]))
 
 
 class PluginTests(unittest.IsolatedAsyncioTestCase):

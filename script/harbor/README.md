@@ -87,6 +87,8 @@ To override Work reasoning effort, add `--ak reasoning_effort=low` to the Harbor
 command. The adapter forwards it as `SumikaEval --reasoning-level low`; accepted
 levels are `low`, `medium`, and `xhigh`. Omitting the option preserves the selected
 model's default. Invalid values and levels unsupported by the model fail explicitly.
+Harbor validates the adapter's required `binary` path option and optional
+`reasoning_effort` before queuing trials; unknown adapter options are rejected.
 The provided run recipes explicitly select `low`. Harbor recognizes `reasoning_effort`
 in its viewer's reasoning-effort column and filters. The old `reasoning_level`
 option is rejected; use `reasoning_effort` instead.
