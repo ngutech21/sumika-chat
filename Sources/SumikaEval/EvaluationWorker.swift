@@ -1,6 +1,5 @@
 import Dispatch
 import Foundation
-import SumikaCore
 
 struct EvaluationWorkerRequest: Decodable {
   let checkpointID: String
