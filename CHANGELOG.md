@@ -1,5 +1,51 @@
 # Changelog
 
+## [1.15.0](https://github.com/ngutech21/sumika-chat/compare/v1.14.0...v1.15.0) (2026-10-17)
+
+
+### Features
+
+* add harbor framework integration ([#293](https://github.com/ngutech21/sumika-chat/issues/293)) ([d64a793](https://github.com/ngutech21/sumika-chat/commit/d64a793909b1f9370657d2ded92e4f40df912b7b))
+* add reasoning effort option to evaluation and harbor commands ([f2afff5](https://github.com/ngutech21/sumika-chat/commit/f2afff5c395231a953e2dea6693ab6c9682ce2f4))
+* add support for resume-trajectory in harbor ([b5dad00](https://github.com/ngutech21/sumika-chat/commit/b5dad00cd2e80deeb98b64dfee01a1633136fae3))
+* capture and validate Harbor trial evidence ([971bcd7](https://github.com/ngutech21/sumika-chat/commit/971bcd7e14421d6a29400e983cae50bddfb1515e))
+* defer Swift 1.5 vision loading and update MLX ([c3bd1d6](https://github.com/ngutech21/sumika-chat/commit/c3bd1d6278ab85ee9e6e1e824f89d0f2c31c66e5))
+* enable Harbor web tools under task network policy ([de5460f](https://github.com/ngutech21/sumika-chat/commit/de5460f17787a875b448c78b0b8b363bdd5c2037))
+* enhance artifact collection for rate limiting and update evidence checks ([8afd5b4](https://github.com/ngutech21/sumika-chat/commit/8afd5b42dfb9a9f797589968e6a0a535ee2e7760))
+* export Harbor ATIF trajectories and token totals ([d8f7a71](https://github.com/ngutech21/sumika-chat/commit/d8f7a7189dc30c912d42da7f865e6208856f68cb))
+* implement harbor suite checks and refactor fixture validation ([3954d75](https://github.com/ngutech21/sumika-chat/commit/3954d75269d355cb26cadd0121c4d630e71db114))
+* Implement model file download with pause, resume, and cancellation support ([24734cb](https://github.com/ngutech21/sumika-chat/commit/24734cb3a2ee5578ed8d28b89cfd3be4f1d288e4))
+* implement token progress tracing and diagnostics for emitted tokens ([38b2fd3](https://github.com/ngutech21/sumika-chat/commit/38b2fd3c69e97eb31120bda9fab98ef50a8522c3))
+* improve chat session context menu ([762e8bb](https://github.com/ngutech21/sumika-chat/commit/762e8bb5964d66d730891bd611e4c606a50a75ad))
+* **lint:** enhance SwiftLint integration with logging and testing improvements ([555dd3d](https://github.com/ngutech21/sumika-chat/commit/555dd3d8e95d86618e4882cd07c51cfb35fb21a0))
+* support Harbor checkpoint evaluations ([6a80edf](https://github.com/ngutech21/sumika-chat/commit/6a80edf343b4a0924988bf43463c63f6e5e281c9))
+* update tool definitions and documentation for improved file handling and token limits ([071e49d](https://github.com/ngutech21/sumika-chat/commit/071e49df66921393295a7b62c0368836733a0881))
+* use incremental streaming detokenization for MLX generation ([9d9732c](https://github.com/ngutech21/sumika-chat/commit/9d9732c0dafe01ed471d317d0df4ac3326e06200)), closes [#304](https://github.com/ngutech21/sumika-chat/issues/304)
+* use task.toml for Harbor artifact handling ([815a4d9](https://github.com/ngutech21/sumika-chat/commit/815a4d93585e4a221c6027a78e23f884383473e3))
+
+
+### Bug Fixes
+
+* carry failed-check reminders through Work completion ([810ead4](https://github.com/ngutech21/sumika-chat/commit/810ead432dc2c1a3956f5a2e4bf734ae9a3ae94b))
+* clarify command retry and verification guidance ([862f325](https://github.com/ngutech21/sumika-chat/commit/862f3254233a363184bf6ede8f1a2a5eeec636e6))
+* clarify verification command exit status guidance ([9a14486](https://github.com/ngutech21/sumika-chat/commit/9a144866e1dd8d2c96e7895fa0ee24866aecacde))
+* compile thinking budget test against pinned MLX ([27f8cd4](https://github.com/ngutech21/sumika-chat/commit/27f8cd4eed0e7b334e5c949db1b6f0fa0e824fe3))
+* **evidence:** improve trial assessment and file hashing logic ([7869508](https://github.com/ngutech21/sumika-chat/commit/786950883b19062298641a247b84690de7618e84))
+* **harbor:** reject file changes during paged reads ([d89912f](https://github.com/ngutech21/sumika-chat/commit/d89912f59d920b7b85957918570b26013d7868fb))
+* pin harbor suite dataset and task versions by SHA-256 digest ([b122355](https://github.com/ngutech21/sumika-chat/commit/b122355197253605332245f0952694d8c4e1f240))
+* preserve MLX cache across thinking budget closes ([e67174f](https://github.com/ngutech21/sumika-chat/commit/e67174fbd8295359a1e6469e04871ac95714e52c))
+* preserve verification reminders in cached history ([58f484e](https://github.com/ngutech21/sumika-chat/commit/58f484ea3c634751f3c262fe9b978758de4e9376))
+* remove unused evaluation worker import ([ae35ceb](https://github.com/ngutech21/sumika-chat/commit/ae35ceb08743f7f7eda902a2d65b245fc8ea65d0))
+* strengthen Work verification and edit guidance ([51b60ef](https://github.com/ngutech21/sumika-chat/commit/51b60efdc1d62293fb6ad5abb6483b605e03163f))
+* support Harbor Hub evidence and preserve recipe errors ([0c5273a](https://github.com/ngutech21/sumika-chat/commit/0c5273adcabb9a7e87623db160a73a289846174d))
+* support resolved Harbor working directories ([44e2aaf](https://github.com/ngutech21/sumika-chat/commit/44e2aafd497295269fa35be23462ce477f0ba17a))
+* **tests:** replace #expect with #require for history count assertion ([31df7d0](https://github.com/ngutech21/sumika-chat/commit/31df7d0f1b467b57b4c869665036c550fd43cd27))
+
+
+### Performance Improvements
+
+* run Harbor evaluations in Release ([fc83757](https://github.com/ngutech21/sumika-chat/commit/fc83757e2a035af8754742e5f80ac87c015b85a3))
+
 ## [1.14.0](https://github.com/ngutech21/sumika-chat/compare/v1.13.0...v1.14.0) (2026-10-10)
 
 
