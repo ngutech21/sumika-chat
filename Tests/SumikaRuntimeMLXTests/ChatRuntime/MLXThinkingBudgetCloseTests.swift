@@ -97,22 +97,16 @@ nonisolated final class MLXThinkingBudgetCloseTests: XCTestCase {
     }
   }
 
-  func testEmittedReasoningTokensRejectDuplicateAndReopenedBoundaries() throws {
+  func testEmittedReasoningTokensRejectReopenedBoundaries() throws {
     try Device.withDefaultDevice(.cpu) {
       try Stream.withNewDefaultStream(device: .cpu) {
         let tokenizer = BudgetCloseTestTokenizer()
-        let cases: [(String, MLXThinkingBudgetFailure)] = [
-          ("</think></think><think>", .duplicateReasoningClose),
-          ("</think><think>", .reopenedReasoning),
-          ("<tool_call><think>", .reopenedReasoning),
-          ("<tool_call></think>", .duplicateReasoningClose),
-        ]
-        for (text, expectedFailure) in cases {
+        for text in ["</think></think><think>", "</think><think>", "<tool_call><think>"] {
           let state = MLXThinkingBudgetEnforcementState()
           var processor = try MLXBudgetCloseTestSupport.processor(
             maximumTokenCount: 128, tokenizer: tokenizer, enforcementState: state)
           for token in tokenizer.encode(text: text) { processor.didEmit(token: token) }
-          XCTAssertEqual(state.failure, expectedFailure)
+          XCTAssertEqual(state.failure, .reopenedReasoning)
         }
       }
     }
@@ -127,13 +121,16 @@ nonisolated final class MLXThinkingBudgetCloseTests: XCTestCase {
           maximumTokenCount: 128, tokenizer: tokenizer, enforcementState: state)
         processor.prompt(MLXArray(tokenizer.encode(text: "cached suffix")))
         let close = try XCTUnwrap(tokenizer.encode(text: "</think>").first)
+        let open = try XCTUnwrap(tokenizer.encode(text: "<think>").first)
         processor.didSample(token: MLXArray(close))
-        processor.didSample(token: MLXArray(close))
+        processor.didSample(token: MLXArray(open))
         XCTAssertNil(state.failure)
         processor.didEmit(token: close)
         XCTAssertNil(state.failure)
         processor.didEmit(token: close)
-        XCTAssertEqual(state.failure, .duplicateReasoningClose)
+        XCTAssertNil(state.failure)
+        processor.didEmit(token: open)
+        XCTAssertEqual(state.failure, .reopenedReasoning)
       }
     }
   }
@@ -184,13 +181,13 @@ nonisolated final class MLXThinkingBudgetCloseTests: XCTestCase {
     }
   }
 
-  func testGenerationLoopRejectsInvalidBoundaryBeforeDeliveringTool() async throws {
-    for duplicateClose in [false, true] {
+  func testGenerationLoopPreservesLiteralCloseAndRejectsReopenedReasoning() async throws {
+    for reopensReasoning in [false, true] {
       let state = MLXThinkingBudgetEnforcementState()
       let tokenizer = BudgetCloseTestTokenizer()
       let text =
-        "plan</think>" + (duplicateClose ? "</think>" : "") + """
-          <tool_call><function=write_file><parameter=content>safe</parameter>
+        "plan</think>" + (reopensReasoning ? "<think>again</think>" : "") + """
+          <tool_call><function=write_file><parameter=content>literal </think> example</parameter>
           <parameter=path>/app/example.txt</parameter></function></tool_call>
           """
       let (upstream, task) = try Stream.withNewDefaultStream(device: .cpu) {
@@ -240,14 +237,17 @@ nonisolated final class MLXThinkingBudgetCloseTests: XCTestCase {
       var failure: MLXThinkingBudgetFailure?
       do {
         for try await event in plan.stream {
-          if case .toolCall = event { deliveredTools += 1 }
+          if case .toolCall(let call) = event {
+            deliveredTools += 1
+            XCTAssertEqual(call.arguments["content"], .string("literal </think> example"))
+          }
         }
       } catch let error as MLXThinkingBudgetFailure {
         failure = error
       }
       await plan.task.value
-      if duplicateClose {
-        XCTAssertEqual(failure, .duplicateReasoningClose)
+      if reopensReasoning {
+        XCTAssertEqual(failure, .reopenedReasoning)
         XCTAssertEqual(deliveredTools, 0)
         XCTAssertEqual(invalidation.withLock { $0 }, .runtimeError)
       } else {

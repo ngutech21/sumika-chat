@@ -432,12 +432,16 @@ ownership are unchanged. Session document v2 adds typed workspace-document tool
 results; see [persistence](persistence.md).
 
 A native length stop retains output-limit termination and invalidates the runtime
-cache. Complete tool calls are preserved, while incomplete protocol tails are
-discarded. When an output-limited batch has accepted complete tool calls, mark
-streamed assistant prose complete before pausing or completing the turn. Thinking
-delivery follows the reasoning completion rules below under
-[MLX Thinking Budgets](#mlx-thinking-budgets). Finalizing transcript delivery does
-not change the generation's output-limit outcome to normal completion.
+cache. Pending native tool batches are discarded, including complete sibling
+calls, because delivery waits for validation of the whole generation. Upstream
+`rejectedToolCall(.incompleteOutput)` events identify discarded tool tails; Sumika
+does not infer tool syntax from semantic answer chunks. An incomplete call with
+a length stop reports `discardedToolProtocolTail: true`, enabling the existing
+single Work recovery attempt with a smaller-payload instruction. Normal stops
+and missing completion metadata keep incomplete calls as errors; cancellation
+remains cancellation, and other rejection reasons always fail the generation.
+Thinking delivery follows the reasoning completion rules below under
+[MLX Thinking Budgets](#mlx-thinking-budgets).
 Diagnostics recommend increasing the selected output maximum or requesting a
 smaller response; they do not report a derived conversation-context allowance.
 
@@ -913,7 +917,9 @@ before upstream removes protocol markers. Preflight requires distinct,
 roundtripping single-token IDs for the configured reasoning opener, closer, and
 implicit tool-call boundary. The guard starts inside reasoning on each enforced
 request, including cached continuations whose input suffix omits the opener.
-A canonical opener after the close or a duplicate canonical close fails closed.
+A canonical opener after the close fails closed so a second reasoning span
+cannot bypass the enforced budget. Upstream classifies extra close markers as
+text, including inside tool arguments; the guard does not reject them.
 Ordinary-token spellings of reasoning tags remain text. Response-only validation
 checks unexpected chat boundaries and configured stop strings after tool
 extraction, leaving tool arguments untouched; an incomplete response marker

@@ -16,7 +16,6 @@ struct MLXCompletedAssistantSnapshot: Equatable, Sendable {
 enum MLXModelStreamProcessor {
   private struct StreamTerminationState {
     var reachedTokenLimit = false
-    var discardedToolProtocolTail = false
     var terminatedDownstream = false
   }
 
@@ -109,7 +108,7 @@ enum MLXModelStreamProcessor {
       var termination = StreamTerminationState()
       var nativeToolCalls: [ChatRuntimeToolCall] = []
       var usedNativeToolCallIDs = Set<UUID>()
-      var pendingChunk: String?
+      var incompleteToolCall: RejectedToolCall?
       var generationProgressTracer = generationProgressTracer
       var didRecordFirstOutputMemory = false
 
@@ -136,7 +135,11 @@ enum MLXModelStreamProcessor {
           }
 
           if let rejection = event.rejectedToolCall {
-            throw RejectedToolCallError(rejection)
+            guard rejection.reason == .incompleteOutput else {
+              throw RejectedToolCallError(rejection)
+            }
+            incompleteToolCall = incompleteToolCall ?? rejection
+            delivery.deferUntilValidated()
           }
 
           if let text = event.reasoning ?? event.chunk {
@@ -154,7 +157,6 @@ enum MLXModelStreamProcessor {
 
           if try yieldModelText(
             event,
-            pendingChunk: &pendingChunk,
             reasoningState: &reasoningState,
             to: &delivery,
             visibleOutput: &visibleOutput,
@@ -168,9 +170,8 @@ enum MLXModelStreamProcessor {
             try generation.checkFailure()
             delivery.deferUntilValidated()
             let terminatedAtToolCallBoundary =
-              try closeReasoningAtNativeToolCallBoundary(
-                pendingChunk: &pendingChunk,
-                reasoningState: &reasoningState,
+              try yieldSegments(
+                reasoningState.prepareForToolCall(),
                 to: &delivery,
                 visibleOutput: &visibleOutput,
                 reasoningOutput: &reasoningOutput
@@ -198,22 +199,10 @@ enum MLXModelStreamProcessor {
             )
             switch info.stopReason {
             case .stop:
-              if try flushPendingChunk(
-                &pendingChunk,
-                reasoningState: &reasoningState,
-                to: &delivery,
-                visibleOutput: &visibleOutput,
-                reasoningOutput: &reasoningOutput
-              ) {
-                termination.terminatedDownstream = true
-                break generationLoop
-              }
+              break
             case .length:
               termination.reachedTokenLimit = true
-              termination.discardedToolProtocolTail = pendingChunk != nil
-              pendingChunk = nil
             case .cancelled:
-              pendingChunk = nil
               throw CancellationError()
             }
             if yieldSegments(
@@ -245,17 +234,8 @@ enum MLXModelStreamProcessor {
         try generation.checkFailure()
         try Task.checkCancellation()
         try thinkingBudgetEnforcementState?.checkAuthoritative()
-
-        if !termination.terminatedDownstream,
-          try flushPendingChunk(
-            &pendingChunk,
-            reasoningState: &reasoningState,
-            to: &delivery,
-            visibleOutput: &visibleOutput,
-            reasoningOutput: &reasoningOutput
-          )
-        {
-          termination.terminatedDownstream = true
+        if let incompleteToolCall, !termination.reachedTokenLimit {
+          throw RejectedToolCallError(incompleteToolCall)
         }
 
         if !termination.terminatedDownstream,
@@ -294,7 +274,7 @@ enum MLXModelStreamProcessor {
           didTerminateDownstream: termination.terminatedDownstream,
           didCompleteNaturally: completedMetrics != nil && !termination.reachedTokenLimit,
           didReachTokenLimit: termination.reachedTokenLimit,
-          didDiscardToolProtocolTail: termination.discardedToolProtocolTail,
+          didDiscardToolProtocolTail: incompleteToolCall != nil,
           nativeToolCalls: nativeToolCalls,
           traceID: traceID,
           traceMetadata: traceMetadata,
@@ -646,60 +626,20 @@ extension MLXModelStreamProcessor {
 
   private static func yieldModelText(
     _ event: Generation,
-    pendingChunk: inout String?,
     reasoningState: inout MLXReasoningStreamState,
     to delivery: inout StreamOutputDelivery,
     visibleOutput: inout String,
     reasoningOutput: inout String
   ) throws -> Bool {
     if let reasoning = event.reasoning {
-      return try flushPendingChunk(
-        &pendingChunk,
-        reasoningState: &reasoningState,
+      return yieldSegments(
+        try reasoningState.appendReasoning(reasoning),
         to: &delivery,
         visibleOutput: &visibleOutput,
         reasoningOutput: &reasoningOutput
       )
-        || yieldSegments(
-          try reasoningState.appendReasoning(reasoning),
-          to: &delivery,
-          visibleOutput: &visibleOutput,
-          reasoningOutput: &reasoningOutput
-        )
     }
     guard let chunk = event.chunk else { return false }
-    if isPotentialToolProtocolResidual(chunk) {
-      pendingChunk = (pendingChunk ?? "") + chunk
-      return false
-    }
-    if try flushPendingChunk(
-      &pendingChunk,
-      reasoningState: &reasoningState,
-      to: &delivery,
-      visibleOutput: &visibleOutput,
-      reasoningOutput: &reasoningOutput
-    ) {
-      return true
-    }
-    return yieldSegments(
-      try reasoningState.appendResponse(chunk),
-      to: &delivery,
-      visibleOutput: &visibleOutput,
-      reasoningOutput: &reasoningOutput
-    )
-  }
-
-  private static func flushPendingChunk(
-    _ pendingChunk: inout String?,
-    reasoningState: inout MLXReasoningStreamState,
-    to delivery: inout StreamOutputDelivery,
-    visibleOutput: inout String,
-    reasoningOutput: inout String
-  ) throws -> Bool {
-    guard let chunk = pendingChunk else {
-      return false
-    }
-    pendingChunk = nil
     return yieldSegments(
       try reasoningState.appendResponse(chunk),
       to: &delivery,
@@ -720,44 +660,6 @@ extension MLXModelStreamProcessor {
     )
     nativeToolCalls.append(runtimeToolCall)
     return delivery.yield(.toolCall(runtimeToolCall))
-  }
-
-  private static func closeReasoningAtNativeToolCallBoundary(
-    pendingChunk: inout String?,
-    reasoningState: inout MLXReasoningStreamState,
-    to delivery: inout StreamOutputDelivery,
-    visibleOutput: inout String,
-    reasoningOutput: inout String
-  ) throws -> Bool {
-    if try flushPendingChunk(
-      &pendingChunk,
-      reasoningState: &reasoningState,
-      to: &delivery,
-      visibleOutput: &visibleOutput,
-      reasoningOutput: &reasoningOutput
-    ) {
-      return true
-    }
-    return yieldSegments(
-      try reasoningState.prepareForToolCall(),
-      to: &delivery,
-      visibleOutput: &visibleOutput,
-      reasoningOutput: &reasoningOutput
-    )
-  }
-
-  private static let toolProtocolStartTags = ToolCallFormat.allCases.compactMap {
-    $0.createParser().startTag
-  }
-
-  private static func isPotentialToolProtocolResidual(_ chunk: String) -> Bool {
-    let content = chunk.drop(while: \.isWhitespace)
-    guard !content.isEmpty else {
-      return false
-    }
-    return toolProtocolStartTags.contains {
-      content.hasPrefix($0) || $0.hasPrefix(content)
-    }
   }
 
   private static func isFirstOutput(_ generation: Generation) -> Bool {

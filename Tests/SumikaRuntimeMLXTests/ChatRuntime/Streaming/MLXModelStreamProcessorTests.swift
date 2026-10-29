@@ -841,9 +841,15 @@ struct MLXModelStreamProcessorTests {
   func tokenLimitedModelStreamReportsDiscardedToolProtocolTail(reasoning: Bool) async throws {
     let memoryClearRecorder = MLXMemoryClearRecorder()
     let invalidationRecorder = MLXStreamInvalidationRecorder()
+    let tokenizer = BudgetCloseTestTokenizer()
+    let decoded = MLXBudgetCloseTestSupport.events(
+      tokens: tokenizer.encode(
+        text: (reasoning ? "plan</think>" : "</think>")
+          + "<tool_call><function=write_file><parameter=content>partial"),
+      tokenizer: tokenizer)
+    #expect(decoded.compactMap(\.rejectedToolCall).map(\.reason) == [.incompleteOutput])
     let source = AsyncThrowingStream<Generation, Error> { continuation in
-      if reasoning { continuation.yield(.reasoning("plan")) }
-      continuation.yield(.chunk("<tool_call><function=write_file>partial"))
+      for event in decoded { continuation.yield(event) }
       continuation.yield(
         .info(
           GenerateCompletionInfo(
@@ -902,29 +908,67 @@ struct MLXModelStreamProcessorTests {
     #expect(await memoryClearRecorder.reasons == [.interruptedStream])
   }
 
+  @Test(arguments: [nil, .stop, .cancelled] as [GenerateStopReason?])
+  func incompleteToolCallRequiresLengthStopForRecovery(stopReason: GenerateStopReason?) async throws
+  {
+    let tokenizer = BudgetCloseTestTokenizer()
+    let decoded = MLXBudgetCloseTestSupport.events(
+      tokens: tokenizer.encode(
+        text: "plan</think><tool_call><function=write_file><parameter=content>partial"),
+      tokenizer: tokenizer)
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      for event in decoded { continuation.yield(event) }
+      if let stopReason { continuation.yield(.info(completionInfo(stopReason: stopReason))) }
+      continuation.finish()
+    }
+    let invalidationRecorder = MLXStreamInvalidationRecorder()
+    let stream = modelStream(
+      from: source, traceID: UUID(), traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(), debugTraceStore: temporaryDebugTraceStore(),
+      markCompleted: { _ in Issue.record("An incomplete tool call must not complete.") },
+      markCancelled: { await invalidationRecorder.record($0) },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in })
+
+    do {
+      for try await event in stream {
+        if case .thinkingChunk = event { continue }
+        Issue.record("An incomplete tool call must not release output or completion: \(event)")
+      }
+      Issue.record("An incomplete tool call without a length stop must fail.")
+    } catch let error as RejectedToolCallError {
+      #expect(stopReason != .cancelled)
+      #expect(error.rejection.reason == .incompleteOutput)
+    } catch is CancellationError {
+      #expect(stopReason == .cancelled)
+    } catch {
+      Issue.record("Expected rejection or cancellation, got \(error).")
+    }
+    #expect(
+      await invalidationRecorder.firstReason
+        == (stopReason == .cancelled ? .cancelled : .runtimeError))
+  }
+
   @Test(arguments: [false, true])
   func tokenLimitedNativeToolBatchDiscardsCallsAndTrailingFragment(reasoning: Bool) async throws {
     let invalidationRecorder = MLXStreamInvalidationRecorder()
     let boundaryRecorder = MLXNativeBoundaryRecorder()
     let memoryClearRecorder = MLXMemoryClearRecorder()
-    let firstToolCall = MLXLMCommon.ToolCall(
-      function: .init(
-        name: "write_file",
-        arguments: ["path": "index.html", "content": "<main></main>"]
-      )
-    )
-    let secondToolCall = MLXLMCommon.ToolCall(
-      function: .init(
-        name: "write_file",
-        arguments: ["path": "style.css", "content": "main {}"]
-      )
-    )
+    let tokenizer = BudgetCloseTestTokenizer()
+    let text =
+      (reasoning ? "I will create the files.</think>" : "</think>I will create the files.")
+        + """
+        <tool_call><function=write_file><parameter=path>index.html</parameter>
+        <parameter=content><main></main></parameter></function></tool_call>
+        <tool_call><function=write_file><parameter=path>style.css</parameter>
+        <parameter=content>main {}</parameter></function></tool_call>
+        <tool_call><function=write_file><parameter=content>partial
+        """
+    let decoded = MLXBudgetCloseTestSupport.events(
+      tokens: tokenizer.encode(text: text), tokenizer: tokenizer)
+    #expect(decoded.compactMap(\.toolCall).count == 2)
+    #expect(decoded.compactMap(\.rejectedToolCall).map(\.reason) == [.incompleteOutput])
     let source = AsyncThrowingStream<Generation, Error> { continuation in
-      continuation.yield(
-        reasoning ? .reasoning("I will create the files.") : .chunk("I will create the files."))
-      continuation.yield(.toolCall(firstToolCall))
-      continuation.yield(.toolCall(secondToolCall))
-      continuation.yield(.chunk("<tool_call><function=write_file><"))
+      for event in decoded { continuation.yield(event) }
       continuation.yield(
         .info(
           GenerateCompletionInfo(
@@ -989,19 +1033,24 @@ struct MLXModelStreamProcessorTests {
     #expect(await memoryClearRecorder.reasons == [.interruptedStream])
   }
 
-  @Test
-  func completedModelStreamPreservesProtocolLikeText() async throws {
+  @Test(arguments: [GenerateStopReason.stop, .length], [false, true])
+  func modelStreamPreservesSemanticProtocolLikeText(
+    stopReason: GenerateStopReason, fragmented: Bool
+  ) async throws {
     let completionRecorder = MLXStreamCompletionRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
-      continuation.yield(.chunk("<tool_"))
-      continuation.yield(.chunk("call>not a native call"))
+      let chunks =
+        fragmented
+        ? ["<tool_", "call>not a native call"] : ["<tool_call>not a native call"]
+      for chunk in chunks { continuation.yield(.chunk(chunk)) }
       continuation.yield(
         .info(
           GenerateCompletionInfo(
             promptTokenCount: 8,
             generationTokenCount: 5,
             promptTime: 0.1,
-            generationTime: 0.1
+            generationTime: 0.1,
+            stopReason: stopReason
           )
         ))
       continuation.finish()
@@ -1020,14 +1069,20 @@ struct MLXModelStreamProcessorTests {
     )
 
     var visibleOutput = ""
+    var reachedOutputLimit = false
     for try await event in stream {
       if case .chunk(let chunk) = event {
         visibleOutput += chunk
       }
+      if case .outputLimitReached(let limit) = event {
+        reachedOutputLimit = true
+        #expect(!limit.discardedToolProtocolTail)
+      }
     }
 
     #expect(visibleOutput == "<tool_call>not a native call")
-    #expect(await completionRecorder.firstOutput == visibleOutput)
+    #expect(reachedOutputLimit == (stopReason == .length))
+    #expect(await completionRecorder.firstOutput == (stopReason == .stop ? visibleOutput : nil))
   }
 
   @Test
@@ -1458,8 +1513,10 @@ struct MLXModelStreamProcessorTests {
     }
   }
 
-  @Test
-  func rejectedToolCallFailsClosedWithoutCommittingSiblingToolCalls() async throws {
+  @Test(arguments: [GenerateStopReason.stop, .length])
+  func rejectedToolCallFailsClosedWithoutCommittingSiblingToolCalls(
+    stopReason: GenerateStopReason
+  ) async throws {
     let invalidationRecorder = MLXStreamInvalidationRecorder()
     let completionRecorder = MLXStreamCompletionRecorder()
     let boundaryRecorder = MLXNativeBoundaryRecorder()
@@ -1483,7 +1540,7 @@ struct MLXModelStreamProcessorTests {
       continuation.yield(.reasoning("plan"))
       continuation.yield(.toolCall(acceptedToolCall))
       continuation.yield(.rejectedToolCall(rejection))
-      continuation.yield(.info(completionInfo()))
+      continuation.yield(.info(completionInfo(stopReason: stopReason)))
       continuation.finish()
     }
     let stream = modelStream(

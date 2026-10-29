@@ -56,7 +56,6 @@ enum MLXThinkingBudgetFailure: LocalizedError, Equatable, Sendable {
   case enforcementDisabled
   case unicodeBoundaryCompletionFailed
   case reopenedReasoning
-  case duplicateReasoningClose
   case unexpectedChatBoundary
   case truncatedProtocolMarker
 
@@ -74,8 +73,6 @@ enum MLXThinkingBudgetFailure: LocalizedError, Equatable, Sendable {
       "Hard thinking-limit enforcement could not complete a Unicode boundary, so the response was rejected."
     case .reopenedReasoning:
       "The model reopened a thinking span after reasoning had already ended, so the response was rejected."
-    case .duplicateReasoningClose:
-      "The model emitted a duplicate thinking close marker after reasoning had already ended, so the response was rejected."
     case .unexpectedChatBoundary:
       "The model emitted an unexpected chat-template boundary after reasoning had ended, so the response was rejected."
     case .truncatedProtocolMarker:
@@ -372,10 +369,7 @@ private struct MLXQwenReasoningTokenGuard: LogitProcessor, Sendable {
   mutating func didSample(token: MLXArray) {}
 
   mutating func didEmit(token: Int) {
-    if token == endToken {
-      if isClosed { enforcementState.record(.duplicateReasoningClose) }
-      isClosed = true
-    } else if token == toolToken {
+    if token == endToken || token == toolToken {
       isClosed = true
     } else if token == startToken, isClosed {
       enforcementState.record(.reopenedReasoning)

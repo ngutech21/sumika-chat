@@ -523,8 +523,6 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
       "unicode_boundary_completion_failed"
     case .reopenedReasoning:
       "reopened_reasoning"
-    case .duplicateReasoningClose:
-      "duplicate_reasoning_close"
     case .unexpectedChatBoundary:
       "unexpected_chat_boundary"
     case .truncatedProtocolMarker:

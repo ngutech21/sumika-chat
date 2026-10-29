@@ -164,8 +164,10 @@ flowchart TD
 - Every model generation, including tool follow-ups and approval resumptions,
   uses the selected [generation output limit](chat-runtime.md#generation-output-limits)
   unchanged. Prompt/history length does not reduce this allowance or introduce
-  a conversation token cap. Normal incomplete-tool-payload recovery and accepted
-  complete tool-call delivery/approval behavior remain in effect.
+  a conversation token cap. The MLX runtime discards pending native batches on
+  output limit, including complete siblings. Structured incomplete-output
+  rejections paired with a length stop enable the normal one-attempt recovery;
+  other rejections remain errors. Only validated batches enter tool approval.
 - The transient finish-only instruction is appended to the MLX prompt snapshot
   and therefore to the completed generation's cached prefix, but it is not part
   of persisted `ChatTurn.items`. On the next turn the reconstructed canonical
