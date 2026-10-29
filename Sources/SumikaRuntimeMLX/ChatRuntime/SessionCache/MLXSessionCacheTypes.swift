@@ -11,6 +11,7 @@ enum MLXSessionCacheMode: String, Equatable, Sendable {
 
 enum MLXSessionInvalidationReason: Equatable, Sendable {
   case signatureMismatch
+  case historyProjectionChanged
   case cancelled
   case interrupted
   case downstreamTerminated
@@ -41,6 +42,8 @@ enum MLXSessionCacheReason: String, Equatable, Sendable {
     switch reason {
     case .signatureMismatch:
       .invalidatedRuntimeContextCleared
+    case .historyProjectionChanged:
+      .historyChanged
     case .cancelled:
       .invalidatedGenCancelled
     case .interrupted:
@@ -103,9 +106,16 @@ enum MLXCachedSessionState: Equatable, Sendable {
     }
   }
 
-  func completing(generationID: MLXGenerationID) -> MLXCachedSessionState? {
+  func completing(
+    generationID: MLXGenerationID,
+    completedReasoningContent: String?,
+    supportsHistoricalReasoningPreservation: Bool
+  ) -> MLXCachedSessionState? {
     guard self == .inFlight(generationID: generationID) else {
       return nil
+    }
+    if completedReasoningContent != nil, !supportsHistoricalReasoningPreservation {
+      return .dirty(reason: .historyProjectionChanged)
     }
     return .clean
   }

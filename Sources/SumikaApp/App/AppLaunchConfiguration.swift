@@ -70,7 +70,7 @@ enum AppLaunchConfiguration {
     )
 
     if environment["SUMIKA_UI_TEST_MODE"] == "1" {
-      let appState = makeUITestAppState(
+      let appState = await makeUITestAppState(
         environment: environment,
         runtime: mlxEnvironment.runtime,
         turnTracer: mlxEnvironment.turnTracer
@@ -125,7 +125,7 @@ enum AppLaunchConfiguration {
     environment: [String: String],
     runtime: any ChatModelRuntime,
     turnTracer: any TurnTracing
-  ) -> AppState {
+  ) async -> AppState {
     let storageRoot = URL(
       filePath: environment["SUMIKA_UI_TEST_STORAGE_ROOT"]
         ?? FileManager.default.temporaryDirectory
@@ -144,6 +144,7 @@ enum AppLaunchConfiguration {
     let modelSettingsStore = ModelSettingsStore(
       settingsURL: storageRoot.appending(path: "model-settings.json", directoryHint: .notDirectory)
     )
+    let modelSettings = await modelSettingsStore.settings(for: selectedModel)
     let webAccessSettingsStore = WebAccessSettingsStore(
       settingsURL: storageRoot.appending(
         path: "web-access-settings.json", directoryHint: .notDirectory)
@@ -159,14 +160,16 @@ enum AppLaunchConfiguration {
       baseURL: storageRoot,
       initialLibrary: makeUITestWorkspaceLibrary(
         workspaceURL: workspaceURL,
-        selectedModel: selectedModel
+        selectedModel: selectedModel,
+        modeSettings: modelSettings.modeSettings
       )
     )
     try? FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
 
     return makeConfiguredAppState(
       configuration: Sumika.Configuration(
-        initialModel: selectedModel
+        initialModel: selectedModel,
+        initialModelSettings: modelSettings
       ),
       modelDownloader: UnavailableModelDownloader(),
       runtime: runtime,
@@ -264,12 +267,13 @@ enum AppLaunchConfiguration {
 
   private static func makeUITestWorkspaceLibrary(
     workspaceURL: URL,
-    selectedModel: ManagedModel
+    selectedModel: ManagedModel,
+    modeSettings: ChatModeSettingsSet
   ) -> WorkspaceLibrary {
     let session = ChatSession(
       title: "UI Performance",
       selectedModelID: selectedModel.id,
-      modeSettings: selectedModel.defaultModeSettings,
+      modeSettings: modeSettings,
       interactionMode: .chat
     )
     let workspace = Workspace(

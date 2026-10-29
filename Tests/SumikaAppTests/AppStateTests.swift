@@ -1944,6 +1944,35 @@ struct AppStateTests {
     )
   }
 
+  @Test(arguments: ["qwen3.8-27B-OptiQ-4bit", "Swift-1.5-4bit-MLX", "gemma4-12b-qat-4bit"])
+  func uiTestLaunchSeedsResolvedModelSettings(modelID: String) async throws {
+    let fixture = try makeLaunchFixture()
+    let model = try #require(ManagedModelCatalog.model(id: modelID))
+    let settingsStore = ModelSettingsStore(
+      settingsURL: fixture.storageRoot.appending(path: "model-settings.json"))
+    let expected = await settingsStore.settings(for: model)
+    let launchState = await AppLaunchConfiguration.bootstrap(
+      environment: [
+        "SUMIKA_UI_TEST_MODE": "1",
+        "SUMIKA_UI_TEST_STORAGE_ROOT": fixture.storageRoot.path(percentEncoded: false),
+        "SUMIKA_UI_TEST_WORKSPACE_PATH": fixture.workspaceURL.path(percentEncoded: false),
+        "SUMIKA_UI_TEST_MODEL_ID": modelID,
+      ],
+      runtime: AppStateTestRuntime()
+    )
+    let appState = try #require(launchState.appState)
+
+    #expect(appState.modelManagementState.state.selectedModel.id == modelID)
+    #expect(appState.modelManagementState.modeSettings == expected.modeSettings)
+    #expect(appState.workspaceState.activeSession?.selectedModelID == modelID)
+    #expect(appState.workspaceState.activeSession?.modeSettings == expected.modeSettings)
+    appState.chatFeatureState.setInteractionMode(.agent)
+    #expect(appState.modelManagementState.modeSettings.agent == expected.modeSettings.agent)
+    #expect(
+      appState.workspaceState.activeSession?.modeSettings.agent == expected.modeSettings.agent)
+    await appState.prepareForTermination()
+  }
+
   @Test
   func uiTestLaunchResolvesAttachmentPreviewsFromConfiguredStorage() async throws {
     let fixture = try makeLaunchFixture()

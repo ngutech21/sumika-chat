@@ -17,7 +17,6 @@ flowchart TD
   ChatModeSettings --> ChatGenerationSettings
   ChatModeSettingsSet --> ChatModeSettings
   ChatModelConfiguration --> ModelReasoningCapability
-  ChatModelConfiguration --> ReasoningTraceFormat
   ChatModelConfiguration --> ThinkingBudgetPolicy
   ChatSession --> ChatModeSettingsSet
   ChatSession --> ChatTurn
@@ -51,7 +50,6 @@ flowchart TD
   ManagedModel --> ManagedModelRecommendation
   ManagedModel --> ManagedModelStability
   ManagedModel --> ModelReasoningCapability
-  ManagedModel --> ReasoningTraceFormat
   ManagedModel --> ThinkingBudgetPolicy
   ManagedModel --> ToolCallingPolicy
   ManagedModelCatalog --> ManagedModel
@@ -437,7 +435,6 @@ Properties:
 - `contextTokenLimit: Int?`
 - `localModelDirectory: URL`
 - `reasoningCapability: ModelReasoningCapability`
-- `reasoningTraceFormat: ReasoningTraceFormat`
 - `supportsHistoricalReasoningPreservation: Bool`
 - `supportsImageInput: Bool`
 - `thinkingBudgetPolicy: ThinkingBudgetPolicy`
@@ -445,7 +442,6 @@ Properties:
 Relations:
 
 - `ModelReasoningCapability`
-- `ReasoningTraceFormat`
 - `ThinkingBudgetPolicy`
 
 ### ChatSession
@@ -836,7 +832,6 @@ Properties:
 - `localDirectoryName: String`
 - `maxToolLoopIterations: Int`
 - `reasoningCapability: ModelReasoningCapability`
-- `reasoningTraceFormat: ReasoningTraceFormat`
 - `recommendation: ManagedModelRecommendation`
 - `requiresLargeMemory: Bool`
 - `stability: ManagedModelStability`
@@ -852,7 +847,6 @@ Relations:
 - `ManagedModelRecommendation`
 - `ManagedModelStability`
 - `ModelReasoningCapability`
-- `ReasoningTraceFormat`
 - `ThinkingBudgetPolicy`
 - `ToolCallingPolicy`
 
@@ -1261,18 +1255,6 @@ Cases:
 Relations:
 
 - `ReasoningEffort`
-
-### ReasoningTraceFormat
-
-- Kind: `enum`
-- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ManagedModel.swift`
-- Conforms to: `Equatable`, `Sendable`
-
-Cases:
-
-- `gemmaChannel`
-- `none`
-- `qwenThinkTags`
 
 ### RecoveryHint
 

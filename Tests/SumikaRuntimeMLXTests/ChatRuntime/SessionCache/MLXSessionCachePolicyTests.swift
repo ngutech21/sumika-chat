@@ -638,12 +638,45 @@ struct MLXSessionCachePolicyTests {
     let second = MLXGenerationID(rawValue: 2)
     let inFlight = MLXCachedSessionState.inFlight(generationID: second)
 
-    #expect(inFlight.completing(generationID: first) == nil)
+    #expect(
+      inFlight.completing(
+        generationID: first, completedReasoningContent: nil,
+        supportsHistoricalReasoningPreservation: false) == nil)
     #expect(inFlight.invalidating(generationID: first, reason: .cancelled) == nil)
-    #expect(inFlight.completing(generationID: second) == .clean)
+    #expect(
+      inFlight.completing(
+        generationID: second, completedReasoningContent: nil,
+        supportsHistoricalReasoningPreservation: false) == .clean)
     #expect(
       inFlight.invalidating(generationID: second, reason: .downstreamTerminated)
         == .dirty(reason: .downstreamTerminated))
+  }
+
+  @Test
+  func completedReasoningRebuildsWhenCanonicalHistoryDoesNotPreserveIt() throws {
+    let generationID = MLXGenerationID(rawValue: 1)
+    let inFlight = MLXCachedSessionState.inFlight(generationID: generationID)
+    let gemma = try #require(
+      inFlight.completing(
+        generationID: generationID, completedReasoningContent: "Inspect the file.",
+        supportsHistoricalReasoningPreservation: false))
+    #expect(!gemma.isReusable)
+    #expect(gemma.invalidationReason == .historyProjectionChanged)
+    #expect(
+      MLXSessionCacheReason.generationInvalidationReason(from: .historyProjectionChanged)
+        == .historyChanged)
+    #expect(
+      inFlight.completing(
+        generationID: generationID, completedReasoningContent: "Inspect the file.",
+        supportsHistoricalReasoningPreservation: true) == .clean)
+    #expect(
+      inFlight.completing(
+        generationID: generationID, completedReasoningContent: nil,
+        supportsHistoricalReasoningPreservation: false) == .clean)
+    #expect(
+      inFlight.completing(
+        generationID: MLXGenerationID(rawValue: 2), completedReasoningContent: "Inspect the file.",
+        supportsHistoricalReasoningPreservation: false) == nil)
   }
 
   @Test

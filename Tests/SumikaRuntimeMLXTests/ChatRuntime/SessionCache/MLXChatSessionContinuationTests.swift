@@ -3,7 +3,11 @@ import MLX
 import MLXLLM
 import MLXLMCommon
 import MLXNN
+import MLXVLM
 import XCTest
+
+@testable import SumikaCore
+@testable import SumikaRuntimeMLX
 
 nonisolated private final class ContinuationMessageLog: @unchecked Sendable {
   private let lock = NSLock()
@@ -25,15 +29,18 @@ nonisolated private final class ContinuationMessageLog: @unchecked Sendable {
 nonisolated final class MLXChatSessionContinuationTests: XCTestCase {
   private struct GeneratedPass {
     let text: String
+    let reasoning: String
+    let toolCalls: [MLXLMCommon.ToolCall]
     let info: GenerateCompletionInfo
   }
 
   private struct RecordingMessageGenerator: MessageGenerator {
     let log: ContinuationMessageLog
+    let base: any MessageGenerator
 
     func generate(messages: [Chat.Message]) -> [Message] {
       log.record(messages)
-      return DefaultMessageGenerator().generate(messages: messages)
+      return base.generate(messages: messages)
     }
   }
 
@@ -49,6 +56,85 @@ nonisolated final class MLXChatSessionContinuationTests: XCTestCase {
         additionalContext: input.additionalContext
       )
       return LMInput(tokens: MLXArray(tokens))
+    }
+  }
+
+  private struct ScriptedLogitProcessor: LogitProcessor {
+    let tokens: [Int]
+    private var index = 0
+
+    init(tokens: [Int]) { self.tokens = tokens }
+    mutating func prompt(_: MLXArray) { index = 0 }
+    mutating func didSample(token _: MLXArray) { index += 1 }
+    func process(logits: MLXArray) -> MLXArray {
+      var forced = [Float](repeating: -.infinity, count: logits.dim(-1))
+      forced[index < tokens.count ? tokens[index] : 256] = 0
+      return MLXArray(forced).reshaped(logits.shape)
+    }
+  }
+
+  // shortcut: ASCII Qwen fixtures only; installed-tokenizer tests cover actual templates.
+  private struct ReasoningTokenizer: Tokenizer {
+    let renderedTokensContinuation: AsyncStream<[Int]>.Continuation
+    var bosToken: String? { nil }
+    var eosToken: String? { "<|im_end|>" }
+    var unknownToken: String? { nil }
+
+    func encode(text: String, addSpecialTokens _: Bool) -> [Int] {
+      text.components(separatedBy: "<|im_end|>").enumerated().flatMap { index, part in
+        (index == 0 ? [] : [256]) + part.utf8.map(Int.init)
+      }
+    }
+
+    func decode(tokenIds: [Int], skipSpecialTokens _: Bool) -> String {
+      tokenIds.map { $0 == 256 ? "<|im_end|>" : UnicodeScalar($0).map(String.init) ?? "" }.joined()
+    }
+
+    func convertTokenToId(_ token: String) -> Int? { token == eosToken ? 256 : nil }
+    func convertIdToToken(_ id: Int) -> String? { decode(tokenIds: [id]) }
+
+    func applyChatTemplate(
+      messages: [[String: any Sendable]],
+      tools _: [[String: any Sendable]]?,
+      additionalContext _: [String: any Sendable]?
+    ) throws -> [Int] {
+      var rendered = ""
+      for message in messages {
+        let role = message["role"] as? String ?? ""
+        var content =
+          message["content"] as? String
+          ?? (message["content"] as? [[String: String]])?.compactMap { $0["text"] }.joined()
+          ?? ""
+        var reasoning = message["reasoning_content"] as? String
+        if role == "assistant", reasoning == nil, content.hasPrefix("<think>"),
+          let close = content.range(of: "</think>")
+        {
+          reasoning = String(
+            content[content.index(content.startIndex, offsetBy: 7)..<close.lowerBound])
+          content = String(content[close.upperBound...])
+        }
+        rendered += role + "\n"
+        if let reasoning {
+          rendered +=
+            "<think>\n" + reasoning.trimmingCharacters(in: .whitespacesAndNewlines)
+            + "\n</think>\n\n"
+        }
+        rendered += content.trimmingCharacters(in: .whitespacesAndNewlines)
+        for call in message["tool_calls"] as? [[String: any Sendable]] ?? [] {
+          let function = call["function"] as? [String: any Sendable] ?? [:]
+          let arguments = function["arguments"] as? [String: any Sendable] ?? [:]
+          rendered += "<tool_call><function=\(function["name"] as? String ?? "")>"
+          for name in arguments.keys.sorted() {
+            rendered += "<parameter=\(name)>\(arguments[name] as? String ?? "")</parameter>"
+          }
+          rendered += "</function></tool_call>"
+        }
+        rendered += "<|im_end|>\n"
+      }
+      rendered += "assistant\n<think>\n"
+      let tokens = encode(text: rendered)
+      renderedTokensContinuation.yield(tokens)
+      return tokens
     }
   }
 
@@ -219,6 +305,116 @@ nonisolated final class MLXChatSessionContinuationTests: XCTestCase {
     try await Self.verifyPlainContinuation()
   }
 
+  func testQwenReasoningContinuationsMatchCanonicalHistoryRebuilds() async throws {
+    for generator in [DefaultMessageGenerator(), Qwen3VLMessageGenerator()]
+      as [any MessageGenerator]
+    {
+      for usesTool in [false, true] {
+        try await Self.verifyReasoningContinuation(generator: generator, usesTool: usesTool)
+      }
+    }
+  }
+
+  private static func verifyReasoningContinuation(
+    generator: any MessageGenerator, usesTool: Bool
+  ) async throws {
+    try await Device.withDefaultDevice(.cpu) {
+      try await Stream.withNewDefaultStream(device: .cpu) {
+        let (renderedTokens, continuation) = AsyncStream<[Int]>.makeStream()
+        var renderedIterator = renderedTokens.makeAsyncIterator()
+        let tokenizer = ReasoningTokenizer(renderedTokensContinuation: continuation)
+        let messageLog = ContinuationMessageLog()
+        let context = makeContext(
+          tokenizer: tokenizer, messageLog: messageLog,
+          vocabularySize: 257,
+          configuration: ModelConfiguration(
+            id: "qwen-reasoning", eosTokenIds: [256], toolCallFormat: .qwen35,
+            reasoningConfig: QwenReasoningProtocol.tagged),
+          messageGenerator: generator)
+        let firstAnswer =
+          usesTool
+          ? "<tool_call><function=get_weather><parameter=city>Paris</parameter></function></tool_call>"
+          : "The result is 42."
+        let firstTokens = tokenizer.encode(text: "plan\n</think>\n\n" + firstAnswer) + [256]
+        let secondTokens = tokenizer.encode(text: "check\n</think>\n\nDone.") + [256]
+        let parameters = GenerateParameters(maxTokens: 512, temperature: 0)
+        let additionalContext: [String: any Sendable] = [
+          "enable_thinking": true, "preserve_thinking": true,
+        ]
+        let warmSession = MLXLMCommon.ChatSession(
+          context, generateParameters: parameters,
+          components: GenerationComponents(logitProcessorFactory: {
+            ScriptedLogitProcessor(tokens: firstTokens)
+          }),
+          additionalContext: additionalContext, tools: [weatherTool])
+        let firstPasses = try await collectPasses(
+          warmSession.streamDetails(to: [.user("Solve it")]))
+        let first = try XCTUnwrap(firstPasses.last)
+        let nextFirstPrompt = await renderedIterator.next()
+        let firstPrompt = try XCTUnwrap(nextFirstPrompt)
+        XCTAssertEqual(first.reasoning, "plan")
+        XCTAssertEqual(first.text, usesTool ? "" : firstAnswer)
+        XCTAssertEqual(first.toolCalls.count, usesTool ? 1 : 0)
+        let call = first.toolCalls.first
+        if usesTool {
+          XCTAssertEqual(call?.function.name, "get_weather")
+          XCTAssertEqual(call?.function.arguments, ["city": .string("Paris")])
+          XCTAssertNotNil(call?.id)
+        }
+        let followUp: Chat.Message =
+          usesTool
+          ? .tool("sunny", id: call?.id) : .user("Explain it")
+        let providerCalls = try first.toolCalls.map { call in
+          ProviderToolCall(
+            id: try XCTUnwrap(call.id), name: call.function.name,
+            arguments: ["city": .string("Paris")])
+        }
+        let snapshot = ProviderPromptMessage(
+          role: "assistant", content: first.text, reasoningContent: first.reasoning,
+          toolCalls: providerCalls)
+        let reconstructed = MLXHistoryRenderer.chatMessages(
+          from: [snapshot], supportsHistoricalReasoningPreservation: true)
+        warmSession.components = GenerationComponents(logitProcessorFactory: {
+          ScriptedLogitProcessor(tokens: secondTokens)
+        })
+        let warmPasses = try await collectPasses(warmSession.streamDetails(to: [followUp]))
+        let nextWarmRendered = await renderedIterator.next()
+        let warmRendered = try XCTUnwrap(nextWarmRendered)
+        let coldSession = MLXLMCommon.ChatSession(
+          context, history: [.user("Solve it")] + reconstructed,
+          generateParameters: parameters,
+          components: GenerationComponents(logitProcessorFactory: {
+            ScriptedLogitProcessor(tokens: secondTokens)
+          }),
+          additionalContext: additionalContext, tools: [weatherTool])
+        let coldPasses = try await collectPasses(coldSession.streamDetails(to: [followUp]))
+        let nextColdRendered = await renderedIterator.next()
+        let coldRendered = try XCTUnwrap(nextColdRendered)
+        let warm = try XCTUnwrap(warmPasses.last)
+        let cold = try XCTUnwrap(coldPasses.last)
+        XCTAssertEqual(warmRendered, coldRendered)
+        XCTAssertTrue(warmRendered.starts(with: firstPrompt + firstTokens))
+        XCTAssertEqual(warm.text, "Done.")
+        XCTAssertEqual(warm.text, cold.text)
+        XCTAssertEqual(warm.reasoning, cold.reasoning)
+        XCTAssertEqual(
+          tokenizer.decode(tokenIds: warmRendered).components(separatedBy: "plan").count, 2)
+        XCTAssertGreaterThan(warm.info.cachedPromptTokenCount, 0)
+        XCTAssertLessThan(warm.info.promptTokenCount, cold.info.promptTokenCount)
+        XCTAssertEqual(cold.info.cachedPromptTokenCount, 0)
+        XCTAssertEqual(warm.info.totalPromptTokenCount, cold.info.totalPromptTokenCount)
+        if usesTool {
+          for messages in messageLog.all.suffix(2) {
+            let rawMessages = generator.generate(messages: messages)
+            let rawCalls = rawMessages[1]["tool_calls"] as? [[String: any Sendable]]
+            XCTAssertEqual(rawCalls?.first?["id"] as? String, call?.id)
+            XCTAssertEqual(rawMessages[2]["tool_call_id"] as? String, call?.id)
+          }
+        }
+      }
+    }
+  }
+
   private static func verifyPlainContinuation() async throws {
     try await Device.withDefaultDevice(.cpu) {
       try await Stream.withNewDefaultStream(device: .cpu) {
@@ -229,7 +425,7 @@ nonisolated final class MLXChatSessionContinuationTests: XCTestCase {
         let context = Self.makeContext(tokenizer: tokenizer, messageLog: log)
         let parameters = GenerateParameters(maxTokens: 3, temperature: 0)
         let additionalContext: [String: any Sendable] = ["enable_thinking": false]
-        let warmSession = ChatSession(
+        let warmSession = MLXLMCommon.ChatSession(
           context,
           instructions: "Stable instructions.",
           generateParameters: parameters,
@@ -247,7 +443,7 @@ nonisolated final class MLXChatSessionContinuationTests: XCTestCase {
         let nextWarmRendered = await renderedIterator.next()
         let warmRendered = try XCTUnwrap(nextWarmRendered)
 
-        let coldSession = ChatSession(
+        let coldSession = MLXLMCommon.ChatSession(
           context,
           instructions: "Stable instructions.",
           generateParameters: parameters,
@@ -298,7 +494,7 @@ nonisolated final class MLXChatSessionContinuationTests: XCTestCase {
         let context = Self.makeContext(tokenizer: tokenizer, messageLog: log)
         let parameters = GenerateParameters(maxTokens: 32, temperature: 0)
         let additionalContext: [String: any Sendable] = ["enable_thinking": false]
-        let warmSession = ChatSession(
+        let warmSession = MLXLMCommon.ChatSession(
           context,
           instructions: "Stable instructions.",
           generateParameters: parameters,
@@ -317,7 +513,7 @@ nonisolated final class MLXChatSessionContinuationTests: XCTestCase {
         let coldInput = Array(fullConversation.drop { $0.role == .system })
         let warmResult = try XCTUnwrap(warmPasses.last)
 
-        let coldSession = ChatSession(
+        let coldSession = MLXLMCommon.ChatSession(
           context,
           instructions: "Stable instructions.",
           generateParameters: parameters,
@@ -362,9 +558,12 @@ nonisolated final class MLXChatSessionContinuationTests: XCTestCase {
 
   private static func makeContext(
     tokenizer: any Tokenizer,
-    messageLog: ContinuationMessageLog
+    messageLog: ContinuationMessageLog,
+    vocabularySize: Int = 100,
+    configuration: ModelConfiguration = ModelConfiguration(id: "test", toolCallFormat: .json),
+    messageGenerator: any MessageGenerator = DefaultMessageGenerator()
   ) -> ModelContext {
-    let configuration = Gemma3TextConfiguration(
+    let modelConfiguration = Gemma3TextConfiguration(
       modelType: "text",
       hiddenSize: 64,
       hiddenLayers: 8,
@@ -372,7 +571,7 @@ nonisolated final class MLXChatSessionContinuationTests: XCTestCase {
       attentionHeads: 4,
       headDim: 64,
       rmsNormEps: 0.00001,
-      vocabularySize: 100,
+      vocabularySize: vocabularySize,
       kvHeads: 4,
       ropeTheta: 1_000_000,
       ropeLocalBaseFreq: 10_000,
@@ -382,15 +581,15 @@ nonisolated final class MLXChatSessionContinuationTests: XCTestCase {
       slidingWindowPattern: 6,
       maxPositionEmbeddings: 32_768
     )
-    let model = Gemma3TextModel(configuration)
+    let model = Gemma3TextModel(modelConfiguration)
     quantize(model: model, groupSize: 64, bits: 4)
     eval(model)
     let processor = TestInputProcessor(
       tokenizer: tokenizer,
-      messageGenerator: RecordingMessageGenerator(log: messageLog)
+      messageGenerator: RecordingMessageGenerator(log: messageLog, base: messageGenerator)
     )
     return ModelContext(
-      configuration: ModelConfiguration(id: "test", toolCallFormat: .json),
+      configuration: configuration,
       model: model,
       processor: processor,
       tokenizer: tokenizer
@@ -402,13 +601,27 @@ nonisolated final class MLXChatSessionContinuationTests: XCTestCase {
   ) async throws -> [GeneratedPass] {
     var passes: [GeneratedPass] = []
     var text = ""
+    var reasoning = ""
+    var toolCalls: [MLXLMCommon.ToolCall] = []
     for try await generation in stream {
       if let chunk = generation.chunk {
         text += chunk
       }
+      if let chunk = generation.reasoning {
+        reasoning += chunk
+      }
+      if let call = generation.toolCall {
+        toolCalls.append(call)
+      }
+      if let rejection = generation.rejectedToolCall {
+        XCTFail("Unexpected rejected call: \(rejection)")
+      }
       if let info = generation.info {
-        passes.append(GeneratedPass(text: text, info: info))
+        passes.append(
+          GeneratedPass(text: text, reasoning: reasoning, toolCalls: toolCalls, info: info))
         text = ""
+        reasoning = ""
+        toolCalls = []
       }
     }
     return passes

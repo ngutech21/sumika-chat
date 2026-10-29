@@ -119,13 +119,14 @@ struct MLXTokenizerLoaderTests {
     gemma: Bool, fixture: TokenizerFixture
   ) async throws {
     let (tokenizer, _) = try await fixture.load()
-    let reasoning = gemma ? "<|channel|>thoughtplan<channel|>" : "<think>plan</think>"
+    let reasoning = gemma ? "<|channel>thought\nplan<channel|>" : "<think>plan</think>"
     let call =
       gemma
       ? "<|tool_call>call:inspect{query:<|\"|>hello \u{e9} \u{1f600}<|\"|>,count:2,enabled:true,tags:[\"a\",\"b\"],config:{limit:3},nothing:null}<tool_call|>"
       : "<tool_call><function=inspect><parameter=query>hello \u{e9} \u{1f600}</parameter><parameter=count>2</parameter><parameter=enabled>true</parameter><parameter=tags>[\"a\",\"b\"]</parameter><parameter=config>{\"limit\":3}</parameter><parameter=nothing>null</parameter></function></tool_call>"
     var handler = TextToolTokenLoopHandler(
-      tokenizer: tokenizer, format: gemma ? .gemma4 : .qwen35, tools: Self.tools)
+      tokenizer: tokenizer, format: gemma ? .gemma4 : .qwen35, tools: Self.tools,
+      reasoning: (config: gemma ? .gemma4 : QwenReasoningProtocol.tagged, primedInside: false))
     var events: [Generation] = []
     for id in tokenizer.encode(text: reasoning + call + "done", addSpecialTokens: false) {
       _ = handler.onToken(id, logProbabilities: nil) {
@@ -133,7 +134,6 @@ struct MLXTokenizerLoaderTests {
         return true
       }
     }
-    if fixture == .buffered { #expect(events.isEmpty) }
     _ = handler.onGenerationEnd {
       events.append($0)
       return true
@@ -148,15 +148,8 @@ struct MLXTokenizerLoaderTests {
         "nothing": .null,
       ])
     #expect(events.compactMap(\.rejectedToolCall).isEmpty)
-    var parser = try ReasoningTraceParser(format: gemma ? .gemmaChannel : .qwenThinkTags)
-    var segments = try events.compactMap(\.chunk).flatMap { try parser.append($0) }
-    segments += try parser.finish()
-    #expect(
-      segments.compactMap { if case .thinking(let text) = $0 { text } else { nil } }.joined()
-        == "plan")
-    #expect(
-      segments.compactMap { if case .visible(let text) = $0 { text } else { nil } }.joined()
-        == "done")
+    #expect(events.compactMap(\.reasoning).joined() == "plan")
+    #expect(events.compactMap(\.chunk).joined() == "done")
   }
 
   private static var tools: [[String: any Sendable]] {
@@ -250,7 +243,7 @@ nonisolated enum TokenizerFixture: CaseIterable {
       }
       let markers = [
         "<bos>", "<eos>", "<unk>", "<think>", "</think>", "<tool_call>", "</tool_call>",
-        "<|channel|>", "<channel|>", "<|tool_call>", "<tool_call|>", "<|\"|>",
+        "<|channel>", "<channel|>", "<|tool_call>", "<tool_call|>", "<|\"|>",
       ]
       let pieces =
         self == .sentencePiece

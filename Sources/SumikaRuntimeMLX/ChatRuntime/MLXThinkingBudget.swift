@@ -1,4 +1,5 @@
 import Foundation
+import MLX
 import MLXLMCommon
 import SumikaCore
 import Synchronization
@@ -277,6 +278,8 @@ enum MLXThinkingBudgetPlanner {
     generateParameters: GenerateParameters,
     enforcementState: MLXThinkingBudgetEnforcementState
   ) throws -> GenerationComponents {
+    let protocolGuard = try MLXQwenReasoningTokenGuard(
+      reasoning: reasoning, tokenizer: tokenizer, enforcementState: enforcementState)
     var budgetReasoning = reasoning
     // Track template newlines so prompt spacing is uncharged and a partial close completes once.
     budgetReasoning.startDelimiter = reasoning.startDelimiter + "\n"
@@ -294,7 +297,7 @@ enum MLXThinkingBudgetPlanner {
       diagnosticHandler: { diagnostic in
         enforcementState.record(diagnostic)
       }
-    )
+    ).appendingLogitProcessor { protocolGuard }
     try components.validate(parameters: generateParameters)
     return components
   }
@@ -332,5 +335,69 @@ enum MLXThinkingBudgetPlanner {
     case .hardLimitImmediate:
       .qwen36ImmediateV2
     }
+  }
+}
+
+private struct MLXQwenReasoningTokenGuard: LogitProcessor, Sendable {
+  private let startToken: Int
+  private let endToken: Int
+  private let toolToken: Int
+  private let enforcementState: MLXThinkingBudgetEnforcementState
+  private var isClosed = false
+
+  init(
+    reasoning: ReasoningConfig, tokenizer: any Tokenizer,
+    enforcementState: MLXThinkingBudgetEnforcementState
+  ) throws {
+    guard reasoning == QwenReasoningProtocol.tagged,
+      let implicitEnd = reasoning.implicitEndDelimiters.first
+    else {
+      throw MLXThinkingBudgetFailure.incompatibleReasoningProtocol
+    }
+    startToken = try Self.tokenID(for: reasoning.startDelimiter, tokenizer: tokenizer)
+    endToken = try Self.tokenID(for: reasoning.endDelimiter, tokenizer: tokenizer)
+    toolToken = try Self.tokenID(for: implicitEnd, tokenizer: tokenizer)
+    guard Set([startToken, endToken, toolToken]).count == 3 else {
+      throw MLXThinkingBudgetFailure.incompatibleReasoningProtocol
+    }
+    self.enforcementState = enforcementState
+  }
+
+  mutating func prompt(_ prompt: MLXArray) {
+    // The enforced Qwen prompt opens reasoning, even when a cached suffix omits its opener.
+    isClosed = false
+  }
+
+  func process(logits: MLXArray) -> MLXArray { logits }
+  mutating func didSample(token: MLXArray) {}
+
+  mutating func didEmit(token: Int) {
+    if token == endToken {
+      if isClosed { enforcementState.record(.duplicateReasoningClose) }
+      isClosed = true
+    } else if token == toolToken {
+      isClosed = true
+    } else if token == startToken, isClosed {
+      enforcementState.record(.reopenedReasoning)
+    }
+  }
+
+  private static func tokenID(for marker: String, tokenizer: any Tokenizer) throws -> Int {
+    let tokenID: Int
+    if let converted = tokenizer.convertTokenToId(marker) {
+      tokenID = converted
+    } else {
+      let encoded = tokenizer.encode(text: marker, addSpecialTokens: false)
+      guard encoded.count == 1, let encodedToken = encoded.first else {
+        throw MLXThinkingBudgetFailure.incompatibleReasoningProtocol
+      }
+      tokenID = encodedToken
+    }
+    guard tokenID >= 0, tokenID != tokenizer.unknownTokenId,
+      tokenizer.decode(tokenIds: [tokenID]) == marker
+    else {
+      throw MLXThinkingBudgetFailure.incompatibleReasoningProtocol
+    }
+    return tokenID
   }
 }

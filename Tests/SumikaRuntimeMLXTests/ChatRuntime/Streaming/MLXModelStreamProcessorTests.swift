@@ -109,38 +109,25 @@ struct MLXModelStreamProcessorTests {
   }
 
   @Test
-  func enforcedQwenStreamFailsClosedOnDuplicateReasoningClose() async throws {
-    let marker = "</think>"
-
-    for splitOffset in 0...marker.count {
-      let splitIndex = marker.index(marker.startIndex, offsetBy: splitOffset)
+  func enforcedQwenStreamPreservesLiteralReasoningTagsInVisibleText() async throws {
+    let literal = "Use <think> and </think> as text."
+    for splitOffset in 0...literal.count {
+      let splitIndex = literal.index(literal.startIndex, offsetBy: splitOffset)
       let source = AsyncThrowingStream<Generation, Error> { continuation in
-        continuation.yield(.chunk("<think>plan</think>\n"))
-        continuation.yield(.chunk(String(marker[..<splitIndex])))
-        continuation.yield(.chunk(String(marker[splitIndex...])))
-        continuation.yield(.chunk("\nanswer"))
+        continuation.yield(.reasoning("plan"))
+        continuation.yield(.chunk(String(literal[..<splitIndex])))
+        continuation.yield(.chunk(String(literal[splitIndex...])))
         continuation.yield(.info(completionInfo()))
         continuation.finish()
       }
       let (stream, invalidationRecorder, memoryClearRecorder) = enforcedQwenStream(from: source)
       var visibleOutput = ""
-
-      do {
-        for try await event in stream {
-          if case .chunk(let chunk) = event {
-            visibleOutput += chunk
-          }
-        }
-        Issue.record("Expected duplicate reasoning close to fail at \(splitOffset).")
-      } catch let failure as MLXThinkingBudgetFailure {
-        #expect(failure == .duplicateReasoningClose)
-      } catch {
-        Issue.record("Expected thinking-budget failure, got \(error).")
+      for try await event in stream {
+        if case .chunk(let chunk) = event { visibleOutput += chunk }
       }
-
-      #expect(visibleOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-      #expect(await invalidationRecorder.firstReason == .runtimeError)
-      #expect(await memoryClearRecorder.reasons == [.runtimeError])
+      #expect(visibleOutput == literal)
+      #expect(await invalidationRecorder.firstReason == nil)
+      #expect(await memoryClearRecorder.reasons.isEmpty)
     }
   }
 
@@ -151,7 +138,7 @@ struct MLXModelStreamProcessorTests {
     for splitOffset in 0...marker.count {
       let splitIndex = marker.index(marker.startIndex, offsetBy: splitOffset)
       let source = AsyncThrowingStream<Generation, Error> { continuation in
-        continuation.yield(.chunk("<think>plan</think>\n"))
+        continuation.yield(.reasoning("plan"))
         continuation.yield(.chunk(String(marker[..<splitIndex])))
         continuation.yield(.chunk(String(marker[splitIndex...])))
         continuation.yield(.chunk("\nanswer"))
@@ -187,7 +174,7 @@ struct MLXModelStreamProcessorTests {
     for splitOffset in 0...marker.count {
       let splitIndex = marker.index(marker.startIndex, offsetBy: splitOffset)
       let source = AsyncThrowingStream<Generation, Error> { continuation in
-        continuation.yield(.chunk("<think>plan</think>\n"))
+        continuation.yield(.reasoning("plan"))
         continuation.yield(.chunk(String(marker[..<splitIndex])))
         continuation.yield(.chunk(String(marker[splitIndex...])))
         continuation.yield(.chunk("\nanswer"))
@@ -220,12 +207,13 @@ struct MLXModelStreamProcessorTests {
   }
 
   @Test
-  func enforcedQwenStreamPreservesValidResponseAcrossCloseMarkerSplits() async throws {
-    let response = "plan</think>answer"
+  func enforcedQwenStreamPreservesNativeReasoningAcrossChunkSplits() async throws {
+    let response = "answer"
 
     for splitOffset in 0...response.count {
       let splitIndex = response.index(response.startIndex, offsetBy: splitOffset)
       let source = AsyncThrowingStream<Generation, Error> { continuation in
+        continuation.yield(.reasoning("plan"))
         continuation.yield(.chunk(String(response[..<splitIndex])))
         continuation.yield(.chunk(String(response[splitIndex...])))
         continuation.yield(.info(completionInfo()))
@@ -256,7 +244,8 @@ struct MLXModelStreamProcessorTests {
   @Test
   func enforcedQwenStreamFailsClosedOnTruncatedProtocolMarker() async throws {
     let source = AsyncThrowingStream<Generation, Error> { continuation in
-      continuation.yield(.chunk("plan</think>\n<|im_sta"))
+      continuation.yield(.reasoning("plan"))
+      continuation.yield(.chunk("\n<|im_sta"))
       continuation.yield(.info(completionInfo()))
       continuation.finish()
     }
@@ -284,7 +273,8 @@ struct MLXModelStreamProcessorTests {
   @Test
   func enforcedQwenOutputLimitTakesPrecedenceOverPartialProtocolMarker() async throws {
     let source = AsyncThrowingStream<Generation, Error> { continuation in
-      continuation.yield(.chunk("plan</think>\n<|im_sta"))
+      continuation.yield(.reasoning("plan"))
+      continuation.yield(.chunk("\n<|im_sta"))
       continuation.yield(
         .info(
           GenerateCompletionInfo(
@@ -311,21 +301,25 @@ struct MLXModelStreamProcessorTests {
   }
 
   @Test
-  func enforcedQwenStreamFailsClosedWhenThinkingReopens() async throws {
+  func enforcedQwenStreamFailsClosedOnLateBudgetDiagnostic() async throws {
     let recorder = MLXStreamInvalidationRecorder()
+    let state = MLXThinkingBudgetEnforcementState()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
-      continuation.yield(.chunk("<think>plan</think>answer<think>again"))
+      continuation.yield(.reasoning("plan"))
+      continuation.yield(
+        .toolCall(.init(function: .init(name: "read_file", arguments: ["path": "README.md"]))))
+      continuation.yield(.info(completionInfo()))
       continuation.finish()
     }
     let stream = MLXModelStreamProcessor.modelStreamPlan(
-      from: MLXGuardedGeneration(makeStream: { source }, synchronize: {}),
-      reasoningTraceFormat: .qwenThinkTags,
+      from: MLXGuardedGeneration(
+        makeStream: { source }, synchronize: { state.record(.reopenedReasoning) }),
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
       debugTraceStore: temporaryDebugTraceStore(),
       thinkingBudgetTrace: testThinkingBudgetTrace(),
-      thinkingBudgetEnforcementState: MLXThinkingBudgetEnforcementState(),
+      thinkingBudgetEnforcementState: state,
       markCompleted: { _ in },
       markCancelled: { reason in
         await recorder.record(reason)
@@ -333,14 +327,57 @@ struct MLXModelStreamProcessorTests {
       memoryCacheClearer: MLXMemoryCacheClearer { _ in }
     ).stream
 
+    var toolCalls = 0
     do {
-      try await drainModelStream(stream)
+      for try await event in stream {
+        if case .toolCall = event { toolCalls += 1 }
+      }
       Issue.record("Expected reopened thinking to fail closed.")
     } catch MLXThinkingBudgetFailure.reopenedReasoning {
       #expect(await recorder.firstReason == .runtimeError)
     } catch {
       Issue.record("Expected reopened reasoning failure, got \(error).")
     }
+    #expect(toolCalls == 0)
+  }
+
+  @Test(arguments: ["<|im_start|>assistant", "<|im_sta"])
+  func responseValidationFailureDiscardsPendingToolCalls(marker: String) async throws {
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.reasoning("plan"))
+      continuation.yield(
+        .toolCall(.init(function: .init(name: "read_file", arguments: ["path": "README.md"]))))
+      continuation.yield(.chunk(marker))
+      continuation.yield(.info(completionInfo()))
+      continuation.finish()
+    }
+    let (stream, invalidationRecorder, memoryClearRecorder) = enforcedQwenStream(from: source)
+    var emittedToolCallCount = 0
+    var confirmedThinking = false
+    var didComplete = false
+    var visibleOutput = ""
+
+    do {
+      for try await event in stream {
+        if case .toolCall = event { emittedToolCallCount += 1 }
+        if case .thinkingCompleted = event { confirmedThinking = true }
+        if case .completed = event { didComplete = true }
+        if case .chunk(let text) = event { visibleOutput += text }
+      }
+      Issue.record("Expected response validation to fail after the accepted call.")
+    } catch let failure as MLXThinkingBudgetFailure {
+      #expect(
+        failure == (marker == "<|im_sta" ? .truncatedProtocolMarker : .unexpectedChatBoundary))
+    } catch {
+      Issue.record("Expected thinking-budget failure, got \(error).")
+    }
+
+    #expect(emittedToolCallCount == 0)
+    #expect(!confirmedThinking)
+    #expect(!didComplete)
+    #expect(visibleOutput.isEmpty)
+    #expect(await invalidationRecorder.firstReason == .runtimeError)
+    #expect(await memoryClearRecorder.reasons == [.runtimeError])
   }
 
   @Test
@@ -358,7 +395,6 @@ struct MLXModelStreamProcessorTests {
     }
     let stream = MLXModelStreamProcessor.modelStreamPlan(
       from: MLXGuardedGeneration(makeStream: { source }, synchronize: {}),
-      reasoningTraceFormat: .qwenThinkTags,
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
@@ -454,9 +490,10 @@ struct MLXModelStreamProcessorTests {
     }
   }
 
-  @Test
-  func memoryTraceDoesNotTreatInfoAsFirstOutput() async throws {
+  @Test(arguments: [false, true])
+  func firstOutputTracingIncludesReasoningButNotInfo(reasoning: Bool) async throws {
     let traceID = UUID()
+    let tracer = MLXStreamTurnTraceRecorder()
     let (debugTraceStore, fileURL) = memoryTracingStore()
     let memoryTraceScope = try #require(
       await debugTraceStore.beginMemoryScope(
@@ -465,27 +502,30 @@ struct MLXModelStreamProcessorTests {
       )
     )
     let source = AsyncThrowingStream<Generation, Error> { continuation in
-      continuation.yield(.info(completionInfo()))
+      if reasoning { continuation.yield(.reasoning("plan")) }
+      continuation.yield(.info(completionInfo(stopReason: reasoning ? .length : .stop)))
       continuation.finish()
     }
     let stream = modelStream(
       from: source,
       traceID: traceID,
-      traceMetadata: nil,
+      traceMetadata: TurnTraceMetadata(turnID: nil, generationID: traceID, tracer: tracer),
       cacheTrace: defaultCacheTrace(),
       debugTraceStore: debugTraceStore,
       memoryTraceScope: memoryTraceScope,
       markCompleted: { _ in },
-      markCancelled: { _ in }
+      markCancelled: { _ in },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
     )
 
     try await drainModelStream(stream)
 
     let rows = try memoryTraceRows(at: fileURL)
     #expect(
-      !rows.contains {
+      rows.filter {
         $0["memoryPhase"] as? String == MLXMemoryTracePhase.generationFirstOutput.rawValue
-      })
+      }.count == (reasoning ? 1 : 0))
+    #expect((await tracer.firstEvent(for: .runtimeTTFT) != nil) == reasoning)
     #expect(
       rows.filter {
         $0["memoryPhase"] as? String == MLXMemoryTracePhase.generationTerminal.rawValue
@@ -797,11 +837,12 @@ struct MLXModelStreamProcessorTests {
       ])
   }
 
-  @Test
-  func tokenLimitedModelStreamReportsDiscardedToolProtocolTail() async throws {
+  @Test(arguments: [false, true])
+  func tokenLimitedModelStreamReportsDiscardedToolProtocolTail(reasoning: Bool) async throws {
     let memoryClearRecorder = MLXMemoryClearRecorder()
     let invalidationRecorder = MLXStreamInvalidationRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
+      if reasoning { continuation.yield(.reasoning("plan")) }
       continuation.yield(.chunk("<tool_call><function=write_file>partial"))
       continuation.yield(
         .info(
@@ -833,6 +874,8 @@ struct MLXModelStreamProcessorTests {
     )
 
     var visibleOutput = ""
+    var thinkingOutput = ""
+    var confirmedThinking = false
     var outputLimit: ChatGenerationOutputLimit?
     for try await event in stream {
       switch event {
@@ -842,19 +885,25 @@ struct MLXModelStreamProcessorTests {
         outputLimit = limit
       case .completed:
         Issue.record("A token-limited response must not be marked complete.")
-      case .thinkingChunk, .thinkingCompleted, .toolCall:
-        break
+      case .thinkingChunk(let text):
+        thinkingOutput += text
+      case .thinkingCompleted:
+        confirmedThinking = true
+      case .toolCall:
+        Issue.record("A partial tool call must not be delivered.")
       }
     }
 
     #expect(visibleOutput.isEmpty)
+    #expect(thinkingOutput == (reasoning ? "plan" : ""))
+    #expect(!confirmedThinking)
     #expect(outputLimit?.discardedToolProtocolTail == true)
     #expect(await invalidationRecorder.firstReason == .interrupted)
     #expect(await memoryClearRecorder.reasons == [.interruptedStream])
   }
 
-  @Test
-  func tokenLimitedNativeToolBatchKeepsCompleteCallsAndRejectsTrailingFragment() async throws {
+  @Test(arguments: [false, true])
+  func tokenLimitedNativeToolBatchDiscardsCallsAndTrailingFragment(reasoning: Bool) async throws {
     let invalidationRecorder = MLXStreamInvalidationRecorder()
     let boundaryRecorder = MLXNativeBoundaryRecorder()
     let memoryClearRecorder = MLXMemoryClearRecorder()
@@ -871,7 +920,8 @@ struct MLXModelStreamProcessorTests {
       )
     )
     let source = AsyncThrowingStream<Generation, Error> { continuation in
-      continuation.yield(.chunk("I will create the files."))
+      continuation.yield(
+        reasoning ? .reasoning("I will create the files.") : .chunk("I will create the files."))
       continuation.yield(.toolCall(firstToolCall))
       continuation.yield(.toolCall(secondToolCall))
       continuation.yield(.chunk("<tool_call><function=write_file><"))
@@ -908,6 +958,8 @@ struct MLXModelStreamProcessorTests {
     )
 
     var visibleOutput = ""
+    var thinkingOutput = ""
+    var confirmedThinking = false
     var emittedToolCallCount = 0
     var outputLimit: ChatGenerationOutputLimit?
     for try await event in stream {
@@ -920,13 +972,17 @@ struct MLXModelStreamProcessorTests {
         outputLimit = limit
       case .completed:
         Issue.record("A token-limited response must not be marked complete.")
-      case .thinkingChunk, .thinkingCompleted:
-        break
+      case .thinkingChunk(let text):
+        thinkingOutput += text
+      case .thinkingCompleted:
+        confirmedThinking = true
       }
     }
 
-    #expect(visibleOutput == "I will create the files.")
-    #expect(emittedToolCallCount == 2)
+    #expect(visibleOutput == (reasoning ? "" : "I will create the files."))
+    #expect(thinkingOutput == (reasoning ? "I will create the files." : ""))
+    #expect(!confirmedThinking)
+    #expect(emittedToolCallCount == 0)
     #expect(outputLimit?.discardedToolProtocolTail == true)
     #expect(await invalidationRecorder.firstReason == .interrupted)
     #expect(await boundaryRecorder.firstBoundary == nil)
@@ -1029,13 +1085,12 @@ struct MLXModelStreamProcessorTests {
   }
 
   @Test
-  func modelStreamSeparatesThoughtChannelChunks() async throws {
+  func modelStreamSeparatesNativeReasoningChunks() async throws {
     let memoryClearRecorder = MLXMemoryClearRecorder()
     let completionRecorder = MLXStreamCompletionRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
-      continuation.yield(.chunk("<|channel>thought"))
-      continuation.yield(.chunk(" The user said hey."))
-      continuation.yield(.chunk("<channel|>Hello"))
+      continuation.yield(.reasoning(" The user said hey."))
+      continuation.yield(.chunk("Hello"))
       continuation.yield(.chunk(" there."))
       continuation.yield(
         .info(
@@ -1050,7 +1105,6 @@ struct MLXModelStreamProcessorTests {
     }
     let stream = modelStream(
       from: source,
-      reasoningTraceFormat: .gemmaChannel,
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
@@ -1085,13 +1139,13 @@ struct MLXModelStreamProcessorTests {
   }
 
   @Test
-  func modelStreamSeparatesQwenThinkTagChunks() async throws {
+  func modelStreamJoinsConsecutiveNativeReasoningChunks() async throws {
     let memoryClearRecorder = MLXMemoryClearRecorder()
     let completionRecorder = MLXStreamCompletionRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
-      continuation.yield(.chunk("The user said hey."))
-      continuation.yield(.chunk("</th"))
-      continuation.yield(.chunk("ink>\n\nHello"))
+      continuation.yield(.reasoning("The user "))
+      continuation.yield(.reasoning("said hey."))
+      continuation.yield(.chunk("Hello"))
       continuation.yield(.chunk(" there."))
       continuation.yield(
         .info(
@@ -1106,7 +1160,6 @@ struct MLXModelStreamProcessorTests {
     }
     let stream = modelStream(
       from: source,
-      reasoningTraceFormat: .qwenThinkTags,
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
@@ -1134,9 +1187,9 @@ struct MLXModelStreamProcessorTests {
       }
     }
 
-    #expect(chunks.joined() == "\n\nHello there.")
+    #expect(chunks.joined() == "Hello there.")
     #expect(thinkingChunks.joined() == "The user said hey.")
-    #expect(await completionRecorder.firstOutput == "\n\nHello there.")
+    #expect(await completionRecorder.firstOutput == "Hello there.")
     #expect(await memoryClearRecorder.reasons.isEmpty)
   }
 
@@ -1144,8 +1197,7 @@ struct MLXModelStreamProcessorTests {
   func completedQwenReasoningReachesCacheSnapshotAfterCompletionBoundary() async throws {
     let snapshotRecorder = MLXAssistantSnapshotRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
-      continuation.yield(.chunk("Inspect the request."))
-      continuation.yield(.chunk("</think>"))
+      continuation.yield(.reasoning("Inspect the request."))
       continuation.yield(.chunk("Done."))
       continuation.yield(
         .info(
@@ -1160,7 +1212,6 @@ struct MLXModelStreamProcessorTests {
     }
     let stream = modelStream(
       from: source,
-      reasoningTraceFormat: .qwenThinkTags,
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
@@ -1210,7 +1261,8 @@ struct MLXModelStreamProcessorTests {
     let invalidationRecorder = MLXStreamInvalidationRecorder()
     let memoryClearRecorder = MLXMemoryClearRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
-      continuation.yield(.chunk("Still reasoning"))
+      continuation.yield(.reasoning("Still reasoning"))
+      continuation.yield(.chunk(""))
       continuation.yield(
         .info(
           GenerateCompletionInfo(
@@ -1224,7 +1276,6 @@ struct MLXModelStreamProcessorTests {
     }
     let stream = modelStream(
       from: source,
-      reasoningTraceFormat: .qwenThinkTags,
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
@@ -1242,8 +1293,10 @@ struct MLXModelStreamProcessorTests {
     )
 
     var didEmitCompletion = false
+    var confirmedThinking = false
     do {
       for try await event in stream {
+        if case .thinkingCompleted = event { confirmedThinking = true }
         if case .completed = event {
           didEmitCompletion = true
         }
@@ -1255,57 +1308,45 @@ struct MLXModelStreamProcessorTests {
     }
 
     #expect(!didEmitCompletion)
+    #expect(!confirmedThinking)
     #expect(await snapshotRecorder.firstSnapshot == nil)
     #expect(await invalidationRecorder.firstReason == .interrupted)
     #expect(await memoryClearRecorder.reasons == [.interruptedStream])
   }
 
-  @Test
-  func unclosedQwenReasoningWithoutEmittedTextInvalidatesCache() async throws {
-    let snapshotRecorder = MLXAssistantSnapshotRecorder()
+  @Test(arguments: [GenerateStopReason.length, .cancelled])
+  func unfinishedReasoningNeverEmitsThinkingCompleted(stopReason: GenerateStopReason) async throws {
     let invalidationRecorder = MLXStreamInvalidationRecorder()
-    let memoryClearRecorder = MLXMemoryClearRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
-      continuation.yield(.chunk("<think>"))
-      continuation.yield(.info(completionInfo()))
+      continuation.yield(.reasoning("Still reasoning"))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8, generationTokenCount: 2,
+            promptTime: 0.1, generationTime: 0.1, stopReason: stopReason)))
       continuation.finish()
     }
     let stream = modelStream(
-      from: source,
-      reasoningTraceFormat: .qwenThinkTags,
-      traceID: UUID(),
-      traceMetadata: nil,
-      cacheTrace: defaultCacheTrace(),
-      debugTraceStore: temporaryDebugTraceStore(),
-      markCompleted: { _ in },
-      markCompletedSnapshot: { snapshot in
-        await snapshotRecorder.record(snapshot)
-      },
-      markCancelled: { reason in
-        await invalidationRecorder.record(reason)
-      },
-      memoryCacheClearer: MLXMemoryCacheClearer { reason in
-        await memoryClearRecorder.record(reason)
-      }
-    )
-
-    var didEmitCompletion = false
+      from: source, traceID: UUID(), traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(), debugTraceStore: temporaryDebugTraceStore(),
+      markCompleted: { _ in Issue.record("Unfinished reasoning must not complete.") },
+      markCancelled: { await invalidationRecorder.record($0) },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in })
+    var confirmedThinking = false
+    var reachedLimit = false
     do {
       for try await event in stream {
-        if case .completed = event {
-          didEmitCompletion = true
-        }
+        if case .thinkingCompleted = event { confirmedThinking = true }
+        if case .outputLimitReached = event { reachedLimit = true }
       }
-      Issue.record("Expected marker-only Qwen reasoning to interrupt the stream.")
-    } catch MLXChatRuntimeError.interruptedStream {
-    } catch {
-      Issue.record("Expected interrupted stream error, got \(error).")
+      #expect(stopReason == .length)
+    } catch is CancellationError {
+      #expect(stopReason == .cancelled)
     }
-
-    #expect(!didEmitCompletion)
-    #expect(await snapshotRecorder.firstSnapshot == nil)
-    #expect(await invalidationRecorder.firstReason == .interrupted)
-    #expect(await memoryClearRecorder.reasons == [.interruptedStream])
+    #expect(!confirmedThinking)
+    #expect(reachedLimit == (stopReason == .length))
+    #expect(
+      await invalidationRecorder.firstReason == (stopReason == .length ? .interrupted : .cancelled))
   }
 
   @Test
@@ -1313,11 +1354,9 @@ struct MLXModelStreamProcessorTests {
     let snapshotRecorder = MLXAssistantSnapshotRecorder()
     let invalidationRecorder = MLXStreamInvalidationRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
-      continuation.yield(.chunk("<|channel>thought"))
-      continuation.yield(.chunk("First thought."))
-      continuation.yield(.chunk("<channel|>Visible."))
-      continuation.yield(.chunk("<|channel>thought"))
-      continuation.yield(.chunk("Second thought."))
+      continuation.yield(.reasoning("First thought."))
+      continuation.yield(.chunk("Visible."))
+      continuation.yield(.reasoning("Second thought."))
       continuation.yield(
         .info(
           GenerateCompletionInfo(
@@ -1331,7 +1370,6 @@ struct MLXModelStreamProcessorTests {
     }
     let stream = modelStream(
       from: source,
-      reasoningTraceFormat: .gemmaChannel,
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
@@ -1442,6 +1480,7 @@ struct MLXModelStreamProcessorTests {
       detail: "The function arguments were not a JSON object."
     )
     let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.reasoning("plan"))
       continuation.yield(.toolCall(acceptedToolCall))
       continuation.yield(.rejectedToolCall(rejection))
       continuation.yield(.info(completionInfo()))
@@ -1468,11 +1507,13 @@ struct MLXModelStreamProcessorTests {
     )
 
     var didComplete = false
+    var emittedToolCallCount = 0
+    var confirmedThinking = false
     do {
       for try await event in stream {
-        if case .completed = event {
-          didComplete = true
-        }
+        if case .completed = event { didComplete = true }
+        if case .toolCall = event { emittedToolCallCount += 1 }
+        if case .thinkingCompleted = event { confirmedThinking = true }
       }
       Issue.record("Expected rejected tool call to fail the stream.")
     } catch let error as RejectedToolCallError {
@@ -1483,6 +1524,8 @@ struct MLXModelStreamProcessorTests {
     }
 
     #expect(!didComplete)
+    #expect(emittedToolCallCount == 0)
+    #expect(!confirmedThinking)
     #expect(await completionRecorder.firstOutput == nil)
     #expect(await boundaryRecorder.firstBoundary == nil)
     #expect(await invalidationRecorder.firstReason == .runtimeError)
@@ -1545,7 +1588,6 @@ struct MLXModelStreamProcessorTests {
     }
     let stream = modelStream(
       from: source,
-      reasoningTraceFormat: .qwenThinkTags,
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
@@ -1594,14 +1636,13 @@ struct MLXModelStreamProcessorTests {
       )
     )
     let source = AsyncThrowingStream<Generation, Error> { continuation in
-      continuation.yield(.chunk("Inspect the request."))
+      continuation.yield(.reasoning("Inspect the request."))
       continuation.yield(.toolCall(toolCall))
       continuation.yield(.info(completionInfo()))
       continuation.finish()
     }
     let stream = MLXModelStreamProcessor.modelStreamPlan(
       from: MLXGuardedGeneration(makeStream: { source }, synchronize: {}),
-      reasoningTraceFormat: .qwenThinkTags,
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
@@ -1667,7 +1708,7 @@ struct MLXModelStreamProcessorTests {
       )
     )
     let source = AsyncThrowingStream<Generation, Error> { continuation in
-      continuation.yield(.chunk("Inspect the request."))
+      continuation.yield(.reasoning("Inspect the request."))
       continuation.yield(.toolCall(toolCall))
       continuation.yield(.chunk("Done."))
       continuation.yield(.info(completionInfo()))
@@ -1675,7 +1716,6 @@ struct MLXModelStreamProcessorTests {
     }
     let stream = MLXModelStreamProcessor.modelStreamPlan(
       from: MLXGuardedGeneration(makeStream: { source }, synchronize: {}),
-      reasoningTraceFormat: .qwenThinkTags,
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
@@ -1888,7 +1928,6 @@ struct MLXModelStreamProcessorTests {
 
   private nonisolated func modelStream(
     from stream: AsyncThrowingStream<Generation, Error>,
-    reasoningTraceFormat: ReasoningTraceFormat = .none,
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
@@ -1908,7 +1947,6 @@ struct MLXModelStreamProcessorTests {
   ) -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     MLXModelStreamProcessor.modelStreamPlan(
       from: MLXGuardedGeneration(makeStream: { stream }, synchronize: {}),
-      reasoningTraceFormat: reasoningTraceFormat,
       traceID: traceID,
       traceMetadata: traceMetadata,
       cacheTrace: cacheTrace,
@@ -2006,7 +2044,6 @@ struct MLXModelStreamProcessorTests {
     let memoryClearRecorder = MLXMemoryClearRecorder()
     let stream = MLXModelStreamProcessor.modelStreamPlan(
       from: MLXGuardedGeneration(makeStream: { source }, synchronize: {}),
-      reasoningTraceFormat: .qwenThinkTags,
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
@@ -2116,12 +2153,13 @@ struct MLXModelStreamProcessorTests {
     }
   }
 
-  private func completionInfo() -> GenerateCompletionInfo {
+  private func completionInfo(stopReason: GenerateStopReason = .stop) -> GenerateCompletionInfo {
     GenerateCompletionInfo(
       promptTokenCount: 8,
       generationTokenCount: 4,
       promptTime: 0.1,
-      generationTime: 0.1
+      generationTime: 0.1,
+      stopReason: stopReason
     )
   }
 

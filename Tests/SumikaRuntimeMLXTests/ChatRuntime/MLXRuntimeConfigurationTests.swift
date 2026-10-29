@@ -31,7 +31,7 @@ struct MLXRuntimeConfigurationTests {
     #expect(parameters.maxTokens == 32_768)
   }
 
-  @Test(arguments: ManagedModelCatalog.models.filter { $0.reasoningTraceFormat == .qwenThinkTags })
+  @Test(arguments: ManagedModelCatalog.models.filter { $0.supportsHistoricalReasoningPreservation })
   func qwenDefaultOutputAllowanceReachesMLXUnchanged(model: ManagedModel) {
     let recommended = ModelSettingsResolver.recommendedSettings(for: model, generationConfig: nil)
     for mode in [WorkspaceInteractionMode.chat, .agent] {
@@ -85,7 +85,7 @@ struct MLXRuntimeConfigurationTests {
   @Test
   func allQwenCatalogEntriesEnableThinkingBudget() throws {
     let qwenModels = ManagedModelCatalog.models.filter {
-      $0.reasoningTraceFormat == .qwenThinkTags
+      $0.supportsHistoricalReasoningPreservation
     }
     let gemma = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
 

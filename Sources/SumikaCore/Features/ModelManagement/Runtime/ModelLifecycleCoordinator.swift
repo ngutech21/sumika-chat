@@ -67,7 +67,6 @@ struct ModelLifecycleCoordinator: Sendable {
     from directoryURL: URL,
     requestedContextTokenLimit: Int,
     supportsImageInput: Bool,
-    reasoningTraceFormat: ReasoningTraceFormat,
     supportsHistoricalReasoningPreservation: Bool,
     reasoningCapability: ModelReasoningCapability,
     thinkingBudgetPolicy: ThinkingBudgetPolicy,
@@ -83,7 +82,6 @@ struct ModelLifecycleCoordinator: Sendable {
         requestedContextTokenLimit: requestedContextTokenLimit
       ),
       supportsImageInput: supportsImageInput,
-      reasoningTraceFormat: reasoningTraceFormat,
       supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation,
       reasoningCapability: reasoningCapability,
       thinkingBudgetPolicy: thinkingBudgetPolicy

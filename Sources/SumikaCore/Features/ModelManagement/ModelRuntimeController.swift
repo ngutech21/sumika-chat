@@ -366,7 +366,6 @@ final class ModelRuntimeController {
     let runtimeOperations = runtimeOperations
     let requestedContextTokenLimit = modelContextTokenLimit
     let supportsImageInput = selectedModel.supportsImageInput
-    let reasoningTraceFormat = selectedModel.reasoningTraceFormat
     let supportsHistoricalReasoningPreservation =
       selectedModel.supportsHistoricalReasoningPreservation
     let reasoningCapability = selectedModel.reasoningCapability
@@ -382,7 +381,6 @@ final class ModelRuntimeController {
           from: directoryURL,
           requestedContextTokenLimit: requestedContextTokenLimit,
           supportsImageInput: supportsImageInput,
-          reasoningTraceFormat: reasoningTraceFormat,
           supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation,
           reasoningCapability: reasoningCapability,
           thinkingBudgetPolicy: thinkingBudgetPolicy,

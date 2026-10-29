@@ -48,7 +48,6 @@ nonisolated final class MLXPrefillBenchmarkTests: XCTestCase {
         configuration: ChatModelConfiguration(
           localModelDirectory: modelDirectory, contextTokenLimit: 65_536,
           supportsImageInput: model.supportsImageInput,
-          reasoningTraceFormat: model.reasoningTraceFormat,
           supportsHistoricalReasoningPreservation: model.supportsHistoricalReasoningPreservation,
           reasoningCapability: model.reasoningCapability,
           thinkingBudgetPolicy: model.thinkingBudgetPolicy))

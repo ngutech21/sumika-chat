@@ -299,7 +299,10 @@ termination. It holds completion information and pending native tool calls until
 upstream consumption has finished, `ChatSession.synchronize()` has acquired and
 released the upstream cache lock, and the MLX stream has synchronized under the
 scoped handler. A failure during final synchronization therefore cannot become a
-successful completion. There is no additional per-token GPU synchronization.
+successful completion. The stream processor also holds tool events and subsequent
+semantic output until response validation succeeds, so a rejected sibling call,
+invalid response marker, or output limit cannot release pending tools. There is
+no additional per-token GPU synchronization.
 
 On failure, the stream processor cancels and drains the guard before invalidating
 the session. A captured MLX error takes precedence over cancellation caused by that
@@ -871,10 +874,11 @@ exact cache validation still rebuilds for other prefix or alignment mismatches.
 The MLX tool decoder starts inside reasoning when the full prepared prompt ends
 with its configured opening delimiter, allowing trailing whitespace. This state
 is detected before cache slicing and passed to fresh and reused generations.
-Reasoning text remains byte-for-byte intact, while Markdown fences or inline code
-inside it cannot hide a later natural, budget-forced, or configured implicit
-close. After the close, normal protection of tool examples inside answer code
-fences and structured data still applies.
+Upstream emits delimiter-free `Generation.reasoning` separately from visible
+`Generation.chunk` text. Markdown fences or inline code inside reasoning cannot
+hide a later natural, budget-forced, or configured implicit close. After the close,
+normal protection of tool examples inside answer code fences and structured data
+still applies.
 
 Budget setup fails before generation when the interaction mode or validated
 Qwen protocol is unavailable, or when the generation token limit cannot provide
@@ -890,29 +894,39 @@ Debug request and response rows record them under `thinkingBudget` with `policy`
 `validationStatus`; response rows additionally record `thinkingBudgetOutcome`
 and, for failures, `thinkingBudgetDiagnostic`.
 
-Thought streaming is model-capability driven through `ManagedModel`'s
-`reasoningTraceFormat`. The MLX stream processor maps Gemma thought-channel
-markers and Qwen `<think>...</think>` traces into `thinkingChunk` events before
-the UI sees the response. It emits `thinkingCompleted` when the parser confirms a
-reasoning boundary: a matching close marker or a recognized implicit boundary,
-including a native tool call.
+Thought streaming uses upstream semantic events. The MLX stream processor maps
+`Generation.reasoning` directly to `thinkingChunk` and `Generation.chunk` to
+visible output, without reparsing reasoning delimiters. Both channels contribute
+to first-output timing and existing generation progress/response traces; those
+text traces contain semantic text, not a reconstruction of raw protocol markers.
+The existing token-progress trace remains the raw-token diagnostic source.
 
-EOF, cancellation, or an output limit does not itself confirm an open reasoning
-segment. Finalize an unconfirmed thinking transcript item with
-`deliveryStatus: .cancelled` and an end timestamp; thinking already confirmed by
-`thinkingCompleted` remains `.complete`. Ending a stream with open reasoning
-invalidates the runtime cache. These delivery states distinguish interrupted
-reasoning from reasoning eligible for historical replay.
+`thinkingCompleted` is emitted immediately before a following answer chunk or
+accepted native tool call. EOF, cancellation, and output limits do not themselves
+confirm an open reasoning segment. Unconfirmed thinking is finalized with
+`deliveryStatus: .cancelled` and an end timestamp; confirmed thinking remains
+`.complete`. An open reasoning segment invalidates the runtime cache and is not
+eligible for historical replay. Empty semantic chunks do not confirm reasoning.
 
-Qwen parsing starts in the thinking state when reasoning is enabled because the
-Qwen chat template can place the opening `<think>` marker in the prompt instead
-of the generated stream. The `enable_thinking` additional-context key remains
-generic and parser selection stays outside SwiftUI.
+Hard-budget Qwen validation observes accepted emitted tokens through `didEmit`,
+before upstream removes protocol markers. Preflight requires distinct,
+roundtripping single-token IDs for the configured reasoning opener, closer, and
+implicit tool-call boundary. The guard starts inside reasoning on each enforced
+request, including cached continuations whose input suffix omits the opener.
+A canonical opener after the close or a duplicate canonical close fails closed.
+Ordinary-token spellings of reasoning tags remain text. Response-only validation
+checks unexpected chat boundaries and configured stop strings after tool
+extraction, leaving tool arguments untouched; an incomplete response marker
+fails normal completion but is discarded on output limit or cancellation.
 
-Phase 1 performs Qwen history reconstruction in Sumika without changing
-`MLXLMCommon.ChatSession` or `Chat.Message`. Consequently, a literal
-`</think>` in visible Qwen output remains indistinguishable from the template's
-reasoning close marker until upstream exposes a structured reasoning field.
+Upstream retains completed reasoning for templates that replay it. Sumika keeps
+Qwen history reconstruction and `preserve_thinking` for rebuilt sessions because
+the upstream separate reasoning field is package-private. For models without
+historical-reasoning support, including Gemma, completed reasoning makes the
+runtime session dirty after a successful answer or tool call. The next generation
+rebuilds from canonical history and reports `history_changed`. This preserves the
+same history policy for warm and rebuilt sessions at the cost of additional
+prefill after thinking turns. Generations without reasoning retain normal reuse.
 
 ## Persistence Rules
 

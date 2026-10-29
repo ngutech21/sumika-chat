@@ -72,7 +72,6 @@ classDiagram
     stability: ManagedModelStability
     toolCallingPolicy: ToolCallingPolicy
     supportsImageInput: Bool
-    reasoningTraceFormat: ReasoningTraceFormat
     supportsHistoricalReasoningPreservation: Bool
     reasoningCapability: ModelReasoningCapability
     defaultModeSettings: ChatModeSettingsSet
@@ -89,13 +88,6 @@ classDiagram
   class ToolCallingPolicy {
     isEnabled: Bool
     allowsMultipleToolCalls: Bool
-  }
-
-  class ReasoningTraceFormat {
-    <<enum>>
-    none
-    gemmaChannel
-    qwenThinkTags
   }
 
   class ChatGenerationSettings {

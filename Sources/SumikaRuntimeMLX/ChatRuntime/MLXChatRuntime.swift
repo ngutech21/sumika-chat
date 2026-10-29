@@ -13,7 +13,6 @@ final actor MLXChatRuntime: ChatModelRuntime {
 
   private var modelContainer: ModelContainer?
   private var loadedModelSupportsImageInput = false
-  private var loadedReasoningTraceFormat: ReasoningTraceFormat = .none
   private var loadedModelPreservesHistoricalReasoning = false
   private var loadedModelReasoningCapability: ModelReasoningCapability = .toggle
   private var loadedThinkingBudgetPolicy: ThinkingBudgetPolicy = .unmanaged
@@ -97,7 +96,6 @@ final actor MLXChatRuntime: ChatModelRuntime {
         }
       modelContainer = container
       loadedModelSupportsImageInput = configuration.supportsImageInput
-      loadedReasoningTraceFormat = configuration.reasoningTraceFormat
       loadedModelPreservesHistoricalReasoning =
         configuration.supportsHistoricalReasoningPreservation
       loadedModelReasoningCapability = configuration.reasoningCapability
@@ -128,7 +126,6 @@ final actor MLXChatRuntime: ChatModelRuntime {
     modelContainer = nil
     runtimeCacheDiagnostics = nil
     loadedModelSupportsImageInput = false
-    loadedReasoningTraceFormat = .none
     loadedModelPreservesHistoricalReasoning = false
     loadedModelReasoningCapability = .toggle
     loadedThinkingBudgetPolicy = .unmanaged
@@ -410,8 +407,6 @@ final actor MLXChatRuntime: ChatModelRuntime {
       )
       let streamPlan = MLXModelStreamProcessor.modelStreamPlan(
         from: startedGeneration.stream,
-        reasoningTraceFormat: effectiveReasoningSelection.isEnabled
-          ? loadedReasoningTraceFormat : .none,
         traceID: traceID,
         traceMetadata: traceMetadata,
         cacheTrace: cachePlan.trace,
@@ -906,7 +901,11 @@ extension MLXChatRuntime {
     }
 
     guard let cached = cachedSession,
-      let completedState = cached.state.completing(generationID: generationID)
+      let completedState = cached.state.completing(
+        generationID: generationID,
+        completedReasoningContent: assistant.completedReasoningContent,
+        supportsHistoricalReasoningPreservation: loadedModelPreservesHistoricalReasoning
+      )
     else {
       return
     }
@@ -943,7 +942,11 @@ extension MLXChatRuntime {
     }
 
     guard let cached = cachedSession,
-      let completedState = cached.state.completing(generationID: generationID)
+      let completedState = cached.state.completing(
+        generationID: generationID,
+        completedReasoningContent: assistant.completedReasoningContent,
+        supportsHistoricalReasoningPreservation: loadedModelPreservesHistoricalReasoning
+      )
     else {
       return
     }

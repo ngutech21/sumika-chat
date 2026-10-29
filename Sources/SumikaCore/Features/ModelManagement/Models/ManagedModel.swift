@@ -17,12 +17,6 @@ package enum ManagedModelRecommendation: Equatable, Sendable {
   case bestForGroup
 }
 
-package enum ReasoningTraceFormat: Equatable, Sendable {
-  case none
-  case gemmaChannel
-  case qwenThinkTags
-}
-
 /// A chat-template reasoning effort persisted as a stable string.
 package enum ReasoningEffort: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
   case low
@@ -171,7 +165,6 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
   package let stability: ManagedModelStability
   package let toolCallingPolicy: ToolCallingPolicy
   package let supportsImageInput: Bool
-  package let reasoningTraceFormat: ReasoningTraceFormat
   package let supportsHistoricalReasoningPreservation: Bool
   package let reasoningCapability: ModelReasoningCapability
   package let thinkingBudgetPolicy: ThinkingBudgetPolicy
@@ -193,7 +186,6 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     stability: ManagedModelStability,
     toolCallingPolicy: ToolCallingPolicy = .nativeMLX,
     supportsImageInput: Bool,
-    reasoningTraceFormat: ReasoningTraceFormat = .none,
     supportsHistoricalReasoningPreservation: Bool = false,
     reasoningCapability: ModelReasoningCapability = .toggle,
     thinkingBudgetPolicy: ThinkingBudgetPolicy = .unmanaged,
@@ -214,7 +206,6 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     self.stability = stability
     self.toolCallingPolicy = toolCallingPolicy
     self.supportsImageInput = supportsImageInput
-    self.reasoningTraceFormat = reasoningTraceFormat
     self.supportsHistoricalReasoningPreservation = supportsHistoricalReasoningPreservation
     precondition(reasoningCapability.hasValidOptions)
     self.reasoningCapability = reasoningCapability
@@ -259,7 +250,6 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: false,
       stability: .stable,
       supportsImageInput: true,
-      reasoningTraceFormat: .gemmaChannel,
       generationProfile: .gemma4,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit
@@ -276,7 +266,6 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
-      reasoningTraceFormat: .gemmaChannel,
       generationProfile: .gemma4,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit
@@ -293,7 +282,6 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
-      reasoningTraceFormat: .gemmaChannel,
       generationProfile: .gemma4,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit
@@ -309,7 +297,6 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
-      reasoningTraceFormat: .gemmaChannel,
       generationProfile: .gemma4,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
@@ -327,7 +314,6 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
-      reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,
       generationProfile: .qwen36,
@@ -347,7 +333,6 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
-      reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,
       generationProfile: .qwen36,
@@ -366,7 +351,6 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
-      reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,
       generationProfile: .qwen36,
@@ -385,7 +369,6 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
-      reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,
       generationProfile: .qwen36,
@@ -405,7 +388,6 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
-      reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,
       generationProfile: .qwen36,
@@ -424,7 +406,6 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
-      reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,
       generationProfile: .qwen36,
@@ -443,7 +424,6 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
-      reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       reasoningCapability: .selectableEffort(
         supported: [.low, .medium, .xhigh],
@@ -467,7 +447,6 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
-      reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       reasoningCapability: .selectableEffort(
         supported: [.low, .medium, .xhigh],
@@ -491,7 +470,6 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: false,
-      reasoningTraceFormat: .qwenThinkTags,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,
       generationProfile: .qwen36,

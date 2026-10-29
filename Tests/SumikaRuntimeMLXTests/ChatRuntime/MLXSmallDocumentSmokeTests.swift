@@ -203,7 +203,6 @@ nonisolated final class MLXSmallDocumentSmokeTests: XCTestCase {
           contextTokenLimit: min(
             16_384, LocalModelDirectory.readContextTokenLimit(from: directory) ?? 16_384),
           supportsImageInput: model.supportsImageInput,
-          reasoningTraceFormat: model.reasoningTraceFormat,
           supportsHistoricalReasoningPreservation: model.supportsHistoricalReasoningPreservation,
           reasoningCapability: model.reasoningCapability,
           thinkingBudgetPolicy: model.thinkingBudgetPolicy
