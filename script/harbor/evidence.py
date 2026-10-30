@@ -1,4 +1,4 @@
-"""Per-trial reproduction evidence and a read-only integrity check for Harbor 0.24.0."""
+"""Per-trial reproduction evidence and a read-only integrity check for Harbor."""
 
 import asyncio
 import hashlib
@@ -143,7 +143,7 @@ def prepare_trial(event, repository):
 
 
 async def capture_environment(environment, logs_dir):
-    # This Compose lookup is tied to the adapter's exact Harbor version pin.
+    # Harbor exposes running image IDs through its Docker Compose implementation.
     images = await environment._run_docker_compose_command(["images", "-q"], timeout_sec=30)
     identifiers = sorted(set(images.stdout.split()))
     if not identifiers:
@@ -598,8 +598,6 @@ def save_assessment(trial):
 
 class EvidencePlugin:
     async def on_job_start(self, job):
-        if version("harbor") != "0.24.0":
-            raise ValueError("Evidence collection requires harbor==0.24.0.")
         self.job_dir = job.job_dir
         job.on_trial_started(self.started)
         job.on_trial_ended(self.ended)

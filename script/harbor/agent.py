@@ -1,4 +1,4 @@
-"""Harbor 0.24.0 adapter for the native SumikaEval executable."""
+"""Harbor adapter for the native SumikaEval executable."""
 
 import asyncio
 import contextlib
@@ -8,7 +8,6 @@ import os
 import shlex
 import signal
 import weakref
-from importlib.metadata import version
 from pathlib import Path
 from typing import Literal
 
@@ -30,14 +29,12 @@ class SumikaOptions(AgentOptions):
 
 class SumikaAgent(BaseAgent):
     options_model = SumikaOptions
-    capabilities = AgentCapabilities(atif=True, resume=True)
+    capabilities = AgentCapabilities(atif=True, resume=True, reasoning_effort=True)
     # Harbor's END hook closes workers even when reward gating skips the next resume.
     _live_workers = weakref.WeakValueDictionary()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if version("harbor") != "0.24.0":
-            raise ValueError("This adapter requires harbor==0.24.0.")
         self.binary = self.options.binary.expanduser().resolve(strict=True)
         self.reasoning_effort = self.options.reasoning_effort
         if not self.model_name:

@@ -10,8 +10,10 @@ Checkpoint tasks can optionally retain the native conversation and loaded model.
 
 - Apple Silicon Mac, Docker running, and an already-installed Sumika model.
 - [uv](https://docs.astral.sh/uv/getting-started/installation/). The local uv
-  project pins Harbor **0.24.0**, the version checked by the adapter, and locks
-  its transitive dependencies in `uv.lock`. `.python-version` selects Python
+  project declares its Harbor dependency in `pyproject.toml` and locks
+  its transitive dependencies in `uv.lock`. The adapter and evidence plugin do
+  not enforce a specific Harbor version; run the checks below after upgrading.
+  `.python-version` selects Python
   **3.14.8**. From the repository root, install and check the environment:
 
   ```sh

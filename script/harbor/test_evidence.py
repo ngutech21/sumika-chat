@@ -1241,7 +1241,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(task_id.ref, "latest")
 
     async def test_capture_needs_no_recipe_paths_and_hooks_run_after_trial_and_job(self):
-        with patch("script.harbor.evidence.version", return_value="0.24.0"):
+        with patch("script.harbor.evidence.version", side_effect=AssertionError("Unexpected package version check")):
             plugin = EvidencePlugin()
             job = SimpleNamespace(
                 config=SimpleNamespace(artifacts=[]),
@@ -1370,7 +1370,7 @@ class LegacyCaptureTests(unittest.IsolatedAsyncioTestCase):
             shutil.copytree(self.remote / source_dir.lstrip("/"), target_dir, dirs_exist_ok=True, symlinks=True)
 
         self.environment = SimpleNamespace(
-            capabilities=SimpleNamespace(mounted=False),
+            is_path_mounted=lambda *_args: False,
             exec=AsyncMock(
                 side_effect=lambda *_args, **_kwargs: SimpleNamespace(
                     return_code=(

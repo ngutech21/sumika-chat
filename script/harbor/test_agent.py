@@ -500,6 +500,7 @@ artifacts = """
             options = SumikaAgent.parse_options({"binary": sys.executable, **kwargs})
             self.assertEqual(options.binary, Path(sys.executable))
             self.assertIsNone(options.reasoning_effort)
+        SumikaAgent.preflight({"binary": sys.executable, "reasoning_effort": "low"})
         self.assertEqual(SumikaAgent.options_schema()["required"], ["binary"])
 
     async def test_harbor_budget_must_be_finite_before_native_launch(self):
