@@ -364,11 +364,11 @@ bool tree_sitter_python_external_scanner_scan(void *payload, TSLexer *lexer, con
 unsigned tree_sitter_python_external_scanner_serialize(void *payload, char *buffer) {
     Scanner *scanner = (Scanner *)payload;
 
-    size_t size = 0;
+    unsigned size = 0;
 
     buffer[size++] = (char)scanner->inside_interpolated_string;
 
-    size_t delimiter_count = scanner->delimiters.size;
+    uint32_t delimiter_count = scanner->delimiters.size;
     if (delimiter_count > UINT8_MAX) {
         delimiter_count = UINT8_MAX;
     }
@@ -401,7 +401,7 @@ void tree_sitter_python_external_scanner_deserialize(void *payload, const char *
 
         scanner->inside_interpolated_string = (bool)buffer[size++];
 
-        size_t delimiter_count = (uint8_t)buffer[size++];
+        uint32_t delimiter_count = (uint8_t)buffer[size++];
         if (delimiter_count > 0) {
             array_reserve(&scanner->delimiters, delimiter_count);
             scanner->delimiters.size = delimiter_count;

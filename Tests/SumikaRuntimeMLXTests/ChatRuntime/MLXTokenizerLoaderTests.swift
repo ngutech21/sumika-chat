@@ -6,7 +6,6 @@ import Testing
 import Tokenizers
 import XCTest
 
-@testable import SumikaCore
 @testable import SumikaRuntimeMLX
 
 @Suite
