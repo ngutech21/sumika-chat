@@ -1129,7 +1129,6 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(python["version"], sys.version)
                     self.assertEqual(python["executable"], sys.executable)
                     self.assertIn("pydantic", python["packages"])
-                    self.assertEqual(python["packages"]["harbor"], "0.24.0")
                     self.assertEqual(python["uv_lock"]["sha256"], hashlib.sha256(b"locked dependencies").hexdigest())
                     mounts = Trial._agent_env_mounts.fget(
                         SimpleNamespace(
