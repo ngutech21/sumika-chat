@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.16.0](https://github.com/ngutech21/sumika-chat/compare/v1.15.0...v1.16.0) (2026-10-30)
+
+
+### Features
+
+* adopt native MLX reasoning events ([1a48d7f](https://github.com/ngutech21/sumika-chat/commit/1a48d7fb54cf0c7f3686ff756afb3f8c2f7d6d3b))
+
+
+### Bug Fixes
+
+* handle MLX literals and incomplete tool calls ([3fed0f3](https://github.com/ngutech21/sumika-chat/commit/3fed0f349b23aa387236dc43cdd37f89f0daad99))
+* resolve analyzer import and scanner warnings ([8a94e71](https://github.com/ngutech21/sumika-chat/commit/8a94e71c4a1772f0147426cbf0221a0230ccd6df))
+* support Harbor upgrades without runtime version guards ([14f2e27](https://github.com/ngutech21/sumika-chat/commit/14f2e27d9b92bb31a9c2f991a367ca2119db28de))
+
 ## [1.15.0](https://github.com/ngutech21/sumika-chat/compare/v1.14.0...v1.15.0) (2026-10-17)
 
 
