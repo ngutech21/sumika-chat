@@ -5,18 +5,19 @@ import MLXNN
 import MLXVLM
 import XCTest
 
+@testable import SumikaCore
 @testable import SumikaRuntimeMLX
 
 nonisolated final class Swift15ModelLoaderTests: XCTestCase {
   func testUnrelatedExportsDoNotLoadATokenizer() async throws {
     let directory = try temporaryDirectory()
     let missing = try await Swift15ModelLoader.loadIfSupported(
-      from: directory, using: UnexpectedTokenizerLoader())
+      from: directory, using: UnexpectedTokenizerLoader(), loadMTPDrafter: true)
     XCTAssertNil(missing)
     try Data(#"{"source_repository":"another/model"}"#.utf8).write(
       to: directory.appending(path: "QUANTIZATION_MANIFEST.json"))
     let unrelated = try await Swift15ModelLoader.loadIfSupported(
-      from: directory, using: UnexpectedTokenizerLoader())
+      from: directory, using: UnexpectedTokenizerLoader(), loadMTPDrafter: false)
     XCTAssertNil(unrelated)
   }
 
@@ -32,7 +33,7 @@ nonisolated final class Swift15ModelLoaderTests: XCTestCase {
       try Data(Self.smallConfiguration.utf8).write(to: directory.appending(path: "config.json"))
       do {
         _ = try await Swift15ModelLoader.loadIfSupported(
-          from: directory, using: UnexpectedTokenizerLoader())
+          from: directory, using: UnexpectedTokenizerLoader(), loadMTPDrafter: true)
         XCTFail("An incompatible recognized export must fail before tokenizer or weight loading.")
       } catch {
         XCTAssertTrue(error.localizedDescription.contains("Swift 1.5 compatibility"), "\(error)")
@@ -86,23 +87,8 @@ nonisolated final class Swift15ModelLoaderTests: XCTestCase {
     let norm = try XCTUnwrap(modules["language_model.model.norm"] as? RMSNorm)
     let raw = MLXArray((0..<64).map { Float($0 - 32) / 10_000 }).asType(.bfloat16)
     try norm.update(parameters: ModuleParameters.unflattened(["weight": raw]), verify: [.all])
-    let input = MLXArray((0..<128).map { Float($0 % 17 - 8) / 7 }).reshaped([2, 64])
-      .asType(.bfloat16)
-    let values = input.asType(.float32).asArray(Float.self)
-    let offsets = raw.asType(.float32).asArray(Float.self)
-    var expected = [Float]()
-    for row in 0..<2 {
-      let slice = Array(values[(row * 64)..<((row + 1) * 64)])
-      let inverseRMS = 1 / sqrt(slice.reduce(Float(0)) { $0 + $1 * $1 } / 64 + norm.eps)
-      expected += zip(slice, offsets).map { $0 * inverseRMS * (1 + $1) }
-    }
-    let result = norm(input)
-    XCTAssertEqual(result.dtype, .bfloat16)
-    XCTAssertEqual(
-      result.asType(.float32).asArray(Float.self),
-      MLXArray(expected).asType(.bfloat16).asType(.float32).asArray(Float.self))
-    XCTAssertEqual(norm.weight.asType(.float32).asArray(Float.self), offsets)
-    XCTAssertFalse(type(of: norm) == RMSNorm.self)
+    try assertOffsetNormalization(norm)
+    XCTAssertEqual(norm.weight.asArray(Float.self), raw.asArray(Float.self))
     for (path, module) in modules where path.hasPrefix("language_model.") && module is RMSNorm {
       XCTAssertTrue(type(of: module) == type(of: norm), "Unadapted norm: \(path)")
     }
@@ -199,34 +185,163 @@ nonisolated final class Swift15ModelLoaderTests: XCTestCase {
     XCTAssertEqual(try prefillLogits(adapter, input: image), expected)
   }
 
-  func testInstalledExportRetainsAdapterWithDeferredVision() async throws {
+  func testEmbeddedDrafterLoadsQuantizedFusionAndPreservesRawNorms() throws {
+    let directory = try temporaryDirectory()
+    let adapter = try makeAdapter(loadMTPDrafter: true)
+    let checkpoint = try makeCheckpoint(adapter)
+    let url = directory.appending(path: "model.safetensors")
+    try MLX.save(arrays: checkpoint.weights, metadata: ["format": "mlx"], url: url)
+    try loadWeights(
+      modelDirectory: directory, model: adapter,
+      perLayerQuantization: checkpoint.perLayerQuantization)
+    let drafter = try XCTUnwrap(adapter.loadMTPDrafter())
+    try drafter.validateCompatibility(with: adapter.qwen)
+    let modules = Dictionary(uniqueKeysWithValues: drafter.leafModules().flattened())
+    for path in ["mtp.fc", "mtp.layers.0.self_attn.q_proj", "mtp.layers.0.mlp.down_proj"] {
+      let projection = try XCTUnwrap(modules[path] as? QuantizedLinear)
+      XCTAssertEqual(projection.groupSize, 64)
+      XCTAssertEqual(projection.bits, 4)
+      XCTAssertEqual(projection.mode, .affine)
+      XCTAssertEqual(projection.weight.dtype, .uint32)
+    }
+    let source = try XCTUnwrap(checkpoint.weights["mtp.pre_fc_norm_embedding.weight"])
+    let norm = try XCTUnwrap(modules["mtp.pre_fc_norm_embedding"] as? RMSNorm)
+    XCTAssertEqual(norm.weight.asArray(Float.self), source.asArray(Float.self))
+    try assertOffsetNormalization(norm)
+    XCTAssertTrue(
+      modules.values.compactMap { $0 as? RMSNorm }.allSatisfy { type(of: $0) == type(of: norm) })
+    XCTAssertEqual(drafter.parameters().flattened().count, 31)
+    XCTAssertFalse(adapter.parameters().flattened().contains { $0.0.contains("mtp.") })
+  }
+
+  func testEmbeddedDrafterRetentionKeepsMetadataAndQuantization() throws {
+    let adapter = try makeAdapter(loadMTPDrafter: true)
+    let source = try makeCheckpoint(adapter)
+    let checkpoint = ModelCheckpoint(
+      weights: source.weights, metadata: source.metadata,
+      weightMetadata: [
+        "mtp.norm.weight": ["format": "mlx", "mlx_swift_lm.qwen_mtp.norm_convention": "unknown"]
+      ],
+      perLayerQuantization: source.perLayerQuantization)
+    _ = try adapter.prepareCheckpoint(checkpoint)
+    XCTAssertThrowsError(try adapter.loadMTPDrafter()) { error in
+      XCTAssertTrue(error.localizedDescription.contains("conversion metadata"))
+    }
+    var incompatible = source
+    incompatible.perLayerQuantization?.perLayerQuantization["mtp.fc"] =
+      .quantize(.init(groupSize: 32, bits: 8))
+    _ = try adapter.prepareCheckpoint(incompatible)
+    XCTAssertThrowsError(try adapter.loadMTPDrafter())
+  }
+
+  func testDisabledDrafterDoesNotRequireEmbeddedWeights() throws {
+    let adapter = try makeAdapter()
+    var checkpoint = try makeCheckpoint(adapter)
+    checkpoint.weights = checkpoint.weights.filter { !$0.key.hasPrefix("mtp.") }
+    _ = try adapter.prepareCheckpoint(checkpoint)
+    XCTAssertNil(try adapter.loadMTPDrafter())
+  }
+
+  func testEmbeddedDrafterRejectsIncompleteOrIncompatibleWeights() throws {
+    let adapter = try makeAdapter(loadMTPDrafter: true)
+    let checkpoint = try makeCheckpoint(adapter)
+    for key in ["mtp.fc.scales", "mtp.norm.weight"] {
+      var damaged = checkpoint
+      damaged.weights.removeValue(forKey: key)
+      _ = try adapter.prepareCheckpoint(damaged)
+      XCTAssertThrowsError(try adapter.loadMTPDrafter(), key)
+    }
+    var damaged = checkpoint
+    damaged.weights["mtp.fc.weight"] = MLXArray.zeros([64, 15], dtype: .uint32)
+    _ = try adapter.prepareCheckpoint(damaged)
+    XCTAssertThrowsError(try adapter.loadMTPDrafter())
+    damaged = checkpoint
+    damaged.perLayerQuantization = .init(
+      quantization: .init(groupSize: 32, bits: 8), perLayerQuantization: [:])
+    _ = try adapter.prepareCheckpoint(damaged)
+    XCTAssertThrowsError(try adapter.loadMTPDrafter())
+    damaged = checkpoint
+    damaged.weights = damaged.weights.filter { !$0.key.hasPrefix("mtp.") }
+    _ = try adapter.prepareCheckpoint(damaged)
+    XCTAssertThrowsError(try adapter.loadMTPDrafter())
+  }
+
+  func testDrafterRequiresOneLayerAndSharedEmbeddings() throws {
+    let variations: [[String: Any]] = [
+      ["mtp_num_hidden_layers": 2], ["mtp_use_dedicated_embeddings": true],
+    ]
+    for variation in variations {
+      let configuration = try smallConfiguration(mtpOverrides: variation)
+      XCTAssertThrowsError(
+        try Swift15ModelLoader.CheckpointAdapter(configuration, loadMTPDrafter: true))
+      _ = try Swift15ModelLoader.CheckpointAdapter(configuration, loadMTPDrafter: false)
+    }
+  }
+
+  func testNativeTargetRetainsCheckpointAdapterForDeferredVisionAndMTP() async throws {
+    let directory = try temporaryDirectory()
+    func loadTarget() throws -> ModelContainer {
+      let adapter = try makeAdapter(loadMTPDrafter: true)
+      let checkpoint = try makeCheckpoint(adapter)
+      try MLX.save(
+        arrays: checkpoint.weights, metadata: ["format": "mlx"],
+        url: directory.appending(path: "model.safetensors"))
+      try loadWeights(
+        modelDirectory: directory, model: adapter,
+        perLayerQuantization: checkpoint.perLayerQuantization)
+      let drafter = try XCTUnwrap(adapter.loadMTPDrafter())
+      try drafter.validateCompatibility(with: adapter.qwen)
+      let input = StubInput()
+      return adapter.modelContainer(
+        context: ModelContext(
+          configuration: ModelConfiguration(directory: directory), model: adapter,
+          processor: input, tokenizer: input))
+    }
+
+    let container = try loadTarget()
+    let loadedVision = try await container.perform { context in
+      let model = try XCTUnwrap(context.model as? Qwen35)
+      let vision = try XCTUnwrap(model.onDemandComponents.first)
+      XCTAssertFalse(vision.isLoaded)
+      let input = LMInput(
+        text: .init(tokens: MLXArray([1, 6, 5, 7, 2]).reshaped([1, 5])),
+        image: .init(pixels: MLXArray.zeros([4, 24]), frames: [.init(1, 2, 2)]))
+      let prepared = try model.prepare(
+        input, cache: model.newCache(parameters: nil), state: nil, prefill: .init())
+      guard case .logits(let output) = prepared else {
+        throw CocoaError(.coderInvalidValue)
+      }
+      XCTAssertTrue(all(isFinite(output.logits)).item(Bool.self))
+      return vision.isLoaded
+    }
+    XCTAssertTrue(loadedVision)
+  }
+
+  func testInstalledExportPublishesConcreteQwenWithDeferredVision() async throws {
     guard
       ProcessInfo.processInfo.environment["SUMIKA_DOCUMENT_SMOKE_MODEL_ID"]
         == "Swift-1.5-4bit-MLX"
     else { throw XCTSkip("Set SUMIKA_DOCUMENT_SMOKE_MODEL_ID=Swift-1.5-4bit-MLX.") }
-    let root =
+    let model = try XCTUnwrap(ManagedModelCatalog.model(id: "Swift-1.5-4bit-MLX"))
+    let directory =
       ProcessInfo.processInfo.environment["SUMIKA_DOCUMENT_SMOKE_MODELS_PATH"]
-      .map { URL(filePath: $0) }
-      ?? FileManager.default.homeDirectoryForCurrentUser.appending(
-        path: "Library/Application Support/Sumika/Models")
-    let directory = root.appending(path: "Swift-1.5-4bit-MLX")
+      .map { URL(filePath: $0).appending(path: model.localDirectoryName) }
+      ?? model.localDirectoryURL
     guard FileManager.default.fileExists(atPath: directory.appending(path: "config.json").path)
     else {
       throw XCTSkip("Swift 1.5 is not installed.")
     }
     let loaded = try await Swift15ModelLoader.loadIfSupported(
-      from: directory, using: makeHuggingFaceTokenizerLoader())
-    let container = try XCTUnwrap(loaded)
-    let deferred = await container.perform { context in
-      guard let adapter = context.model as? Swift15ModelLoader.CheckpointAdapter else {
-        return false
-      }
+      from: directory, using: makeHuggingFaceTokenizerLoader(), loadMTPDrafter: false)
+    let target = try XCTUnwrap(loaded).target
+    let native = await target.perform { context in
+      guard let model = context.model as? Qwen35 else { return false }
       return context.configuration.toolCallFormat == .qwen35
         && context.configuration.reasoningConfig != nil
-        && adapter.onDemandComponents.allSatisfy { !$0.isLoaded }
-        && !adapter.parameters().flattened().contains { $0.0.hasPrefix("qwen.vision_tower.") }
+        && model.onDemandComponents.allSatisfy { !$0.isLoaded }
+        && !model.parameters().flattened().contains { $0.0.hasPrefix("vision_tower.") }
     }
-    XCTAssertTrue(deferred)
+    XCTAssertTrue(native)
   }
 
   private func prefillLogits(_ adapter: Swift15ModelLoader.CheckpointAdapter, input: LMInput) throws
@@ -249,9 +364,21 @@ nonisolated final class Swift15ModelLoaderTests: XCTestCase {
     return directory
   }
 
-  private func makeAdapter() throws -> Swift15ModelLoader.CheckpointAdapter {
+  private func smallConfiguration(mtpOverrides: [String: Any] = [:]) throws -> Qwen35Configuration {
+    var json = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: Data(Self.smallConfiguration.utf8)) as? [String: Any])
+    var text = try XCTUnwrap(json["text_config"] as? [String: Any])
+    text.merge(mtpOverrides) { _, new in new }
+    json["text_config"] = text
+    return try JSONDecoder().decode(
+      Qwen35Configuration.self, from: JSONSerialization.data(withJSONObject: json))
+  }
+
+  private func makeAdapter(loadMTPDrafter: Bool = false) throws
+    -> Swift15ModelLoader.CheckpointAdapter
+  {
     try Swift15ModelLoader.CheckpointAdapter(
-      JSONDecoder().decode(Qwen35Configuration.self, from: Data(Self.smallConfiguration.utf8)))
+      smallConfiguration(), loadMTPDrafter: loadMTPDrafter)
   }
 
   private func makeCheckpoint(_ adapter: Swift15ModelLoader.CheckpointAdapter) throws
@@ -267,11 +394,38 @@ nonisolated final class Swift15ModelLoaderTests: XCTestCase {
       .bfloat16)
     weights["visual.pos_embed.biases"] = MLXArray.full([16, 1], values: MLXArray(-1)).asType(
       .bfloat16)
-    weights["mtp.norm.weight"] = MLXArray.ones([64])
+    let draft = Qwen35VLMNextNDraftModel(adapter.qwen.config, preconvertedNorms: true)
+    quantize(model: draft, groupSize: 64, bits: 4)
+    for (path, value) in draft.parameters().flattened() {
+      weights[path] = value.dtype == .uint32 ? value : value.asType(.bfloat16)
+      if path.contains("norm") {
+        weights[path] = MLXArray((0..<value.size).map { Float($0 - value.size / 2) / 10_000 })
+          .reshaped(value.shape).asType(.bfloat16)
+      }
+    }
     return ModelCheckpoint(
       weights: weights, metadata: ["format": "mlx"],
       perLayerQuantization: .init(
         quantization: .init(groupSize: 64, bits: 4), perLayerQuantization: [:]))
+  }
+
+  private func assertOffsetNormalization(_ norm: RMSNorm) throws {
+    let input = MLXArray((0..<128).map { Float($0 % 17 - 8) / 7 }).reshaped([2, 64])
+      .asType(.bfloat16)
+    let values = input.asType(.float32).asArray(Float.self)
+    let offsets = norm.weight.asType(.float32).asArray(Float.self)
+    var expected = [Float]()
+    for row in 0..<2 {
+      let slice = Array(values[(row * 64)..<((row + 1) * 64)])
+      let inverseRMS = 1 / sqrt(slice.reduce(Float(0)) { $0 + $1 * $1 } / 64 + norm.eps)
+      expected += zip(slice, offsets).map { $0 * inverseRMS * (1 + $1) }
+    }
+    let result = norm(input)
+    XCTAssertEqual(result.dtype, input.dtype)
+    XCTAssertEqual(
+      result.asType(.float32).asArray(Float.self),
+      MLXArray(expected).asType(.bfloat16).asType(.float32).asArray(Float.self))
+    XCTAssertFalse(type(of: norm) == RMSNorm.self)
   }
 
   private static let manifest = #"""
@@ -287,6 +441,7 @@ nonisolated final class Swift15ModelLoaderTests: XCTestCase {
      "language_model_only":false,"quantization":{"bits":4,"group_size":64,"mode":"affine"},
      "quantization_config":{"bits":4,"group_size":64,"mode":"affine"},
      "text_config":{"model_type":"qwen3_5_text","hidden_size":64,"num_hidden_layers":2,
+       "mtp_num_hidden_layers":1,"mtp_use_dedicated_embeddings":false,
        "intermediate_size":128,"num_attention_heads":4,"num_key_value_heads":2,"head_dim":16,
        "linear_num_value_heads":2,"linear_num_key_heads":1,"linear_key_head_dim":16,
        "linear_value_head_dim":16,"linear_conv_kernel_dim":4,"full_attention_interval":2,
@@ -301,5 +456,21 @@ nonisolated final class Swift15ModelLoaderTests: XCTestCase {
       XCTFail("Tokenizer loading must not be reached.")
       throw CocoaError(.fileReadUnknown)
     }
+  }
+
+  private struct StubInput: Tokenizer, UserInputProcessor {
+    func prepare(input _: UserInput) async throws -> LMInput { LMInput(tokens: MLXArray([0])) }
+    func encode(text _: String, addSpecialTokens _: Bool) -> [Int] { [0] }
+    func decode(tokenIds _: [Int], skipSpecialTokens _: Bool) -> String { "" }
+    func convertTokenToId(_: String) -> Int? { nil }
+    func convertIdToToken(_: Int) -> String? { nil }
+    var bosToken: String? { nil }
+    var eosToken: String? { nil }
+    var unknownToken: String? { nil }
+
+    func applyChatTemplate(
+      messages _: [[String: any Sendable]], tools _: [[String: any Sendable]]?,
+      additionalContext _: [String: any Sendable]?
+    ) throws -> [Int] { [0] }
   }
 }

@@ -366,6 +366,7 @@ final class ModelRuntimeController {
     let runtimeOperations = runtimeOperations
     let requestedContextTokenLimit = modelContextTokenLimit
     let supportsImageInput = selectedModel.supportsImageInput
+    let usesBundledMTPDrafter = selectedModel.usesBundledMTPDrafter
     let supportsHistoricalReasoningPreservation =
       selectedModel.supportsHistoricalReasoningPreservation
     let reasoningCapability = selectedModel.reasoningCapability
@@ -381,6 +382,7 @@ final class ModelRuntimeController {
           from: directoryURL,
           requestedContextTokenLimit: requestedContextTokenLimit,
           supportsImageInput: supportsImageInput,
+          usesBundledMTPDrafter: usesBundledMTPDrafter,
           supportsHistoricalReasoningPreservation: supportsHistoricalReasoningPreservation,
           reasoningCapability: reasoningCapability,
           thinkingBudgetPolicy: thinkingBudgetPolicy,

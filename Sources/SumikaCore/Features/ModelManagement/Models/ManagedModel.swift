@@ -165,6 +165,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
   package let stability: ManagedModelStability
   package let toolCallingPolicy: ToolCallingPolicy
   package let supportsImageInput: Bool
+  package let usesBundledMTPDrafter: Bool
   package let supportsHistoricalReasoningPreservation: Bool
   package let reasoningCapability: ModelReasoningCapability
   package let thinkingBudgetPolicy: ThinkingBudgetPolicy
@@ -186,6 +187,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     stability: ManagedModelStability,
     toolCallingPolicy: ToolCallingPolicy = .nativeMLX,
     supportsImageInput: Bool,
+    usesBundledMTPDrafter: Bool = false,
     supportsHistoricalReasoningPreservation: Bool = false,
     reasoningCapability: ModelReasoningCapability = .toggle,
     thinkingBudgetPolicy: ThinkingBudgetPolicy = .unmanaged,
@@ -206,6 +208,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     self.stability = stability
     self.toolCallingPolicy = toolCallingPolicy
     self.supportsImageInput = supportsImageInput
+    self.usesBundledMTPDrafter = usesBundledMTPDrafter
     self.supportsHistoricalReasoningPreservation = supportsHistoricalReasoningPreservation
     precondition(reasoningCapability.hasValidOptions)
     self.reasoningCapability = reasoningCapability
@@ -333,6 +336,7 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
+      usesBundledMTPDrafter: true,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,
       generationProfile: .qwen36,
@@ -387,7 +391,8 @@ package enum ManagedModelCatalog {
       recommendation: .recommended,
       requiresLargeMemory: true,
       stability: .stable,
-      supportsImageInput: true,
+      supportsImageInput: false,
+      usesBundledMTPDrafter: true,
       supportsHistoricalReasoningPreservation: true,
       thinkingBudgetPolicy: .hardLimitImmediate,
       generationProfile: .qwen36,
@@ -424,6 +429,7 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
+      usesBundledMTPDrafter: true,
       supportsHistoricalReasoningPreservation: true,
       reasoningCapability: .selectableEffort(
         supported: [.low, .medium, .xhigh],
@@ -447,6 +453,7 @@ package enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       supportsImageInput: true,
+      usesBundledMTPDrafter: true,
       supportsHistoricalReasoningPreservation: true,
       reasoningCapability: .selectableEffort(
         supported: [.low, .medium, .xhigh],
