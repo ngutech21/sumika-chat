@@ -1,5 +1,5 @@
 {
-  "originHash" : "3ed20dc8c89d3d52eeafa846159873155b44c5cb328e9f05e333c07a29aa98e7",
+  "originHash" : "791a14542a11e7349a419ab4ed5c2496f40c9a899ae69ea3b589bf1e4ff040ba",
   "pins" : [
     {
       "identity" : "anydoc-swift",
@@ -122,8 +122,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/huggingface/swift-jinja.git",
       "state" : {
-        "revision" : "4588064a20f3fc093c95f2f7d3359999bf30cae5",
-        "version" : "2.5.1"
+        "revision" : "1e4d0dc69f7ec1277131fb3853808229c5991825",
+        "version" : "2.5.2"
       }
     },
     {
@@ -194,8 +194,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/aleroot/swift-tokenizers",
       "state" : {
-        "revision" : "646c5faff60a8effbf220ff0e9af0911fb77a5bf",
-        "version" : "1.0.0"
+        "revision" : "d2660b37053eff00396f974a576a4dccc7656d4e",
+        "version" : "1.1.0"
       }
     },
     {
