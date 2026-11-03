@@ -128,6 +128,19 @@ struct MemorySnapshotReport: Codable {
   var activeMemoryDeltaBytes: Int?
   var cacheMemoryDeltaBytes: Int?
   var peakMemoryDeltaBytes: Int?
+  var modelMemory: ModelMemoryReport?
+  var modelMemoryError: String?
+}
+
+struct ModelMemoryReport: Codable {
+  struct Component: Codable {
+    let name: String
+    let bytes: Int
+  }
+
+  let modelBytes: Int
+  let totalBytes: Int
+  let components: [Component]
 }
 
 struct PerformanceReport: Codable {
@@ -277,7 +290,9 @@ func memorySnapshotReport(_ object: [String: Any]) -> MemorySnapshotReport? {
     peakMemoryBytes: peakMemoryBytes,
     activeMemoryDeltaBytes: intValue(object, "activeMemoryDeltaBytes"),
     cacheMemoryDeltaBytes: intValue(object, "cacheMemoryDeltaBytes"),
-    peakMemoryDeltaBytes: intValue(object, "peakMemoryDeltaBytes")
+    peakMemoryDeltaBytes: intValue(object, "peakMemoryDeltaBytes"),
+    modelMemory: decodedObject(object, "modelMemory", as: ModelMemoryReport.self),
+    modelMemoryError: value(object, "modelMemoryError", as: String.self)
   )
 }
 
@@ -334,11 +349,11 @@ func newGenerationReport(id: String, rowIndex: Int) -> GenerationReport {
   )
 }
 
-func cacheAllocation(_ object: [String: Any], _ key: String) -> CacheAllocationReport? {
+func decodedObject<T: Decodable>(_ object: [String: Any], _ key: String, as type: T.Type) -> T? {
   guard let allocation = value(object, key, as: [String: Any].self),
     let data = try? JSONSerialization.data(withJSONObject: allocation)
   else { return nil }
-  return try? JSONDecoder().decode(CacheAllocationReport.self, from: data)
+  return try? JSONDecoder().decode(type, from: data)
 }
 
 func mergeTraceFields(_ object: [String: Any], into report: inout GenerationReport) {
@@ -694,8 +709,10 @@ func appendMemorySnapshots(
     "",
     "`Global peak` is MLX's process-global high-water mark; its delta is the increase in that global counter.",
     "",
-    "| Phase | Scope | Generation | Outcome / reason | Active MiB | Delta active MiB | Cache MiB | Delta cache MiB | Global peak MiB | Delta peak MiB |",
-    "|---|---|---|---|---:|---:|---:|---:|---:|---:|",
+    "Model tensor bytes count shared buffers once, include loaded components, and overlap active memory. They exclude KV caches, temporary arrays, and the tokenizer.",
+    "",
+    "| Phase | Scope | Generation | Outcome / reason | Active MiB | Delta active MiB | Cache MiB | Delta cache MiB | Global peak MiB | Delta peak MiB | Model tensors MiB | Loaded components MiB |",
+    "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|",
   ])
 
   for snapshot in snapshots {
@@ -703,7 +720,12 @@ func appendMemorySnapshots(
       snapshot.modelLoadOutcome.map { "model=\($0)" },
       snapshot.runtimeStreamOutcome.map { "stream=\($0)" },
       snapshot.memoryClearReason.map { "clear=\($0)" },
+      snapshot.modelMemoryError.map { _ in "model memory=unavailable" },
     ].compactMap { $0 }.joined(separator: ", ")
+    let components =
+      snapshot.modelMemory?.components.map {
+        "\($0.name)=\(formattedMemoryMiB($0.bytes))"
+      }.joined(separator: ", ") ?? ""
     lines.append(
       [
         snapshot.memoryPhase,
@@ -716,6 +738,8 @@ func appendMemorySnapshots(
         formattedMemoryDeltaMiB(snapshot.cacheMemoryDeltaBytes),
         formattedMemoryMiB(snapshot.peakMemoryBytes),
         formattedMemoryDeltaMiB(snapshot.peakMemoryDeltaBytes),
+        snapshot.modelMemory.map { formattedMemoryMiB($0.totalBytes) } ?? "-",
+        components.isEmpty ? "-" : components,
       ].joined(separator: " | ").wrappedTableRow()
     )
   }
@@ -861,8 +885,10 @@ for (rowIndex, row) in rows.enumerated() {
       report.proposedDraftTokens = intValue(object, "proposedDraftTokens")
       report.acceptedDraftTokens = intValue(object, "acceptedDraftTokens")
       report.mtpAcceptanceRate = doubleValue(object, "mtpAcceptanceRate")
-      report.cacheAllocationBefore = cacheAllocation(object, "cacheAllocationBefore")
-      report.cacheAllocationAfter = cacheAllocation(object, "cacheAllocationAfter")
+      report.cacheAllocationBefore = decodedObject(
+        object, "cacheAllocationBefore", as: CacheAllocationReport.self)
+      report.cacheAllocationAfter = decodedObject(
+        object, "cacheAllocationAfter", as: CacheAllocationReport.self)
       report.prefillStepSize = intValue(object, "prefillStepSize")
       report.prefillChunkSizes = value(object, "prefillChunkSizes", as: [Int].self)
       report.prefillProcessedPositions = intValue(object, "prefillProcessedPositions")

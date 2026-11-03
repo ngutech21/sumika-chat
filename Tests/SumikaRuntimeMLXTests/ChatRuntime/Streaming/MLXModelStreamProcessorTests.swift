@@ -58,13 +58,17 @@ struct MLXModelStreamProcessorTests {
       },
       isEnabled: { tracingEnabled })
     let diagnostics = await store.makeGenerationDiagnostics(prefillStepSize: 512)
+    let memoryTraceScope = await store.beginMemoryScope(phase: .generationStart)
     let lifecycle = Mutex<[String]>([])
     let allocation = RuntimeCacheAllocationSnapshot(
       phase: .realized, allocatedBytes: 256, layers: [])
     let generation = MLXGuardedGeneration(
       makeStream: { memoryTraceSource(for: scenario) },
       synchronize: { lifecycle.withLock { $0.append("drained") } },
-      diagnostics: diagnostics)
+      diagnostics: diagnostics,
+      onDrain: memoryTraceScope.map { _ in
+        { @Sendable in lifecycle.withLock { $0.append("model_memory") } }
+      })
     let plan = MLXModelStreamProcessor.modelStreamPlan(
       from: generation, traceID: UUID(), traceMetadata: nil,
       cacheTrace: defaultCacheTrace(), debugTraceStore: store,
@@ -87,9 +91,13 @@ struct MLXModelStreamProcessorTests {
     let events = lifecycle.withLock { $0 }
     let expectsCapture = tracingEnabled && scenario != .cancelled && scenario != .failed
     #expect(events.first == "drained")
+    #expect(events.filter { $0 == "model_memory" }.count == (tracingEnabled ? 1 : 0))
+    if tracingEnabled {
+      #expect(Array(events.prefix(2)) == ["drained", "model_memory"])
+    }
     #expect(events.filter { $0 == "captured" }.count == (expectsCapture ? 1 : 0))
     if expectsCapture {
-      #expect(events[1] == "captured")
+      #expect(events[2] == "captured")
       #expect(diagnostics?.snapshot().cacheAllocationAfter == allocation)
     } else {
       #expect(diagnostics?.snapshot().cacheAllocationAfter == nil)

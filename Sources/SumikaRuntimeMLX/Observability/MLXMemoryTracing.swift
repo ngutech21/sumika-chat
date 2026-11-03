@@ -6,6 +6,7 @@ import Synchronization
 enum MLXMemoryTracePhase: String, Equatable, Sendable {
   case modelLoadBefore = "model_load_before"
   case modelLoadAfter = "model_load_after"
+  case visionLoadAfter = "vision_load_after"
   case generationStart = "generation_start"
   case generationFirstOutput = "generation_first_output"
   case generationTerminal = "generation_terminal"

@@ -12,6 +12,32 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class TracePerformanceReportTests(unittest.TestCase):
+    def test_model_tensor_memory_and_legacy_snapshots(self):
+        base = dict(kind="turn_trace", phase="runtime_memory", memoryScopeID="model",
+                    durationMs=10, activeMemoryBytes=8 * 1024 * 1024,
+                    cacheMemoryBytes=0, peakMemoryBytes=8 * 1024 * 1024)
+        model = dict(modelBytes=4 * 1024 * 1024, totalBytes=4 * 1024 * 1024, components=[])
+        vision = dict(modelBytes=model["modelBytes"], totalBytes=6 * 1024 * 1024,
+                      components=[dict(name="vision", bytes=2 * 1024 * 1024)])
+        error = "measurement failed\nnative | details"
+        rows = [
+            dict(base, memoryPhase="model_load_before"),
+            dict(base, memoryPhase="model_load_after", modelMemory=model, modelLoadOutcome="loaded"),
+            dict(base, memoryPhase="vision_load_after", modelMemory=vision),
+            dict(base, memoryPhase="model_load_after", modelMemoryError=error),
+        ]
+        report, markdown = self.report(rows)
+        snapshots = report["memorySnapshots"]
+        self.assertEqual(snapshots[1]["modelMemory"], model)
+        self.assertEqual(snapshots[2]["modelMemory"], vision)
+        self.assertNotIn("modelMemory", snapshots[0])
+        self.assertNotIn("modelMemory", snapshots[3])
+        self.assertEqual(snapshots[3]["modelMemoryError"], error)
+        self.assertIn("Model tensors MiB", markdown)
+        self.assertIn("| 6.00 | vision=2.00 |", markdown)
+        self.assertIn("model memory=unavailable", markdown)
+        self.assertNotIn(error, markdown)
+
     def test_prefill_and_cancelled_partial_generation(self):
         rows = [
             dict(kind="turn_trace", generationID="completed", phase="runtime_prefill",

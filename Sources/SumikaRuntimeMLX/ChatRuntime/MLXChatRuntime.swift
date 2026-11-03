@@ -12,6 +12,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
   }
 
   private var modelContainer: ModelContainer?
+  private var pendingVisionMemoryComponents: [AnyOnDemandComponent] = []
   private var loadedModelSupportsImageInput = false
   private var loadedModelPreservesHistoricalReasoning = false
   private var loadedModelReasoningCapability: ModelReasoningCapability = .toggle
@@ -95,6 +96,16 @@ final actor MLXChatRuntime: ChatModelRuntime {
           nil
         }
       modelContainer = container
+      pendingVisionMemoryComponents =
+        if memoryTraceScope != nil {
+          await container.perform { context in
+            (context.model as? any ModelComponentsProviding)?.onDemandComponents.filter {
+              $0.component == .vision && !$0.isLoaded
+            } ?? []
+          }
+        } else {
+          []
+        }
       loadedModelSupportsImageInput = configuration.supportsImageInput
       loadedModelPreservesHistoricalReasoning =
         configuration.supportsHistoricalReasoningPreservation
@@ -103,17 +114,22 @@ final actor MLXChatRuntime: ChatModelRuntime {
       contextTokenLimit = configuration.contextTokenLimit
       lastRuntimeCacheDebugSnapshot = nil
       invalidateCachedSession(reason: .modelChanged)
-      await debugTraceStore.recordMemorySnapshot(
-        phase: .modelLoadAfter,
-        scope: memoryTraceScope,
-        modelLoadOutcome: .loaded
-      )
+      if let memoryTraceScope {
+        await debugTraceStore.recordMemorySnapshot(
+          phase: .modelLoadAfter,
+          scope: memoryTraceScope,
+          modelLoadOutcome: .loaded,
+          modelMemory: { try await container.memory() }
+        )
+      }
     } catch {
-      await debugTraceStore.recordMemorySnapshot(
-        phase: .modelLoadAfter,
-        scope: memoryTraceScope,
-        modelLoadOutcome: .failed
-      )
+      if let memoryTraceScope {
+        await debugTraceStore.recordMemorySnapshot(
+          phase: .modelLoadAfter,
+          scope: memoryTraceScope,
+          modelLoadOutcome: .failed
+        )
+      }
       throw error
     }
   }
@@ -124,6 +140,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     await cancelAndDrainActiveGeneration(reason: .modelChanged)
     invalidateCachedSession(reason: .modelChanged)
     modelContainer = nil
+    pendingVisionMemoryComponents = []
     runtimeCacheDiagnostics = nil
     loadedModelSupportsImageInput = false
     loadedModelPreservesHistoricalReasoning = false
@@ -375,11 +392,21 @@ final actor MLXChatRuntime: ChatModelRuntime {
         generationID: traceID,
         traceMetadata: traceMetadata
       )
+      let onDrain: (@Sendable () async -> Void)?
+      if let memoryTraceScope, !pendingVisionMemoryComponents.isEmpty {
+        onDrain = { [weak self] in
+          await self?.traceLoadedVisionMemory(
+            generationID: generationID, scope: memoryTraceScope)
+        }
+      } else {
+        onDrain = nil
+      }
       try Task.checkCancellation()
       let startedGeneration = generationActivity.start {
         MLXGuardedGeneration(
           session: cachePlan.session, messages: cachePlan.streamMessages,
-          diagnostics: generationDiagnostics, tokenProgressTracer: tokenProgressTracer)
+          diagnostics: generationDiagnostics, tokenProgressTracer: tokenProgressTracer,
+          onDrain: onDrain)
       }
       var activityLeaseHandedOff = false
       defer {
@@ -464,6 +491,21 @@ final actor MLXChatRuntime: ChatModelRuntime {
 }
 
 extension MLXChatRuntime {
+  private func traceLoadedVisionMemory(
+    generationID: MLXGenerationID, scope: MLXMemoryTraceScope?
+  ) async {
+    guard let scope, let modelContainer,
+      generationOwnership.activeGenerationID == generationID,
+      pendingVisionMemoryComponents.contains(where: \.isLoaded)
+    else { return }
+    pendingVisionMemoryComponents.removeAll(where: \.isLoaded)
+    await debugTraceStore.recordMemorySnapshot(
+      phase: .visionLoadAfter,
+      scope: scope,
+      modelMemory: { try await modelContainer.memory() }
+    )
+  }
+
   // Serialize setup and lifecycle operations across actor suspension points.
   // Streaming callbacks can still enter the actor while their producer drains.
   private func beginPreparation() async {

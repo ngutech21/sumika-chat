@@ -291,8 +291,9 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
     scope: MLXMemoryTraceScope?,
     durationMs: Double? = nil,
     modelLoadOutcome: MLXModelLoadOutcome? = nil,
-    runtimeStreamOutcome: RuntimeStreamOutcome? = nil
-  ) {
+    runtimeStreamOutcome: RuntimeStreamOutcome? = nil,
+    modelMemory: (@Sendable () async throws -> ModelMemory)? = nil
+  ) async {
     guard tracingIsEnabled, let scope else {
       return
     }
@@ -304,17 +305,30 @@ actor MLXDebugTraceStore: MLXRuntimeTracing {
 
     let snapshot = memorySnapshotSource.capture()
     let delta = scope.baselineSnapshot.delta(to: snapshot)
-    append(
-      memoryTraceObject(
-        phase: phase,
-        scope: scope,
-        snapshot: snapshot,
-        delta: delta,
-        durationMs: durationMs ?? Date().timeIntervalSince(scope.startedAt) * 1000,
-        modelLoadOutcome: modelLoadOutcome,
-        runtimeStreamOutcome: runtimeStreamOutcome
-      )
+    var trace = memoryTraceObject(
+      phase: phase,
+      scope: scope,
+      snapshot: snapshot,
+      delta: delta,
+      durationMs: durationMs ?? Date().timeIntervalSince(scope.startedAt) * 1000,
+      modelLoadOutcome: modelLoadOutcome,
+      runtimeStreamOutcome: runtimeStreamOutcome
     )
+    if let modelMemory {
+      do {
+        let memory = try await modelMemory()
+        trace["modelMemory"] = [
+          "modelBytes": memory.model,
+          "totalBytes": memory.total,
+          "components": memory.components.map {
+            ["name": $0.kind.name, "bytes": $0.bytes] as [String: Any]
+          },
+        ]
+      } catch {
+        trace["modelMemoryError"] = error.localizedDescription
+      }
+    }
+    append(trace)
   }
 
   private var tracingIsEnabled: Bool {

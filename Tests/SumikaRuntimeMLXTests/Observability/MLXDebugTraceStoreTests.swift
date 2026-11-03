@@ -25,6 +25,7 @@ struct MLXDebugTraceStoreTests {
   @Test
   func disabledMemoryTracingDoesNotCreateScopeOrInvokeSnapshotSource() async throws {
     let fileURL = try temporaryTraceFileURL()
+    let measuredModel = Mutex(false)
     let probe = MLXMemorySnapshotProbe(
       snapshots: [
         MLXMemorySnapshot(activeMemoryBytes: 1, cacheMemoryBytes: 2, peakMemoryBytes: 3)
@@ -40,17 +41,23 @@ struct MLXDebugTraceStoreTests {
     await store.recordMemorySnapshot(
       phase: .modelLoadAfter,
       scope: scope,
-      modelLoadOutcome: .loaded
+      modelLoadOutcome: .loaded,
+      modelMemory: {
+        measuredModel.withLock { $0 = true }
+        return ModelMemory(model: 64)
+      }
     )
 
     #expect(scope == nil)
     #expect(probe.invocationCount == 0)
+    #expect(!measuredModel.withLock { $0 })
     #expect(!FileManager.default.fileExists(atPath: fileURL.path(percentEncoded: false)))
   }
 
   @Test
   func disablingMemoryTracingDuringScopeSkipsFollowUpCaptureAndDelta() async throws {
     let fileURL = try temporaryTraceFileURL()
+    let measuredModel = Mutex(false)
     let probe = MLXMemorySnapshotProbe(
       snapshots: [
         MLXMemorySnapshot(activeMemoryBytes: 1, cacheMemoryBytes: 2, peakMemoryBytes: 3),
@@ -69,11 +76,16 @@ struct MLXDebugTraceStoreTests {
     await store.recordMemorySnapshot(
       phase: .generationTerminal,
       scope: scope,
-      runtimeStreamOutcome: .completed
+      runtimeStreamOutcome: .completed,
+      modelMemory: {
+        measuredModel.withLock { $0 = true }
+        return ModelMemory(model: 64)
+      }
     )
 
     let objects = try traceObjects(at: fileURL)
     #expect(probe.invocationCount == 1)
+    #expect(!measuredModel.withLock { $0 })
     #expect(objects.count == 1)
     #expect(objects.first?["memoryPhase"] as? String == "generation_start")
     #expect(objects.first?["baselineMemoryPhase"] == nil)
@@ -123,7 +135,8 @@ struct MLXDebugTraceStoreTests {
       phase: .modelLoadAfter,
       scope: scope,
       durationMs: 25,
-      modelLoadOutcome: .loaded
+      modelLoadOutcome: .loaded,
+      modelMemory: { ModelMemory(model: 64) }
     )
 
     let objects = try traceObjects(at: fileURL)
@@ -157,7 +170,28 @@ struct MLXDebugTraceStoreTests {
     #expect(end["peakMemoryDeltaBytes"] as? Int == 30)
     #expect(end["modelLoadOutcome"] as? String == "loaded")
     #expect(end["durationMs"] as? Double == 25)
+    let modelMemory = try #require(end["modelMemory"] as? [String: Any])
+    #expect(modelMemory["modelBytes"] as? Int == 64)
+    #expect(modelMemory["totalBytes"] as? Int == 64)
+    #expect((modelMemory["components"] as? [[String: Any]])?.isEmpty == true)
+    #expect(start["modelMemory"] == nil)
     #expect(probe.invocationCount == 2)
+  }
+
+  @Test
+  func failedModelMemoryMeasurementPreservesTheMemorySnapshot() async throws {
+    let fileURL = try temporaryTraceFileURL()
+    let store = MLXDebugTraceStore(fileURL: fileURL, isEnabled: { true })
+    let scope = try #require(await store.beginMemoryScope(phase: .modelLoadBefore))
+    await store.recordMemorySnapshot(
+      phase: .modelLoadAfter, scope: scope, modelLoadOutcome: .loaded,
+      modelMemory: { throw CocoaError(.coderInvalidValue) })
+    let end = try #require(traceObjects(at: fileURL).last)
+    #expect(end["modelLoadOutcome"] as? String == "loaded")
+    #expect(end["activeMemoryBytes"] != nil)
+    #expect(end["modelMemory"] == nil)
+    #expect(
+      end["modelMemoryError"] as? String == CocoaError(.coderInvalidValue).localizedDescription)
   }
 
   @Test
@@ -191,6 +225,7 @@ struct MLXDebugTraceStoreTests {
   func memoryTracePhaseRawValuesStayStable() {
     #expect(MLXMemoryTracePhase.modelLoadBefore.rawValue == "model_load_before")
     #expect(MLXMemoryTracePhase.modelLoadAfter.rawValue == "model_load_after")
+    #expect(MLXMemoryTracePhase.visionLoadAfter.rawValue == "vision_load_after")
     #expect(MLXMemoryTracePhase.generationStart.rawValue == "generation_start")
     #expect(
       MLXMemoryTracePhase.generationFirstOutput.rawValue == "generation_first_output"

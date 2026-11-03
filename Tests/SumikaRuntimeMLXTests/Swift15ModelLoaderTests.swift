@@ -162,6 +162,9 @@ nonisolated final class Swift15ModelLoaderTests: XCTestCase {
       perLayerQuantization: checkpoint.perLayerQuantization)
     let vision = try XCTUnwrap(adapter.onDemandComponents.first)
     XCTAssertFalse(vision.isLoaded)
+    let before = try adapter.memory()
+    XCTAssertTrue(before.components.isEmpty)
+    XCTAssertFalse(vision.isLoaded)
     XCTAssertFalse(
       adapter.parameters().flattened().contains { $0.0.hasPrefix("qwen.vision_tower.") })
     let norm = try XCTUnwrap(
@@ -186,6 +189,10 @@ nonisolated final class Swift15ModelLoaderTests: XCTestCase {
     let expected = try prefillLogits(eager, input: image)
     XCTAssertEqual(try prefillLogits(adapter, input: image), expected)
     XCTAssertTrue(vision.isLoaded)
+    let after = try adapter.memory()
+    XCTAssertEqual(after.model, before.model)
+    XCTAssertGreaterThan(after.total, before.total)
+    XCTAssertEqual(after.components.map(\.kind), [.vision])
     XCTAssertFalse(
       adapter.parameters().flattened().contains { $0.0.hasPrefix("qwen.vision_tower.") })
     try FileManager.default.removeItem(at: url)

@@ -666,6 +666,11 @@ memory phases and their pairing rules are:
   completed, cancelled, failed, output-limit, interrupted, tool-call-boundary,
   and downstream-terminated paths. Both follow-up deltas use
   `generation_start`, not the previous snapshot, as their baseline.
+- `vision_load_after` uses the generation scope and its `generation_start`
+  baseline. It is recorded after the guarded producer drains, before terminal
+  output or cleanup, when a previously deferred vision component has loaded.
+  Each component triggers this snapshot only once per model load, including
+  when the image generation is cancelled or fails after vision loading.
 - `cache_clear_before` / `cache_clear_after` share one scope and carry the
   existing `memoryClearReason`. The clear-duration timer stops before the after
   snapshot, so snapshot overhead is excluded from the existing
@@ -681,12 +686,27 @@ memory since process start. Its signed delta means an increase in that global
 high-water mark, not a peak local to the scope; a zero delta does not mean that
 the scope allocated no temporary memory.
 
+Successful `model_load_after` rows and `vision_load_after` rows also measure
+`ModelContainer.memory()`. Their `modelMemory` object contains `modelBytes`,
+`totalBytes`, and loaded `components` with `name` and `bytes`. These are actual
+tensor-buffer bytes, with shared buffers counted once. Components are included
+only after loading; measurement never loads vision weights. KV caches,
+temporary arrays, and the tokenizer are excluded, and these bytes overlap the
+MLX active-memory and process-memory figures. Measurement errors are recorded
+as `modelMemoryError` without failing model loading or generation.
+
 `SUMIKA_DEBUG_TRACE` is the sole enablement source. With tracing disabled, the
 memory scope guard returns before calling `Memory.snapshot()`, creating a UUID
 or timestamp, calculating a delta, or appending a trace row; follow-up calls
 also return before those operations when their scope is missing or tracing has
 become disabled. The snapshot source is closure-backed and lazy, so constructing
-the trace store never captures memory.
+the trace store never captures memory. Model-memory capture is also lazy and
+skipped when tracing is disabled, with no per-token measurements or polling.
+The runtime installs no vision-memory drain callback without an active memory
+scope and pending vision components, so disabled tracing adds no completion
+callback or runtime-actor hop. Model loading also skips constructing the
+model-memory capture closure and sending the after snapshot when its scope is
+missing.
 
 `./script/build_and_run.sh --trace` writes each app run to a separate
 `~/Library/Application Support/Sumika/debug/traces/<timestamp>-<UUID>-mlx-trace.jsonl`
@@ -697,7 +717,8 @@ trace path is supplied.
 
 `script/trace_performance_report.swift` preserves these rows in the ordered
 top-level `memorySnapshots` JSON collection with exact byte values. Its Markdown
-memory table renders MiB values and signed MiB deltas. Model-load and run-wide
+memory table renders MiB values and signed MiB deltas, plus model tensor totals
+and loaded component sizes when available. Model-load and run-wide
 manual clear/unload rows have no generation ID and remain visible when
 `--limit` is applied; generation-linked rows are retained only for the retained
 generations.
