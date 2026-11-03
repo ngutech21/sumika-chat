@@ -1212,8 +1212,10 @@ struct AppKitChatTranscriptDiffPlanTests {
     #expect(longHeight > shortHeight)
   }
 
-  @Test
-  func interactiveToolExpansionUpdatesTableRowHeightImmediately() throws {
+  @Test(arguments: [NSScroller.Style.legacy, .overlay])
+  func interactiveToolExpansionAndCollapseUpdatesTableRowHeightImmediately(
+    scrollerStyle: NSScroller.Style
+  ) throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
       imageLoader: AttachmentImageLoader(attachmentLifecycle: ChatAttachmentLifecycle()),
       onToggleSpeech: { _, _ in },
@@ -1222,6 +1224,7 @@ struct AppKitChatTranscriptDiffPlanTests {
       onAnswerAskUser: { _, _ in }
     )
     let scrollView = coordinator.makeScrollView()
+    scrollView.scrollerStyle = scrollerStyle
     scrollView.setFrameSize(NSSize(width: 760, height: 520))
     let tableView = try #require(scrollView.documentView as? NSTableView)
     let rows = [
@@ -1254,12 +1257,21 @@ struct AppKitChatTranscriptDiffPlanTests {
       toolCell.descendantButtons(accessibilityLabel: "Show details").first
     )
 
-    disclosureButton.performClick(nil)
-    tableView.layoutSubtreeIfNeeded()
+    for _ in 0..<3 {
+      disclosureButton.performClick(nil)
+      tableView.layoutSubtreeIfNeeded()
 
-    let expandedHeight = tableView.rect(ofRow: 0).height
-    #expect(expandedHeight > collapsedHeight)
-    #expect(tableView.rect(ofRow: 1).minY >= tableView.rect(ofRow: 0).maxY)
+      let expandedHeight = tableView.rect(ofRow: 0).height
+      #expect(expandedHeight > collapsedHeight)
+      #expect(disclosureButton.frame.height == 18)
+      #expect(tableView.rect(ofRow: 1).minY >= tableView.rect(ofRow: 0).maxY)
+
+      disclosureButton.performClick(nil)
+
+      #expect(tableView.rect(ofRow: 0).height == collapsedHeight)
+      #expect(disclosureButton.frame.height == 18)
+      #expect(tableView.rect(ofRow: 1).minY >= tableView.rect(ofRow: 0).maxY)
+    }
   }
 
   @Test
@@ -2450,15 +2462,32 @@ struct AppKitChatTranscriptDiffPlanTests {
       revision: 1,
       record: nativeCompletedCommandToolRecord(command: "swift build")
     )
-    let cell = configuredNativeCell(for: firstRow, actions: actions)
+    let cell = configuredNativeCell(
+      for: firstRow,
+      state: NativeTranscriptCellState(isToolExpanded: true),
+      actions: actions
+    )
     let hostedView = try #require(cell.hostedContentViewForTesting)
+    let previousDisclosureButton = try #require(
+      cell.descendantButtons(accessibilityLabel: "Hide details").first
+    )
     let header = try #require(
       cell.descendants(of: NativeTranscriptDisclosureHeaderView.self).first
     )
 
+    let compactHeight = NativeTranscriptRowMeasurer.height(for: secondRow, width: 640)
     cell.prepareForReuse()
     header.performDisclosureAction()
+    let heightConstraint = cell.heightAnchor.constraint(equalToConstant: compactHeight)
+    heightConstraint.isActive = true
+    cell.layoutSubtreeIfNeeded()
+    #expect(previousDisclosureButton.frame.height == 18)
+
     cell.configure(row: secondRow, state: NativeTranscriptCellState(), actions: actions)
+    cell.layoutSubtreeIfNeeded()
+    let disclosureButton = try #require(
+      cell.descendantButtons(accessibilityLabel: "Show details").first
+    )
     let reboundHeader = try #require(
       cell.descendants(of: NativeTranscriptDisclosureHeaderView.self).first
     )
@@ -2469,6 +2498,8 @@ struct AppKitChatTranscriptDiffPlanTests {
     #expect(toggledRowIDs == ["second-tool"])
     #expect(cell.descendantTextValues.contains("swift build"))
     #expect(!cell.descendantTextValues.contains("swift test"))
+    #expect(compactHeight == NativeTranscriptCellKind.tool.minimumHeight)
+    #expect(disclosureButton.frame.height == 18)
   }
 
   @Test

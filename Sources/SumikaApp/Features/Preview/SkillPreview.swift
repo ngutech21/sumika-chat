@@ -169,14 +169,11 @@ private struct SkillMarkdownPreview: NSViewRepresentable {
     nsView: NativeSkillMarkdownBlocksView,
     context _: Context
   ) -> CGSize? {
-    let width = max(proposal.width ?? nsView.fittingSize.width, 1)
-    nsView.setFrameSize(NSSize(width: width, height: nsView.frame.height))
-    nsView.layoutSubtreeIfNeeded()
-    return CGSize(width: width, height: ceil(nsView.fittingSize.height))
+    nsView.sizeThatFits(proposal)
   }
 }
 
-private final class NativeSkillMarkdownBlocksView: NSStackView {
+final class NativeSkillMarkdownBlocksView: NSStackView {
   private var renderedMarkdown: String?
   private var entryWidthConstraints: [NSLayoutConstraint] = []
 
@@ -194,6 +191,16 @@ private final class NativeSkillMarkdownBlocksView: NSStackView {
   @available(*, unavailable)
   required init?(coder _: NSCoder) {
     fatalError("init(coder:) has not been implemented")
+  }
+
+  func sizeThatFits(_ proposal: ProposedViewSize) -> CGSize? {
+    guard let proposedWidth = proposal.width, proposedWidth.isFinite else {
+      return nil
+    }
+    let width = max(proposedWidth, 1)
+    setFrameSize(NSSize(width: width, height: frame.height))
+    layoutSubtreeIfNeeded()
+    return CGSize(width: width, height: ceil(fittingSize.height))
   }
 
   func update(markdown: String) {

@@ -388,8 +388,7 @@ final class NativeToolCallView: NSView {
     askUserPopUpButton = nil
     header.actionHandler = nil
     disclosureButton.actionHandler = nil
-    dynamicHost.isHidden = true
-    NativeReusableRowViewStyle.removeAllArrangedSubviews(from: dynamicHost)
+    clearDynamicContent()
   }
 
   private func setupLayout() {
@@ -453,10 +452,6 @@ final class NativeToolCallView: NSView {
     }
     header.addArrangedSubview(disclosureButton)
     header.addArrangedSubview(NativeReusableRowViewStyle.spacer())
-
-    dynamicHost.isHidden = true
-    stack.addArrangedSubview(dynamicHost)
-    dynamicHost.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
   }
 
   private func updateStatus(_ status: ToolCallStatus) {
@@ -487,9 +482,7 @@ final class NativeToolCallView: NSView {
     state: NativeTranscriptCellState,
     actions: NativeTranscriptCellActions
   ) {
-    // An empty visible details stack still contributes required header spacing.
-    dynamicHost.isHidden = true
-    NativeReusableRowViewStyle.removeAllArrangedSubviews(from: dynamicHost)
+    clearDynamicContent()
 
     if state.isToolExpanded, currentHasDetails {
       dynamicHost.addArrangedSubview(makeDetails(record: record, metrics: generationMetrics))
@@ -521,7 +514,18 @@ final class NativeToolCallView: NSView {
       )
     }
 
-    dynamicHost.isHidden = dynamicHost.arrangedSubviews.isEmpty
+    if !dynamicHost.arrangedSubviews.isEmpty {
+      stack.addArrangedSubview(dynamicHost)
+      dynamicHost.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+    }
+  }
+
+  private func clearDynamicContent() {
+    if dynamicHost.superview != nil {
+      stack.removeArrangedSubview(dynamicHost)
+      dynamicHost.removeFromSuperview()
+    }
+    NativeReusableRowViewStyle.removeAllArrangedSubviews(from: dynamicHost)
   }
 
   private func makeDetails(record: ToolCallRecord, metrics: ChatGenerationMetrics?) -> NSView {
