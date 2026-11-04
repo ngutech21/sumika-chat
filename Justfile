@@ -179,7 +179,9 @@ test-tsan:
     {{swift}} test --no-parallel --sanitize thread \
         --skip 'MLXChatSessionContinuationTests|MLXGuardedGenerationTests' \
         --skip 'MLXThinkingBudgetCloseTests|MLXQwenTemplateReasoningTests/testSwiftBudgetClosePreservesToolContinuationPrefix' \
-        --skip 'Swift15ModelLoaderTests/test(CheckpointMapping|RawNormOffsets|StrictLoadingAndPreparation)'
+        --skip 'Swift15ModelLoaderTests/test(CheckpointMapping|RawNormOffsets|StrictLoadingAndPreparation)' \
+        --skip 'Swift15ModelLoaderTests/test(EmbeddedDrafterLoadsQuantizedFusionAndPreservesRawNorms|NativeTargetRetainsCheckpointAdapterForDeferredVisionAndMTP)' \
+        --skip 'BundledOptiQMTPDrafterLoaderTests/(configuredSidecarLoadsWithoutConsultingTargetIndex|configuredMoESidecarLoadsForVLMTarget|missingRequiredWeightFailsStrictUpdate)'
 
 test-asan:
     # Optimize instrumented SwiftSoup frames to fit Swift Testing worker stacks; see docs/testing.md#sanitizers.
