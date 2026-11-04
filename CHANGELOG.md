@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.17.0](https://github.com/ngutech21/sumika-chat/compare/v1.16.0...v1.17.0) (2026-11-04)
+
+
+### Features
+
+* add support for mtp drafter ([#213](https://github.com/ngutech21/sumika-chat/issues/213)) ([6286f14](https://github.com/ngutech21/sumika-chat/commit/6286f140e89d5fb9e0dc3cc76218f244337e7d4a))
+* trace model tensor memory ([76e5d1a](https://github.com/ngutech21/sumika-chat/commit/76e5d1a912ea40c0115612d292bec0864775e0fd))
+
+
+### Bug Fixes
+
+* exclude native MTP races from TSan ([5edfd0a](https://github.com/ngutech21/sumika-chat/commit/5edfd0a38a25a7ee28dd2913eeb79b498083402b))
+* resolve skill preview and tool row layout warnings ([158b956](https://github.com/ngutech21/sumika-chat/commit/158b956fb761766796f80776fd9598f669ccf34e))
+
 ## [1.16.0](https://github.com/ngutech21/sumika-chat/compare/v1.15.0...v1.16.0) (2026-10-30)
 
 
