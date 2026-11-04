@@ -49,7 +49,7 @@ let package = Package(
     .package(
       url: "https://github.com/ml-explore/mlx-swift-lm",
       revision: "ffe7647b08b451302f43edadddca719e91f4bd2d"),
-    .package(url: "https://github.com/aleroot/swift-tokenizers", from: "1.0.0"),
+    .package(url: "https://github.com/aleroot/swift-tokenizers", from: "1.1.1"),
     .package(url: "https://github.com/huggingface/swift-huggingface", from: "1.0.0"),
     .package(url: "https://github.com/FluidInference/FluidAudio", from: "0.15.7"),
     .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.19.0"),
