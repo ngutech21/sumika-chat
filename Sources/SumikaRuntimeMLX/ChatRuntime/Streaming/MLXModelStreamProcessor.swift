@@ -198,7 +198,8 @@ enum MLXModelStreamProcessor {
               runtimeCacheDiagnostics: runtimeCacheDiagnostics
             )
             switch info.stopReason {
-            case .stop:
+            // Sumika never steers or interrupts; both end the stream normally upstream.
+            case .stop, .steered, .interrupted:
               break
             case .length:
               termination.reachedTokenLimit = true
@@ -705,7 +706,7 @@ extension MLXModelStreamProcessor {
     switch generation {
     case .chunk, .reasoning, .toolCall, .rejectedToolCall:
       true
-    case .info:
+    case .info, .steering:
       false
     }
   }
