@@ -79,19 +79,6 @@ jobs:
         timeout-minutes: 10
         run: just lint
 
-      - name: Run SwiftLint analyzer rules
-        id: lint-analyze
-        timeout-minutes: 60
-        run: just lint-analyze
-
-      - name: Upload SwiftLint analyzer logs
-        if: ${{ always() && steps.lint-analyze.outcome != 'success' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: swiftlint-analyze-logs
-          path: build/lint-analyze-logs/
-          if-no-files-found: ignore
-
       - name: Run Periphery
         timeout-minutes: 20
         run: just periphery
@@ -157,3 +144,60 @@ jobs:
           name: Sumika-macos-nightly
           path: build/artifacts/Sumika-macos-nightly.dmg
           if-no-files-found: error
+
+  # Separate job: clean builds plus SourceKit analysis take ~50 min and would
+  # crowd the main job's 120-minute budget.
+  lint-analyze:
+    name: macOS SwiftLint Analyzer
+    needs: toolchain
+    runs-on: ${{ needs.toolchain.outputs.runner }}
+    timeout-minutes: 90
+
+    env:
+      DERIVED_DATA_PATH: build/DerivedData/macos-nightly
+      CLONED_SOURCE_PACKAGES_DIR_PATH: .build/xcode-source-packages
+      # Hosted runners cannot approve mlx-swift package plugins or macros interactively.
+      SKIP_PACKAGE_PLUGIN_VALIDATION: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select and verify Apple toolchain
+        id: apple-toolchain
+        uses: ./.github/actions/setup-apple-toolchain
+
+      - name: Install just
+        timeout-minutes: 10
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
+        with:
+          just-version: "1.58.0"
+
+      - name: Cache Swift package checkouts
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .build/xcode-source-packages
+            .build/repositories
+            .build/checkouts
+            .build/artifacts
+            .build/swiftlint
+            .build/lint-analyze/repositories
+            .build/lint-analyze/checkouts
+            .build/lint-analyze/artifacts
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.apple-toolchain.outputs.cache-key }}-macos-nightly-swiftpm-v2-${{ hashFiles('Package.resolved', 'Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'script/swiftlint/Package.resolved') }}
+
+      - name: Run SwiftLint analyzer rules
+        id: lint-analyze
+        timeout-minutes: 75
+        run: just lint-analyze
+
+      - name: Upload SwiftLint analyzer logs
+        if: ${{ always() && steps.lint-analyze.outcome != 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: swiftlint-analyze-logs
+          path: build/lint-analyze-logs/
+          if-no-files-found: ignore

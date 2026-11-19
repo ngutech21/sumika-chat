@@ -39,8 +39,8 @@ The existing file exclusions cover SourceKit replay limitations.
 Each build and analysis phase prints its start, elapsed time, and exit status.
 Compiler output, analyzer progress, and timings are retained under
 `build/lint-analyze-logs/run.*` on failure or interruption; successful runs remove
-their logs. The nightly analyzer step allows 60 minutes and uploads retained logs
-as the `swiftlint-analyze-logs` artifact on failure or cancellation.
+their logs. Nightly CI runs it in its own `lint-analyze` job (step limit 75 minutes) and uploads
+retained logs as the `swiftlint-analyze-logs` artifact on failure or cancellation.
 `just test-lint-analyze` checks phase ordering, failure propagation, and log retention
 with fake tools, without compiling the app or running analysis.
 
