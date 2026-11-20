@@ -1353,6 +1353,8 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
 @unittest.skipIf(find_spec("harbor") is None, "Requires the pinned Harbor environment")
 class LegacyCaptureTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        from harbor.models.task.config import TaskOS
+
         self.temporary = tempfile.TemporaryDirectory(prefix="sumika-artifacts-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
@@ -1370,6 +1372,7 @@ class LegacyCaptureTests(unittest.IsolatedAsyncioTestCase):
             shutil.copytree(self.remote / source_dir.lstrip("/"), target_dir, dirs_exist_ok=True, symlinks=True)
 
         self.environment = SimpleNamespace(
+            os=TaskOS.LINUX,
             is_path_mounted=lambda *_args: False,
             exec=AsyncMock(
                 side_effect=lambda *_args, **_kwargs: SimpleNamespace(
