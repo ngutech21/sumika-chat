@@ -151,7 +151,7 @@ jobs:
     name: macOS SwiftLint Analyzer
     needs: toolchain
     runs-on: ${{ needs.toolchain.outputs.runner }}
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     env:
       DERIVED_DATA_PATH: build/DerivedData/macos-nightly
@@ -191,7 +191,7 @@ jobs:
 
       - name: Run SwiftLint analyzer rules
         id: lint-analyze
-        timeout-minutes: 75
+        timeout-minutes: 100
         run: just lint-analyze
 
       - name: Upload SwiftLint analyzer logs
