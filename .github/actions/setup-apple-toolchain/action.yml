@@ -14,6 +14,7 @@ runs:
       shell: bash
       run: bash "$GITHUB_ACTION_PATH/setup.sh"
 
-    - name: Ensure Metal toolchain is available
+    # The hosted xcode-27 image ships the Metal toolchain; fail fast if it regresses.
+    - name: Verify Metal toolchain
       shell: bash
-      run: bash "$GITHUB_ACTION_PATH/ensure-metal.sh"
+      run: xcrun --sdk macosx metal --version
